@@ -1,0 +1,145 @@
+ABOUTME: Manifest of all contexts managed by the OverSteward.
+ABOUTME: Each entry defines the soul, personas, and sync behavior for one repository.
+
+version: 1
+
+contexts:
+  - name: "OverSteward"
+    id: oversteward
+    type: vscode
+    repo: https://github.com/NathanKrupa/OverSteward.git
+    branch: main
+    claude_md_path: CLAUDE.md
+    skills_path: .claude/skills/
+    soul: chestertron
+    skip_sow: true
+    personas_always_on: []
+    personas_available: []
+    tags:
+      - meta
+      - governance
+
+  - name: "Home Obsidian"
+    id: home-obsidian
+    type: obsidian
+    repo: https://github.com/NathanKrupa/Home_Obsidian.git
+    branch: main
+    claude_md_path: CLAUDE.md
+    skills_path: claude-skills/
+    soul: chestertron
+    personas_always_on: []
+    personas_available: []
+    tags:
+      - personal
+      - writing
+      - faith
+
+  - name: "GH Obsidian"
+    id: gh-obsidian
+    type: obsidian
+    repo: https://github.com/NathanKrupa/GH_Obsidian.git
+    branch: main
+    claude_md_path: CLAUDE.md
+    skills_path: claude-skills/
+    soul: chestertron
+    personas_always_on: []
+    personas_available: []
+    tags:
+      - work
+      - fundraising
+      - grants
+      - writing
+
+  - name: "billions"
+    id: billions
+    type: vscode
+    repo: https://github.com/NathanKrupa/billions.git
+    branch: main
+    claude_md_path: CLAUDE.md
+    skills_path: .claude/skills/
+    soul: chestertron
+    personas_always_on:
+      - angelico
+    personas_available: []
+    tags:
+      - design
+      - web
+
+  - name: "AI Assistants"
+    id: ai-assistants
+    type: vscode
+    repo: https://github.com/NathanKrupa/ai-assistants.git
+    branch: main
+    claude_md_path: CLAUDE.md
+    skills_path: .claude/skills/
+    soul: chestertron
+    personas_always_on: []
+    personas_available:
+      - angelico
+    tags:
+      - ai
+      - design
+      - web
+      - python
+
+  - name: "AI Grants"
+    id: ai-grants
+    type: vscode
+    repo: https://github.com/NathanKrupa/AI-Grants.git
+    branch: main
+    claude_md_path: CLAUDE.md
+    skills_path: .claude/skills/
+    soul: chestertron
+    personas_always_on: []
+    personas_available:
+      - angelico
+    tags:
+      - grants
+      - fundraising
+      - writing
+      - design
+
+  - name: "MacGregor"
+    id: macgregor
+    type: vscode
+    repo: https://github.com/NathanKrupa/MacGregor.git
+    branch: main
+    claude_md_path: CLAUDE.md
+    skills_path: .claude/skills/
+    soul: macgregor
+    personas_always_on: []
+    personas_available: []
+    tags:
+      - macgregor
+
+  - name: "Stocks"
+    id: stocks
+    type: vscode
+    repo: https://github.com/NathanKrupa/Stocks.git
+    branch: main
+    claude_md_path: CLAUDE.md
+    skills_path: .claude/skills/
+    soul: chestertron
+    personas_always_on: []
+    personas_available:
+      - analyst
+    tags:
+      - data
+      - analysis
+      - finance
+
+  - name: "OpportunityMiner"
+    id: opportunity-miner
+    type: vscode
+    repo: https://github.com/NathanKrupa/OpportunityMiner.git
+    branch: main
+    claude_md_path: CLAUDE.md
+    skills_path: .claude/skills/
+    soul: chestertron
+    personas_always_on: []
+    personas_available:
+      - analyst
+    tags:
+      - data
+      - analysis
+      - research

@@ -1,0 +1,35 @@
+ABOUTME: Git ignore rules for the OverSteward repository.
+ABOUTME: Keeps reports archive, Python cache, and environment files out of version control.
+
+# Reports archive (older than 30 days — kept on disk, not in git)
+reports/archive/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Environment
+.env
+.env.local
+*.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test artifacts
+.coverage
+htmlcov/
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Editor
+.vscode/settings.json
+*.swp
