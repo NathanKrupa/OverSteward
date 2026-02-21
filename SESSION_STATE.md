@@ -1,54 +1,57 @@
 ---
-session_date: 2026-02-20
+session_date: 2026-02-21
 status: active
 ---
 
 ## Completed This Session
 
-**Phase 1 kickoff — Home Obsidian migration**
+**Phase 1 Session 2 — Full repo audit, MacGregor soul extraction, context file population**
 
-- Confirmed @file resolution working in Home_Obsidian vault (`~/.claude/shared/` path accessible)
-- Migrated Home Obsidian instructions: `.claude/instructions.md` → `CLAUDE.md` at vault root
-  - Added Oversteward managed block (`@~/.claude/shared/souls/chestertron.md`)
-  - Stripped duplicated soul content; kept all context-specific material
-  - Deleted old instructions.md
-- Filled `contexts/home-obsidian.md` (removed Phase 1 placeholder)
-- Updated Stewards_Ledger.md, MASTER_TODO.md, SESSION_STATE.md
-
-## Key Technical Context
-
-- Home_Obsidian vault root: `C:\Users\natha\OneDrive\Documents\Nathan Writing\Obsidian`
-- CLAUDE.md now at vault root — Claude Code will auto-load it
-- Shared files confirmed accessible at `~/.claude/shared/`
-- @file injection (managed block auto-load) not yet confirmed — only direct Read was tested
-- `contexts/home-obsidian.md` complete; remaining 7 contexts still stubbed
+- Located 6/8 repos on disk; GH_Obsidian and OpportunityMiner are GitHub-only (other machines)
+- Audited CLAUDE.md for all 5 local VSCode repos (billions, ai-assistants, ai-grants, macgregor, stocks)
+- billions uses intentional David/"Sir" Chestertron variant — Nathan confirmed keep as-is
+- Extracted MacGregor soul from `MacGregor/.claude/soul.md` → `shared/souls/macgregor.md`
+- Deployed macgregor.md to `~/.claude/shared/souls/`
+- Filled all 7 remaining context stubs with actual repo data
+- Confirmed Home Obsidian is Git-backed
+- Updated Stewards_Ledger, MASTER_TODO, SESSION_STATE
+- Committed and pushed
 
 ## Pending
 
-- p0: GH Obsidian CLAUDE.md migration (same process as Home Obsidian)
-- p0: Confirm both Obsidian vaults are Git-backed
-- p1: Audit and migrate remaining 5 VSCode repo CLAUDE.md files
-- p1: Extract MacGregor soul → `shared/souls/macgregor.md`
-- p2: Build analyst persona via `/create-persona`
-- p2: Run first full manual sync check → generate report
+- p0: Perform CLAUDE.md migrations on local repos (billions, ai-assistants, ai-grants, macgregor, stocks)
+- p0: Run first manual sync check → generate report
+- p1: GH Obsidian + OpportunityMiner migrations (need other machines)
+- p2: Build analyst persona, @file injection test
 
-## Environment
+## CLAUDE.md Audit Summary
 
-```bash
-conda run -n Oversteward python <script>
-```
+| Context | Current State | Migration Work |
+|---------|--------------|----------------|
+| Home Obsidian | Migrated (Session 1) | Done |
+| billions | Inline soul (David variant) + project config | Managed block (Angelico only), keep soul in local |
+| ai-assistants | Delegates to global, rich project config | Add managed block wrapper |
+| AI-Grants | Full inline guidelines, zero project config | Managed block + strip duplication + Nathan adds project config |
+| MacGregor | `@.claude/soul.md` local ref + project config | Replace with shared soul path in managed block |
+| Stocks | Full inline guidelines + project config | Managed block + strip duplication |
+| GH Obsidian | Unknown (remote) | Needs work computer access |
+| OpportunityMiner | Unknown (remote) | Needs other computer access |
+
+## Repo Locations
+
+**Local:** billions, ai-assistants, AI-Grants, MacGregor, Stocks — all under `C:\Users\natha\OneDrive\Tech\Python\`
+**Remote only:** GH_Obsidian (work computer), OpportunityMiner (another computer)
+**Obsidian:** Home at `C:\Users\natha\OneDrive\Documents\Nathan Writing\Obsidian`
 
 ## Git
 
 ```
 branch: master
-latest: 8fdfd34 — Initialize OverSteward — Phase 1 foundation complete
-status: uncommitted changes (Ledger, MASTER_TODO, SESSION_STATE, contexts/home-obsidian.md)
 ```
 
 ## Gotchas
 
-1. @file *reading* works in Obsidian; @file *injection* via managed block not yet confirmed — test by asking Claude to describe itself unprompted in a fresh session
-2. GH_Obsidian likely has same instructions.md-in-.claude/ pattern — check before assuming
-3. MacGregor is soul-protected — never deploy Chestertron or cross-context content there
-4. OverSteward itself uses `skip_sow: true` — Nathan owns it directly, not managed by sync scripts
+1. **billions soul** — David variant ("Sir") is intentional; managed block gets Angelico only, NOT standard Chestertron
+2. **AI-Grants** — zero project-specific config; Nathan must add during migration
+3. **GH_Obsidian / OpportunityMiner** — private, GitHub-only, no `gh` CLI available locally
+4. MacGregor is soul-protected — never deploy Chestertron there

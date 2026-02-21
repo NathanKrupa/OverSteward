@@ -10,25 +10,30 @@
 
 ### CLAUDE.md Migrations
 
-- [ ] **GH Obsidian** — locate existing instructions file, restructure as `CLAUDE.md` at vault root with Oversteward managed block + local section; fill `contexts/gh-obsidian.md`
-- [ ] **billions** — audit existing CLAUDE.md (if any); ensure managed block + Angelico always-on config; fill `contexts/billions.md`
-- [ ] **ai-assistants** — audit existing CLAUDE.md; ensure managed block + Angelico available config; fill `contexts/ai-assistants.md`
-- [ ] **ai-grants** — audit existing CLAUDE.md; ensure managed block + Angelico available config; fill `contexts/ai-grants.md`
-- [ ] **macgregor** — audit existing CLAUDE.md; soul-protection enforcement; fill `contexts/macgregor.md`
-- [ ] **stocks** — audit existing CLAUDE.md; ensure managed block + analyst available config; fill `contexts/stocks.md`
-- [ ] **opportunity-miner** — audit existing CLAUDE.md; ensure managed block + analyst available config; fill `contexts/opportunity-miner.md`
+- [x] **Home Obsidian** — migrated Session 1
+- [ ] **GH Obsidian** — locate existing instructions, restructure as CLAUDE.md *(repo on work computer — GitHub-only)*
+- [ ] **billions** — add managed block (Angelico only, NOT standard soul — David variant is intentional); keep inline soul + project config in local section
+- [ ] **ai-assistants** — add managed block wrapper (already delegates to global, no duplication)
+- [ ] **ai-grants** — add managed block; strip duplicated guidelines; Nathan needs to add project-specific config (currently has none)
+- [ ] **macgregor** — replace `@.claude/soul.md` with `@~/.claude/shared/souls/macgregor.md` via managed block
+- [ ] **stocks** — add managed block; strip duplicated guidelines; keep project config in local section
+- [ ] **opportunity-miner** — add managed block *(repo on another computer — GitHub-only)*
 
 ### Infrastructure
 
-- [ ] **Home_Obsidian Git** — confirm vault is Git-backed and pushed to `NathanKrupa/Home_Obsidian`; add `.gitignore` if missing
-- [ ] **GH_Obsidian Git** — confirm vault is Git-backed and pushed to `NathanKrupa/GH_Obsidian`; add `.gitignore` if missing
-- [ ] **MacGregor soul** — extract from MacGregor repo → `shared/souls/macgregor.md`; required before MacGregor sync can proceed
+- [x] **Home_Obsidian Git** — confirmed Git-backed; CLAUDE.md untracked, needs commit from vault
+- [ ] **GH_Obsidian Git** — repo on work computer, cannot verify from here
+- [x] **MacGregor soul** — extracted to `shared/souls/macgregor.md` and deployed to `~/.claude/shared/souls/`
 - [ ] **Analyst persona** — build via `/create-persona` skill; needed by Stocks and OpportunityMiner
+
+### Context Files
+
+- [x] **All 8 context files filled** — home-obsidian (Session 1), remaining 7 filled Session 2 with actual repo data
 
 ### Verification
 
-- [ ] **@file injection test** — confirm managed block `@file` directive is injected (not just readable) in at least one context; ask Claude to describe itself unprompted
-- [ ] **Run first manual sync check** — follow sync instructions in CLAUDE.md; generate `reports/2026-02-20.md`
+- [ ] **@file injection test** — confirm managed block `@file` directive is injected (not just readable) in at least one context
+- [ ] **Run first manual sync check** — generate `reports/2026-02-21.md`
 
 ---
 

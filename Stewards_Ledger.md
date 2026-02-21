@@ -5,7 +5,7 @@ ABOUTME: Living document — current state, blockers, and session history.
 
 **Domain:** Technical Projects
 **Purpose:** Sync governance system — keeps all nine House of Krupa repos aligned on souls, personas, and CLAUDE.md standards.
-**Last Updated:** 2026-02-20
+**Last Updated:** 2026-02-21
 
 ---
 
@@ -24,9 +24,9 @@ The OverSteward is the one system that ensures wisdom earned in one context of t
 | OVERSTEWARD.md | Architecture spec and all design decisions | Complete |
 | registry.yaml | Manifest of all 9 contexts | Complete |
 | shared/souls/chestertron.md | Canonical Chestertron soul | Complete |
+| shared/souls/macgregor.md | Canonical MacGregor soul | Complete |
 | shared/personas/angelico.md | Canonical Angelico persona | Complete |
-| contexts/home-obsidian.md | Home Obsidian context overrides | Complete |
-| contexts/*.md (remaining 7) | Per-context local override stubs | Stubbed — Phase 1: fill from actual repos |
+| contexts/*.md (all 8) | Per-context local override files | Complete — filled from actual repos |
 | scripts/*.py | Coordinator, gather, diff, sow, sweep | Stubbed — Phase 2 |
 | .claude/skills/create-persona.md | New persona scaffold skill | Complete |
 | CLAUDE.md | This project's Claude Code instructions | Complete |
@@ -36,23 +36,23 @@ The OverSteward is the one system that ensures wisdom earned in one context of t
 
 | Component | Description |
 |-----------|-------------|
-| shared/souls/macgregor.md | Extract from MacGregor repo during Phase 1 |
 | shared/personas/analyst.md | Build analyst persona (future — use /create-persona) |
 | shared/coding-conventions.md | Extract from global CLAUDE.md during Phase 1 |
 | shared/formatting.md | Extract from global CLAUDE.md during Phase 1 |
 | Actual script implementations | Phase 2 work |
-| Obsidian vault gitignore configs | Phase 1: get both vaults Git-backed |
-| Filled contexts/ files | Phase 1: read each repo and populate |
+| CLAUDE.md migrations | Phase 1: add managed blocks to 5 local repos |
 
 ---
 
 ## Blocked / Flagged Items
 
 1. ~~**@file resolution in Obsidian vaults**~~ — **RESOLVED 2026-02-20.** Confirmed working in Home_Obsidian: Claude Code can read files at `~/.claude/shared/` path. Full @file injection via CLAUDE.md managed block is now in place.
-2. **MacGregor soul** — needs to be extracted from the MacGregor repo and placed in `shared/souls/macgregor.md`. Cannot proceed with MacGregor sync until this is done.
-3. **Obsidian vaults not yet Git-backed** — Phase 1 prerequisite. Home_Obsidian git status unconfirmed. GH_Obsidian not yet checked. Verify both are pushed with appropriate .gitignore files.
-4. **GH Obsidian CLAUDE.md** — likely in same pre-migration state as Home_Obsidian was. Needs same treatment: locate existing instructions, restructure as CLAUDE.md at vault root with managed block.
-5. **Analyst persona not yet built** — Stocks and OpportunityMiner are waiting. Use `/create-persona` skill when ready.
+2. ~~**MacGregor soul**~~ — **RESOLVED 2026-02-21.** Extracted to `shared/souls/macgregor.md` and deployed to `~/.claude/shared/souls/`.
+3. ~~**Home_Obsidian Git**~~ — **RESOLVED 2026-02-21.** Confirmed Git-backed. CLAUDE.md created but needs commit from vault.
+4. **GH_Obsidian and OpportunityMiner** — repos on other machines. Cannot audit or migrate CLAUDE.md from this computer. GitHub-only access, private repos.
+5. **billions soul variant** — David/"Sir" Chestertron variant is intentional. Managed block must inject Angelico only, not standard soul.
+6. **Analyst persona not yet built** — Stocks and OpportunityMiner are waiting. Use `/create-persona` skill when ready.
+7. **5 local CLAUDE.md migrations pending** — billions, ai-assistants, ai-grants, macgregor, stocks all audited but not yet restructured with managed blocks.
 
 ---
 
@@ -90,3 +90,17 @@ Work completed:
 - Stewards_Ledger, MASTER_TODO, and SESSION_STATE updated
 
 Remaining Phase 1 blockers: GH_Obsidian migration, both vaults Git-backed, MacGregor soul extraction, fill remaining 7 contexts/, analyst persona.
+
+### 2026-02-21 — Phase 1 Session 2
+
+Work completed:
+- Located all repos: 6 local (under `C:\Users\natha\OneDrive\Tech\Python\`), 2 GitHub-only (GH_Obsidian on work computer, OpportunityMiner on another machine)
+- Full CLAUDE.md audit of all 5 local VSCode repos — documented current state and migration requirements
+- Key discovery: billions uses intentional David/"Sir" Chestertron variant — Nathan confirmed keep as-is
+- Extracted MacGregor soul from `MacGregor/.claude/soul.md` → `shared/souls/macgregor.md` (canonical copy)
+- Deployed macgregor.md to `~/.claude/shared/souls/`
+- Filled all 7 remaining context stubs with actual repo data from CLAUDE.md files
+- Confirmed Home Obsidian vault is Git-backed
+- SESSION_STATE.md and MASTER_TODO.md were zeroed by disk-full write failure — recreated after space freed
+
+Next: Perform CLAUDE.md migrations on 5 local repos (add managed blocks, strip duplicated guidelines). Run first manual sync check.
