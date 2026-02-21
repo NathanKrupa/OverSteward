@@ -25,7 +25,8 @@ The OverSteward is the one system that ensures wisdom earned in one context of t
 | registry.yaml | Manifest of all 9 contexts | Complete |
 | shared/souls/chestertron.md | Canonical Chestertron soul | Complete |
 | shared/personas/angelico.md | Canonical Angelico persona | Complete |
-| contexts/*.md | Per-context local override stubs | Stubbed — Phase 1: fill from actual repos |
+| contexts/home-obsidian.md | Home Obsidian context overrides | Complete |
+| contexts/*.md (remaining 7) | Per-context local override stubs | Stubbed — Phase 1: fill from actual repos |
 | scripts/*.py | Coordinator, gather, diff, sow, sweep | Stubbed — Phase 2 |
 | .claude/skills/create-persona.md | New persona scaffold skill | Complete |
 | CLAUDE.md | This project's Claude Code instructions | Complete |
@@ -47,10 +48,11 @@ The OverSteward is the one system that ensures wisdom earned in one context of t
 
 ## Blocked / Flagged Items
 
-1. **@file resolution in Obsidian vaults** — test infrastructure created at `~/.claude/shared/atfile-test/`. Needs verification by opening that directory or an Obsidian vault with an @file import in a new Claude Code session.
+1. ~~**@file resolution in Obsidian vaults**~~ — **RESOLVED 2026-02-20.** Confirmed working in Home_Obsidian: Claude Code can read files at `~/.claude/shared/` path. Full @file injection via CLAUDE.md managed block is now in place.
 2. **MacGregor soul** — needs to be extracted from the MacGregor repo and placed in `shared/souls/macgregor.md`. Cannot proceed with MacGregor sync until this is done.
-3. **Obsidian vaults not yet Git-backed** — Phase 1 prerequisite. Verify both Home_Obsidian and GH_Obsidian are pushed with appropriate .gitignore files.
-4. **Analyst persona not yet built** — Stocks and OpportunityMiner are waiting. Use `/create-persona` skill when ready.
+3. **Obsidian vaults not yet Git-backed** — Phase 1 prerequisite. Home_Obsidian git status unconfirmed. GH_Obsidian not yet checked. Verify both are pushed with appropriate .gitignore files.
+4. **GH Obsidian CLAUDE.md** — likely in same pre-migration state as Home_Obsidian was. Needs same treatment: locate existing instructions, restructure as CLAUDE.md at vault root with managed block.
+5. **Analyst persona not yet built** — Stocks and OpportunityMiner are waiting. Use `/create-persona` skill when ready.
 
 ---
 
@@ -78,3 +80,13 @@ Architecture workshopped and finalized. Key decisions made:
 Deliverables: OVERSTEWARD.md (full revision), registry.yaml, shared/souls/chestertron.md, shared/personas/angelico.md, all contexts/ stubs, all scripts/ stubs, create-persona skill, CLAUDE.md updated, Oversteward conda env created, git initialized, remote connected to NathanKrupa/OverSteward.
 
 Next: Phase 1 — verify @file in Obsidian, get vaults Git-backed, extract MacGregor soul, fill contexts/ from actual repos.
+
+### 2026-02-20 — Phase 1 Session 1
+
+Work completed:
+- Confirmed @file resolution working in Home_Obsidian (direct file read of `~/.claude/shared/test-resolution.md` successful)
+- Home Obsidian CLAUDE.md migration: located instructions at `.claude/instructions.md`, restructured as `CLAUDE.md` at vault root with Oversteward managed block + local section; removed duplicated soul content; deleted old file
+- `contexts/home-obsidian.md` filled in from extracted vault content (replaced Phase 1 placeholder)
+- Stewards_Ledger, MASTER_TODO, and SESSION_STATE updated
+
+Remaining Phase 1 blockers: GH_Obsidian migration, both vaults Git-backed, MacGregor soul extraction, fill remaining 7 contexts/, analyst persona.
