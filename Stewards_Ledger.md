@@ -5,7 +5,7 @@ ABOUTME: Living document — current state, blockers, and session history.
 
 **Domain:** Technical Projects
 **Purpose:** Sync governance system — keeps all nine House of Krupa repos aligned on souls, personas, and CLAUDE.md standards.
-**Last Updated:** 2026-02-21
+**Last Updated:** 2026-02-26
 
 ---
 
@@ -40,7 +40,7 @@ The OverSteward is the one system that ensures wisdom earned in one context of t
 | shared/coding-conventions.md | Extract from global CLAUDE.md during Phase 1 |
 | shared/formatting.md | Extract from global CLAUDE.md during Phase 1 |
 | Actual script implementations | Phase 2 work |
-| CLAUDE.md migrations | Phase 1: add managed blocks to 5 local repos |
+| CLAUDE.md migrations | Phase 1: ai-grants (needs git), GH Obsidian + OpportunityMiner (remote) |
 
 ---
 
@@ -52,7 +52,8 @@ The OverSteward is the one system that ensures wisdom earned in one context of t
 4. **GH_Obsidian and OpportunityMiner** — repos on other machines. Cannot audit or migrate CLAUDE.md from this computer. GitHub-only access, private repos.
 5. **billions soul variant** — David/"Sir" Chestertron variant is intentional. Managed block must inject Angelico only, not standard soul.
 6. **Analyst persona not yet built** — Stocks and OpportunityMiner are waiting. Use `/create-persona` skill when ready.
-7. **5 local CLAUDE.md migrations pending** — billions, ai-assistants, ai-grants, macgregor, stocks all audited but not yet restructured with managed blocks.
+7. ~~**5 local CLAUDE.md migrations**~~ — **RESOLVED 2026-02-26.** 4 of 5 migrated (billions, ai-assistants, macgregor, stocks). AI-Grants skipped — needs git init first.
+8. **billions registry modeling** — David soul exception needs a registry.yaml field before Phase 2 sow automation can safely handle this context.
 
 ---
 
@@ -104,3 +105,18 @@ Work completed:
 - SESSION_STATE.md and MASTER_TODO.md were zeroed by disk-full write failure — recreated after space freed
 
 Next: Perform CLAUDE.md migrations on 5 local repos (add managed blocks, strip duplicated guidelines). Run first manual sync check.
+
+### 2026-02-26 — Phase 1 Session 3
+
+Work completed:
+- Migrated 4 of 5 local repos (billions, ai-assistants, macgregor, stocks) — added managed blocks, stripped duplicated guidelines, preserved project-specific config in local sections
+- billions: managed block injects Angelico only; David/"Sir" soul variant + lean development kept in local section
+- ai-assistants: thinnest migration — wrapped existing content with managed block + local markers
+- macgregor: swapped local `@.claude/soul.md` → shared `@~/.claude/shared/souls/macgregor.md`
+- stocks: stripped ~170 lines of duplicated global guidelines; kept project config
+- AI-Grants skipped — not a git repo yet
+- Ran first manual sync check — all 6 local contexts pass; report at `reports/2026-02-26.md`
+- Flagged Phase 2 design issue: billions David soul exception needs registry.yaml modeling before sow automation
+- Also converted 3 Obsidian `.json` skill files to `.md` format (create-todoist-task, article-comments, daily-planning)
+
+Phase 1 status: ~85% complete. Remaining: AI-Grants (needs git init + Nathan's project config), GH Obsidian + OpportunityMiner (remote), analyst persona, billions registry modeling.
