@@ -15,7 +15,7 @@
 - [x] **ai-assistants** — managed block wrapper + local markers added
 - [x] **macgregor** — swapped `@.claude/soul.md` → `@~/.claude/shared/souls/macgregor.md` via managed block
 - [x] **stocks** — managed block + stripped duplicated guidelines; project config in local section
-- [ ] **ai-grants** — needs git init + managed block; Nathan to supply project-specific config
+- [x] **ai-grants** — managed block + project config from README/package.json; deleted redundant root soul.md
 - [ ] **GH Obsidian** — locate existing instructions, restructure as CLAUDE.md *(repo on work computer — GitHub-only)*
 - [ ] **opportunity-miner** — add managed block *(repo on another computer — GitHub-only)*
 

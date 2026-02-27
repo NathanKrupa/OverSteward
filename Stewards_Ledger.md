@@ -114,9 +114,9 @@ Work completed:
 - ai-assistants: thinnest migration — wrapped existing content with managed block + local markers
 - macgregor: swapped local `@.claude/soul.md` → shared `@~/.claude/shared/souls/macgregor.md`
 - stocks: stripped ~170 lines of duplicated global guidelines; kept project config
-- AI-Grants skipped — not a git repo yet
+- AI-Grants: discovered it IS a git repo (was checking wrong case path); migrated CLAUDE.md + deleted redundant root soul.md
 - Ran first manual sync check — all 6 local contexts pass; report at `reports/2026-02-26.md`
 - Flagged Phase 2 design issue: billions David soul exception needs registry.yaml modeling before sow automation
-- Also converted 3 Obsidian `.json` skill files to `.md` format (create-todoist-task, article-comments, daily-planning)
+- Converted 3 Obsidian `.json` skill files to `.md` format (create-todoist-task, article-comments, daily-planning)
 
-Phase 1 status: ~85% complete. Remaining: AI-Grants (needs git init + Nathan's project config), GH Obsidian + OpportunityMiner (remote), analyst persona, billions registry modeling.
+Phase 1 status: ~90% complete. All 6 local repos migrated. Remaining: GH Obsidian + OpportunityMiner (remote), analyst persona, billions registry modeling.
