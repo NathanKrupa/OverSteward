@@ -1,36 +1,34 @@
 ---
-session_date: 2026-02-26
+session_date: 2026-03-02
 status: complete
 ---
 
 ## Completed This Session
 
-**Phase 1 Session 3 — CLAUDE.md migrations + first sync check**
+**Phase 1 Session 3 (cont.) — ai-grants migration, Alfred audit, Wodehouse reference**
 
-- Migrated 4/5 local repos: billions, ai-assistants, macgregor, stocks
-- All four now have managed blocks with correct soul/persona directives
-- Stripped duplicated global guidelines from billions (~80 lines) and stocks (~170 lines)
-- billions: Angelico persona in managed block; David/"Sir" variant + lean dev in local
-- AI-Grants skipped — not a git repo; needs init + Nathan's project config
-- First manual sync check: all 6 local contexts PASS — report at `reports/2026-02-26.md`
-- Flagged Phase 2 issue: billions David soul exception needs registry.yaml field
-- Converted 3 Obsidian skill files from .json → .md format (todoist, article-comments, daily-planning)
+- Migrated ai-grants CLAUDE.md (managed block + project config); deleted redundant root soul.md
+- All 6 local VSCode repos now migrated
+- Security-audited Alfred fork (NathanKrupa/alfred) — clean, no threats; extracted 2 useful patterns (scope enforcement, audit logging) into TODO_BACKLOG.md
+- Created `shared/references/wodehouse.md` — Chestertron humor reference based on P.G. Wodehouse's comic mechanics
+- Added Section 7 (Comic Voice) to chestertron.md soul with `@file` reference to wodehouse.md
+- Deployed wodehouse.md + updated chestertron.md + updated soul.md to `~/.claude/shared/`
+- Fixed 3 Obsidian skill files (.json → .md): create-todoist-task, article-comments, daily-planning
 
 ## Remaining Phase 1
 
-- [ ] **AI-Grants** — git init + CLAUDE.md migration (Nathan supplies project config)
 - [ ] **GH Obsidian** — migration from work computer
 - [ ] **OpportunityMiner** — migration from other computer
 - [ ] **Analyst persona** — build via `/create-persona`; needed by Stocks + OpportunityMiner
 - [ ] **billions registry modeling** — add field for David soul exception before Phase 2
 
-## Phase 1 Progress: ~85%
+## Phase 1 Progress: ~90%
 
-Everything doable from this machine is done except AI-Grants (blocked on git init + Nathan input).
+Everything doable from this machine is done.
 
 ## Gotchas
 
 1. **billions soul** — David/"Sir" variant in local section. Managed block = Angelico only. Registry says `soul: chestertron` but sow must NOT inject standard soul
-2. **AI-Grants** — not a git repo; zero project-specific config
-3. **GH_Obsidian / OpportunityMiner** — private, GitHub-only, other machines
-4. MacGregor is soul-protected — never deploy Chestertron there
+2. **GH_Obsidian / OpportunityMiner** — private, GitHub-only, other machines
+3. MacGregor is soul-protected — never deploy Chestertron there
+4. **Alfred fork** — safe but useless; Nathan to delete via GitHub Settings > Danger Zone
