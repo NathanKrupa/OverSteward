@@ -1,7 +1,7 @@
-ABOUTME: Manifest of all contexts managed by the OverSteward.
-ABOUTME: Each entry defines the soul, personas, and sync behavior for one repository.
+# ABOUTME: Manifest of all contexts managed by the OverSteward.
+# ABOUTME: Each entry defines the soul, personas, skills, and sync behavior for one repository.
 
-version: 1
+version: 2
 
 contexts:
   - name: "OverSteward"
@@ -15,6 +15,8 @@ contexts:
     skip_sow: true
     personas_always_on: []
     personas_available: []
+    skills_always_on: []
+    skills_available: []
     tags:
       - meta
       - governance
@@ -29,6 +31,10 @@ contexts:
     soul: chestertron
     personas_always_on: []
     personas_available: []
+    skills_always_on:
+      - create-todoist-task
+    skills_available:
+      - daily-planning
     tags:
       - personal
       - writing
@@ -44,6 +50,10 @@ contexts:
     soul: chestertron
     personas_always_on: []
     personas_available: []
+    skills_always_on:
+      - create-todoist-task
+    skills_available:
+      - daily-planning
     tags:
       - work
       - fundraising
@@ -58,9 +68,13 @@ contexts:
     claude_md_path: CLAUDE.md
     skills_path: .claude/skills/
     soul: chestertron
+    soul_in_local: true
     personas_always_on:
       - angelico
     personas_available: []
+    skills_always_on: []
+    skills_available:
+      - create-todoist-task
     tags:
       - design
       - web
@@ -76,6 +90,10 @@ contexts:
     personas_always_on: []
     personas_available:
       - angelico
+    skills_always_on:
+      - create-todoist-task
+    skills_available:
+      - daily-planning
     tags:
       - ai
       - design
@@ -93,6 +111,9 @@ contexts:
     personas_always_on: []
     personas_available:
       - angelico
+    skills_always_on:
+      - create-todoist-task
+    skills_available: []
     tags:
       - grants
       - fundraising
@@ -109,6 +130,8 @@ contexts:
     soul: macgregor
     personas_always_on: []
     personas_available: []
+    skills_always_on: []
+    skills_available: []
     tags:
       - macgregor
 
@@ -123,6 +146,9 @@ contexts:
     personas_always_on: []
     personas_available:
       - analyst
+    skills_always_on: []
+    skills_available:
+      - create-todoist-task
     tags:
       - data
       - analysis
@@ -139,7 +165,27 @@ contexts:
     personas_always_on: []
     personas_available:
       - analyst
+    skills_always_on: []
+    skills_available:
+      - create-todoist-task
     tags:
       - data
       - analysis
       - research
+
+  - name: "Minecraft"
+    id: minecraft
+    type: vscode
+    repo: https://github.com/NathanKrupa/Minecraft.git
+    branch: main
+    claude_md_path: CLAUDE.md
+    skills_path: .claude/skills/
+    soul: chestertron
+    personas_always_on: []
+    personas_available: []
+    skills_always_on: []
+    skills_available:
+      - create-todoist-task
+    tags:
+      - games
+      - minecraft

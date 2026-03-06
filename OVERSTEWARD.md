@@ -11,7 +11,7 @@ ABOUTME: Defines the sync governance system for all managed contexts across the 
 
 ## Purpose
 
-Nathan operates Claude Code across nine repositories — two Obsidian vaults and six VS Code projects, plus the OverSteward itself. Each has its own `CLAUDE.md`, skills, souls, personas, and institutional memory. The OverSteward is the one system whose sole job is to maintain consistency, propagate improvements, and prevent drift across all contexts.
+Nathan operates Claude Code across ten repositories — two Obsidian vaults and seven VS Code projects, plus the OverSteward itself. Each has its own `CLAUDE.md`, skills, souls, personas, and institutional memory. The OverSteward is the one system whose sole job is to maintain consistency, propagate improvements, and prevent drift across all contexts.
 
 The OverSteward does **one thing well**: keep every managed context's `CLAUDE.md` aligned with the canonical shared standards, and deploy the right souls and personas to the right places.
 
@@ -43,7 +43,8 @@ The OverSteward does **one thing well**: keep every managed context's `CLAUDE.md
 │                  OverSteward Repo                  │
 │                                                    │
 │  registry.yaml      ← manifest of contexts         │
-│  shared/            ← canonical souls & personas   │
+│  shared/            ← canonical souls, personas,   │
+│                        skills, references           │
 │  contexts/          ← per-context local overrides  │
 │  scripts/           ← gather, diff, sow, sweep     │
 │  reports/           ← sync check logs (30-day)     │
@@ -75,8 +76,14 @@ oversteward/
 │   │   ├── chestertron.md     # Primary soul for all contexts except MacGregor
 │   │   └── macgregor.md       # MacGregor's soul — never deploys elsewhere
 │   ├── personas/
-│   │   ├── angelico.md        # Creative Director — design contexts only
+│   │   │   ├── angelico.md        # Creative Director — design contexts only
 │   │   └── analyst.md         # [future] Data/financial analyst persona
+│   ├── skills/
+│   │   ├── create-todoist-task.md  # Todoist task creation via API
+│   │   └── .env.example       # Credential template for shared skills
+│   ├── references/
+│   │   └── wodehouse.md       # Chestertron humor reference (Wodehouse method)
+│   ├── inbox.md               # Update notifications (cleared on first read)
 │   ├── coding-conventions.md  # Python style, error handling, patterns [Phase 1]
 │   └── formatting.md          # Response format preferences [Phase 1]
 ├── contexts/                  # Context-specific local overrides (one file per context)
@@ -88,7 +95,8 @@ oversteward/
 │   ├── ai-grants.md
 │   ├── macgregor.md
 │   ├── stocks.md
-│   └── opportunity-miner.md
+│   ├── opportunity-miner.md
+│   └── minecraft.md
 ├── scripts/
 │   ├── coordinator.py         # Orchestrator — runs full sync workflow in slices
 │   ├── gather.py              # Pull current state from all repos
@@ -117,9 +125,15 @@ This directory is the deployed working copy — not tracked in git. The OverStew
 │   └── macgregor.md
 ├── personas/
 │   ├── angelico.md
-│   └── analyst.md        [future]
-├── coding-conventions.md [Phase 1]
-└── formatting.md         [Phase 1]
+│   └── analyst.md           [future]
+├── skills/
+│   ├── create-todoist-task.md
+│   └── .env.example
+├── references/
+│   └── wodehouse.md
+├── inbox.md                 # Update notifications
+├── coding-conventions.md    [Phase 1]
+└── formatting.md            [Phase 1]
 ```
 
 ---
@@ -305,6 +319,9 @@ contexts:
 | `skip_sow` | No | If true, sow.py skips this context entirely |
 | `personas_always_on` | Yes | Personas loaded via @file in managed block |
 | `personas_available` | Yes | Personas deployed as skill files |
+| `soul_in_local` | No | If true, soul is defined in local section (not injected by sow) |
+| `skills_always_on` | Yes | Shared skills deployed to context's skills directory |
+| `skills_available` | Yes | Shared skills available but not auto-deployed |
 | `tags` | No | Topic tags for relevance matching |
 
 ---
@@ -367,6 +384,61 @@ When a persona is removed from a context's `personas_available`, its skill file 
    - **Hash matches** (unmodified): propose deletion via PR — safe to sweep
    - **Hash differs** (Nathan customized it): flag in report, never auto-delete, require explicit approval
 4. Present proposed sweeps in the sync report alongside other changes
+
+---
+
+## Skill Distribution
+
+Shared skills live in `shared/skills/` (source) and deploy to `~/.claude/shared/skills/` (working copy) and to individual context skill directories.
+
+### How Skills Work
+
+1. **Canonical source:** `oversteward/shared/skills/{name}.md` — the single source of truth
+2. **Global deploy:** `~/.claude/shared/skills/` — reference copy accessible to all contexts
+3. **Context deploy:** When a context has a skill in `skills_always_on`, the skill file is copied to that context's `skills_path` directory (e.g., `.claude/skills/create-todoist-task.md`)
+4. **Available skills:** Listed in `skills_available` for reference but not auto-deployed
+
+### Credentials
+
+Skills that need API tokens or secrets reference `.env` variables. Each context maintains its own `.env` (always gitignored). Variable names are standardized across contexts.
+
+- `shared/skills/.env.example` documents all possible variables
+- Skills include a "Required .env Variables" section listing what they need
+- Contexts only need variables for skills they actually use
+
+### Adding a Shared Skill
+
+1. Create `shared/skills/{name}.md` with standard format (ABOUTME, steps, required env vars, $ARGUMENTS)
+2. Update `.env.example` with any new credential variables
+3. Add the skill to relevant contexts in `registry.yaml` (`skills_always_on` or `skills_available`)
+4. Deploy to `~/.claude/shared/skills/` and to each `skills_always_on` context
+5. Post notification to inbox
+
+---
+
+## Inbox
+
+The inbox (`~/.claude/shared/inbox.md`) is a notification channel for shared resource updates.
+
+### How It Works
+
+1. **OverSteward appends** entries when shared resources are created or updated
+2. **First context to start a session** reads the inbox, processes updates, and clears the file
+3. **The inbox is for notifications, not storage.** Once read, it's cleared. The shared directories are the source of truth.
+
+### Entry Format
+
+```markdown
+- [2026-03-06] skill:create-todoist-task — deployed to shared/skills/
+- [2026-03-06] soul:chestertron — added Section 7 (Comic Voice) with Wodehouse reference
+```
+
+### Managed Block Instruction
+
+Every managed CLAUDE.md block includes:
+```
+At session start, check `~/.claude/shared/inbox.md` for updates. If entries exist, review them and apply any relevant changes, then clear the file.
+```
 
 ---
 
@@ -497,7 +569,11 @@ Keep `.obsidian/` tracked otherwise — plugin list, hotkeys, appearance, and co
 | Conflict resolution | Ownership markers — managed block regenerated, local block untouched |
 | Soul separation | `soul:` registry field; chestertron and macgregor never mix |
 | Persona deployment | `personas_always_on` (@file in managed block) vs `personas_available` (skill files) |
-| Machine scope | All repos on home machine — no multi-machine complexity |
+| Machine scope | Most repos on home machine; GH_Obsidian + OpportunityMiner on other machines |
+| Skill distribution | `skills_always_on` (auto-deployed to context) vs `skills_available` (reference only) |
+| Skill credentials | `.env` per context with standardized variable names; `.env.example` in shared/skills/ |
+| Inbox | Notification channel; cleared on first read; shared dirs are source of truth |
+| billions soul exception | `soul_in_local: true` — sow.py skips soul injection for this context |
 | OverSteward self-management | `skip_sow: true` — Nathan manages OverSteward directly |
 | Sweep ownership signal | Naming convention: `persona-{name}.md` files |
 | Reports retention | 30-day tracked, archive/ gitignored |
@@ -517,5 +593,5 @@ The OverSteward is working when:
 
 ---
 
-*Document version: 2026-02-20*
-*Status: Active — architecture finalized, Phase 1 in progress*
+*Document version: 2026-03-06*
+*Status: Active — Phase 1 ~90% complete, skill distribution system added*

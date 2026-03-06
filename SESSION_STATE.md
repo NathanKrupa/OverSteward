@@ -1,26 +1,27 @@
 ---
-session_date: 2026-03-02
+session_date: 2026-03-06
 status: complete
 ---
 
 ## Completed This Session
 
-**Phase 1 Session 3 (cont.) — ai-grants migration, Alfred audit, Wodehouse reference**
+**Session 4 — Skill distribution system, inbox, Minecraft, spec update**
 
-- Migrated ai-grants CLAUDE.md (managed block + project config); deleted redundant root soul.md
-- All 6 local VSCode repos now migrated
-- Security-audited Alfred fork (NathanKrupa/alfred) — clean, no threats; extracted 2 useful patterns (scope enforcement, audit logging) into TODO_BACKLOG.md
-- Created `shared/references/wodehouse.md` — Chestertron humor reference based on P.G. Wodehouse's comic mechanics
-- Added Section 7 (Comic Voice) to chestertron.md soul with `@file` reference to wodehouse.md
-- Deployed wodehouse.md + updated chestertron.md + updated soul.md to `~/.claude/shared/`
-- Fixed 3 Obsidian skill files (.json → .md): create-todoist-task, article-comments, daily-planning
+- Built shared skill distribution system: `shared/skills/`, `.env` credentials, `skills_always_on`/`skills_available` in registry
+- Created `create-todoist-task.md` as first shared skill; deployed to ai-assistants
+- Created inbox notification system (`~/.claude/shared/inbox.md`); cleared on first read
+- Updated all 7 managed blocks with inbox check instruction (synced 2026-03-06)
+- Added Minecraft to registry (10 contexts total); created context stub
+- Added `soul_in_local: true` to billions registry entry (resolves Phase 2 sow issue)
+- Registry bumped to version 2
+- Updated OVERSTEWARD.md spec with skill distribution, inbox, and credential documentation
 
 ## Remaining Phase 1
 
 - [ ] **GH Obsidian** — migration from work computer
 - [ ] **OpportunityMiner** — migration from other computer
-- [ ] **Analyst persona** — build via `/create-persona`; needed by Stocks + OpportunityMiner
-- [ ] **billions registry modeling** — add field for David soul exception before Phase 2
+- [ ] **Minecraft** — awaiting Nathan's initial push
+- [ ] **Analyst persona** — build via `/create-persona`
 
 ## Phase 1 Progress: ~90%
 
@@ -28,7 +29,7 @@ Everything doable from this machine is done.
 
 ## Gotchas
 
-1. **billions soul** — David/"Sir" variant in local section. Managed block = Angelico only. Registry says `soul: chestertron` but sow must NOT inject standard soul
-2. **GH_Obsidian / OpportunityMiner** — private, GitHub-only, other machines
+1. **billions soul** — `soul_in_local: true` in registry. Managed block = Angelico only
+2. **GH_Obsidian / OpportunityMiner / Minecraft** — not yet accessible from this machine
 3. MacGregor is soul-protected — never deploy Chestertron there
-4. **Alfred fork** — safe but useless; Nathan to delete via GitHub Settings > Danger Zone
+4. **Alfred fork** — safe but unused; Nathan to delete via GitHub Settings > Danger Zone
