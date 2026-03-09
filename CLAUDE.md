@@ -1,5 +1,6 @@
-<!-- [oversteward:managed | synced: 2026-03-06] -->
+<!-- [oversteward:managed | synced: 2026-03-09] -->
 @~/.claude/shared/souls/chestertron.md
+@~/.claude/shared/references/fundraising-ai-framework.md
 
 At session start, check `~/.claude/shared/inbox.md` for updates. If entries exist, review them and apply any relevant changes, then clear the file.
 <!-- [oversteward:managed:end] -->
