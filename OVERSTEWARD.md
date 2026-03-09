@@ -371,6 +371,7 @@ Personas live in `oversteward/shared/personas/` (source) and deploy to `~/.claud
 | Persona | File | Status | Description |
 |---|---|---|---|
 | Angelico | `angelico.md` | Active | Creative Director — design, copy, visual strategy |
+| Herald | `herald.md` | Active | Marketing Counselor (Praeco Domus) — StoryBrand, positioning, content strategy. Reference: `references/herald-reference.md` |
 | Analyst | `analyst.md` | Planned | Data and financial reasoning specialist |
 
 ### Adding a New Persona

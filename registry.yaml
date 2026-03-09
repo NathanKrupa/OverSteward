@@ -92,6 +92,7 @@ contexts:
     personas_always_on: []
     personas_available:
       - angelico
+      - herald
     skills_always_on:
       - create-todoist-task
     skills_available:
@@ -113,6 +114,7 @@ contexts:
     personas_always_on: []
     personas_available:
       - angelico
+      - herald
     skills_always_on:
       - create-todoist-task
     skills_available: []
