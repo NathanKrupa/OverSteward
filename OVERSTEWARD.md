@@ -313,8 +313,9 @@ contexts:
 | `type` | Yes | `obsidian` or `vscode` |
 | `repo` | Yes | Git remote URL |
 | `branch` | Yes | Branch to monitor |
-| `claude_md_path` | Yes | Path to CLAUDE.md relative to repo root |
-| `skills_path` | No | Path to skills directory if one exists |
+| `claude_md_path` | Yes | Path to instructions file relative to repo root (`CLAUDE.md` for VS Code, `.claude/instructions.md` for Obsidian) |
+| `skills_path` | No | Path to skills directory (`.claude/skills/` for VS Code, `.claude/skills/` for Obsidian) |
+| `skills_format` | No | `md` (default, VS Code) or `json` (Obsidian/Claudian plugin) |
 | `soul` | Yes | Primary identity: `chestertron` or `macgregor` |
 | `skip_sow` | No | If true, sow.py skips this context entirely |
 | `personas_always_on` | Yes | Personas loaded via @file in managed block |
@@ -346,6 +347,20 @@ Every managed CLAUDE.md follows this structure. The OverSteward owns the managed
 ```
 
 The sync date in the managed block allows both humans and scripts to detect drift at a glance.
+
+### Obsidian Context Differences
+
+Obsidian vaults using the Claudian plugin differ from VS Code contexts:
+
+| Aspect | VS Code | Obsidian (Claudian) |
+|---|---|---|
+| Instructions file | `CLAUDE.md` at repo root | `.claude/instructions.md` (set via Claudian `systemPrompt`) |
+| Skills format | Markdown (`.md`) | JSON (`.json`) with `name`, `description`, `instructions`, `arguments` |
+| Skills path | `.claude/skills/` | `.claude/skills/` |
+| Settings | `.claude/settings.json` | `.claude/claudian-settings.json` + `.claude/settings.json` |
+| `@file` resolution | Native Claude Code feature | Unverified — depends on Claudian's prompt injection method |
+
+**Implication for sow.py:** When deploying to an Obsidian context, sow.py must write the managed block into `.claude/instructions.md` (not `CLAUDE.md`) and deploy skills as JSON (not Markdown). The `skills_format` registry field controls this behavior.
 
 ---
 

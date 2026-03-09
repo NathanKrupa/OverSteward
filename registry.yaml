@@ -26,8 +26,9 @@ contexts:
     type: obsidian
     repo: https://github.com/NathanKrupa/Home_Obsidian.git
     branch: main
-    claude_md_path: CLAUDE.md
-    skills_path: claude-skills/
+    claude_md_path: .claude/instructions.md
+    skills_path: .claude/skills/
+    skills_format: json
     soul: chestertron
     personas_always_on: []
     personas_available: []
@@ -45,8 +46,9 @@ contexts:
     type: obsidian
     repo: https://github.com/NathanKrupa/GH_Obsidian.git
     branch: main
-    claude_md_path: CLAUDE.md
-    skills_path: claude-skills/
+    claude_md_path: .claude/instructions.md
+    skills_path: .claude/skills/
+    skills_format: json
     soul: chestertron
     personas_always_on: []
     personas_available: []

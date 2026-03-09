@@ -4,18 +4,30 @@ ABOUTME: Work vault — fundraising, grants, donor relations, and professional w
 # GH Obsidian Context
 
 ## Purpose
-Work knowledge management — fundraising strategy, grant research, donor notes, campaign planning for Golden Harvest.
+Work knowledge management — fundraising strategy, grant research, donor notes, campaign planning for Golden Harvest Food Bank.
 
 ## Personas Available
 - Chestertron (soul)
 
+## Platform
+- Plugin: Claudian (v1.3.60) — embeds Claude Code in Obsidian
+- System prompt: `.claude/instructions.md` (not CLAUDE.md)
+- Skills format: JSON (`.claude/skills/*.json`)
+- Settings: `.claude/claudian-settings.json`
+
 ## Local Path
-GitHub-only: `https://github.com/NathanKrupa/GH_Obsidian.git` — located on work computer, not available on this machine.
+GitHub-backed: `https://github.com/NathanKrupa/GH_Obsidian.git` — located on work computer (GHFB086).
 
 ## CLAUDE.md State
-Not inspected — repo not available locally and GitHub API returned no content (likely private). CLAUDE.md audit and migration must happen from the work computer where this vault is accessible. Expected to need the same treatment as Home Obsidian: locate existing instructions, restructure as CLAUDE.md at vault root with managed block.
+Managed block added to `.claude/instructions.md` on 2026-03-09. Existing local instructions preserved in `[oversteward:local]` block. Soul loaded via `@~/.claude/shared/souls/chestertron.md`.
+
+## Deployed Skills
+- `create-todoist-task.json` — task creation via `.todoist-create.sh` wrapper
+- `complete-todoist-task.json` — task completion via `.todoist-complete.sh` wrapper
 
 ## Notes
 - This vault handles confidential Golden Harvest organizational data
 - Home Obsidian context explicitly redirects GH-specific work here
-- Git-backed status unconfirmed — verify from work computer
+- Has "Principle of Discretion" — redirects personal topics to Home vault
+- Credentials stored in `.claude/credentials` (gitignored)
+- `@file` resolution in Claudian unverified — needs testing on work machine
