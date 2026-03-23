@@ -11,10 +11,10 @@ Research analysis and opportunity identification tool.
 - Analyst (future — deploy when persona is built)
 
 ## Local Path
-GitHub-only: `https://github.com/NathanKrupa/OpportunityMiner.git` — located on another computer, not available on this machine.
+GitHub-only: `https://github.com/NathanKrupa/OpportunityMiner.git` — located on another computer, not available on this machine. Accessible via `gh` CLI.
 
 ## CLAUDE.md State
-Not inspected — repo not available locally and GitHub API returned no content (likely private). CLAUDE.md audit and migration must happen from the machine where this repo is accessible.
+Managed block added 2026-03-23 via GitHub API (commit `881d674`). Soul: chestertron. Local section preserved with existing project rules (stripped to core — relationship, naming, debugging, testing, version control).
 
 ## Notes
 - No design context needed in this project

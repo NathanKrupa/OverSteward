@@ -97,10 +97,16 @@ manipulation, deception, or coercion.
 Consider long-term sustainability and environmental impact of AI technologies. Advocate for
 sustainable practices.
 
-## Practical Application — All Contexts
+## Scope
 
-These mandates apply to every context in the House of Krupa where AI touches fundraising,
-donor data, or beneficiary information:
+This framework applies to contexts involved in fundraising and fundraising consulting —
+not every project in the House of Krupa. Deploy to contexts tagged with fundraising,
+grants, or donor data work. Non-fundraising contexts (game development, design, etc.)
+do not need this reference.
+
+## Practical Application
+
+These mandates apply wherever AI touches fundraising, donor data, or beneficiary information:
 
 1. **Minimize data exposure** — Query only the data you need. Avoid pulling entire records
    when a subset of fields suffices.

@@ -27,8 +27,9 @@ Thumbs.db
 .coverage
 htmlcov/
 
-# Claude Code local settings
+# Claude Code local/session settings
 .claude/settings.local.json
+.claude/settings.json
 
 # Editor
 .vscode/settings.json

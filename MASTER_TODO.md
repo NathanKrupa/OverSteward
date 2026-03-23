@@ -16,13 +16,13 @@
 - [x] **macgregor** — swapped `@.claude/soul.md` → `@~/.claude/shared/souls/macgregor.md` via managed block
 - [x] **stocks** — managed block + stripped duplicated guidelines; project config in local section
 - [x] **ai-grants** — managed block + project config from README/package.json; deleted redundant root soul.md
-- [ ] **GH Obsidian** — locate existing instructions, restructure as CLAUDE.md *(repo on work computer — GitHub-only)*
-- [ ] **opportunity-miner** — add managed block *(repo on another computer — GitHub-only)*
+- [x] **GH Obsidian** — managed block confirmed in place (synced 2026-03-09), verified via `gh` CLI 2026-03-23
+- [x] **opportunity-miner** — managed block added via GitHub API 2026-03-23 (commit `881d674`)
 
 ### Infrastructure
 
 - [x] **Home_Obsidian Git** — confirmed Git-backed; CLAUDE.md untracked, needs commit from vault
-- [ ] **GH_Obsidian Git** — repo on work computer, cannot verify from here
+- [x] **GH_Obsidian Git** — verified via `gh` CLI 2026-03-23; repo accessible, managed block in place
 - [x] **MacGregor soul** — extracted to `shared/souls/macgregor.md` and deployed to `~/.claude/shared/souls/`
 - [ ] **Analyst persona** — build via `/create-persona` skill; needed by Stocks and OpportunityMiner
 - [ ] **billions registry note** — model David soul exception in registry.yaml before Phase 2 sow automation
