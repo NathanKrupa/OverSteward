@@ -36,6 +36,13 @@ Created `IDEA_STORE.md` with 11 deferred gstack concepts: PreToolUse hooks for m
 - Processed working-hours restriction for aigranthelper (already in memory from prior session)
 - Cleared inbox
 
+### NanoBanana Skill
+- Generalized nanobanana skill from ai-assistants (was project-specific with brand vocabulary)
+- Deployed shared version to `~/.claude/skills/nanobanana/SKILL.md` (brand-agnostic, reads project context dynamically)
+- Deployed to aigranthelper `.claude/skills/nanobanana/`
+- Set up aigranthelper `.mcp.json` with playwright + nano-banana MCP servers
+- Set up aigranthelper `.claude/settings.json` with permissions (git, venv, pytest, WebFetch)
+
 ### Housekeeping
 - Moved grant-researcher-critique.md to reports/
 - Trashed scratch script `_gh_query.py`
