@@ -26,6 +26,17 @@ conda run -n Oversteward python -m <module>
 
 Do NOT use the base conda environment.
 
+## Architecture
+
+Principles: `@~/.claude/shared/references/architecture-principles.md`
+
+**Layer map for this project:**
+- **OUTER:** `scripts/` (coordinator, gather, diff, sow, sweep), `.claude/skills/`
+- **MIDDLE:** Orchestration logic within scripts (Phase 2 — currently stubs). As scripts grow beyond stubs, extract services to `src/oversteward/`
+- **INNER:** `registry.yaml` (config), `contexts/` (per-repo instructions), `shared/` (canonical source files)
+
+Oversteward is currently a config-management project in Phase 1 (manual sync). When Phase 2 scripts are implemented, business logic (diff analysis, conflict resolution, sow decisions) belongs in a middle-layer service, not in the scripts themselves.
+
 ## Key Components
 
 - **registry.yaml** — manifest of all managed contexts (soul, personas, sync behavior)
