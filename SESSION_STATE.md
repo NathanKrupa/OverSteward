@@ -1,39 +1,41 @@
 ---
-session_date: 2026-03-30
+session_date: 2026-04-06
 status: complete
 ---
 
 ## Completed This Session
 
-**Session 7 — Architecture standard rollout across all projects**
+**Session 8 — PR workflow migration across all projects**
 
-### Architecture Principles Deployment
-Reviewed the new three-layer architecture standard created in ai-assistants (Architecture 90 curriculum, `documentation/fluency/ARCHITECTURE_90.md` and `documentation/architecture/LAYERS.md`). The portable reference at `~/.claude/shared/references/architecture-principles.md` was already in place.
+### Gaudi Added to Registry
+Reviewed Gaudi architecture linter project (82 rules, Python-only, alpha). Added to registry with tags: python, tooling, open-source, architecture, linter. Created `.claude/` directory (gitignored), CLAUDE.md with layer map, and SESSION_STATE.md.
 
-Implemented architecture sections with project-specific layer maps in three projects:
+### GrantSpider Added to Registry
+Discovered active project not in registry (committed today). Added with tags: python, data, crawling, grants, fundraising.
 
-1. **Oversteward** (`1636121`) — scripts as outer, orchestration logic (Phase 2 stubs) as middle, registry/contexts/shared as inner. Noted that Phase 2 business logic should extract to `src/oversteward/`.
-2. **ai-grants** (`2eba57a`) — Vercel serverless + frontend as outer, sync/analysis scripts as middle, Todoist API + data store as inner.
-3. **aigranthelper** (`3bb7739`) — Django views/commands/templates as outer, `services.py` as middle, models/constants/config as inner. References both shared principles and project's own `SERVICE_LAYER_GUIDE.md`.
+### PR Workflow Migration (from Gaudi's pr-migration-guide.md)
+Implemented PR-structured workflow across all active projects:
 
-ai-assistants already had this in place — all four repos are now aligned.
+1. **Global CLAUDE.md** — Added PR Workflow section to `~/.claude/CLAUDE.md` (all projects inherit: scope-first, one-PR-one-change, no direct commits to main/master, no admin bypass)
+2. **PR templates** — `.github/PULL_REQUEST_TEMPLATE.md` deployed to 9 projects (Gaudi already had one). Projects with CI got review checklists; others got lightweight version.
+3. **CODEOWNERS** — `.github/CODEOWNERS` deployed to 9 projects (Gaudi already had one). All default to @NathanKrupa.
+4. **Branch protection** — Set on OverSteward (master, no CI) and Gaudi (main, lint/security/test). Private repos blocked by GitHub Free tier limitation.
+5. **CI Checks sections** — Added to ai-assistants and aigranthelper CLAUDE.md files documenting their specific required checks.
 
 ### Tool Registry
 Regenerated `data/tool_registry.md` (6 tools).
 
-## Remaining Phase 1
+## Pending
 
+- [ ] Commit + push `.github/` scaffolding via PRs in each project (practicing what we preach)
 - [ ] **Analyst persona** — build via `/create-persona`; needed by Stocks and OpportunityMiner
 - [ ] **billions registry note** — model David soul exception before Phase 2 sow automation
 
-## Phase 1 Progress: ~97%
-
-All CLAUDE.md migrations complete. Architecture standard deployed. Two infrastructure items remain.
-
 ## Gotchas
 
-1. **billions soul** — `soul_in_local: true` in registry. Managed block = Angelico only
-2. MacGregor is soul-protected — never deploy Chestertron there
-3. **gh CLI path** — `/c/Program Files/GitHub CLI/gh.exe` (not on PATH in bash sandbox)
-4. **aigranthelper working hours** — forbidden Mon-Thu except 12-1 lunch (Golden Harvest boundary)
-5. **OpportunityMiner CLAUDE.md** — managed block trimmed local section to core rules only
+1. **Branch protection on private repos** requires GitHub Pro ($4/mo). Currently discipline-only enforcement on 7 private repos.
+2. **OverSteward master** now has branch protection — all future changes must go through PRs
+3. **billions soul** — `soul_in_local: true` in registry. Managed block = Angelico only
+4. MacGregor is soul-protected — never deploy Chestertron there
+5. **aigranthelper working hours** — forbidden Mon-Thu except 12-1 lunch (Golden Harvest boundary)
+6. **grantspider uses master branch** — not main
