@@ -85,12 +85,43 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
 
 When the issue is unclear — not obvious from code, not in the issue body, not in comments:
 
-1. `gh issue comment <n> --repo <owner>/<repo> --body "@nathankrupa question: <specific question>"`
-2. `gh issue edit <n> --remove-label agent-in-progress --add-label needs-input --repo <owner>/<repo>`
-3. If any commits exist in the worktree: push as a **draft** PR so context isn't lost. `gh pr create --draft --base <default-branch> --title "[WIP] <issue title> (#<n>)" --body "Waiting on input — see issue comments."`
-4. Remove the worktree (step 19).
-5. Emit final report with `final_state: STOPPED_FOR_INPUT` and the question text.
-6. Exit. Do not guess.
+### Self-critique gate (MANDATORY before asking)
+
+Nathan's time is expensive. Most "I need to ask" moments dissolve under a moment's thought. Before filing a question:
+
+1. **State your plan.** Write out, in 1-2 sentences, what you would do if you had to proceed right now.
+2. **Find holes.** What could fail? What edge cases? What assumption are you making? What depends on an unknown?
+3. **Check Gaudi principles.** Run `conda run -n Oversteward gaudi cheat-sheet`. Does any rule speak to your ambiguity? If yes, apply it and skip asking.
+4. **Propose improvements.** Incorporate your findings into a revised plan.
+5. **Decide.** If the revised plan is clear, **execute it** — do not ask. If not, the question is worth Nathan's time.
+6. **Ask properly** (only if steps 1-5 didn't resolve it — see below).
+
+### Asking properly
+
+When the self-critique gate confirms a real blocker:
+
+1. **Append to the Chestertron Inbox** at `C:\Users\natha\OneDrive\Documents\Nathan Writing\Obsidian\GTD\Projects\The Almoner Business\Research\Chestertron Inbox.md`. **Append-only** — do NOT rewrite the file, do NOT touch frontmatter or navigation lines. Add this block at the end of the file:
+
+```markdown
+### <repo> #<N> — <short-title>  [<YYYY-MM-DD HH:MM>]
+**Plan considered:** <your original plan, 1-2 sentences>
+**Holes found:** <what you identified, 1-2 sentences>
+**Gaudi check:** <rule ids consulted, or "none applicable">
+**Revised plan:** <what you'd do now, 1-2 sentences>
+**Question:** <the specific judgment call still requiring Nathan>
+**Link:** <issue or PR URL>
+
+---
+```
+
+2. `gh issue comment <n> --repo <owner>/<repo> --body "@nathankrupa question: <specific question>"`
+3. `gh issue edit <n> --remove-label agent-in-progress --add-label needs-input --repo <owner>/<repo>`
+4. If any commits exist in the worktree: push as a **draft** PR so context isn't lost. `gh pr create --draft --base <default-branch> --title "[WIP] <issue title> (#<n>)" --body "Waiting on input — see issue comments."`
+5. Remove the worktree (step 19).
+6. Emit final report with `final_state: STOPPED_FOR_INPUT` and the question text.
+7. Exit. Do not guess.
+
+**Note on the inbox:** you append and move on. Nathan reviews at his morning meeting. The `/answer-flow` skill (runs hourly + on demand) posts his answers back to GitHub and flips `needs-input` → `ready-for-agent`. You will be re-dispatched with the answer in the issue thread.
 
 ## Structured Final Report
 

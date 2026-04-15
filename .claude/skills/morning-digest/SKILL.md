@@ -1,20 +1,25 @@
 ---
 name: morning-digest
-description: Scan aigranthelper, grantspider, wphelper, and ai-assistants for `needs-input` issues and append a morning digest to `data/obsidian/Chestertron Inbox.md` so Nathan can answer agent questions during his morning review. Invoked on a cron schedule (7am local) via `/schedule`, or ad-hoc via `/morning-digest`.
+description: Reconcile GitHub `needs-input` issues against the Chestertron Inbox. Dispatched agents append their own questions live (primary path); this skill catches any `needs-input` issue whose question hasn't made it to the inbox and appends it. Invoked daily via `/schedule` (7am) or ad-hoc via `/morning-digest`.
 ---
 
-# /morning-digest — agent question digest
+# /morning-digest — inbox reconciler
 
-Runs the agent-question digest that feeds Nathan's morning review. Scans the four orchestration repos for issues labeled `needs-input` (filed by dispatched agents via the intent-capture protocol), compiles a digest block, appends it to `data/obsidian/Chestertron Inbox.md` above the last "empty" marker line, and preserves the inbox frontmatter + navigation links.
+Primary flow: dispatched dev agents append their questions directly to the Chestertron Inbox as they hit blockers (see dispatch playbook's Intent-Capture Protocol). This skill is the **safety net** — it scans the four orchestration repos for `needs-input` issues and appends any that don't yet have a corresponding entry in the inbox.
+
+## Canonical paths
+
+- **Chestertron Inbox:** `C:\Users\natha\OneDrive\Documents\Nathan Writing\Obsidian\GTD\Projects\The Almoner Business\Research\Chestertron Inbox.md`
+- **Repos scanned:** `aigranthelper`, `grantspider`, `wphelper`, `ai-assistants`
 
 ## Intended invocation
 
-Primary: scheduled remote agent via `/schedule`, daily at 7am local.
-Secondary: ad-hoc invocation `/morning-digest` during any session.
+- Primary: scheduled remote agent via `/schedule`, daily at 7am local.
+- Secondary: ad-hoc `/morning-digest`.
 
 ## What this skill does
 
-### 1. Scan four repos
+### 1. Scan the four repos
 
 ```bash
 for r in aigranthelper grantspider wphelper ai-assistants; do
@@ -24,103 +29,78 @@ for r in aigranthelper grantspider wphelper ai-assistants; do
 done
 ```
 
-### 2. For each issue, fetch the most recent `question:` comment
+### 2. Read the Chestertron Inbox
+
+Extract every `**Link:**` URL currently in the inbox. Build a set.
+
+### 3. Determine gaps
+
+An issue is a gap if its URL is in the scan result but NOT in the inbox link set. These are `needs-input` issues whose agents never filed the corresponding inbox block (crash, skipped protocol, etc.).
+
+### 4. For each gap, fetch the agent's `question:` comment
 
 ```bash
-gh issue view <n> --repo NathanKrupa/<repo> \
-  --json comments \
+gh issue view <n> --repo NathanKrupa/<repo> --json comments \
   --jq '.comments | map(select(.body | test("@nathankrupa question:"; "i"))) | last'
 ```
 
-Extract the comment body starting at `question:` and truncate to ~300 chars.
+Extract the comment body after `question:`.
 
-### 3. Compute age and blocking status
+### 5. Append a reconciler block per gap
 
-Age = `now - updatedAt` (fall back to `createdAt`). Items >48h old are `⏰ blocking`; otherwise `active`.
-
-### 4. Build the digest block
-
-Today's date in the format `dddd, MMMM Do YYYY` (project convention per CLAUDE.md).
+Use the standard dispatch format so `/answer-flow` can parse it uniformly:
 
 ```markdown
-## Morning agent digest — <date>
-
-### <repo> #<n> — <title> (<age>d old)
-**Question:** <excerpt>
+### <repo> #<N> — <title>  [reconciled <YYYY-MM-DD HH:MM>]
+**Plan considered:** *(not captured by agent — reconciled from GitHub)*
+**Holes found:** *(not captured)*
+**Gaudi check:** *(not captured)*
+**Revised plan:** *(not captured)*
+**Question:** <excerpt from @nathankrupa question: comment>
 **Link:** <issue URL>
-**Status:** <active | ⏰ blocking (>48h)>
-
-### <repo> #<n> — <title> (<age>h old)
-**Question:** <excerpt>
-**Link:** <issue URL>
-**Status:** active
 
 ---
 ```
 
-Empty state (no `needs-input` issues anywhere):
+The `[reconciled ...]` marker tells Nathan this entry came via the safety net, not a live agent append.
 
-```markdown
-## Morning agent digest — <date>
+### 6. Append only — never rewrite
 
-✅ No agent questions waiting.
+- **Append** at the end of the file.
+- **Never touch** frontmatter, navigation, explainer paragraph, or existing content.
+- **Update** frontmatter `date modified` → today's date in `dddd, MMMM Do YYYY`.
 
----
-```
+### 7. Empty state
 
-### 5. Append to Chestertron Inbox
+If there are no gaps (every `needs-input` issue is already in the inbox, OR no `needs-input` issues exist), do nothing. Skill exits silently. Do NOT append a "no questions" marker.
 
-Read `data/obsidian/Chestertron Inbox.md`. Find the line beginning with `*(Inbox empty` — if present, replace it with the new digest block. Otherwise append the digest block at the end of the file.
+### 8. No GitHub side effects
 
-**Preserve untouched:**
-- Frontmatter (`---` block at top, including `date created`, `tags`, etc.)
-- Navigation line (`[[Dashboard]] - [[In Box]] - [[Topic Dashboard]]`)
-- Existing inbox content (prior unprocessed Nathan notes)
-
-**Do update:**
-- `date modified` in frontmatter → today's date in the project format
-
-### 6. No GitHub side effects
-
-This skill is read-only against GitHub. It does not post comments, remove labels, or modify issues.
+Read-only against GitHub. No comments, labels, or issue edits.
 
 ## Scheduling
-
-To install the 7am cron trigger, run once:
 
 ```
 /schedule create --name morning-digest --cron "0 7 * * *" --skill morning-digest
 ```
 
-To verify:
-
-```
-/schedule list
-```
-
-To remove:
-
-```
-/schedule delete morning-digest
-```
-
 ## Acceptance
 
 - [ ] Triggers daily at 7am local
-- [ ] Writes digest block preserving Chestertron Inbox frontmatter + navigation links
-- [ ] Per-item entries include issue link, title, question excerpt, age, blocking flag
-- [ ] `⏰ blocking` on items >48h old
-- [ ] Writes empty-state `✅ No agent questions waiting.` when all clear
-
-## Related
-
-- `/dispatch` — produces `needs-input` items via intent-capture (agents pause and label when ambiguous)
-- `/questions` — read-only ad-hoc view of the same data (no file writes)
-- ai-assistants #43 — answer-flow handler (posts Nathan's inbox answers back to GitHub — separate issue)
+- [ ] Appends only the gaps (issues with `needs-input` label not already in inbox)
+- [ ] Reconciled entries use standard dispatch format so `/answer-flow` parses them
+- [ ] Never rewrites or reorders existing inbox content
+- [ ] Preserves frontmatter (only `date modified` may change)
 
 ## Rules
 
-- **Idempotent on same day.** If today's digest block already exists, replace it rather than appending a duplicate
-- **If a repo returns 404 / auth error**, include a `[repo] (error: <short>)` line and continue with the others
-- **Do not spawn agents** from this skill — reporting-to-inbox only
-- **Do not touch Obsidian frontmatter fields other than `date modified`**
+- **Append-only.** Never delete or reorder existing blocks.
+- **Per-repo error tolerance.** If a repo returns 404 / auth error, note it in a reconciler comment (e.g. `### ERROR — <repo> unreachable`) and continue.
+- **Do not spawn agents.**
+- **Do not touch Obsidian frontmatter fields other than `date modified`.**
+
+## Related
+
+- **Dispatch playbook** → Intent-Capture Protocol with self-critique gate. Agents append directly.
+- `/answer-flow` → hourly + on-demand, posts answers back to GitHub.
+- `/questions` → ad-hoc read-only view.

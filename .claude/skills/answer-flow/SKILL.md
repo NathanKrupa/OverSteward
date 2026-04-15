@@ -1,17 +1,23 @@
 ---
 name: answer-flow
-description: Parse Nathan's answers from `data/obsidian/Chestertron Inbox.md`, post each as a GitHub comment on the referenced issue, swap `needs-input` → `ready-for-agent`, and clean the answered block from the Inbox. Completes the intent-capture loop (agent asks → morning-digest surfaces → Nathan answers → answer-flow posts → agent re-dispatched). Invoked at session start or ad-hoc via `/answer-flow`.
+description: Parse Nathan's answers from `C:\Users\natha\OneDrive\Documents\Nathan Writing\Obsidian\GTD\Projects\The Almoner Business\Research\Chestertron Inbox.md`, post each as a GitHub comment on the referenced issue, swap `needs-input` → `ready-for-agent`, and clean the answered block from the Inbox. Completes the intent-capture loop (agent asks → morning-digest surfaces → Nathan answers → answer-flow posts → agent re-dispatched). Invoked at session start or ad-hoc via `/answer-flow`.
 ---
 
 # /answer-flow — Chestertron Inbox → GitHub
 
-Completes the dispatch intent-capture loop. When agents hit ambiguity they comment `@nathankrupa question:` and label `needs-input`. The morning-digest skill surfaces those in `data/obsidian/Chestertron Inbox.md`. Nathan writes answers under each question during his morning review. This skill reads those answers, posts them back to GitHub, and preps the issue for re-dispatch.
+Completes the dispatch intent-capture loop. When agents hit ambiguity they comment `@nathankrupa question:` and label `needs-input`. The morning-digest skill surfaces those in `C:\Users\natha\OneDrive\Documents\Nathan Writing\Obsidian\GTD\Projects\The Almoner Business\Research\Chestertron Inbox.md`. Nathan writes answers under each question during his morning review. This skill reads those answers, posts them back to GitHub, and preps the issue for re-dispatch.
 
 ## Invocation
 
-Primary: session-start auto-run (Chestertron already reads the Inbox at session start — this is the structured action taken against any answered blocks found).
+- **Primary:** scheduled remote agent, hourly, via `/schedule`.
+- **Secondary:** session-start auto-run (Chestertron already reads the Inbox at session start).
+- **Tertiary:** ad-hoc via `/answer-flow`.
 
-Secondary: ad-hoc via `/answer-flow`.
+### Install the hourly schedule
+
+```
+/schedule create --name answer-flow --cron "0 * * * *" --skill answer-flow
+```
 
 ## Inbox format expected
 
@@ -49,7 +55,7 @@ A block is **answered** if it contains a non-empty `**Answer:**` line (anything 
 
 ### 1. Read the Inbox
 
-Read `data/obsidian/Chestertron Inbox.md`. Identify each block that starts with `### <repo> #<n>`. Parse:
+Read `C:\Users\natha\OneDrive\Documents\Nathan Writing\Obsidian\GTD\Projects\The Almoner Business\Research\Chestertron Inbox.md`. Identify each block that starts with `### <repo> #<n>`. Parse:
 - repo (token before `#`)
 - issue number
 - link (from the `**Link:**` line)
@@ -81,7 +87,7 @@ c) **Record result** (success / error + reason).
 
 ### 3. Clean the Inbox
 
-Rewrite `data/obsidian/Chestertron Inbox.md`:
+Rewrite `C:\Users\natha\OneDrive\Documents\Nathan Writing\Obsidian\GTD\Projects\The Almoner Business\Research\Chestertron Inbox.md`:
 - **Preserve untouched:**
   - Frontmatter (`---` at top through closing `---`)
   - Navigation line (`[[Dashboard]] - [[In Box]] - [[Topic Dashboard]]`)
