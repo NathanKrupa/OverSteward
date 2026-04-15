@@ -2,6 +2,8 @@
 @~/.claude/shared/souls/chestertron.md
 
 At session start, check `~/.claude/shared/inbox.md` for updates. If entries exist, review them and apply any relevant changes, then clear the file.
+
+Also at session start, run `/answer-flow` once. It parses any agent answers Nathan wrote in the Chestertron Inbox, posts them back to the referenced GitHub issues, and flips `needs-input` → `ready-for-agent`. If the skill reports no answered blocks, continue silently.
 <!-- [oversteward:managed:end] -->
 
 ---

@@ -11,15 +11,21 @@ contexts:
     branch: main
     claude_md_path: CLAUDE.md
     skills_path: .claude/skills/
+    agents_path: .claude/agents/
     soul: chestertron
     skip_sow: true
     personas_always_on: []
     personas_available: []
     skills_always_on: []
     skills_available: []
+    agents_available:
+      - aigranthelper-dev
+      - grantspider-dev
+      - wphelper-dev
     tags:
       - meta
       - governance
+      - orchestration
 
   - name: "Home Obsidian"
     id: home-obsidian
@@ -88,6 +94,7 @@ contexts:
     branch: main
     claude_md_path: CLAUDE.md
     skills_path: .claude/skills/
+    agents_path: .claude/agents/
     soul: chestertron
     personas_always_on: []
     personas_available:
@@ -95,13 +102,22 @@ contexts:
       - herald
     skills_always_on:
       - create-todoist-task
+      - dispatch
+      - questions
+      - morning-digest
+      - answer-flow
     skills_available:
       - daily-planning
+    agents_available:
+      - aigranthelper-dev
+      - grantspider-dev
+      - wphelper-dev
     tags:
       - ai
       - design
       - web
       - python
+      - orchestration
 
   - name: "AI Grants"
     id: ai-grants
@@ -142,6 +158,7 @@ contexts:
       - herald
     skills_always_on:
       - create-todoist-task
+      - questions
     skills_available: []
     tags:
       - grants
@@ -202,6 +219,72 @@ contexts:
       - data
       - analysis
       - research
+
+  - name: "WordPressHelper"
+    id: wordpresshelper
+    type: vscode
+    repo: https://github.com/NathanKrupa/WordPressHelper.git
+    branch: main
+    local_path: "C:\\Users\\natha\\OneDrive\\Tech\\Python\\WordPressHelper"
+    claude_md_path: CLAUDE.md
+    skills_path: .claude/skills/
+    soul: chestertron
+    personas_always_on: []
+    personas_available:
+      - angelico
+    skills_always_on:
+      - create-todoist-task
+      - questions
+    skills_available: []
+    tags:
+      - python
+      - wordpress
+      - consulting
+      - web
+      - tooling
+
+  - name: "Gaudi"
+    id: gaudi
+    type: vscode
+    repo: https://github.com/NathanKrupa/gaudi.git
+    branch: main
+    local_path: "C:\\Users\\natha\\OneDrive\\Tech\\Python\\Gaudi"
+    claude_md_path: CLAUDE.md
+    skills_path: .claude/skills/
+    soul: chestertron
+    personas_always_on: []
+    personas_available: []
+    skills_always_on: []
+    skills_available:
+      - create-todoist-task
+    tags:
+      - python
+      - tooling
+      - open-source
+      - architecture
+      - linter
+
+  - name: "GrantSpider"
+    id: grantspider
+    type: vscode
+    repo: https://github.com/NathanKrupa/grantspider.git
+    branch: master
+    local_path: "C:\\Users\\natha\\OneDrive\\Tech\\Python\\grantspider"
+    claude_md_path: CLAUDE.md
+    skills_path: .claude/skills/
+    soul: chestertron
+    personas_always_on: []
+    personas_available: []
+    skills_always_on:
+      - create-todoist-task
+      - questions
+    skills_available: []
+    tags:
+      - python
+      - data
+      - crawling
+      - grants
+      - fundraising
 
   - name: "Minecraft"
     id: minecraft
