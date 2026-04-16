@@ -1,6 +1,6 @@
 ---
 name: dispatch
-description: Dispatch a scoped background agent to work a GitHub issue autonomously (implement → test → PR → auto-merge). Use when the user says "dispatch issue N on REPO" or "work issue N on REPO" where REPO is aigranthelper, grantspider, or wphelper.
+description: Dispatch a scoped background agent to work a GitHub issue autonomously (implement → test → PR → auto-merge). Use when the user says "dispatch issue N on REPO" or "work issue N on REPO" where REPO is aigranthelper, grantspider, wphelper, or ai-assistants.
 ---
 
 # /dispatch — autonomous agent PR worker
@@ -13,13 +13,14 @@ Dispatches a repo-scoped background agent (`<repo>-dev` subagent) to work a sing
 /dispatch <repo> <issue-number>
 ```
 
-Where `<repo>` is one of: `aigranthelper`, `grantspider`, `wphelper`.
+Where `<repo>` is one of: `aigranthelper`, `grantspider`, `wphelper`, `ai-assistants`.
 
 Example:
 ```
 /dispatch grantspider 150
 /dispatch aigranthelper 123
 /dispatch wphelper 37
+/dispatch ai-assistants 61
 ```
 
 ## What this skill does (in order)
@@ -33,6 +34,7 @@ Map `<repo>` → subagent type + GitHub remote:
 | `aigranthelper` | `aigranthelper-dev` | `NathanKrupa/aigranthelper` | `main` |
 | `grantspider` | `grantspider-dev` | `NathanKrupa/grantspider` | `master` |
 | `wphelper` | `wphelper-dev` | `NathanKrupa/wphelper` | `main` |
+| `ai-assistants` | `ai-assistants-dev` | `NathanKrupa/ai-assistants` | `main` |
 
 Unknown repo arg → abort with error.
 
@@ -85,7 +87,7 @@ Do not block the conversation. The notification comes asynchronously.
 
 ## Refusal messages (what to tell the user on preflight failure)
 
-- **Unknown repo:** "Unknown repo `<arg>`. Use: aigranthelper, grantspider, or wphelper."
+- **Unknown repo:** "Unknown repo `<arg>`. Use: aigranthelper, grantspider, wphelper, or ai-assistants."
 - **Issue closed:** "Issue #<n> is closed. Nothing to dispatch."
 - **Label reject-close:** "Issue #<n> is labeled reject-close. Reopen-and-relabel or pick a different issue."
 - **Label needs-scoping:** "Issue #<n> needs scoping first. Either scope it (pick option, add acceptance criteria) and remove the label, or pick a different issue."
