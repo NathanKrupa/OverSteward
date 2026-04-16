@@ -1,4 +1,4 @@
-# Dispatch Playbook — Universal Rules (v1.1)
+# Dispatch Playbook — Universal Rules (v1.2)
 
 Shared reference for all `<repo>-dev` subagents. Each subagent layers repo-specific context on top of this.
 
@@ -54,7 +54,14 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
 9. **Implement** the minimum change that satisfies acceptance. No refactoring, no "while I'm here" cleanups, no tangential improvements.
 10. **Run tests locally** using the repo's exact test command. Must pass. Pre-existing failures: capture them, DO NOT modify, report in final YAML.
 11. **Run lint locally** using the repo's exact lint command (SCOPED TO THE SAME PATHS CI USES — not the whole repo). Fix anything flagged.
-12. **Scope cap check.** `git diff --stat`. If >10 files OR >400 lines changed, STOP. Comment on the issue: "Scope exceeded cap — requires splitting. Proposed breakdown: <bullets>." Do not push. Clean up worktree (step 19).
+12. **Coherence audit** (size alone never stops the merge; coherence and breadth do).
+
+    1. **File-to-acceptance mapping.** For each changed file, name which acceptance bullet(s) justify it. If any file cannot be traced to a bullet, it is scope creep — revert that file.
+    2. **Breadth cap (files).** After reverts, if >10 files remain changed, STOP for input. Breadth is where unrelated changes hide.
+    3. **Size diagnostic (not a gate).** If `git diff` shows >800 lines changed, emit `large_pr: true` in the structured report and include the file-to-acceptance mapping in the PR body. Do NOT stop.
+    4. **Autonomous split (MAY).** If >800 lines AND a clean split is identifiable — sequenced PRs where neither half contains dead code or broken imports — the agent MAY open two (or more) sequenced PRs instead of one. If no clean split is available, ship as a single PR.
+    5. **Sanity ceiling.** If `git diff` >2000 lines, STOP for input. That indicates a scoping bug upstream; re-scope rather than ship.
+    6. **Escape hatch.** If the issue body or any scoping comment contains the sentinel `<!-- intentionally-large -->`, skip the 800-line diagnostic AND the 2000-line ceiling entirely. The PR is pre-approved as large. The breadth cap (step 12.2) still applies.
 
 ### Ship
 
@@ -136,7 +143,7 @@ files_changed: [path/to/file, ...]
 lines_changed: +N / -M
 tests: "X/Y passed" | "failed: <summary>"
 lint: clean | "N findings fixed" | failing
-scope_within_cap: true | false
+large_pr: true | false
 duration_seconds: <int>
 worktree_cleaned: true | false
 continued_existing_branch: true | false
