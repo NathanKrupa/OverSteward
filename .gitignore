@@ -31,6 +31,9 @@ htmlcov/
 .claude/settings.local.json
 .claude/settings.json
 
+# Skill runtime state (ephemeral per-machine)
+.claude/skills/*/state.json
+
 # Editor
 .vscode/settings.json
 *.swp
