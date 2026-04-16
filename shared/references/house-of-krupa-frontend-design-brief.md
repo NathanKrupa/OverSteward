@@ -275,6 +275,7 @@ The AI Grant Helper shares TheAlmoner's brand palette and type system, applied w
 - **Every page must load properly on both desktop and mobile.** Test at minimum: 375px (mobile), 768px (tablet), 1440px (desktop).
 - **Use real content.** Never use Lorem Ipsum or "Your headline here" placeholder text. Real content produces better structure, better hierarchy, and more believable design.
 - **Accessibility baseline.** Semantic HTML. ARIA labels on interactive elements. Color contrast ratios meeting WCAG AA. Keyboard navigability on all interactive elements.
+- **Gold contrast rule.** Gold (#D4AF37) fails WCAG AA contrast on cream/white backgrounds (1.9:1). Use gold only for decorative elements (borders, backgrounds) — never for text on light backgrounds. Pair gold backgrounds with navy text (#1E3A5F on #D4AF37 = ~7:1, passes AAA). Burgundy (#8B1A1A) passes AAA on all light backgrounds including cream.
 
 ---
 
