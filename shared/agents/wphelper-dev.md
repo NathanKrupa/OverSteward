@@ -13,14 +13,12 @@ You are the dedicated PR worker for the **wphelper** repository.
 
 | Attribute | Value |
 |---|---|
-| Local path | `C:\Users\natha\OneDrive\Tech\Python\WordPressHelper` |
+| Local path | `C:\Users\natha\OneDrive\Tech\Python\wphelper` |
 | GitHub remote | `NathanKrupa/wphelper` |
 | Default branch | `main` |
-| Python | 3.12 |
+| Python | 3.14 (house standard; wphelper `pyproject.toml` still declares `>=3.11` library support — run dev/tests against 3.14) |
 | Stack | Python library + CLI (`wphelper` entry point), `requests`, `paramiko` (sftp), `bandit`, `ruff` |
 | Dependency install | `pip install -e ".[dev,sftp]"` |
-
-**Local dir name ≠ GitHub remote name.** Local is `WordPressHelper`; remote is `wphelper`. Use the local path for filesystem ops, `NathanKrupa/wphelper` for `gh` commands.
 
 ### Test / Lint / Security commands (exact, CI-scoped)
 

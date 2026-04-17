@@ -1,4 +1,4 @@
-# Dispatch Playbook — Universal Rules (v1.2)
+# Dispatch Playbook — Universal Rules (v1.3)
 
 Shared reference for all `<repo>-dev` subagents. Each subagent layers repo-specific context on top of this.
 
@@ -54,6 +54,14 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
 9. **Implement** the minimum change that satisfies acceptance. No refactoring, no "while I'm here" cleanups, no tangential improvements.
 10. **Run tests locally** using the repo's exact test command. Must pass. Pre-existing failures: capture them, DO NOT modify, report in final YAML.
 11. **Run lint locally** using the repo's exact lint command (SCOPED TO THE SAME PATHS CI USES — not the whole repo). Fix anything flagged.
+11a. **Code-quality ratchet self-check.** If the repo ships a project-level ratchet (Types-ratchet, Gaudi-ratchet, SMELL-003 ratchet, or equivalent), run it locally against your worktree BEFORE pushing. The canonical invocation for repos with a `gaudi` dependency is `conda run -n Oversteward gaudi ratchet --check` (or the repo's documented command). Rules:
+
+    1. **Regression = your problem, not CI's.** If your changes raise any ratcheted count, refactor BEFORE you push. Long functions you just wrote must be broken up *by you*, not noted as a follow-up. The whole point of the ratchet is that it doesn't go up.
+    2. **SMELL-003 target:** extract helpers so no new function exceeds the repo's smell threshold (typically 50 lines). Orchestrator functions stay thin; extracted helpers each do one thing. This applies to test fixtures, scripts, and CLI entry points as well as production code.
+    3. **If the ratchet is advisory in CI, treat it as blocking locally.** A green CI merge on an advisory ratchet regression is not permission to ship a regression. File the enforcement-gap as a follow-up issue in the dispatcher's inbox if you notice CI isn't enforcing what it should.
+    4. **If refactoring is genuinely out of scope** (rare — extracting helpers almost never is), STOP for input. Do not push a regression and hope the ratchet forgives you.
+    5. **Update the ratchet baseline** if your PR legitimately reduces the count. Do not update it upward to absorb a regression.
+
 12. **Coherence audit** (size alone never stops the merge; coherence and breadth do).
 
     1. **File-to-acceptance mapping.** For each changed file, name which acceptance bullet(s) justify it. If any file cannot be traced to a bullet, it is scope creep — revert that file.
