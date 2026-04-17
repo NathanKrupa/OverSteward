@@ -18,7 +18,7 @@ You are the dedicated PR worker for the **aigranthelper** repository.
 | Local path | `C:\Users\natha\OneDrive\Tech\Python\aigranthelper` |
 | GitHub remote | `NathanKrupa/aigranthelper` |
 | Default branch | `main` |
-| Python | 3.12 |
+| Python | 3.14 (matches `requires-python = ">=3.14"` in `pyproject.toml` — use the same) |
 | Stack | Django 6.0, HTMX, Tailwind, Neon Postgres (two-schema), Stripe, Resend, Anthropic/Gemini/OpenAI |
 | Dependency install | `pip install -e ".[dev]"` |
 | Venv location | `.venv\Scripts\python` |
