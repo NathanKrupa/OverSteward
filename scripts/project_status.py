@@ -1,0 +1,331 @@
+# ABOUTME: Pipeline dashboard for the four orchestration repos.
+# ABOUTME: Prints status table, in-flight agents, and scoping candidates when the ready queue is thin.
+
+from __future__ import annotations
+
+import json
+import re
+import subprocess
+import sys
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+OWNER = "NathanKrupa"
+REPOS = ("aigranthelper", "grantspider", "wphelper", "ai-assistants")
+STATE_PATH = (
+    Path(__file__).resolve().parent.parent
+    / ".claude"
+    / "skills"
+    / "project-status"
+    / "state.json"
+)
+SCOPING_SURFACE_THRESHOLD = 2
+GH_LIMIT = 200
+BRANCH_RE = re.compile(r"^(fix|feat|ci|refactor|cleanup)/issue-(\d+)-")
+
+# Issues carrying any of these labels are not "scoping candidates" -- they're
+# already processed, in flight, declined, or deliberately deferred.
+UNSCOPED_EXCLUDES = frozenset({
+    "ready-for-agent",
+    "agent-in-progress",
+    "agent-done",
+    "reject-close",
+    "needs-input",
+    "wontfix",
+    "duplicate",
+    "invalid",
+    "backlog",
+})
+
+
+def gh_json(args: list[str]) -> list[dict]:
+    proc = subprocess.run(
+        ["gh", *args], capture_output=True, text=True, encoding="utf-8"
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"gh {' '.join(args)} failed (exit {proc.returncode}): {proc.stderr.strip()}"
+        )
+    out = proc.stdout.strip()
+    return json.loads(out) if out else []
+
+
+def fetch_repo(repo: str, since_iso: str) -> dict:
+    full = f"{OWNER}/{repo}"
+    limit = str(GH_LIMIT)
+    open_issues = gh_json([
+        "issue", "list", "--repo", full, "--state", "open",
+        "--limit", limit, "--json", "number,title,url,labels,createdAt",
+    ])
+    open_prs = gh_json([
+        "pr", "list", "--repo", full, "--state", "open",
+        "--limit", limit, "--json", "number,headRefName,title,url",
+    ])
+    closed_issues = gh_json([
+        "issue", "list", "--repo", full, "--state", "closed",
+        "--search", f"closed:>={since_iso}",
+        "--limit", limit, "--json", "number",
+    ])
+    merged_prs = gh_json([
+        "pr", "list", "--repo", full, "--state", "merged",
+        "--search", f"merged:>={since_iso}",
+        "--limit", limit, "--json", "number",
+    ])
+    return {
+        "repo": repo,
+        "open_issues": open_issues,
+        "open_prs": open_prs,
+        "closed_issue_count": len(closed_issues),
+        "merged_pr_count": len(merged_prs),
+    }
+
+
+def fetch_all(since_iso: str) -> list[dict]:
+    with ThreadPoolExecutor(max_workers=len(REPOS)) as ex:
+        futures = {ex.submit(fetch_repo, r, since_iso): r for r in REPOS}
+        results: list[dict] = []
+        for fut, repo in futures.items():
+            try:
+                results.append(fut.result())
+            except Exception as e:  # noqa: BLE001
+                results.append({"repo": repo, "error": str(e)})
+    results.sort(key=lambda d: REPOS.index(d["repo"]))
+    return results
+
+
+def labels_of(issue: dict) -> set[str]:
+    return {lbl["name"] for lbl in issue.get("labels", [])}
+
+
+def read_state() -> tuple[datetime, bool]:
+    try:
+        data = json.loads(STATE_PATH.read_text(encoding="utf-8"))
+        ts = datetime.fromisoformat(data["last_checked"].replace("Z", "+00:00"))
+        return ts.astimezone(timezone.utc), False
+    except (FileNotFoundError, json.JSONDecodeError, KeyError, ValueError):
+        return datetime.now(timezone.utc) - timedelta(hours=24), True
+
+
+def write_state(now: datetime) -> None:
+    STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    STATE_PATH.write_text(
+        json.dumps({"last_checked": iso_z(now)}) + "\n", encoding="utf-8"
+    )
+
+
+def iso_z(ts: datetime) -> str:
+    return ts.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def format_since(ts: datetime) -> str:
+    return ts.strftime("%Y-%m-%d %H:%M UTC")
+
+
+def pick_scoping_candidate(
+    open_issues: list[dict],
+) -> tuple[dict, str] | None:
+    """Return (issue, source) where source is 'labeled' or 'fallback'.
+
+    Priority 1: oldest issue labeled `needs-scoping`.
+    Priority 2: oldest issue carrying none of the UNSCOPED_EXCLUDES labels
+    (i.e., not already processed, in flight, declined, or deferred).
+    """
+    labeled = [i for i in open_issues if "needs-scoping" in labels_of(i)]
+    if labeled:
+        labeled.sort(key=lambda i: i["createdAt"])
+        return labeled[0], "labeled"
+    fallback = [
+        i for i in open_issues if not (labels_of(i) & UNSCOPED_EXCLUDES)
+    ]
+    if fallback:
+        fallback.sort(key=lambda i: i["createdAt"])
+        return fallback[0], "fallback"
+    return None
+
+
+def humanize_age(created: datetime, now: datetime) -> str:
+    delta = now - created
+    if delta.days < 1:
+        hours = max(1, delta.seconds // 3600)
+        return f"{hours}h"
+    if delta.days < 30:
+        return f"{delta.days}d"
+    return f"{delta.days // 30}mo"
+
+
+def render(
+    results: list[dict], since: datetime, is_first_run: bool, now: datetime
+) -> str:
+    lines: list[str] = []
+    lines.append(f"Project pipeline status -- since {format_since(since)}")
+    if is_first_run:
+        lines.append(
+            '(first run -- "since" window is last 24h; '
+            "future runs will measure from this moment)"
+        )
+    lines.append("")
+
+    cap_hits: list[str] = []
+    totals = {"open_issues": 0, "open_prs": 0, "closed": 0, "merged": 0,
+              "ready": 0, "scoping": 0}
+
+    lines.append(
+        "| Project         | Open issues | Open PRs | Closed issues | "
+        "Merged PRs | Ready queue | Needs scoping |"
+    )
+    lines.append(
+        "|-----------------|-------------|----------|---------------|"
+        "------------|-------------|---------------|"
+    )
+    for r in results:
+        repo = r["repo"]
+        if "error" in r:
+            lines.append(
+                f"| {repo:<15} | error | error | error | error | error | error |"
+            )
+            continue
+        open_issues = r["open_issues"]
+        ready = sum(1 for i in open_issues if "ready-for-agent" in labels_of(i))
+        scoping = sum(1 for i in open_issues if "needs-scoping" in labels_of(i))
+        oi = len(open_issues)
+        op = len(r["open_prs"])
+        ci = r["closed_issue_count"]
+        mp = r["merged_pr_count"]
+        for name, val in (
+            ("open issues", oi), ("open PRs", op),
+            ("closed issues", ci), ("merged PRs", mp),
+        ):
+            if val >= GH_LIMIT:
+                cap_hits.append(f"{repo} {name}")
+        totals["open_issues"] += oi
+        totals["open_prs"] += op
+        totals["closed"] += ci
+        totals["merged"] += mp
+        totals["ready"] += ready
+        totals["scoping"] += scoping
+        lines.append(
+            f"| {repo:<15} | {oi:<11} | {op:<8} | {ci:<13} | "
+            f"{mp:<10} | {ready:<11} | {scoping:<13} |"
+        )
+    lines.append(
+        f"| **Total**       | **{totals['open_issues']}** | "
+        f"**{totals['open_prs']}** | **{totals['closed']}** | "
+        f"**{totals['merged']}** | **{totals['ready']}** | "
+        f"**{totals['scoping']}** |"
+    )
+    if cap_hits:
+        lines.append("")
+        lines.append(
+            f"WARN: cap hit on: {', '.join(cap_hits)} -- raise `GH_LIMIT`."
+        )
+    lines.append("")
+
+    in_flight: list[tuple[str, int, str, str, str, str]] = []
+    for r in results:
+        if "error" in r:
+            continue
+        repo = r["repo"]
+        labeled = {
+            i["number"]: i
+            for i in r["open_issues"]
+            if "agent-in-progress" in labels_of(i)
+        }
+        branched: dict[int, dict] = {}
+        for pr in r["open_prs"]:
+            m = BRANCH_RE.match(pr["headRefName"])
+            if m:
+                branched[int(m.group(2))] = pr
+        for num in sorted(set(labeled) | set(branched)):
+            issue = labeled.get(num)
+            pr = branched.get(num)
+            signal = {
+                (True, True): "label+branch",
+                (True, False): "label only",
+                (False, True): "branch only",
+            }[(num in labeled, num in branched)]
+            title = (issue or pr)["title"]
+            url = (issue or pr)["url"]
+            pr_num = f"#{pr['number']}" if pr else "--"
+            in_flight.append((repo, num, pr_num, signal, title, url))
+
+    if in_flight:
+        lines.append(f"In-flight agents ({len(in_flight)}):")
+        lines.append("")
+        lines.append("| Repo            | Issue | PR   | Signal       | Title |")
+        lines.append("|-----------------|-------|------|--------------|-------|")
+        for repo, num, pr_num, signal, title, _url in in_flight:
+            lines.append(
+                f"| {repo:<15} | #{num} | {pr_num} | {signal:<12} | {title} |"
+            )
+    else:
+        lines.append("No agents currently in flight.")
+    lines.append("")
+
+    thin = [
+        r for r in results
+        if "error" not in r
+        and sum(1 for i in r["open_issues"] if "ready-for-agent" in labels_of(i))
+        < SCOPING_SURFACE_THRESHOLD
+    ]
+    if thin:
+        candidates: list[tuple[str, dict, str]] = []
+        for r in thin:
+            pick = pick_scoping_candidate(r["open_issues"])
+            if pick is not None:
+                issue, source = pick
+                candidates.append((r["repo"], issue, source))
+        if candidates:
+            lines.append(
+                f"Next to scope (ready queue thin on {len(thin)} repo(s); "
+                "oldest candidate per repo):"
+            )
+            lines.append("")
+            for repo, issue, source in candidates:
+                created = datetime.fromisoformat(
+                    issue["createdAt"].replace("Z", "+00:00")
+                ).astimezone(timezone.utc)
+                age = humanize_age(created, now)
+                tag = "needs-scoping" if source == "labeled" else "unlabeled"
+                lines.append(
+                    f"- [{repo}#{issue['number']}]({issue['url']}) -- "
+                    f"{issue['title']}  _(age {age}, {tag})_"
+                )
+            lines.append("")
+            lines.append(
+                "_To scope: open the issue, pick an option / add acceptance "
+                "criteria, then add `ready-for-agent` (and remove "
+                "`needs-scoping` if present)._"
+            )
+        else:
+            thin_names = ", ".join(r["repo"] for r in thin)
+            lines.append(
+                f"Ready queue thin on: {thin_names} -- no scoping candidates "
+                "found (issues may be backlog-tagged or terminal-labeled)."
+            )
+    lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def main(argv: list[str]) -> int:
+    since, is_first_run = read_state()
+    now = datetime.now(timezone.utc)
+    try:
+        results = fetch_all(iso_z(since))
+    except Exception as e:  # noqa: BLE001
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 1
+
+    print(render(results, since, is_first_run, now), end="")
+
+    if any("error" not in r for r in results):
+        write_state(now)
+    else:
+        print(
+            "WARN: all repos failed; state.json not updated.", file=sys.stderr
+        )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
