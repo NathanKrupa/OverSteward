@@ -1,11 +1,13 @@
 ---
 name: project-status
-description: Show a per-project status table of open issues, open PRs, items completed since the last check-in, and any agents currently working across aigranthelper, grantspider, wphelper, and ai-assistants. Use when Nathan asks for "project status", "pipeline status", "what's in flight", or runs /project-status.
+description: Show a per-project status table of open issues, open PRs, items completed since the last check-in, and any agents currently working across aigranthelper, grantspider, wphelper, and ai-assistants. Surfaces oldest unscoped issues when the ready queue is thin. Use when Nathan asks for "project status", "pipeline status", "what's in flight", or runs /project-status.
 ---
 
-# /project-status — pipeline dashboard
+# /project-status -- pipeline dashboard
 
-One-table view of the four orchestration repos: what's open, what's landed since the last time this skill was run.
+One-table view of the four orchestration repos: what's open, what's landed since the last run, which agents are in flight, and (when the ready queue is thin) the oldest unscoped issue per repo so Nathan can scope it.
+
+All work is done by `scripts/project_status.py` -- a single `conda run` invocation replaces the 16-plus serial `gh` calls the previous version of this skill orchestrated from Claude. The skill's only jobs now are: run the script, present the output, and walk Nathan through any surfaced scoping candidates.
 
 ## Invocation
 
@@ -15,123 +17,66 @@ One-table view of the four orchestration repos: what's open, what's landed since
 
 No arguments.
 
-## Repos scanned
+## What the skill does
 
-- `NathanKrupa/aigranthelper`
-- `NathanKrupa/grantspider`
-- `NathanKrupa/wphelper`
-- `NathanKrupa/ai-assistants`
-
-## State file
-
-Persist the last-run timestamp at:
-
-```
-c:/Users/natha/OneDrive/Tech/Python/Oversteward/.claude/skills/project-status/state.json
-```
-
-Shape:
-
-```json
-{ "last_checked": "2026-04-15T10:00:00Z" }
-```
-
-- **First run** (file missing or unparseable): treat `last_checked` as 24h ago and note "first run — baseline is last 24h" in the report.
-- **End of run**: overwrite `state.json` with the current UTC timestamp (ISO-8601, `Z` suffix). Do this only if the GitHub scans succeeded for at least one repo.
-
-## What this skill does
-
-### 1. Read prior timestamp
-
-Read `state.json`. If missing/invalid, fall back to 24h ago. Keep both the prior timestamp (for the query) and a flag for "is this a first run".
-
-### 2. Scan each repo
-
-For each repo, run four `gh` queries. Parallelize across repos by running the per-repo block in the background and waiting; per-repo the four calls can be sequential (fast enough).
+### 1. Run the dashboard script
 
 ```bash
-TS="<prior-timestamp-ISO8601>"
-
-for r in aigranthelper grantspider wphelper ai-assistants; do
-  open_issues=$(gh issue list --repo NathanKrupa/$r --state open --limit 200 --json number --jq 'length')
-  open_prs=$(gh pr list --repo NathanKrupa/$r --state open --limit 200 --json number --jq 'length')
-  closed_issues=$(gh issue list --repo NathanKrupa/$r --state closed --search "closed:>=$TS" --limit 200 --json number --jq 'length')
-  merged_prs=$(gh pr list --repo NathanKrupa/$r --state merged --search "merged:>=$TS" --limit 200 --json number --jq 'length')
-  echo "$r $open_issues $open_prs $closed_issues $merged_prs"
-done
+conda run -n Oversteward python scripts/project_status.py
 ```
 
-Note: `gh issue list` excludes PRs by default, so no double-counting.
+- Runs from the Oversteward repo root.
+- Finishes in ~2-3s (four repos fetched in parallel).
+- Reads/writes state at `.claude/skills/project-status/state.json` (ephemeral, gitignored).
+- Exits non-zero only when every repo's `gh` call failed.
 
-### 3. Render the table
+The script prints markdown to stdout. Print that output verbatim to Nathan.
 
-Markdown table, one row per project, plus a totals row. Include the "since" timestamp in the header so Nathan sees the window.
+### 2. Walk Nathan through any "Next to scope" block
 
-```
-Project pipeline status — since 2026-04-14 10:00 UTC
+If the script printed a `Next to scope (...)` section, for each surfaced candidate:
 
-| Project         | Open issues | Open PRs | Issues closed | PRs merged |
-|-----------------|-------------|----------|---------------|------------|
-| aigranthelper   | 12          | 2        | 3             | 4          |
-| grantspider     | 8           | 1        | 1             | 2          |
-| wphelper        | 5           | 1        | 0             | 1          |
-| ai-assistants   | 14          | 0        | 2             | 0          |
-| **Total**       | **39**      | **4**    | **6**         | **7**      |
-```
+1. Fetch the issue body so you can understand what's being asked:
+   ```bash
+   gh issue view <n> --repo NathanKrupa/<repo> --json title,body,labels,comments
+   ```
+2. Summarize the ask in one or two sentences.
+3. Ask Nathan the *specific* decision question(s) that would block dispatch. Typical blockers:
+   - Multiple options presented with none picked
+   - Missing acceptance criteria
+   - Unclear scope / "how big should this be"
+4. When Nathan answers, post his decision as an issue comment, add `## Acceptance` (or a checkbox list) if missing, remove `needs-scoping` (if present), and add `ready-for-agent`.
+5. Move to the next candidate.
 
-If first run, prefix with: `(first run — "since" window is last 24h; future runs will measure from this moment)`.
+If Nathan is busy or declines to scope one, leave the issue alone -- the script will surface it again next run.
 
-### 4. Detect in-flight agents
+### 3. No other side effects
 
-After the table, list any agents currently working. Two signals, unioned per issue:
+The script itself is read-only against GitHub. The only write is `state.json` locally.
 
-1. **Label signal:** issues labeled `agent-in-progress` (set by dev agents at dispatch, cleared on exit).
-2. **Branch signal:** open PRs whose head branch matches `^(fix|feat|ci|refactor|cleanup)/issue-(\d+)-` — extract the issue number from the branch.
+## Reading the output
 
-```bash
-for r in aigranthelper grantspider wphelper ai-assistants; do
-  # Label signal
-  gh issue list --repo NathanKrupa/$r --state open --label agent-in-progress --limit 50 \
-    --json number,title,url --jq '.[] | "\(.number)|\(.title)|\(.url)|label|-"'
-  # Branch signal
-  gh pr list --repo NathanKrupa/$r --state open --limit 50 \
-    --json number,headRefName,title,url \
-    --jq '.[] | select(.headRefName | test("^(fix|feat|ci|refactor|cleanup)/issue-\\d+-")) | "\(.headRefName | capture("issue-(?<n>\\d+)").n)|\(.title)|\(.url)|branch|\(.number)"'
-done
-```
+- **Ready queue** column: count of open issues labeled `ready-for-agent` per repo. This is the dispatch runway.
+- **Needs scoping** column: count of open issues labeled `needs-scoping`. These have been triaged as "needs Nathan's input before it can be dispatched".
+- **In-flight agents** section: union of (a) open issues labeled `agent-in-progress` and (b) open PRs whose branch matches `^(fix|feat|ci|refactor|cleanup)/issue-<n>-`. `label only` = no PR pushed yet; `branch only` = possibly stale (label cleared but PR still open); `label+branch` = healthy.
+- **Next to scope** block: only appears when a repo's ready queue is below threshold (`SCOPING_SURFACE_THRESHOLD = 2`). Priority 1 is oldest `needs-scoping`-labeled issue; fallback is oldest open issue that carries none of {`ready-for-agent`, `agent-in-progress`, `agent-done`, `reject-close`, `needs-input`, `wontfix`, `duplicate`, `invalid`, `backlog`}.
 
-Union by `(repo, issue_number)`. Render only when there's ≥1 hit:
+## Tuning knobs
 
-```
-In-flight agents (2):
+All constants live at the top of `scripts/project_status.py`:
 
-| Repo          | Issue | PR   | Signal       | Title
-|---------------|-------|------|--------------|----------------------------
-| aigranthelper | #169  | —    | label only   | SEC: checkout.session.completed…
-| grantspider   | #190  | #193 | label+branch | Replace naive datetime.now()…
-```
+| Constant | Purpose |
+|----------|---------|
+| `REPOS` | The four orchestration repos |
+| `SCOPING_SURFACE_THRESHOLD` | Below this `ready-for-agent` count, surface a scoping candidate |
+| `GH_LIMIT` | Per-query page cap (200) |
+| `UNSCOPED_EXCLUDES` | Labels that disqualify an issue from the scoping fallback |
 
-- `Signal` column: `label only` (no PR pushed yet), `branch only` (label was cleared but PR still open — possible stale), `label+branch` (healthy in-flight).
-- If zero in-flight agents, print: `No agents currently in flight.`
-
-### 5. Update state
-
-After rendering, write the current UTC timestamp to `state.json`:
-
-```json
-{ "last_checked": "<now-ISO8601-Z>" }
-```
-
-## Rules
-
-- **Read-only against GitHub.** No comments, labels, or edits.
-- **Per-repo error tolerance.** If a repo's scan fails (404 / auth), show `error` in that row's cells and continue with the others. Do NOT update `state.json` if ALL repos failed.
-- **Do not spawn agents.**
-- **Timestamp format:** ISO-8601 with `Z` suffix. `gh ... --search "closed:>=2026-04-14T10:00:00Z"` is the exact literal.
-- **Limits:** `--limit 200` is a safety cap; if any count hits 200, append a `+` (e.g., `200+`) and note "cap hit" below the table so Nathan knows to raise the limit.
+Edit the script directly; no re-config needed.
 
 ## Related
 
-- `/questions` — which of the open issues are blocked on Nathan
-- `/morning-digest` — daily reconciler for `needs-input` issues
-- `/answer-flow` — post Nathan's answers back to GitHub
+- `/dispatch <repo> <n>` -- fire an agent on a scoped issue
+- `/questions` -- which open issues are blocked on Nathan
+- `/morning-digest` -- daily reconciler for `needs-input` issues
+- `/answer-flow` -- post Nathan's answers back to GitHub
