@@ -393,6 +393,26 @@ def render(
         )
     lines.append("")
 
+    paused: list[tuple[str, dict]] = []
+    for r in results:
+        if "error" in r:
+            continue
+        for issue in r["open_issues"]:
+            if "dispatch-paused" in labels_of(issue):
+                paused.append((r["repo"], issue))
+                break
+    if paused:
+        lines.append(
+            f"PAUSED ({len(paused)}): /dispatch refuses these repos until "
+            "the `dispatch-paused` label is removed."
+        )
+        for repo, issue in paused:
+            lines.append(
+                f"- {repo} -- #{issue['number']} {issue['title']}  "
+                f"({issue['url']})"
+            )
+        lines.append("")
+
     in_flight: list[tuple[str, int, str, str, str, str]] = []
     for r in results:
         if "error" in r:

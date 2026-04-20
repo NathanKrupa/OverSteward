@@ -51,6 +51,10 @@ Unknown repo arg (helper exits non-zero) → abort with "Unknown repo" refusal.
 
 Run these checks. Any failure → refuse to dispatch, report the reason to the user.
 
+**Repo kill-switch (check first — whole-repo abort):**
+- `gh issue list --repo <owner>/<repo> --label dispatch-paused --state open --limit 1 --json number,title,url`
+- If any result: refuse. The repo is paused. Remove the `dispatch-paused` label from the referenced issue(s) to resume.
+
 **Issue readiness:**
 - `gh issue view <n> --repo <owner>/<repo> --json state,labels,body,comments`
 - Issue must be `state: OPEN`
@@ -97,6 +101,7 @@ Do not block the conversation. The notification comes asynchronously.
 ## Refusal messages (what to tell the user on preflight failure)
 
 - **Unknown repo:** "Unknown repo `<arg>`. Run `conda run -n Oversteward python scripts/registry.py dispatch-targets` to see current dispatch targets."
+- **Repo paused:** "Repo `<repo>` is paused — issue #<paused-issue> has `dispatch-paused`. Remove that label to resume dispatching."
 - **Issue closed:** "Issue #<n> is closed. Nothing to dispatch."
 - **Label reject-close:** "Issue #<n> is labeled reject-close. Reopen-and-relabel or pick a different issue."
 - **Label needs-scoping:** "Issue #<n> needs scoping first. Either scope it (pick option, add acceptance criteria) and remove the label, or pick a different issue."

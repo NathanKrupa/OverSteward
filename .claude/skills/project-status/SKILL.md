@@ -58,6 +58,7 @@ The script itself is read-only against GitHub. The only write is `state.json` lo
 
 - **Ready queue** column: count of open issues labeled `ready-for-agent` per repo. This is the dispatch runway.
 - **Needs scoping** column: count of open issues labeled `needs-scoping`. These have been triaged as "needs Nathan's input before it can be dispatched".
+- **PAUSED** section (only if any): lists repos where `/dispatch` is refusing new work because at least one open issue has the `dispatch-paused` label. Remove the label on the referenced issue to resume.
 - **In-flight agents** section: union of (a) open issues labeled `agent-in-progress` and (b) open PRs whose branch matches `^(fix|feat|ci|refactor|cleanup)/issue-<n>-`. `label only` = no PR pushed yet; `branch only` = possibly stale (label cleared but PR still open); `label+branch` = healthy.
 - **Next to scope** block: only appears when a repo's ready queue is below threshold (`SCOPING_SURFACE_THRESHOLD = 2`). Priority 1 is oldest `needs-scoping`-labeled issue; fallback is oldest open issue that carries none of {`ready-for-agent`, `agent-in-progress`, `agent-done`, `reject-close`, `needs-input`, `wontfix`, `duplicate`, `invalid`, `backlog`}.
 - **Pipeline metrics (last 30d)** section: aggregate health over a rolling 30-day window.
