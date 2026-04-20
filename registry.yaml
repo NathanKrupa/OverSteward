@@ -96,6 +96,7 @@ contexts:
     skills_path: .claude/skills/
     agents_path: .claude/agents/
     soul: chestertron
+    dispatch_target: true
     personas_always_on: []
     personas_available:
       - angelico
@@ -152,6 +153,7 @@ contexts:
     claude_md_path: CLAUDE.md
     skills_path: .claude/skills/
     soul: chestertron
+    dispatch_target: true
     personas_always_on: []
     personas_available:
       - angelico
@@ -229,6 +231,7 @@ contexts:
     claude_md_path: CLAUDE.md
     skills_path: .claude/skills/
     soul: chestertron
+    dispatch_target: true
     personas_always_on: []
     personas_available:
       - angelico
@@ -273,6 +276,7 @@ contexts:
     claude_md_path: CLAUDE.md
     skills_path: .claude/skills/
     soul: chestertron
+    dispatch_target: true
     personas_always_on: []
     personas_available: []
     skills_always_on:
