@@ -1,43 +1,28 @@
 # Master TODO — OverSteward
 
-**Vision:** Sync governance system keeping all House of Krupa repos aligned on souls, personas, and CLAUDE.md standards.
+**Vision:** Two-pillar steward — (1) governance sync across 14 contexts, (2) orchestration of scoped autonomous agents against four production repos.
 
 **Workflow:** Completed tasks → TODO_COMPLETED.md | Next tasks pull from → TODO_BACKLOG.md
 
----
-
-## Active Tasks — Phase 1: Manual Sync Foundation
-
-### CLAUDE.md Migrations
-
-- [x] **Home Obsidian** — migrated Session 1
-- [x] **billions** — managed block (Angelico only); David soul variant in local section; stripped duplicated guidelines
-- [x] **ai-assistants** — managed block wrapper + local markers added
-- [x] **macgregor** — swapped `@.claude/soul.md` → `@~/.claude/shared/souls/macgregor.md` via managed block
-- [x] **stocks** — managed block + stripped duplicated guidelines; project config in local section
-- [x] **ai-grants** — managed block + project config from README/package.json; deleted redundant root soul.md
-- [x] **GH Obsidian** — managed block confirmed in place (synced 2026-03-09), verified via `gh` CLI 2026-03-23
-- [x] **opportunity-miner** — managed block added via GitHub API 2026-03-23 (commit `881d674`)
-
-### Infrastructure
-
-- [x] **Home_Obsidian Git** — confirmed Git-backed; CLAUDE.md untracked, needs commit from vault
-- [x] **GH_Obsidian Git** — verified via `gh` CLI 2026-03-23; repo accessible, managed block in place
-- [x] **MacGregor soul** — extracted to `shared/souls/macgregor.md` and deployed to `~/.claude/shared/souls/`
-- [ ] **Analyst persona** — build via `/create-persona` skill; needed by Stocks and OpportunityMiner
-- [ ] **billions registry note** — model David soul exception in registry.yaml before Phase 2 sow automation
-
-### Context Files
-
-- [x] **All 8 context files filled** — home-obsidian (Session 1), remaining 7 filled Session 2 with actual repo data
-
-### Verification
-
-- [x] **@file injection test** — verified by design (Session 1 test confirmed path resolution; shared files deployed and matching)
-- [x] **First manual sync check** — `reports/2026-02-26.md` generated; all 6 local contexts pass
+Plan reference: `OVERSTEWARD.md` (Phase Roadmap); full v3 history in Stewards_Ledger.
 
 ---
 
-## Backlog (Phase 2)
+## Active — Horizon 1 (Integrity + Visibility, target 2 weeks)
 
-See TODO_BACKLOG.md — script implementations (coordinator, gather, diff, sow, sweep).
+- [ ] **H1-1** — Move dispatch target list to `registry.yaml` (`dispatch_target: true`); update `/dispatch`, `/questions`, `/morning-digest`, `/answer-flow`, `/project-status` to read from registry (PR #12)
+- [ ] **H1-2** — Pipeline metrics on `/project-status` (cycle time, needs-input age, PR success rate, self-critique fire rate) + `data/pipeline_history.jsonl` daily snapshot (PR #13)
+- [ ] **H1-3** — Formalize `soul_in_local` in registry schema docs; pin sow.py safety-gate design contract (PR #14)
+- [ ] **H1-4** — Dispatch kill-switch: `dispatch-paused` label handling; `/dispatch` refuses paused repos (PR #15)
+- [ ] **H1-5** — GH-native answer loop: build `/answer <issue>` skill; delete `/morning-digest` + `/answer-flow` + their cron schedules; archive Chestertron Inbox file; add stale-question counter to `/project-status` (PR #16)
+
+## Standing (carried across horizons)
+
+- [ ] **Analyst persona** — build via `/create-persona` when a real Stocks/OpportunityMiner use case lands (trigger-gated, not scheduled)
+- [ ] **billions registry note** — `soul_in_local: true` design formalized in H1-3; sow.py implementation in Horizon 3
+
+---
+
+## Horizon 2 / Horizon 3
+
+See TODO_BACKLOG.md.
