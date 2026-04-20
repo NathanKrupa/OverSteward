@@ -175,7 +175,10 @@ Deployed working copy — not tracked in git. Sync from `oversteward/shared/` on
 | `skills_available` | Shared skills available but not auto-deployed |
 | `agents_available` | Dispatch subagent types this context can invoke |
 | `skip_sow` | If true, governance never writes to this context |
+| `dispatch_target` | If true, context is eligible for `/dispatch` |
 | `soul_in_local` | If true, soul is defined in local section (billions David/"Sir" variant) |
+
+Full schema reference with precise semantics for every field and for the `soul_in_local` / `skip_sow` / `dispatch_target` contracts: [documentation/registry-schema.md](documentation/registry-schema.md).
 
 ### CLAUDE.md Composition
 
@@ -228,6 +231,8 @@ conda run -n Oversteward python scripts/coordinator.py --apply
 - Dry-run by default; explicit `--apply` flag to execute.
 - Never push to main — always create `oversteward/sync-YYYY-MM-DD` branch.
 - Lockfile during execution.
+
+Formal pre-conditions, per-context contracts (including `soul_in_local` write rules), post-conditions, and rejected "convenient" behaviours: [documentation/sow-safety-gates.md](documentation/sow-safety-gates.md). This is the design contract sow must honor before any first real run.
 
 ### Sweep Strategy
 
