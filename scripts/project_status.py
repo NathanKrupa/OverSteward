@@ -1,10 +1,11 @@
 # ABOUTME: Pipeline dashboard for the four orchestration repos.
-# ABOUTME: Prints status table, in-flight agents, and scoping candidates when the ready queue is thin.
+# ABOUTME: Status table + in-flight + scoping candidates + 30d metrics; appends a snapshot row per repo to data/pipeline_history.jsonl.
 
 from __future__ import annotations
 
 import json
 import re
+import statistics
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -27,15 +28,12 @@ def _ordered_targets() -> tuple[str, ...]:
 
 
 REPOS = _ordered_targets()
-STATE_PATH = (
-    Path(__file__).resolve().parent.parent
-    / ".claude"
-    / "skills"
-    / "project-status"
-    / "state.json"
-)
+REPO_ROOT = Path(__file__).resolve().parent.parent
+STATE_PATH = REPO_ROOT / ".claude" / "skills" / "project-status" / "state.json"
+SNAPSHOT_PATH = REPO_ROOT / "data" / "pipeline_history.jsonl"
 SCOPING_SURFACE_THRESHOLD = 2
 GH_LIMIT = 200
+METRIC_WINDOW_DAYS = 30
 BRANCH_RE = re.compile(r"^(fix|feat|ci|refactor|cleanup)/issue-(\d+)-")
 
 # Issues carrying any of these labels are not "scoping candidates" -- they're
@@ -65,12 +63,12 @@ def gh_json(args: list[str]) -> list[dict]:
     return json.loads(out) if out else []
 
 
-def fetch_repo(repo: str, since_iso: str) -> dict:
+def fetch_repo(repo: str, since_iso: str, window_iso: str) -> dict:
     full = f"{OWNER}/{repo}"
     limit = str(GH_LIMIT)
     open_issues = gh_json([
         "issue", "list", "--repo", full, "--state", "open",
-        "--limit", limit, "--json", "number,title,url,labels,createdAt",
+        "--limit", limit, "--json", "number,title,url,labels,createdAt,updatedAt",
     ])
     open_prs = gh_json([
         "pr", "list", "--repo", full, "--state", "open",
@@ -86,18 +84,32 @@ def fetch_repo(repo: str, since_iso: str) -> dict:
         "--search", f"merged:>={since_iso}",
         "--limit", limit, "--json", "number",
     ])
+    merged_prs_window = gh_json([
+        "pr", "list", "--repo", full, "--state", "merged",
+        "--search", f"merged:>={window_iso}",
+        "--limit", limit, "--json", "number,createdAt,mergedAt",
+    ])
+    closed_unmerged_window = gh_json([
+        "pr", "list", "--repo", full, "--state", "closed",
+        "--search", f"-is:merged closed:>={window_iso}",
+        "--limit", limit, "--json", "number",
+    ])
     return {
         "repo": repo,
         "open_issues": open_issues,
         "open_prs": open_prs,
         "closed_issue_count": len(closed_issues),
         "merged_pr_count": len(merged_prs),
+        "merged_prs_window": merged_prs_window,
+        "closed_unmerged_count_window": len(closed_unmerged_window),
     }
 
 
-def fetch_all(since_iso: str) -> list[dict]:
+def fetch_all(since_iso: str, window_iso: str) -> list[dict]:
     with ThreadPoolExecutor(max_workers=len(REPOS)) as ex:
-        futures = {ex.submit(fetch_repo, r, since_iso): r for r in REPOS}
+        futures = {
+            ex.submit(fetch_repo, r, since_iso, window_iso): r for r in REPOS
+        }
         results: list[dict] = []
         for fut, repo in futures.items():
             try:
@@ -168,8 +180,154 @@ def humanize_age(created: datetime, now: datetime) -> str:
     return f"{delta.days // 30}mo"
 
 
+def humanize_hours(h: float) -> str:
+    if h < 24:
+        return f"{h:.1f}h"
+    return f"{h / 24:.1f}d"
+
+
+def _parse_iso(ts: str) -> datetime:
+    return datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(
+        timezone.utc
+    )
+
+
+def pr_turnaround_hours(merged_prs: list[dict]) -> list[float]:
+    """Hours from PR creation to PR merge, per merged PR in the window."""
+    out: list[float] = []
+    for pr in merged_prs:
+        created = _parse_iso(pr["createdAt"])
+        merged = _parse_iso(pr["mergedAt"])
+        out.append((merged - created).total_seconds() / 3600.0)
+    return out
+
+
+def needs_input_ages_hours(open_issues: list[dict], now: datetime) -> list[float]:
+    """Hours each currently-open `needs-input` issue has been sitting.
+
+    Uses `updatedAt` as the best-available proxy for when the agent filed its
+    question. Precise timeline (label-applied-at) would require an extra
+    per-issue timeline fetch -- deferred.
+    """
+    out: list[float] = []
+    for issue in open_issues:
+        if "needs-input" not in labels_of(issue):
+            continue
+        ts = issue.get("updatedAt") or issue.get("createdAt")
+        if not ts:
+            continue
+        age = (now - _parse_iso(ts)).total_seconds() / 3600.0
+        out.append(age)
+    return out
+
+
+def compute_metrics(results: list[dict], now: datetime) -> dict:
+    """Aggregate 30d pipeline metrics across all non-errored repos."""
+    turnaround: list[float] = []
+    merged_count = 0
+    closed_unmerged_count = 0
+    ni_ages: list[float] = []
+    for r in results:
+        if "error" in r:
+            continue
+        turnaround.extend(pr_turnaround_hours(r["merged_prs_window"]))
+        merged_count += len(r["merged_prs_window"])
+        closed_unmerged_count += r["closed_unmerged_count_window"]
+        ni_ages.extend(needs_input_ages_hours(r["open_issues"], now))
+    total_closed = merged_count + closed_unmerged_count
+    merge_rate = (merged_count / total_closed) if total_closed else None
+    return {
+        "turnaround_hours": turnaround,
+        "merged_count": merged_count,
+        "closed_unmerged_count": closed_unmerged_count,
+        "merge_rate": merge_rate,
+        "ni_ages_hours": ni_ages,
+    }
+
+
+def render_metrics(metrics: dict) -> list[str]:
+    lines: list[str] = [f"Pipeline metrics (last {METRIC_WINDOW_DAYS}d):", ""]
+    turnaround = metrics["turnaround_hours"]
+    if turnaround:
+        med = statistics.median(turnaround)
+        mx = max(turnaround)
+        lines.append(
+            f"- PR turnaround (open -> merge): median {humanize_hours(med)}, "
+            f"max {humanize_hours(mx)} across {len(turnaround)} merged PRs"
+        )
+    else:
+        lines.append(
+            f"- PR turnaround: no merged PRs in last {METRIC_WINDOW_DAYS}d"
+        )
+
+    merged = metrics["merged_count"]
+    unmerged = metrics["closed_unmerged_count"]
+    rate = metrics["merge_rate"]
+    if rate is not None:
+        lines.append(
+            f"- Merge rate: {rate:.0%} ({merged} merged / "
+            f"{merged + unmerged} closed; {unmerged} closed-unmerged)"
+        )
+    else:
+        lines.append(
+            f"- Merge rate: no closed PRs in last {METRIC_WINDOW_DAYS}d"
+        )
+
+    ni = metrics["ni_ages_hours"]
+    if ni:
+        med = statistics.median(ni)
+        mx = max(ni)
+        lines.append(
+            f"- Needs-input age (currently open): median {humanize_hours(med)}, "
+            f"max {humanize_hours(mx)} across {len(ni)} issue(s)"
+        )
+    else:
+        lines.append("- Needs-input age: no open needs-input issues")
+
+    lines.append("")
+    return lines
+
+
+def snapshot_row(result: dict, now: datetime, since: datetime) -> dict:
+    open_issues = result["open_issues"]
+    label_count = lambda name: sum(  # noqa: E731
+        1 for i in open_issues if name in labels_of(i)
+    )
+    in_flight_count = sum(
+        1
+        for pr in result["open_prs"]
+        if BRANCH_RE.match(pr["headRefName"])
+    )
+    return {
+        "ts": iso_z(now),
+        "since": iso_z(since),
+        "repo": result["repo"],
+        "open_issues": len(open_issues),
+        "open_prs": len(result["open_prs"]),
+        "ready_queue": label_count("ready-for-agent"),
+        "needs_scoping": label_count("needs-scoping"),
+        "needs_input": label_count("needs-input"),
+        "in_flight": in_flight_count,
+        "closed_since_last": result["closed_issue_count"],
+        "merged_since_last": result["merged_pr_count"],
+    }
+
+
+def write_snapshot(results: list[dict], now: datetime, since: datetime) -> None:
+    SNAPSHOT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with SNAPSHOT_PATH.open("a", encoding="utf-8") as f:
+        for r in results:
+            if "error" in r:
+                continue
+            f.write(json.dumps(snapshot_row(r, now, since)) + "\n")
+
+
 def render(
-    results: list[dict], since: datetime, is_first_run: bool, now: datetime
+    results: list[dict],
+    since: datetime,
+    is_first_run: bool,
+    now: datetime,
+    metrics: dict,
 ) -> str:
     lines: list[str] = []
     lines.append(f"Project pipeline status -- since {format_since(since)}")
@@ -318,22 +476,26 @@ def render(
                 "found (issues may be backlog-tagged or terminal-labeled)."
             )
     lines.append("")
+    lines.extend(render_metrics(metrics))
     return "\n".join(lines).rstrip() + "\n"
 
 
 def main(argv: list[str]) -> int:
     since, is_first_run = read_state()
     now = datetime.now(timezone.utc)
+    window_start = now - timedelta(days=METRIC_WINDOW_DAYS)
     try:
-        results = fetch_all(iso_z(since))
+        results = fetch_all(iso_z(since), iso_z(window_start))
     except Exception as e:  # noqa: BLE001
         print(f"ERROR: {e}", file=sys.stderr)
         return 1
 
-    print(render(results, since, is_first_run, now), end="")
+    metrics = compute_metrics(results, now)
+    print(render(results, since, is_first_run, now, metrics), end="")
 
     if any("error" not in r for r in results):
         write_state(now)
+        write_snapshot(results, now, since)
     else:
         print(
             "WARN: all repos failed; state.json not updated.", file=sys.stderr

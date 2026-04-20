@@ -60,6 +60,14 @@ The script itself is read-only against GitHub. The only write is `state.json` lo
 - **Needs scoping** column: count of open issues labeled `needs-scoping`. These have been triaged as "needs Nathan's input before it can be dispatched".
 - **In-flight agents** section: union of (a) open issues labeled `agent-in-progress` and (b) open PRs whose branch matches `^(fix|feat|ci|refactor|cleanup)/issue-<n>-`. `label only` = no PR pushed yet; `branch only` = possibly stale (label cleared but PR still open); `label+branch` = healthy.
 - **Next to scope** block: only appears when a repo's ready queue is below threshold (`SCOPING_SURFACE_THRESHOLD = 2`). Priority 1 is oldest `needs-scoping`-labeled issue; fallback is oldest open issue that carries none of {`ready-for-agent`, `agent-in-progress`, `agent-done`, `reject-close`, `needs-input`, `wontfix`, `duplicate`, `invalid`, `backlog`}.
+- **Pipeline metrics (last 30d)** section: aggregate health over a rolling 30-day window.
+  - *PR turnaround*: median + max hours from PR open to PR merge. Proxy for agent-side cycle time; full issue-creation → merge cycle-time (excluding needs-input stalls) is a follow-up.
+  - *Merge rate*: merged PRs / (merged + closed-unmerged) in the window. Abandoned PRs drag this below 100%.
+  - *Needs-input age*: median + max hours that currently-open `needs-input` issues have been waiting (uses `updatedAt` as a proxy for label-applied-at).
+
+## Snapshot log
+
+Each run appends one JSON line per non-errored repo to `data/pipeline_history.jsonl` (gitignored; per-machine). Fields: `ts`, `since`, `repo`, `open_issues`, `open_prs`, `ready_queue`, `needs_scoping`, `needs_input`, `in_flight`, `closed_since_last`, `merged_since_last`. Intended as raw material for trend analysis; no automatic reading today.
 
 ## Tuning knobs
 
@@ -70,6 +78,7 @@ All constants live at the top of `scripts/project_status.py`:
 | `REPOS` | Sourced from `registry.yaml` via `scripts/registry.py` (every context with `dispatch_target: true`); `DISPLAY_ORDER` controls column order |
 | `SCOPING_SURFACE_THRESHOLD` | Below this `ready-for-agent` count, surface a scoping candidate |
 | `GH_LIMIT` | Per-query page cap (200) |
+| `METRIC_WINDOW_DAYS` | Rolling window (days) for pipeline metrics (default 30) |
 | `UNSCOPED_EXCLUDES` | Labels that disqualify an issue from the scoping fallback |
 
 Edit the script directly; no re-config needed.
