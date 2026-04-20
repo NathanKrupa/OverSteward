@@ -37,3 +37,7 @@ htmlcov/
 # Editor
 .vscode/settings.json
 *.swp
+
+# Scheduled task lockfile + crash dumps
+.claude/scheduled_tasks.lock
+*.stackdump
