@@ -41,3 +41,6 @@ htmlcov/
 # Scheduled task lockfile + crash dumps
 .claude/scheduled_tasks.lock
 *.stackdump
+
+# Per-machine pipeline snapshot log (append-only observability)
+data/pipeline_history.jsonl

@@ -10,7 +10,7 @@ Plan reference: `OVERSTEWARD.md` (Phase Roadmap); full v3 history in Stewards_Le
 
 ## Active — Horizon 1 (Integrity + Visibility, target 2 weeks)
 
-- [ ] **H1-1** — Move dispatch target list to `registry.yaml` (`dispatch_target: true`); update `/dispatch`, `/questions`, `/morning-digest`, `/answer-flow`, `/project-status` to read from registry (PR #12)
+- [x] **H1-1** — Move dispatch target list to `registry.yaml` (`dispatch_target: true`); `/dispatch`, `/questions`, `/morning-digest`, `/project-status` now read from registry (PR #12, merged 2026-04-20)
 - [ ] **H1-2** — Pipeline metrics on `/project-status` (cycle time, needs-input age, PR success rate, self-critique fire rate) + `data/pipeline_history.jsonl` daily snapshot (PR #13)
 - [ ] **H1-3** — Formalize `soul_in_local` in registry schema docs; pin sow.py safety-gate design contract (PR #14)
 - [ ] **H1-4** — Dispatch kill-switch: `dispatch-paused` label handling; `/dispatch` refuses paused repos (PR #15)
