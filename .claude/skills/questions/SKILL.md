@@ -1,11 +1,11 @@
 ---
 name: questions
-description: List agent-blocked issues (labeled `needs-input`) across aigranthelper, grantspider, wphelper, and ai-assistants. Use when the user asks "what's waiting on me", "any questions", "check inbox", or runs /questions. Returns compact list with age, URL, and latest question excerpt; flags items >48h old.
+description: "List agent-blocked issues (labeled `needs-input`) across every repo marked `dispatch_target` in registry.yaml (currently aigranthelper, grantspider, wphelper, ai-assistants). Use when the user asks \"what's waiting on me\", \"any questions\", \"check inbox\", or runs /questions. Returns compact list with age, URL, and latest question excerpt; flags items >48h old."
 ---
 
 # /questions — agent inbox aggregator
 
-Lists issues labeled `needs-input` across the four orchestration repos. These are items where a dispatched agent hit ambiguity, filed a `@nathankrupa question:` comment, and paused. This skill gives an ad-hoc mid-session view of what's blocking progress.
+Lists issues labeled `needs-input` across every dispatch-target repo. These are items where a dispatched agent hit ambiguity, filed a `@nathankrupa question:` comment, and paused. This skill gives an ad-hoc mid-session view of what's blocking progress.
 
 ## Invocation
 
@@ -17,12 +17,12 @@ No arguments.
 
 ## What this skill does
 
-### 1. Scan four repos in parallel
+### 1. Scan all dispatch-target repos in parallel
 
-Run these in a single Bash block (one command, backgrounded appropriately or sequential — either is fine, scan is fast):
+The repo list comes from the registry — no hardcoded loop. Run from the OverSteward project root:
 
 ```bash
-for r in aigranthelper grantspider wphelper ai-assistants; do
+for r in $(conda run -n Oversteward python scripts/registry.py dispatch-targets 2>/dev/null); do
   gh issue list --repo NathanKrupa/$r --label needs-input \
     --state open --json number,title,url,updatedAt,createdAt \
     --limit 50 | jq -c --arg repo "$r" '.[] | . + {repo: $repo}'

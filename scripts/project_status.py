@@ -11,8 +11,22 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-OWNER = "NathanKrupa"
-REPOS = ("aigranthelper", "grantspider", "wphelper", "ai-assistants")
+from registry import OWNER, dispatch_targets
+
+# Display order for the dashboard table. Any registry-declared dispatch target
+# not listed here falls through to the end, in registry order, so a newly added
+# fifth repo appears last without breaking the existing four-repo layout.
+DISPLAY_ORDER = ("aigranthelper", "grantspider", "wphelper", "ai-assistants")
+
+
+def _ordered_targets() -> tuple[str, ...]:
+    targets = dispatch_targets()
+    known = tuple(r for r in DISPLAY_ORDER if r in targets)
+    extras = tuple(r for r in targets if r not in DISPLAY_ORDER)
+    return known + extras
+
+
+REPOS = _ordered_targets()
 STATE_PATH = (
     Path(__file__).resolve().parent.parent
     / ".claude"

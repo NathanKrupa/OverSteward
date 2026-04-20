@@ -1,16 +1,16 @@
 ---
 name: morning-digest
-description: Reconcile GitHub `needs-input` issues against the Chestertron Inbox. Dispatched agents append their own questions live (primary path); this skill catches any `needs-input` issue whose question hasn't made it to the inbox and appends it. Invoked daily via `/schedule` (7am) or ad-hoc via `/morning-digest`.
+description: "Reconcile GitHub `needs-input` issues against the Chestertron Inbox across every repo marked `dispatch_target` in registry.yaml. Dispatched agents append their own questions live (primary path); this skill catches any `needs-input` issue whose question hasn't made it to the inbox and appends it. Invoked daily via `/schedule` (7am) or ad-hoc via `/morning-digest`."
 ---
 
 # /morning-digest — inbox reconciler
 
-Primary flow: dispatched dev agents append their questions directly to the Chestertron Inbox as they hit blockers (see dispatch playbook's Intent-Capture Protocol). This skill is the **safety net** — it scans the four orchestration repos for `needs-input` issues and appends any that don't yet have a corresponding entry in the inbox.
+Primary flow: dispatched dev agents append their questions directly to the Chestertron Inbox as they hit blockers (see dispatch playbook's Intent-Capture Protocol). This skill is the **safety net** — it scans every dispatch-target repo for `needs-input` issues and appends any that don't yet have a corresponding entry in the inbox.
 
 ## Canonical paths
 
 - **Chestertron Inbox:** `C:\Users\natha\OneDrive\Documents\Nathan Writing\Obsidian\GTD\Projects\The Almoner Business\Research\Chestertron Inbox.md`
-- **Repos scanned:** `aigranthelper`, `grantspider`, `wphelper`, `ai-assistants`
+- **Repos scanned:** every context in `registry.yaml` marked `dispatch_target` (currently aigranthelper, grantspider, wphelper, ai-assistants). Source via `conda run -n Oversteward python scripts/registry.py dispatch-targets`.
 
 ## Intended invocation
 
@@ -19,10 +19,12 @@ Primary flow: dispatched dev agents append their questions directly to the Chest
 
 ## What this skill does
 
-### 1. Scan the four repos
+### 1. Scan all dispatch-target repos
+
+Run from the OverSteward project root. The repo list comes from the registry — no hardcoded loop:
 
 ```bash
-for r in aigranthelper grantspider wphelper ai-assistants; do
+for r in $(conda run -n Oversteward python scripts/registry.py dispatch-targets 2>/dev/null); do
   gh issue list --repo NathanKrupa/$r --label needs-input \
     --state open --json number,title,url,updatedAt,createdAt \
     --limit 50 | jq -c --arg repo "$r" '.[] | . + {repo: $repo}'

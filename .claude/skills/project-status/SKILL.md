@@ -1,6 +1,6 @@
 ---
 name: project-status
-description: Show a per-project status table of open issues, open PRs, items completed since the last check-in, and any agents currently working across aigranthelper, grantspider, wphelper, and ai-assistants. Surfaces oldest unscoped issues when the ready queue is thin. Use when Nathan asks for "project status", "pipeline status", "what's in flight", or runs /project-status.
+description: "Show a per-project status table of open issues, open PRs, items completed since the last check-in, and any agents currently working across every repo marked `dispatch_target` in registry.yaml (currently aigranthelper, grantspider, wphelper, ai-assistants). Surfaces oldest unscoped issues when the ready queue is thin. Use when Nathan asks for \"project status\", \"pipeline status\", \"what's in flight\", or runs /project-status."
 ---
 
 # /project-status -- pipeline dashboard
@@ -67,7 +67,7 @@ All constants live at the top of `scripts/project_status.py`:
 
 | Constant | Purpose |
 |----------|---------|
-| `REPOS` | The four orchestration repos |
+| `REPOS` | Sourced from `registry.yaml` via `scripts/registry.py` (every context with `dispatch_target: true`); `DISPLAY_ORDER` controls column order |
 | `SCOPING_SURFACE_THRESHOLD` | Below this `ready-for-agent` count, surface a scoping candidate |
 | `GH_LIMIT` | Per-query page cap (200) |
 | `UNSCOPED_EXCLUDES` | Labels that disqualify an issue from the scoping fallback |

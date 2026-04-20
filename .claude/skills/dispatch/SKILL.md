@@ -1,6 +1,6 @@
 ---
 name: dispatch
-description: Dispatch a scoped background agent to work a GitHub issue autonomously (implement → test → PR → auto-merge). Use when the user says "dispatch issue N on REPO" or "work issue N on REPO" where REPO is aigranthelper, grantspider, wphelper, or ai-assistants.
+description: "Dispatch a scoped background agent to work a GitHub issue autonomously (implement → test → PR → auto-merge). Use when the user says \"dispatch issue N on REPO\" or \"work issue N on REPO\" where REPO is any repo marked `dispatch_target` in registry.yaml (currently aigranthelper, grantspider, wphelper, ai-assistants)."
 ---
 
 # /dispatch — autonomous agent PR worker
@@ -13,7 +13,11 @@ Dispatches a repo-scoped background agent (`<repo>-dev` subagent) to work a sing
 /dispatch <repo> <issue-number>
 ```
 
-Where `<repo>` is one of: `aigranthelper`, `grantspider`, `wphelper`, `ai-assistants`.
+Where `<repo>` is the `id` of any context in `registry.yaml` marked `dispatch_target: true`. Get the current list with:
+
+```bash
+conda run -n Oversteward python scripts/registry.py dispatch-targets
+```
 
 Example:
 ```
@@ -27,16 +31,21 @@ Example:
 
 ### 1. Repo routing
 
-Map `<repo>` → subagent type + GitHub remote:
+Look up the dispatch target metadata from the registry:
 
-| Arg | Subagent | GitHub remote | Default branch |
-|---|---|---|---|
-| `aigranthelper` | `aigranthelper-dev` | `NathanKrupa/aigranthelper` | `main` |
-| `grantspider` | `grantspider-dev` | `NathanKrupa/grantspider` | `master` |
-| `wphelper` | `wphelper-dev` | `NathanKrupa/wphelper` | `main` |
-| `ai-assistants` | `ai-assistants-dev` | `NathanKrupa/ai-assistants` | `main` |
+```bash
+conda run -n Oversteward python scripts/registry.py info <repo>
+```
 
-Unknown repo arg → abort with error.
+The helper returns:
+- `id` — the repo id
+- `subagent` — the subagent type to invoke (`{id}-dev` convention)
+- `repo` — git remote URL
+- `branch` — default branch
+- `owner` — GitHub owner (`NathanKrupa`)
+- `full_name` — `<owner>/<id>` for `gh --repo` calls
+
+Unknown repo arg (helper exits non-zero) → abort with "Unknown repo" refusal.
 
 ### 2. Preflight (before firing the agent)
 
@@ -87,7 +96,7 @@ Do not block the conversation. The notification comes asynchronously.
 
 ## Refusal messages (what to tell the user on preflight failure)
 
-- **Unknown repo:** "Unknown repo `<arg>`. Use: aigranthelper, grantspider, wphelper, or ai-assistants."
+- **Unknown repo:** "Unknown repo `<arg>`. Run `conda run -n Oversteward python scripts/registry.py dispatch-targets` to see current dispatch targets."
 - **Issue closed:** "Issue #<n> is closed. Nothing to dispatch."
 - **Label reject-close:** "Issue #<n> is labeled reject-close. Reopen-and-relabel or pick a different issue."
 - **Label needs-scoping:** "Issue #<n> needs scoping first. Either scope it (pick option, add acceptance criteria) and remove the label, or pick a different issue."
