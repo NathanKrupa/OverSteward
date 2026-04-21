@@ -114,7 +114,7 @@ Only `oversteward` (one escape hatch from the system's own control — see OVERS
 
 ### What it means
 
-Context is eligible for `/dispatch`. `scripts/registry.py dispatch-targets` returns only these. The dispatch skill, questions skill, morning-digest skill, and project-status dashboard all source their repo list from this filter.
+Context is eligible for `/dispatch`. `scripts/registry.py dispatch-targets` returns only these. The dispatch, questions, answer, and project-status skills all source their repo list from this filter.
 
 ### Current use
 

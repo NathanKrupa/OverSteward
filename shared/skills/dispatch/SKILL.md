@@ -92,7 +92,7 @@ Do not block the conversation. The notification comes asynchronously.
 - **Label reject-close:** "Issue #<n> is labeled reject-close. Reopen-and-relabel or pick a different issue."
 - **Label needs-scoping:** "Issue #<n> needs scoping first. Either scope it (pick option, add acceptance criteria) and remove the label, or pick a different issue."
 - **Label agent-in-progress:** "Issue #<n> already has an agent working on it. Wait or investigate."
-- **Label needs-input:** "Issue #<n> is waiting on your input. Check Chestertron Inbox or the issue comments."
+- **Label needs-input:** "Issue #<n> is waiting on your input. Run `/answer <repo> <n>` or read the issue comments on GitHub."
 - **No acceptance criteria:** "Issue #<n> has no acceptance criteria. Agent won't know when it's done. Add `## Acceptance` with checkboxes first."
 - **Unpicked options:** "Issue #<n> presents options but none is picked in comments. Choose one (1/2/3) and comment on the issue, then re-dispatch."
 - **Open agent PR on repo:** "Repo has an open agent PR (#<pr>). One-per-repo rule — wait for it to merge or close."

@@ -100,28 +100,29 @@ Nathan's time is expensive. Most "I need to ask" moments dissolve under a moment
 
 When the self-critique gate confirms a real blocker:
 
-1. **Append to the Chestertron Inbox** at `C:\Users\natha\OneDrive\Documents\Nathan Writing\Obsidian\GTD\Projects\The Almoner Business\Research\Chestertron Inbox.md`. **Append-only** — do NOT rewrite the file, do NOT touch frontmatter or navigation lines. Add this block at the end of the file:
+1. **Post a structured question comment on the issue.** GitHub is the single source of truth — no external inbox file. Use this exact body:
 
 ```markdown
-### <repo> #<N> — <short-title>  [<YYYY-MM-DD HH:MM>]
+@nathankrupa question: <one-line specific question>
+
 **Plan considered:** <your original plan, 1-2 sentences>
 **Holes found:** <what you identified, 1-2 sentences>
 **Gaudi check:** <rule ids consulted, or "none applicable">
 **Revised plan:** <what you'd do now, 1-2 sentences>
-**Question:** <the specific judgment call still requiring Nathan>
-**Link:** <issue or PR URL>
-
----
 ```
 
-2. `gh issue comment <n> --repo <owner>/<repo> --body "@nathankrupa question: <specific question>"`
-3. `gh issue edit <n> --remove-label agent-in-progress --add-label needs-input --repo <owner>/<repo>`
-4. If any commits exist in the worktree: push as a **draft** PR so context isn't lost. `gh pr create --draft --base <default-branch> --title "[WIP] <issue title> (#<n>)" --body "Waiting on input — see issue comments."`
-5. Remove the worktree (step 19).
-6. Emit final report with `final_state: STOPPED_FOR_INPUT` and the question text.
-7. Exit. Do not guess.
+   `gh issue comment <n> --repo <owner>/<repo> --body "$(cat <<'EOF'
+   ...body above...
+   EOF
+   )"`
 
-**Note on the inbox:** you append and move on. Nathan reviews at his morning meeting. The `/answer-flow` skill (runs hourly + on demand) posts his answers back to GitHub and flips `needs-input` → `ready-for-agent`. You will be re-dispatched with the answer in the issue thread.
+2. `gh issue edit <n> --remove-label agent-in-progress --add-label needs-input --repo <owner>/<repo>`
+3. If any commits exist in the worktree: push as a **draft** PR so context isn't lost. `gh pr create --draft --base <default-branch> --title "[WIP] <issue title> (#<n>)" --body "Waiting on input — see issue comments."`
+4. Remove the worktree (step 19).
+5. Emit final report with `final_state: STOPPED_FOR_INPUT` and the question text.
+6. Exit. Do not guess.
+
+**Note on the answer loop:** Nathan sees pending questions via `/questions` or `/project-status` (stale counter). He runs `/answer <repo> <n>`, which posts his reply as an issue comment and flips `needs-input` → `ready-for-agent`. You will be re-dispatched with the answer in the issue thread.
 
 ## Structured Final Report
 
