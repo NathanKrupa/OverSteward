@@ -82,5 +82,5 @@ This skill is read-only. It does not post comments, remove labels, or modify iss
 ## Related
 
 - `/dispatch` — the skill that produces these blocked items when agents file `needs-input` questions
-- Chestertron Inbox digest (ai-assistants #42) — the scheduled daily version of this same query
-- Answer-flow handler (ai-assistants #43) — Nathan's answers back to agents
+- `/answer <repo> <n>` — post one answer and swap `needs-input` -> `ready-for-agent`
+- `/project-status` — dashboard surfaces stale `needs-input` counts (>=48h) alongside the rest of the pipeline

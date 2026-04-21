@@ -34,6 +34,7 @@ SNAPSHOT_PATH = REPO_ROOT / "data" / "pipeline_history.jsonl"
 SCOPING_SURFACE_THRESHOLD = 2
 GH_LIMIT = 200
 METRIC_WINDOW_DAYS = 30
+STALE_QUESTION_HOURS = 48
 BRANCH_RE = re.compile(r"^(fix|feat|ci|refactor|cleanup)/issue-(\d+)-")
 
 # Issues carrying any of these labels are not "scoping candidates" -- they're
@@ -277,9 +278,16 @@ def render_metrics(metrics: dict) -> list[str]:
     if ni:
         med = statistics.median(ni)
         mx = max(ni)
+        stale = sum(1 for h in ni if h >= STALE_QUESTION_HOURS)
+        stale_suffix = (
+            f"; {stale} stale (>={STALE_QUESTION_HOURS}h) -- run /answer"
+            if stale
+            else ""
+        )
         lines.append(
             f"- Needs-input age (currently open): median {humanize_hours(med)}, "
             f"max {humanize_hours(mx)} across {len(ni)} issue(s)"
+            f"{stale_suffix}"
         )
     else:
         lines.append("- Needs-input age: no open needs-input issues")

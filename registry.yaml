@@ -105,8 +105,7 @@ contexts:
       - create-todoist-task
       - dispatch
       - questions
-      - morning-digest
-      - answer-flow
+      - answer
     skills_available:
       - daily-planning
     agents_available:

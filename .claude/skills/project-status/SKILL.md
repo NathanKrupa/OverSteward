@@ -64,7 +64,7 @@ The script itself is read-only against GitHub. The only write is `state.json` lo
 - **Pipeline metrics (last 30d)** section: aggregate health over a rolling 30-day window.
   - *PR turnaround*: median + max hours from PR open to PR merge. Proxy for agent-side cycle time; full issue-creation → merge cycle-time (excluding needs-input stalls) is a follow-up.
   - *Merge rate*: merged PRs / (merged + closed-unmerged) in the window. Abandoned PRs drag this below 100%.
-  - *Needs-input age*: median + max hours that currently-open `needs-input` issues have been waiting (uses `updatedAt` as a proxy for label-applied-at).
+  - *Needs-input age*: median + max hours that currently-open `needs-input` issues have been waiting (uses `updatedAt` as a proxy for label-applied-at). Any age >= `STALE_QUESTION_HOURS` (default 48h) is flagged inline with a `run /answer` nudge.
 
 ## Snapshot log
 
@@ -80,6 +80,7 @@ All constants live at the top of `scripts/project_status.py`:
 | `SCOPING_SURFACE_THRESHOLD` | Below this `ready-for-agent` count, surface a scoping candidate |
 | `GH_LIMIT` | Per-query page cap (200) |
 | `METRIC_WINDOW_DAYS` | Rolling window (days) for pipeline metrics (default 30) |
+| `STALE_QUESTION_HOURS` | Age at which a `needs-input` issue is flagged stale in the metrics block (default 48) |
 | `UNSCOPED_EXCLUDES` | Labels that disqualify an issue from the scoping fallback |
 
 Edit the script directly; no re-config needed.
@@ -88,5 +89,4 @@ Edit the script directly; no re-config needed.
 
 - `/dispatch <repo> <n>` -- fire an agent on a scoped issue
 - `/questions` -- which open issues are blocked on Nathan
-- `/morning-digest` -- daily reconciler for `needs-input` issues
-- `/answer-flow` -- post Nathan's answers back to GitHub
+- `/answer <repo> <n>` -- post one answer, swap `needs-input` -> `ready-for-agent`

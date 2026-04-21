@@ -14,7 +14,7 @@ Plan reference: `OVERSTEWARD.md` (Phase Roadmap); full v3 history in Stewards_Le
 - [ ] **H1-2** — Pipeline metrics on `/project-status` (cycle time, needs-input age, PR success rate, self-critique fire rate) + `data/pipeline_history.jsonl` daily snapshot (PR #13)
 - [x] **H1-3** — Formalize `soul_in_local` in registry schema docs; pin sow.py safety-gate design contract — `documentation/registry-schema.md` + `documentation/sow-safety-gates.md` (PR #14)
 - [x] **H1-4** — Dispatch kill-switch: `dispatch-paused` label added to taxonomy; `/dispatch` preflight refuses paused repos; `/project-status` surfaces paused repos (PR #15)
-- [ ] **H1-5** — GH-native answer loop: build `/answer <issue>` skill; delete `/morning-digest` + `/answer-flow` + their cron schedules; archive Chestertron Inbox file; add stale-question counter to `/project-status` (PR #16)
+- [x] **H1-5** — GH-native answer loop: `/answer <repo> <n>` skill; `/morning-digest` + `/answer-flow` removed from both `.claude/skills/` and `shared/skills/`; session-start hook removed from CLAUDE.md; `registry.yaml` `skills_always_on` updated; dispatch playbook rewrites the question-asking step to a structured GH comment; stale-question counter (>=48h) surfaced in `/project-status` metrics block (PR #16, merged 2026-04-20). **Manual follow-up:** delete the two cron triggers via `/schedule delete --name answer-flow` and `/schedule delete --name morning-digest`. The Chestertron Inbox file stays on disk (historical record); no new entries land there.
 
 ## Standing (carried across horizons)
 

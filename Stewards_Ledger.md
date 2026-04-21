@@ -37,13 +37,12 @@ The OverSteward is the one system that ensures wisdom earned in one quarter of t
 |---|---|
 | `/dispatch` skill | Active; supports aigranthelper, grantspider, wphelper, ai-assistants |
 | Subagents | Four repo-scoped dev agents defined in `shared/agents/` |
-| `/answer-flow` | Active; hourly cron + session-start |
-| `/morning-digest` | Active; daily 7am cron |
+| `/answer` | Active; GH-native per-issue reply (replaced Inbox round-trip in H1-5) |
 | `/questions` | Active; ad-hoc |
-| `/project-status` | Active; Python-backed (PR #10, 2026-04-18) |
+| `/project-status` | Active; Python-backed with 30d metrics + stale `needs-input` counter |
 | Self-critique gate | Live in dispatch playbook (PR #4, 2026-04-15) |
-| Chestertron Inbox | Functional; single-machine path |
-| Dispatch metrics | **Not yet surfaced** — no cycle time, needs-input age, failure rate |
+| Chestertron Inbox | **Retired** as of H1-5 (PR #16, 2026-04-20) — GitHub issues are now the single Q&A channel |
+| Dispatch metrics | Partial — PR turnaround + merge rate + needs-input age/stale surfaced; full cycle time and self-critique fire rate still open |
 
 ### Contexts in Registry
 
@@ -71,9 +70,8 @@ The OverSteward is the one system that ensures wisdom earned in one quarter of t
 1. **Analyst persona not yet built.** Stocks and OpportunityMiner are waiting. Use `/create-persona`.
 2. **billions registry modelling.** `soul_in_local: true` works in Phase 1; Phase 2 sow.py must honor this or it will overwrite the David variant.
 3. **Phase 2 governance scripts are stubs.** Two months without implementation while orchestration skills grew heavily. Needs an explicit scope decision — build, defer, or retire.
-4. **No dispatch metrics.** `/project-status` shows counts but not cycle time, needs-input age distribution, or PR failure rate. "Working well" claim has no measurement behind it.
-5. **Chestertron Inbox is single-machine.** Hard-coded Windows-OneDrive path in `/answer-flow` and `/morning-digest`. Blocks any future second-machine dispatch.
-6. **Private-repo branch protection unavailable.** GitHub Free tier. Discipline-only on 7 private repos.
+4. **Partial dispatch metrics.** `/project-status` surfaces PR turnaround, merge rate, needs-input age + stale counter. Still missing: full issue-creation → merge cycle time (excluding `needs-input` stalls — needs timeline-event fetch) and self-critique fire rate (definition undecided).
+5. **Private-repo branch protection unavailable.** GitHub Free tier. Discipline-only on 7 private repos.
 
 ---
 
@@ -83,7 +81,7 @@ The OverSteward is the one system that ensures wisdom earned in one quarter of t
 - **Four dispatch-target repos** (aigranthelper, grantspider, wphelper, ai-assistants) — orchestration pillar sends scoped agents against their issue queues.
 - **~/.claude/soul.md and design-soul.md** — originals remain in place; canonical copies live in shared/. Originals can be retired once all contexts migrate to shared paths.
 - **MacGregor** — soul-protected; never receives Chestertron or any cross-context content.
-- **Chestertron Inbox** — the pivot point of the async Q&A loop; lives in Nathan's Obsidian vault.
+- **GitHub issue comments** — the canonical async Q&A channel. Agents post `@nathankrupa question:` blocks; Nathan replies via `/answer <repo> <n>`; the `needs-input` → `ready-for-agent` swap closes the loop.
 
 ---
 

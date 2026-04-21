@@ -63,12 +63,11 @@ Both pillars share a principle: **Nathan is the principal; the OverSteward is th
 │  registry.yaml       ← manifest of all managed contexts          │
 │  shared/             ← canonical souls, personas, skills, refs   │
 │  contexts/           ← per-context local overrides               │
-│  .claude/skills/     ← dispatch, answer-flow, morning-digest,    │
-│                        questions, project-status, create-persona │
+│  .claude/skills/     ← dispatch, answer, questions,              │
+│                        project-status, create-persona            │
 │  scripts/            ← project_status.py, tool registry,         │
 │                        Phase 2 sync stubs                        │
 │  reports/            ← sync check logs                            │
-│  Chestertron Inbox   ← Obsidian file — async Q&A channel          │
 └────────┬────────────────────────────────────────────────────────┘
          │
          ├─── GOVERNANCE ──────────────────────────────────────────
@@ -81,8 +80,8 @@ Both pillars share a principle: **Nathan is the principal; the OverSteward is th
          └─── ORCHESTRATION ──────────────────────────────────────
              /dispatch launches repo-scoped subagent
              agent works GH issue → PR → auto-merge
-             agent blocks → needs-input + Inbox append
-             /answer-flow → posts answers back → re-dispatch
+             agent blocks → needs-input + structured question comment
+             /answer <repo> <n> → posts Nathan's reply → re-dispatch
              /project-status / /questions → pipeline visibility
 
              Targets: aigranthelper · grantspider · wphelper · ai-assistants
@@ -135,9 +134,8 @@ oversteward/
 └── .claude/
     └── skills/
         ├── dispatch/          # /dispatch — launch scoped agents
-        ├── answer-flow/       # /answer-flow — Inbox → GitHub
-        ├── morning-digest/    # /morning-digest — needs-input reconciler
-        ├── questions/         # /questions — ad-hoc inbox view
+        ├── answer/            # /answer — post one answer, swap labels
+        ├── questions/         # /questions — ad-hoc needs-input view
         ├── project-status/    # /project-status — pipeline dashboard
         └── create-persona.md  # Scaffold + deploy a new persona
 ```
@@ -281,45 +279,40 @@ scoped subagent reads issue → implements → tests → lints
     │
     ├── clean path: opens PR → enables auto-merge → polls → terminal YAML report
     │
-    └── blocked path: comments `@nathankrupa question:` on issue
+    └── blocked path: posts a structured `@nathankrupa question:` comment
+                      on the issue (plan / holes / gaudi check / revised plan)
                       labels `needs-input`
-                      appends question block to Chestertron Inbox
                       exits with STOPPED_FOR_INPUT YAML
 ```
 
 ### Async Q&A loop
 
 ```
-agent blocks → Chestertron Inbox
+agent blocks → structured question comment on the GH issue
     │
     ▼
-Nathan writes answer under the question block (morning review)
+Nathan sees it via /questions or the /project-status stale counter
     │
     ▼
-/answer-flow (hourly cron + session-start)
-    ├── parses answered blocks
+Nathan runs /answer <repo> <n>
+    ├── shows the pending question
+    ├── captures his answer
     ├── posts comment to GH issue
-    ├── swaps label needs-input → ready-for-agent
-    └── clears the answered block from Inbox
+    └── swaps label needs-input → ready-for-agent
     │
     ▼
-Nathan re-dispatches the issue
+Nathan re-dispatches the issue (/dispatch <repo> <n>)
 ```
+
+The previous Chestertron Inbox round-trip (`/morning-digest` → Obsidian file → `/answer-flow`) was retired in H1-5 (PR #16, merged 2026-04-20). GitHub issues are now the only channel for agent Q&A — cross-machine by default, no single-machine Obsidian path.
 
 ### Visibility surfaces
 
 | Skill | Cadence | Purpose |
 |---|---|---|
-| `/project-status` | Ad-hoc | Pipeline dashboard — open issues, open PRs, recent merges, agents in flight, scoping candidates when queue thins |
-| `/questions` | Ad-hoc | Compact list of `needs-input` items, flags stale (>48h) |
-| `/morning-digest` | Daily 7am cron | Safety net: catches `needs-input` issues whose questions never made it to the Inbox |
-| `/answer-flow` | Hourly cron + session-start | Inbox → GitHub answer posting |
-
-### Chestertron Inbox
-
-**Location:** `C:\Users\natha\OneDrive\Documents\Nathan Writing\Obsidian\GTD\Projects\The Almoner Business\Research\Chestertron Inbox.md`
-
-Single canonical channel for agent questions → Nathan answers. OneDrive-backed, which gives it cross-machine reach in principle (see known risk below).
+| `/project-status` | Ad-hoc | Pipeline dashboard — open issues, open PRs, recent merges, agents in flight, scoping candidates, 30d metrics, stale `needs-input` counter |
+| `/questions` | Ad-hoc | Compact list of `needs-input` items, flags stale (>=48h) |
+| `/answer` | Ad-hoc (per issue) | Post one answer on a `needs-input` issue and swap labels to `ready-for-agent` |
 
 ### Self-critique gate
 
@@ -354,9 +347,9 @@ When the ready queue drops below threshold, `/project-status` surfaces the oldes
 |---|---|
 | Task board | GitHub issues; labels drive state; no parallel TODO |
 | Subagent scope | One subagent type per production repo, briefed with local conventions |
-| Blocked-agent protocol | `needs-input` label + `@nathankrupa question:` comment + Inbox append |
-| Async Q&A channel | Chestertron Inbox markdown file in Obsidian |
-| Re-dispatch trigger | `ready-for-agent` label (swapped by `/answer-flow`) |
+| Blocked-agent protocol | `needs-input` label + structured `@nathankrupa question:` issue comment (plan/holes/gaudi/revised plan) |
+| Async Q&A channel | GitHub issue comments — single source of truth, no external inbox file |
+| Re-dispatch trigger | `ready-for-agent` label (swapped by `/answer <repo> <n>`) |
 | Self-critique gate | Coherence audit against playbook ratchet before PR open |
 | Scoping anti-starve | `/project-status` surfaces oldest unscoped issue when queue thins |
 | PR merge strategy | Auto-merge on green CI; `--admin` bypass never allowed |
@@ -393,8 +386,8 @@ All 8 local + remote contexts migrated. Canonical souls and personas deployed. 1
 
 **Orchestration side (built):**
 - [x] `/dispatch` skill and four repo-scoped subagents
-- [x] `/answer-flow`, `/morning-digest`, `/questions` skills
-- [x] `/project-status` skill with Python backend (`scripts/project_status.py`)
+- [x] `/questions` (list) and `/answer` (post one reply, swap labels) skills
+- [x] `/project-status` skill with Python backend (`scripts/project_status.py`) — 30d metrics + stale `needs-input` counter
 - [x] Self-critique gate
 - [x] Tool registry generator (`scripts/tools/generate_tool_registry.py`)
 
@@ -407,7 +400,7 @@ All 8 local + remote contexts migrated. Canonical souls and personas deployed. 1
 
 ### Phase 3 — Automation (partial)
 
-- [x] `/answer-flow` and `/morning-digest` on cron schedule
+- [x] Orchestration answer loop collapsed to GH-native surfaces (no cron dependency) — H1-5
 - [ ] Governance sync on cron (pending Phase 2 scripts)
 - [ ] Drift detection notifications
 
@@ -415,19 +408,18 @@ All 8 local + remote contexts migrated. Canonical souls and personas deployed. 1
 
 - [ ] Build Analyst persona (`/create-persona` skill already scaffolded)
 - [ ] Deploy Analyst to Stocks and OpportunityMiner
-- [ ] Pipeline metrics on `/project-status` (cycle time, needs-input age distribution, merge rate)
+- [x] Pipeline metrics on `/project-status` (PR turnaround, merge rate, needs-input age + stale counter) — H1-2 + H1-5
 - [ ] Regression catalog / pre-dispatch lint from past failure memories
-- [ ] Cross-machine resilience for the Chestertron Inbox
+- [ ] Full issue-creation → merge cycle time (excluding needs-input stalls) — needs timeline-event fetch
 
 ---
 
 ## Known Risks
 
-1. **Single-machine Inbox.** The Chestertron Inbox is a Windows-OneDrive path. OneDrive gives it cross-machine reach in principle, but agents on other machines would need the path parameterized. Parameterize it in the skills before any second-machine work begins.
-2. **Phase 2 governance scripts stale.** Script stubs have been in place since 2026-02-20 without implementation. Manual sync has been happening irregularly. Either build minimum-viable sow or formally retire the plan.
-3. **No dispatch metrics.** "Working well" is vibes. Without cycle time, needs-input age, and failure rate surfaced in `/project-status`, regressions are invisible until Nathan notices them.
-4. **billions registry modelling.** `soul_in_local: true` works today; Phase 2 sow needs to honor this explicitly or it will overwrite the David variant.
-5. **Private-repo branch protection.** GitHub Free tier blocks branch protection on private repos. Discipline-only today; could hide direct-to-main regressions.
+1. **Phase 2 governance scripts stale.** Script stubs have been in place since 2026-02-20 without implementation. Manual sync has been happening irregularly. Either build minimum-viable sow or formally retire the plan.
+2. **Partial dispatch metrics.** `/project-status` now reports PR turnaround, merge rate, `needs-input` age + stale counter. Still missing: full issue-creation → merge cycle time excluding `needs-input` stalls (needs timeline-event fetch) and self-critique fire rate (definition undecided).
+3. **billions registry modelling.** `soul_in_local: true` works today; Phase 2 sow needs to honor this explicitly or it will overwrite the David variant.
+4. **Private-repo branch protection.** GitHub Free tier blocks branch protection on private repos. Discipline-only today; could hide direct-to-main regressions.
 
 ---
 
