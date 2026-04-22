@@ -1,4 +1,4 @@
-# Dispatch Playbook — Universal Rules (v1.4)
+# Dispatch Playbook — Universal Rules (v1.6)
 
 Shared reference for all `<repo>-dev` subagents. Each subagent layers repo-specific context on top of this.
 
@@ -19,6 +19,8 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
 - **Never** use `git add -A` or `git add .` — stage specific files only
 - **Never** guess when ambiguous — use the intent-capture protocol
 - **Never** run `git checkout` / `git pull` / `git reset` on Nathan's live working tree — use a worktree instead (see workflow)
+- **Never** fall back to Nathan's live working tree when the temp worktree fails. If step 5 or step 6 fails, the correct response is STOP (`REFUSED_PREFLIGHT`), not "work in the main checkout instead." Touching the live tree as a fallback leaves uncommitted state, switched branches, and contaminated HEAD — Nathan's open terminals and IDE will see the mess. This has happened (grantspider #426 postmortem, 2026-04-22) — the fix is the step-6 viability probe, and violating it anyway is a fireable offense.
+- **Never** patch module globals in tests (`monkeypatch.setattr("module.attr", fake)` for `subprocess`, HTTP clients, filesystem, clock, `os.environ`, `random`) when the fix is to expose the dependency as a parameter. See `~/.claude/shared/references/architecture-principles.md` §Dependency Seams. If a test needs a patched global, the code under test has a hidden dependency — fix the signature, not the test.
 
 ## Workflow (19 steps, in order)
 
@@ -38,7 +40,16 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
 5. **Create worktree.** Generate a temp path: `WORKTREE_PATH=$(mktemp -d -t dispatch-<repo>-<n>-XXXX)` (on Windows bash: `WORKTREE_PATH="$TEMP/dispatch-<repo>-<n>-$RANDOM"; mkdir -p "$WORKTREE_PATH"`). Then:
    - **Continuing existing draft PR** (from step 1): `git worktree add "$WORKTREE_PATH" <existing-branch>`
    - **Fresh start:** `git worktree add -B <target-branch> "$WORKTREE_PATH" origin/<default-branch>`
-6. **Switch to worktree.** `cd "$WORKTREE_PATH"`. ALL subsequent git, test, lint, edit operations happen here. Nathan's live working tree is never touched.
+6. **Switch to worktree, then verify viability.** `cd "$WORKTREE_PATH"`. Then run these three checks — all must pass before you proceed:
+   - `git rev-parse --is-inside-work-tree` → must print `true`.
+   - `git rev-parse --show-toplevel` → must print a path that starts with `$WORKTREE_PATH` (confirms you're in the worktree, not nested inside the main repo via a silent `cd` failure).
+   - `ls "$WORKTREE_PATH" | head -3` → must show repo contents (at minimum a `.git` reference and at least one tracked file like `pyproject.toml` or `README`). An empty directory means `git worktree add` registered metadata but the checkout never populated — a known Windows+OneDrive fragility (see Out-of-band cleanup section).
+
+   **If any check fails, STOP.** Emit `final_state: REFUSED_PREFLIGHT` with `notes` describing which check failed, and `question: "worktree viability probe failed at step 6 — Nathan to retry when system is quiet. See Windows+OneDrive section of the playbook."`. Release the `agent-in-progress` label (step 18) and the worktree metadata (step 19). Do NOT attempt to work around the failure by `cd`ing back into the main repo or by running `git checkout` on Nathan's live tree — that is the non-negotiable documented above, driven by the grantspider #426 postmortem.
+
+   ALL subsequent git, test, lint, edit operations happen in `$WORKTREE_PATH`. Nathan's live working tree is never touched.
+
+   **Mid-run vanishing worktree.** If a `git` command later in the workflow fails with "fatal: not a git repository" or similar, the temp tree has disappeared mid-flight. Same rule: STOP, do not migrate work to the main checkout. Emit `final_state: STOPPED_FOR_INPUT` with the failure context; any unpushed commits are lost (that's the cost of the fragility — do not try to rescue them by working in-place).
 
 ### Issue scope validation
 
@@ -78,15 +89,16 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
 15. **Open or update PR.**
     - New: `gh pr create --base <default-branch> --title "..." --body "Closes #<n>\n..."` (use repo PR template).
     - Continuing draft: mark ready + update title/body if needed: `gh pr ready <existing-pr>` + `gh pr edit <existing-pr> --body "..."`.
-16. **Enable auto-merge immediately.** `gh pr merge <PR#> --auto --squash --delete-branch --repo <owner>/<repo>`. If errors with "auto-merge not allowed," report it.
+16. **Enable auto-merge immediately, then verify.** Run `gh pr merge <PR#> --auto --squash --delete-branch --repo <owner>/<repo>`. Then immediately `gh pr view <PR#> --json autoMergeRequest --jq .autoMergeRequest` — if the output is `null`, auto-merge silently dropped (can happen on branch-protection edge cases); re-run the merge command until it sticks. Do NOT proceed to step 17 until `autoMergeRequest` is non-null. If auto-merge remains unreachable ("auto-merge not allowed" or similar), report it in the final YAML and flip to manual-merge fallback: wait for all checks green, then run `gh pr merge <PR#> --squash --delete-branch --repo <owner>/<repo>` (no `--auto`).
 
 ### Close the loop
 
-17. **Sleep-and-poll** until terminal state. Wait intervals: 30s, 60s, 90s, 120s, 180s. Cap ~8 minutes total. After each wait: `gh pr view <PR#> --json state,mergeStateStatus,statusCheckRollup`.
+17. **Sleep-and-poll** until terminal state. Wait intervals: 30s, 60s, 90s, 120s, 180s. Cap ~8 minutes total. After each wait: `gh pr view <PR#> --json state,mergeStateStatus,autoMergeRequest,statusCheckRollup`.
     - `state == MERGED` → terminal MERGED
     - Any required check `conclusion == FAILURE` → terminal CI_FAILED
+    - `state == OPEN` and `mergeStateStatus == CLEAN` and `autoMergeRequest == null` → auto-merge was dropped mid-flight. Re-enable with `gh pr merge <PR#> --auto --squash --delete-branch` (or do the manual-merge fallback per step 16) before the next sleep. Do NOT exit the poll loop with a green, clean, un-merging PR.
     - Cap reached → terminal STILL_RUNNING (dispatcher follows up)
-18. **Release the lock.** `gh issue edit <n> --remove-label agent-in-progress --repo <owner>/<repo>`. ALWAYS do this, regardless of terminal state (including CI_FAILED / STILL_RUNNING).
+18. **Release the lock.** `gh issue edit <n> --remove-label agent-in-progress --remove-label ready-for-agent --repo <owner>/<repo>`. ALWAYS do this, regardless of terminal state (including CI_FAILED / STILL_RUNNING / STOPPED_FOR_INPUT). `ready-for-agent` is dispatch-eligibility state; once the agent has picked up the issue, that state is consumed. The `/answer` flow re-adds `ready-for-agent` when the issue is ready for re-dispatch.
 
 ### Cleanup (always runs, even on error/stop)
 
@@ -165,7 +177,7 @@ notes: "anything unexpected"
 
 In ALL failure paths — tests failed, scope exceeded, CI failed, STOPPED_FOR_INPUT, unexpected error:
 
-- **Always** remove `agent-in-progress` label (step 18)
+- **Always** remove `agent-in-progress` AND `ready-for-agent` labels (step 18)
 - **Always** remove the worktree (step 19)
 - **Always** emit the structured report
 
@@ -209,3 +221,13 @@ On Windows with repos under OneDrive, `git worktree remove --force` (step 19) re
 The step-4 `git worktree prune` drains any husk whose OneDrive lock has since released — locks are transient (minutes to hours), so deferring the cleanup to the next dispatch usually succeeds where the in-run cleanup could not.
 
 Husks that resist prune across multiple dispatches can be cleaned manually when no dispatch is in flight on that repo: `rm -rf <repo>/.git/worktrees/*`. This is safe only when `git worktree list` shows just the main working tree.
+
+### Windows + OneDrive: vanishing temp worktree (post-#426 postmortem)
+
+A related failure mode: the temp checkout at `$TEMP/dispatch-<repo>-<n>-<RANDOM>/` is created successfully by `git worktree add` (step 5), but then disappears before or during step 6 — possible causes include antivirus quarantining `.git` internals, OS idle-cleanup sweeping `%TEMP%`, OneDrive syncing an adjacent path and locking contested files, or an unrelated process removing the directory. The agent's cwd is left stale; subsequent `git` commands fail with "fatal: not a git repository" or the `cd` silently lands outside any git tree.
+
+**This is the scenario that drove the step-6 viability probe.** The probe catches the failure at the moment of `cd`, before any work happens. But the probe can also trip mid-work if the temp tree is deleted later — so the non-negotiable stands for the whole dispatch lifecycle: **if the worktree goes away, STOP. Do not migrate work to the main checkout.**
+
+**Recovery (Nathan-side)**: run dispatches when the system is quiet (close heavy apps, pause OneDrive sync, add `%TEMP%\dispatch-*` to antivirus exclusions if this recurs). Re-dispatch once the environment is clean. The issue may also be mitigated long-term by moving the dispatch temp root out of `%TEMP%` to a dedicated non-indexed path (e.g. `C:\dispatch-tmp\`) — a future playbook revision, out of scope here.
+
+**Postmortem reference**: grantspider #426 merged with the feature branch pushed from Nathan's main OneDrive checkout rather than an isolated temp worktree. The metadata dir `dispatch-grantspider-426-19214/` was orphaned (gitdir pointed at a non-existent Temp path) but the agent pushed and merged anyway, leaving the main checkout on the feature branch with a clean tree. No work was lost; the non-negotiable violation was the working-in-place fallback. The fix is in step 6 (viability probe) and the non-negotiable section.
