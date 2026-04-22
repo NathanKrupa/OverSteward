@@ -1,4 +1,4 @@
-# Dispatch Playbook — Universal Rules (v1.3)
+# Dispatch Playbook — Universal Rules (v1.4)
 
 Shared reference for all `<repo>-dev` subagents. Each subagent layers repo-specific context on top of this.
 
@@ -34,7 +34,7 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
 
 ### Worktree setup (isolation — keeps Nathan's live working tree untouched)
 
-4. **Fetch.** `cd` into the repo, run `git fetch origin <default-branch>`. Do NOT run `git checkout` or `git pull` on the main working tree — Nathan may be editing there.
+4. **Fetch (and prune husks).** `cd` into the repo. Run `git worktree prune 2>/dev/null || true` to drain any stale admin-metadata husks left by prior dispatches (see "Windows + OneDrive" note in out-of-band cleanup). Then run `git fetch origin <default-branch>`. Do NOT run `git checkout` or `git pull` on the main working tree — Nathan may be editing there.
 5. **Create worktree.** Generate a temp path: `WORKTREE_PATH=$(mktemp -d -t dispatch-<repo>-<n>-XXXX)` (on Windows bash: `WORKTREE_PATH="$TEMP/dispatch-<repo>-<n>-$RANDOM"; mkdir -p "$WORKTREE_PATH"`). Then:
    - **Continuing existing draft PR** (from step 1): `git worktree add "$WORKTREE_PATH" <existing-branch>`
    - **Fresh start:** `git worktree add -B <target-branch> "$WORKTREE_PATH" origin/<default-branch>`
@@ -201,3 +201,11 @@ If an agent crashes mid-run (rate limit, harness error, network), the `agent-in-
 - For each: check if any open PR references the issue AND has recent commits (<30min)
 - If no such PR → label is stale → remove it + comment on the issue noting the sweep
 - Sweeper is NOT part of the dispatch skill. It's a separate scheduled task (v2).
+
+### Windows + OneDrive: worktree husk drain
+
+On Windows with repos under OneDrive, `git worktree remove --force` (step 19) reliably succeeds on the filesystem tree (in `$TEMP/`) but fails with `Permission denied` on the admin-metadata half (`<repo>/.git/worktrees/<name>/`) because OneDrive holds file locks during sync. The result is a husk: no live worktree (git worktree list is clean), but an orphan metadata dir accumulates on disk.
+
+The step-4 `git worktree prune` drains any husk whose OneDrive lock has since released — locks are transient (minutes to hours), so deferring the cleanup to the next dispatch usually succeeds where the in-run cleanup could not.
+
+Husks that resist prune across multiple dispatches can be cleaned manually when no dispatch is in flight on that repo: `rm -rf <repo>/.git/worktrees/*`. This is safe only when `git worktree list` shows just the main working tree.
