@@ -3,7 +3,7 @@ ABOUTME: Canonical cross-repo spec for how grantspider (producer) and aigranthel
 
 # GrantSpider to AIGrantHelper Data Contract
 
-**Status:** Active — v1 (2026-04-20)
+**Status:** Active — v1.1 (2026-04-22)
 **Producer:** grantspider
 **Consumer:** aigranthelper
 **Home:** OverSteward `documentation/` (cross-repo governance)
@@ -55,7 +55,14 @@ This is not a public API description, not marketing copy, and not a complete fie
 
 **Rule.** When aigranthelper needs a new column on a grantspider-owned table, the DDL flows through grantspider as an Alembic migration. aigranthelper never writes to `research.*` and never runs `makemigrations` against research models.
 
-**Cross-reference by value.** aigranthelper stores `foundation_id_ref` (UUID, as string) to reference grantspider foundations. No FK. Name changes and deletes on the producer side therefore propagate only when the consumer re-reads. Denormalized copies (e.g. `FunderRelationship.foundation_name`) are caches and will drift — see §9.
+**Cross-reference by value.** aigranthelper stores `foundation_id_ref` (UUID, as string) to reference grantspider foundations. No FK. Name changes and deletes on the producer side therefore propagate only when the consumer re-reads.
+
+Where aigranthelper stores a local copy of a producer-owned field, the copy must be declared as one of two kinds:
+
+- **Snapshot.** Captured at the moment a consumer-owned row is created, intentionally *not* tracked against the source. The copy is part of the consumer row's identity — e.g., "the name of the foundation as the user saved it into their pipeline." Current snapshots: `FunderRelationship.foundation_name`, `ProgramGrantAlignment.foundation_name`. Both are load-bearing for audit logs, admin search, and `__str__` representations across Applications, Awards, FunderContacts, and FunderProgramFits. Drift from source is expected and correct.
+- **Cache.** Expected to track the source. No fields of this kind exist today. If added, list here with the refresh mechanism (reconciliation job / refresh-on-read / view-backed).
+
+A field is never *implicitly* a cache. New denormalizations must declare which kind they are in the model's docstring or help_text at the time they are added.
 
 ---
 
@@ -156,8 +163,7 @@ For tables not in §7 (purely internal to grantspider's pipeline), no cross-repo
 | `research` DB unreachable | aigranthelper catches `DatabaseError`, returns empty matches and deadlines silently | Degrade features, show a non-alarming "data refreshing" banner, log to Sentry |
 | Source exceeds freshness SLA | `gov_fetch_log` shows the miss; no operator surface | Internal alert; surface last-updated-per-source in admin |
 | Consumer mirror stale | Hand-patched (PR #329 precedent) | CI drift check per §8.3 |
-| Denormalized cache drift | `foundation_name` copies go stale silently | Reconciliation job, or refresh on read |
-| Enrichment past `expires_at` | Silently served | Reaper task plus UI marker |
+| Enrichment past `expires_at` | Silently served | Filter at query time via DB view (§6-compliant: data preserved, not mutated) |
 | Entity-resolution auto-merge | Impossible today (no code path) | Contract: never auto-merge without explicit operator action |
 | Embedding stale against changed source text | Served as-is | Add `embedding_source_hash`, backfill on drift |
 
@@ -203,8 +209,7 @@ If any of these break, the SaaS is no longer sellable. Deployment readiness must
 |---|---|---|---|
 | G1 | Consumer-mirror drift check missing (PR #329 precedent) | aigranthelper | CI job per §8.3 |
 | G2 | No operator surface for SLA-breaching sources | grantspider or oversteward | Admin panel or `/project-status` extension |
-| G3 | Denormalized `foundation_name` caches drift silently | aigranthelper | Reconciliation job |
-| G4 | Enrichment `expires_at` not reaped | grantspider | Reaper task |
+| G4 | Enrichment `expires_at` not filtered at query time | grantspider | Database view exposing only live enrichments |
 | G5 | No write-back channel for user signals (dismissed / saved) | aigranthelper | New table, not a grantspider table |
 | G6 | Embeddings go stale when source text changes | grantspider | Add `embedding_source_hash`; backfill on drift |
 | G7 | Freshness not visible to operators | oversteward or grantspider | Dashboard surface |
@@ -219,4 +224,5 @@ This contract is versioned as a document. Material changes bump `v#` in the stat
 
 ### Changelog
 
+- **v1.1 (2026-04-22):** Correct snapshot-vs-cache semantics in §3. `FunderRelationship.foundation_name` and `ProgramGrantAlignment.foundation_name` are intentional snapshots (relationship-scoped name-as-saved), not caches — they do not drift, they carry identity. Retires G3 and removes the "denormalized cache drift" row from §9. Reframes G4 from "reaper" to "DB-view-based TTL filter" to preserve §6's rule that bad rows are flagged, not silently mutated.
 - **v1 (2026-04-20):** Initial ratified contract.
