@@ -1,0 +1,112 @@
+---
+last_updated: 2026-04-25
+scope: aigranthelper, grantspider, wphelper, ai-assistants, oversteward, gaudi
+maintenance: pull-based — update on any session that discovers staleness
+read_by: scoping / planning sessions only. NOT dispatch agents.
+token_budget: ~2k. If the doc grows past that, the architecture has outgrown the format — restructure rather than expand.
+---
+
+# Architecture (machine-readable state)
+
+What has actually been built across the House of Krupa development estate. Authoritative for "what exists today, who owns it, what's known broken." Every row cites its source — if a row's source no longer exists, the row is stale and must be corrected before relying on it.
+
+**When to read:** at the start of a scoping or planning session that may touch more than one repo, or that may affect a load-bearing invariant. Not at every dispatch — dispatch agents read the issue body, which the scoping session has already shaped against this document.
+
+**When to update:** the session that scopes a §7-surface change updates §5 with the PR# on landing. The session that discovers a stale row corrects it before continuing.
+
+---
+
+## §1 Repos
+
+| ID | Purpose | Stack | Dispatch | Soul | Local path |
+|---|---|---|---|---|---|
+| aigranthelper | Grant-matching SaaS — paying-user surface | Django, Railway, Neon (default DB) | yes | chestertron | `C:\Users\natha\OneDrive\Tech\Python\aigranthelper` |
+| grantspider | Crawler/enrichment producer | Python, SQLAlchemy + Alembic, Neon (research DB) | yes | chestertron | `C:\Users\natha\OneDrive\Tech\Python\grantspider` |
+| wphelper | WordPress client toolkit; canonical home for external connectors (WP, Kit, GA4, GSC, FTP) | Python | yes | chestertron | `C:\Users\natha\OneDrive\Tech\Python\wphelper` |
+| ai-assistants | almoner package — content authoring, CRM, ingestion, WP integration | Python | yes | chestertron | see registry |
+| oversteward | Governance + this document; coordination harness for dispatch + cross-repo contracts | Python, YAML | no (governance) | chestertron | `C:\Users\natha\OneDrive\Tech\Python\Oversteward` |
+| gaudi | Architecture linter; ratchet runs in dispatch playbook step 11a | Python AST, PyPI | no (open source) | chestertron | `C:\Users\natha\OneDrive\Tech\Python\Gaudi` |
+
+Source: `registry.yaml` (dispatch_target flag), `~/.claude/CLAUDE.md` layer map.
+
+---
+
+## §2 Cross-repo seams
+
+| Producer → Consumer | What flows | Source-of-truth |
+|---|---|---|
+| grantspider → aigranthelper | Foundation/grant/award corpus over shared Neon cluster, two DBs, read-only Neon role on the consumer side | `documentation/data-contract-grantspider-aigranthelper.md` v1.1 |
+| wphelper → ai-assistants | External connector code (WordPress REST, Kit, GA4, GSC, FTP) imported as library; ai-assistants does not duplicate connector code | memory `project_wphelper_is_connector_home` |
+| oversteward → all | `registry.yaml`, `shared/` (souls + personas), `.claude/skills/` (dispatch playbook + dispatch/answer/questions/project-status skills) | `registry.yaml`, `shared/`, `.claude/skills/` |
+
+---
+
+## §3 Load-bearing invariants
+
+Rules that, if violated, break something. Each cites where it lives. Listed roughly by blast radius.
+
+| # | Invariant | Cite |
+|---|---|---|
+| I-1 | Dispatch agents never touch Nathan's live working tree (worktrees only); fallback to live tree on worktree failure is a fireable offense | `.claude/skills/dispatch/playbook.md` non-negotiables + steps 5-6, grantspider #426 postmortem |
+| I-2 | One dispatch in flight per repo (serialize same-repo, parallelize cross-repo) | memory `feedback_one_dispatch_per_project`; playbook step 1 concurrency check |
+| I-3 | Never bypass git hooks (`--no-verify`, `--admin`, `--no-gpg-sign`); never `git add -A` | playbook non-negotiables; `~/.claude/CLAUDE.md` |
+| I-4 | aigranthelper has no write path to `research.*` (Neon role is read-only; technical enforcement of the no-write rule) | data contract §4 |
+| I-5 | aigranthelper local copies of producer fields are explicitly Snapshot OR Cache, declared at definition time in docstring/help_text | data contract §3 |
+| I-6 | §7 data-contract fields cannot be removed/renamed/semantically-changed without §8 dual-write procedure | data contract §7-8 |
+| I-7 | grantspider uses the ORM, not raw SQL; raw SQL bypasses client-side defaults/invariants | memory `feedback_orm_only_no_raw_sql`; grantspider ADR-006 |
+| I-8 | Pre-migration UPDATEs collapsing many rows to one value must audit every sibling UNIQUE (partial + full) on touched columns, not just CHECKs/FKs | memory `feedback_migration_sibling_unique_audit` |
+| I-9 | wphelper is the canonical connector home; other repos import, do not duplicate connector code | memory `project_wphelper_is_connector_home` |
+| I-10 | wphelper "content generation" (authoring) is forbidden; orchestrating primitives is OK | memory `project_wphelper_orchestration_ok` |
+| I-11 | grantspider has no in-repo Grant DB writer; cross-repo pattern is to expose a fail-open seam, not an ingestion hook | memory `project_grantspider_no_in_repo_grant_writer` |
+| I-12 | Architect decisions must address every audit finding from the agent's STOPPED_FOR_INPUT report, not just the headline question | memory `feedback_architect_decision_completeness` |
+| I-13 | Tests never patch module globals (`monkeypatch.setattr("module.attr", ...)` for subprocess, HTTP, filesystem, clock, env, random) when the fix is to expose the dependency as a parameter | playbook non-negotiables; `~/.claude/shared/references/architecture-principles.md` §Dependency Seams |
+| I-14 | aigranthelper work forbidden Mon-Thu except 12-1 lunch (Golden Harvest day-job boundary) | `SESSION_STATE.md`, registry note |
+| I-15 | Issues touching §7 data-contract surface or the dispatch playbook itself **should** name, in the issue body, the specific test that would fail if the change were wrong (norm; mechanize into playbook step 8 if violated) | this document, established 2026-04-25 |
+| I-16 | CI required checks intentionally off across dispatch repos (cost conservation pre-launch); not an enforcement gap | memory `project_ci_required_checks` |
+
+---
+
+## §4 Known liabilities
+
+Honest list of broken / stale / load-bearing-without-tests. Each owned by one repo. The most valuable section and the one most likely to atrophy without discipline — when in doubt, keep this section longer rather than shorter.
+
+| ID | Liability | Owner | Tracking |
+|---|---|---|---|
+| G1 | Consumer-mirror drift check missing (PR #329 was hand-patched; precedent is fragile) | aigranthelper | data contract §8.3 |
+| G2 | No operator surface for SLA-breaching sources | grantspider or oversteward | data contract §12 |
+| G4 | Enrichment `expires_at` not filtered at query time; stale rows silently served | grantspider | data contract §12 (DB-view approach) |
+| G5 | No write-back channel for user signals (dismissed/saved); needed in aigranthelper-owned table, never in research.* | aigranthelper | data contract §12 |
+| G6 | Embeddings go stale when source text changes; no `embedding_source_hash` to detect drift | grantspider | data contract §12 |
+| G7 | Freshness not visible to operators | oversteward or grantspider | data contract §12 |
+| H1-2 | Pipeline metrics on `/project-status` (cycle time, needs-input age, PR success rate, self-critique fire rate) not yet shipped | oversteward | `MASTER_TODO.md` PR #13 |
+| L-WD-1 | Windows + OneDrive worktree-husk fragility — fresh worktrees can register metadata without populating the checkout. Mitigated by playbook step 4 prune + step 6 viability probe; underlying race remains | oversteward (playbook) | playbook §"Out-of-band cleanup" + step 6 |
+| L-DISP-1 | Branch-protection enforcement absent on private repos (GitHub Free tier limitation); discipline-only on 7 private repos | all dispatch repos | `SESSION_STATE.md` 2026-04-06 |
+
+---
+
+## §5 Recent architectural moves
+
+Rolling, capped at ~10 entries. Older moves drop off; this is the "what changed lately and why" surface, not a full history.
+
+| PR | What changed | Why |
+|---|---|---|
+| oversteward #20 | Data contract v1.1 — snapshot/cache distinction; retire G3; reframe G4 | `FunderRelationship.foundation_name` and `ProgramGrantAlignment.foundation_name` are intentional snapshots (relationship-scoped name-as-saved), not caches; G4 reframed as DB-view TTL filter (preserves "bad rows flag, never silently mutate" rule) |
+| oversteward #19 | Dispatch playbook v1.6 — harden worktree isolation | grantspider #426 postmortem: agent fell back to live tree on worktree failure, contaminating Nathan's working state; non-negotiable rule + step-6 viability probe added |
+| oversteward #18 | Dispatch playbook v1.4 — preflight `git worktree prune` | Windows + OneDrive husk metadata blocked fresh worktree creation |
+| oversteward #17 | Add GrantSpider to AIGrantHelper data contract | Two-repo data contract crystallized as cross-repo governance artifact |
+| oversteward #16 | Collapse answer loop onto GitHub issues (H1-5) | Removed `/morning-digest`, `/answer-flow`, session-start hook; question-asking now structured GH comment; stale counter ≥48h surfaced in `/project-status` metrics block |
+| oversteward #15 | Dispatch kill-switch via `dispatch-paused` label | Per-repo pause without editing skill code |
+| oversteward #14 | Formalize sow.py safety gate + `soul_in_local` in registry schema docs | Pin design contract before Phase 2 implementation |
+| oversteward #13 | (in flight) Pipeline metrics on `/project-status` | Visibility on cycle time, needs-input age, PR success rate, self-critique fire rate |
+| oversteward #12 | Move dispatch target list to `registry.yaml` (`dispatch_target: true`) | One source of truth across `/dispatch`, `/questions`, `/morning-digest`, `/project-status` |
+| oversteward — | Architecture document established (this file) | Both Nathan and Claude were re-deriving system state every session from scattered sources; pull-based central document with cited rows |
+
+---
+
+## §6 Maintenance protocol
+
+- **Read at:** scope/plan time. Skim §1-2 for orientation, grep §3-4 for the surface you're touching.
+- **Update at:** any session that learns a row is wrong, lands a §7-surface PR, or discovers a new invariant or liability.
+- **Cite or omit:** every row carries a source. If you can't cite it, it doesn't belong here — it belongs in your own session notes until it has one.
+- **Token cap:** ~2k. If §3 or §4 grows past that, the architecture has outgrown the single-file format and we restructure (probably by splitting per-repo). Do not just keep appending.
+- **Dispatch agents do not read this.** They read the issue body, which the scoping session has already shaped against this doc. Recurring token cost on dispatch is zero.
