@@ -1,5 +1,5 @@
 ---
-last_updated: 2026-04-25
+last_updated: 2026-04-27
 scope: aigranthelper, grantspider, wphelper, ai-assistants, oversteward, gaudi
 maintenance: pull-based — update on any session that discovers staleness
 read_by: scoping / planning sessions only. NOT dispatch agents.
@@ -63,6 +63,7 @@ Rules that, if violated, break something. Each cites where it lives. Listed roug
 | I-14 | aigranthelper work forbidden Mon-Thu except 12-1 lunch (Golden Harvest day-job boundary) | `SESSION_STATE.md`, registry note |
 | I-15 | Issues touching §7 data-contract surface or the dispatch playbook itself **should** name, in the issue body, the specific test that would fail if the change were wrong (norm; mechanize into playbook step 8 if violated) | this document, established 2026-04-25 |
 | I-16 | CI required checks intentionally off across dispatch repos (cost conservation pre-launch); not an enforcement gap | memory `project_ci_required_checks` |
+| I-17 | Long-running streaming INSERTs to Neon must implement retry-with-reconnect + per-batch commit; the pooler drops mid-stream connections under sustained load | grantspider PR #464 (5 connection drops during 1.34M-row grants migration, all recovered cleanly); pattern lives in `_bulk_upsert` |
 
 ---
 
@@ -81,6 +82,7 @@ Honest list of broken / stale / load-bearing-without-tests. Each owned by one re
 | H1-2 | Pipeline metrics on `/project-status` (cycle time, needs-input age, PR success rate, self-critique fire rate) not yet shipped | oversteward | `MASTER_TODO.md` PR #13 |
 | L-WD-1 | Windows + OneDrive worktree-husk fragility — fresh worktrees can register metadata without populating the checkout. Mitigated by playbook step 4 prune + step 6 viability probe; underlying race remains | oversteward (playbook) | playbook §"Out-of-band cleanup" + step 6 |
 | L-DISP-1 | Branch-protection enforcement absent on private repos (GitHub Free tier limitation); discipline-only on 7 private repos | all dispatch repos | `SESSION_STATE.md` 2026-04-06 |
+| L-GS-1 | Crawl graph (`mine_urls`, `mine_url_entity_links`) at 0 rows after Neon wipe; not in SQLite snapshot. Per-URL → foundation linkage from pre-wipe enrichment is gone; B2 retains markdown but with no embedded original URL (only domain recoverable from key path) | grantspider | grantspider `SESSION_STATE.md` 2026-04-27 |
 
 ---
 
@@ -90,6 +92,7 @@ Rolling, capped at ~10 entries. Older moves drop off; this is the "what changed 
 
 | PR | What changed | Why |
 |---|---|---|
+| grantspider #464 | SQLite -> Postgres recovery migration; retry-with-reconnect for Neon transient drops | Neon `research.*` was wiped earlier this month. 2.92M rows recovered (foundations/filings/grants/enrichments) from legacy SQLite; all four tables reconcile +0 OK. Surfaces I-17: streaming INSERTs to Neon must retry-on-drop. Crawl graph (mine_urls) NOT in snapshot — see L-GS-1. |
 | oversteward #20 | Data contract v1.1 — snapshot/cache distinction; retire G3; reframe G4 | `FunderRelationship.foundation_name` and `ProgramGrantAlignment.foundation_name` are intentional snapshots (relationship-scoped name-as-saved), not caches; G4 reframed as DB-view TTL filter (preserves "bad rows flag, never silently mutate" rule) |
 | oversteward #19 | Dispatch playbook v1.6 — harden worktree isolation | grantspider #426 postmortem: agent fell back to live tree on worktree failure, contaminating Nathan's working state; non-negotiable rule + step-6 viability probe added |
 | oversteward #18 | Dispatch playbook v1.4 — preflight `git worktree prune` | Windows + OneDrive husk metadata blocked fresh worktree creation |
@@ -99,7 +102,6 @@ Rolling, capped at ~10 entries. Older moves drop off; this is the "what changed 
 | oversteward #14 | Formalize sow.py safety gate + `soul_in_local` in registry schema docs | Pin design contract before Phase 2 implementation |
 | oversteward #13 | (in flight) Pipeline metrics on `/project-status` | Visibility on cycle time, needs-input age, PR success rate, self-critique fire rate |
 | oversteward #12 | Move dispatch target list to `registry.yaml` (`dispatch_target: true`) | One source of truth across `/dispatch`, `/questions`, `/morning-digest`, `/project-status` |
-| oversteward — | Architecture document established (this file) | Both Nathan and Claude were re-deriving system state every session from scattered sources; pull-based central document with cited rows |
 
 ---
 
