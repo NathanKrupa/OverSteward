@@ -18,8 +18,9 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
 - **Never** expand scope beyond the issue's acceptance criteria
 - **Never** use `git add -A` or `git add .` — stage specific files only
 - **Never** guess when ambiguous — use the intent-capture protocol
-- **Never** run `git checkout` / `git pull` / `git reset` on Nathan's live working tree — use a worktree instead (see workflow)
+- **Never** run any git command that mutates Nathan's live working tree state. The forbidden list is illustrative, not exhaustive: `git checkout` (any form, including `git checkout origin/main -- .`), `git pull`, `git reset`, `git restore`, `git stash` (any variant — `--keep-index`, `-u`, push, pop, drop), `git rebase`, `git merge`, `git clean`, `git rm`. **If you need any git operation that affects working-tree files, the index, or the stash list, do it inside a worktree, not in the main checkout.** The test is: if the operation could surprise a human running `git status` in the main repo right now, it's forbidden.
 - **Never** fall back to Nathan's live working tree when the temp worktree fails. If step 5 or step 6 fails, the correct response is STOP (`REFUSED_PREFLIGHT`), not "work in the main checkout instead." Touching the live tree as a fallback leaves uncommitted state, switched branches, and contaminated HEAD — Nathan's open terminals and IDE will see the mess. This has happened (grantspider #426 postmortem, 2026-04-22) — the fix is the step-6 viability probe, and violating it anyway is a fireable offense.
+- **Never** reach into the main checkout for a "baseline" or "before" view of files. If you need to compare your changes against pristine master (gaudi delta, lint delta, test delta), create a SECOND temp worktree at `origin/<default-branch>` and run the comparison there. **Do NOT** `git stash` your way to a clean view of the main checkout — even with `--keep-index` and even if you believe the working tree is clean, the operation can capture and then discard untracked uncommitted files (notes, drafts, runbooks, session-state docs). This happened on grantspider #538 (PR #539 postmortem, 2026-04-28): the agent's stash reported "captured nothing" but the subsequent `git checkout origin/master -- .` wiped two uncommitted markdown files Nathan had authored. The correct pattern is in "The 'baseline-comparison snapshot' pattern" below.
 - **Never** patch module globals in tests (`monkeypatch.setattr("module.attr", fake)` for `subprocess`, HTTP clients, filesystem, clock, `os.environ`, `random`) when the fix is to expose the dependency as a parameter. See `~/.claude/shared/references/architecture-principles.md` §Dependency Seams. If a test needs a patched global, the code under test has a hidden dependency — fix the signature, not the test.
 
 ## Workflow (19 steps, in order)
@@ -228,6 +229,31 @@ Some acceptance items already satisfied, others not. Verify each, note in the PR
 ### The "re-dispatch after answer" pattern
 
 When Nathan answers a `needs-input` question, he removes the `needs-input` label and re-dispatches. Step 1 finds the existing draft PR for that issue. Step 6 checks out its branch in a new worktree. Work resumes on the existing branch rather than creating a fresh one. Step 15 marks the draft ready rather than creating a new PR.
+
+### The "baseline-comparison snapshot" pattern (added v1.9)
+
+Some refactors require comparing post-change state against a pristine `origin/<default-branch>` baseline — most often gaudi finding deltas, lint deltas, or test-result deltas. The temptation is to `git stash` Nathan's working tree, `git checkout origin/main -- .`, run the baseline tool, then restore. **This is the forbidden anti-pattern** (see non-negotiable list above).
+
+**The correct pattern: a second temp worktree.**
+
+```bash
+# Inside your existing dispatch worktree at $WORKTREE_PATH
+BASELINE_PATH="${WORKTREE_PATH}.baseline"
+git worktree add --detach "$BASELINE_PATH" origin/<default-branch>
+
+# Run the baseline tool against the baseline tree
+( cd "$BASELINE_PATH" && .venv/Scripts/gaudi.exe check src/ -f json > /tmp/baseline.json )
+
+# Run the same tool against your worktree (the post-change state)
+.venv/Scripts/gaudi.exe check src/ -f json > /tmp/after.json
+
+# Diff and report. Then clean up:
+git worktree remove --force "$BASELINE_PATH"
+```
+
+The `.baseline` worktree is owned by your dispatch — same lifecycle, removed at step 19 alongside the primary worktree. Nathan's main checkout stays untouched throughout.
+
+**Why this matters (grantspider #538 / PR #539, 2026-04-28):** an agent ran `git stash --keep-index -u` and `git checkout origin/master -- .` in the main checkout to source a baseline. The stash reported "captured nothing" — which the agent interpreted as harmless. The subsequent `checkout` then wiped two uncommitted markdown files Nathan had authored that session (a runbook draft and an updated SESSION_STATE.md). The agent self-reported the procedural violation; Nathan recovered the files from a separate context. The recovery was lucky. The new rule above + this pattern are the real fix.
 
 ### The "harness false-positive completion" pattern (added v1.8)
 
