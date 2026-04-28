@@ -114,12 +114,42 @@ Do not block the conversation. The notification comes asynchronously.
 
 ## Post-dispatch
 
-The agent's completion notification will include a structured YAML report. Read it and relay:
+When the harness sends a `task-notification` with `status: completed`, **do not trust it blindly** — verify before relaying. The Claude Code harness has a known race condition (see playbook §"The harness false-positive completion" pattern) where it can terminate a subagent immediately after delivering a tool result without waiting for the model's next turn. The notification arrives as `completed` but the agent never finished.
+
+### Dispatcher verification (mandatory on every completion notification)
+
+Before relaying any final_state, run these checks:
+
+1. **YAML report present?** The agent's terminal output should contain a fenced YAML block with `final_state: <X>` and the rest of the structured fields (per playbook §"Structured Final Report"). If the result text is mid-narrative ("Now add regression tests:" / "Let me create the file:" / similar), the agent did NOT finish — this is the false-positive completion bug.
+
+2. **Branch state matches claimed final_state?** Run:
+   ```bash
+   git ls-remote https://github.com/<owner>/<repo>.git "refs/heads/<expected-branch>" 2>&1
+   gh issue view <n> --repo <owner>/<repo> --json labels --jq '.labels[].name'
+   gh pr list --repo <owner>/<repo> --state open --search "head:<expected-branch>" --json number,state --jq '.[]'
+   ```
+
+   - `final_state: MERGED` → expect remote branch deleted, PR shows MERGED state
+   - `final_state: STILL_RUNNING` → expect remote branch present, open PR
+   - `final_state: STOPPED_FOR_INPUT` → expect `needs-input` label set; possibly draft PR
+   - `final_state: REFUSED_PREFLIGHT` → expect labels cleared, no remote branch
+   - **No YAML report at all** → false-positive completion. Verify branch state directly.
+
+3. **If verification fails (YAML missing OR branch state inconsistent with claimed final_state):**
+   - Treat as a special case: `HARNESS_DROPPED`.
+   - Clear the `agent-in-progress` label: `gh issue edit <n> --remove-label agent-in-progress`.
+   - **Check the heartbeat-pushed branch:** if a branch exists on remote at the expected name with WIP commits, the agent's partial work survives. A re-dispatch (step 1 of playbook) will find it as an existing draft PR or just an existing branch, and step 6 will check it out in a new worktree to resume.
+   - If no branch on remote, the agent died before its first heartbeat-push — work is lost.
+   - Report to user as: "⚠️ Harness dropped agent on #<n> — false-positive completion. <Heartbeat branch found / no branch pushed>. Re-dispatch?"
+
+### Final-state messages (after verification passes)
+
 - `final_state: MERGED` → "✅ PR merged: <url>"
 - `final_state: CI_FAILED` → "❌ CI failed on <url> — check the Actions tab"
 - `final_state: STILL_RUNNING` → "⏱ PR open, CI pending: <url>. Will merge when green."
 - `final_state: STOPPED_FOR_INPUT` → "❓ Agent stopped with a question on issue #<n>. See comments."
 - `final_state: REFUSED_PREFLIGHT` → "🚫 Agent refused: <reason>"
+- `HARNESS_DROPPED` (verification-derived) → "⚠️ Harness dropped agent on #<n>. <Heartbeat status>. Re-dispatch?"
 
 ## Limitations (v1)
 

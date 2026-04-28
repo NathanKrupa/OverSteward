@@ -1,4 +1,4 @@
-# Dispatch Playbook — Universal Rules (v1.6)
+# Dispatch Playbook — Universal Rules (v1.8)
 
 Shared reference for all `<repo>-dev` subagents. Each subagent layers repo-specific context on top of this.
 
@@ -60,9 +60,33 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
    - Label `needs-scoping` or `reject-close` is present
    - "Already done" case: verify each acceptance item against current code. If all satisfied, STOP and comment: "Acceptance already satisfied on main — see <file:line> evidence. Closing unnecessary."
 
+8.5. **Consumer-enumeration pre-flight (type / data-shape refactors only).** If the issue is "type X as dataclass," "convert X dict to typed object," "promote X to TextChoices," or any other refactor that changes the SHAPE of a value, the surface is wider than the type-definition file. Before any code change:
+
+   1. Identify the dict-shape keys or call-site keywords being replaced.
+   2. Run `git grep -l '<keyword>' apps/ tests/ scripts/ | wc -l` to count consumer files.
+   3. Repeat for each major key/keyword.
+   4. Take the union of all touched files.
+
+   **If the union exceeds 8 files, STOP for input.** Comment: "Consumer count is N files. Per playbook §8.5 / dataclass-typing strategy memory, this must split into a 2-PR sequence: PR1 introduces the new type alongside the legacy shape (additive); PR2 migrates consumers in batches. Awaiting re-scope."
+
+   **Why:** the dataclass-typing failure pattern is consistent — a "narrower" framing of "just 2 files" reliably balloons to 11+ once consumer call sites are touched, exceeds the step-12.2 breadth cap, and triggers harness/API failure modes mid-flight. Three #351-class dispatches died this way before this rule was added (2026-04-28). See memory `feedback_dataclass_typing_dispatch_strategy.md`.
+
 ### Work
 
 9. **Implement** the minimum change that satisfies acceptance. No refactoring, no "while I'm here" cleanups, no tangential improvements.
+
+   **Before each Edit/Write tool call, verify your cwd.** Run `pwd` (or check via `git rev-parse --show-toplevel`) — the path MUST start with `$WORKTREE_PATH`. If it does not (e.g., a `cd` failed silently and you're now in `OneDrive/Tech/Python/<repo>/`), STOP. This is the worktree non-negotiable; the step-6 viability probe is your starting line, but cwd drift mid-run is also covered. Recover by `cd "$WORKTREE_PATH"` and re-verify; if `cd` won't take, emit `STOPPED_FOR_INPUT` per §6.
+
+   **In-flight breadth recount (type/data-shape refactors only).** After every 5 file edits, run `git diff --name-only origin/<default-branch>... | wc -l` in the worktree. If the count exceeds 10, STOP — file a comment: "Breadth cap exceeded mid-run (N files). The issue's scope was wider than estimated; re-scope per §8.5." The step-12.2 coherence-audit cap is checked too late for these failures; this in-flight check is the early warning.
+
+   **Heartbeat-commit (mandatory for any dispatch with >5 expected file edits).** The Claude Code harness has a known race condition where it terminates a subagent immediately after delivering a fast tool result, without waiting for the model's next assistant turn (see §"The harness false-positive completion" pattern). When the harness drops you mid-dispatch, any work since the last `git push` is lost. Mitigation: push the branch periodically as a heartbeat.
+
+   1. **First push as soon as one logical unit is staged.** That is, after the first 1-3 files are edited and you've staged them with `git add <path>`, do an initial `git commit -m "WIP: <short summary> (#<n>)"` and `git push -u origin <target-branch>`. Even if no PR is open yet, the branch is on remote.
+   2. **Push every 3-5 file edits thereafter.** Run `git diff --cached --shortstat` to check whether new staged work warrants a push. Use `git commit --amend --no-edit && git push --force-with-lease` to keep the WIP commit clean OR `git commit -m "WIP: ..."` for separate commits — your choice; squash-merge collapses both at the end.
+   3. **Push before any long-running command.** Specifically: before running the full pytest suite (step 10), before any operation that takes >60s. The risk window is the unprotected gap between your last push and the next; pre-empt it.
+   4. **Final commit at step 13** uses the canonical message format and replaces the WIP label. If you used `--amend` strategy, just rename the message at step 13 (`git commit --amend -m "..."`).
+
+   The cost of these extra pushes is trivial (network + remote storage); the cost of a harness drop is rebuilding all unpushed work from scratch. **Always push more often than feels necessary.**
 10. **Run tests locally** using the repo's exact test command. Must pass. Pre-existing failures: capture them, DO NOT modify, report in final YAML.
 11. **Run lint locally** using the repo's exact lint command (SCOPED TO THE SAME PATHS CI USES — not the whole repo). Fix anything flagged.
 11a. **Code-quality ratchet self-check.** If the repo ships a project-level ratchet (Types-ratchet, Gaudi-ratchet, SMELL-003 ratchet, or equivalent), run it locally against your worktree BEFORE pushing. The canonical invocation for repos with a `gaudi` dependency is `conda run -n Oversteward gaudi ratchet --check` (or the repo's documented command). Rules:
@@ -204,6 +228,33 @@ Some acceptance items already satisfied, others not. Verify each, note in the PR
 ### The "re-dispatch after answer" pattern
 
 When Nathan answers a `needs-input` question, he removes the `needs-input` label and re-dispatches. Step 1 finds the existing draft PR for that issue. Step 6 checks out its branch in a new worktree. Work resumes on the existing branch rather than creating a fresh one. Step 15 marks the draft ready rather than creating a new PR.
+
+### The "harness false-positive completion" pattern (added v1.8)
+
+**Symptom:** the harness sends a `task-notification` with `status: completed` but no YAML report was emitted by the agent. The transcript ends with the last assistant turn at `stop_reason: tool_use` (the agent made a tool call) followed by a `user` turn (tool result delivered) and nothing after — the model never got to take its next turn.
+
+**Diagnosed cause (2026-04-28):** the Claude Code harness terminates a subagent immediately after delivering a tool result, without waiting for the next assistant turn. Reproduces consistently when the tool call completes very fast (~40 ms tool_use → tool_result gap). Successful dispatches show ~9s between tool_use and tool_result, then ~35s before the next assistant turn (the final report). Failed dispatches show the same setup but the next turn never arrives.
+
+This is a **harness bug** (Claude Code), not the model and not the agent. Reported to Anthropic with JSONL transcript evidence. Until upstream-fixed, mitigate via:
+
+1. **Heartbeat-commit (step 9)** — push the branch periodically so partial work is preserved.
+2. **Dispatcher-side verification (SKILL.md "Post-dispatch")** — when a "completed" notification arrives, the dispatcher verifies the YAML report was actually emitted AND a PR/branch exists at the expected state. If either is missing, treat as `HARNESS_DROPPED` (a false-positive completion) and re-dispatch from the heartbeat-pushed branch.
+
+Four `aigranthelper-dev` dispatches dropped this way on 2026-04-28 (#327 broad, #351 v1+v2, #306). All exhibited the smoking-gun JSONL pattern. Other subagent types (general-purpose, etc.) appear unaffected — no observed instances. The bug correlates with long architectural-typing dispatches reaching ~135+ turns and ~128k cache_read.
+
+**For a re-dispatched issue that was previously dropped:** step 1 finds the existing branch on remote (heartbeat-committed). Step 6 checks it out in a new worktree. Work resumes from the last heartbeat. The new dispatch can pick up where the dropped one left off without re-doing prior work.
+
+### The "dataclass-typing scope creep" pattern (added v1.7)
+
+When the issue says "type X as dataclass" or "convert dict-shape Y to typed object," the type definition lives in 1-2 files but its consumers ripple through ~10. Three #351 / #327 dispatches died at 11-file breadth before this pattern was named (2026-04-28).
+
+**Symptom:** agent's narrower-than-original framing ("just 2 files") still touches 11+ in practice; harness or API silently terminates mid-Edit/Write at high turn count and high cache_read.
+
+**Detection:** §8.5 consumer-enumeration pre-flight catches this BEFORE work starts.
+
+**Fix:** split the issue into a 2-PR sequence in §8.5 (PR1 additive, PR2 migrate) when consumers >8.
+
+**Reliability note:** even with proper splitting, harness/API reliability degrades as cache_read approaches ~128k and turn count approaches ~135. Long architectural-typing dispatches sit close to that ceiling. If a dispatch dies silently after a successful tool_use turn (no error message, harness reports "completed"), the work is lost and re-dispatching the same scope will likely fail the same way. Re-scope smaller before retrying. See memory `feedback_dataclass_typing_dispatch_strategy.md` for full diagnosis.
 
 ## Out-of-band cleanup (operator-level, not agent-level)
 
