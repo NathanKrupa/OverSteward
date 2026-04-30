@@ -88,7 +88,14 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
    4. **Final commit at step 13** uses the canonical message format and replaces the WIP label. If you used `--amend` strategy, just rename the message at step 13 (`git commit --amend -m "..."`).
 
    The cost of these extra pushes is trivial (network + remote storage); the cost of a harness drop is rebuilding all unpushed work from scratch. **Always push more often than feels necessary.**
-10. **Run tests locally** using the repo's exact test command. Must pass. Pre-existing failures: capture them, DO NOT modify, report in final YAML.
+10. **Run the FULL test suite locally** using the repo's exact test command. Isolated runs on touched files are necessary but NOT sufficient — they miss cross-cutting regressions, fixture-state corruption, import-time errors, and side effects that surface only end-to-end. Memory: `feedback_local_test_discipline.md`.
+
+    1. **Use the project's default test command first** (typically `pytest` with `--reuse-db` configured in `pyproject.toml` for Django projects). Don't pass `--create-db` unless you've already seen cached-state rot in this session — `--create-db` requires the migration chain to fully build the test DB from scratch, which can fail on missing Postgres extensions (pgvector etc.) or other production-parity setup that exists on the real DB but isn't replayed by Django migrations. If `--create-db` fails where `--reuse-db` works, that's a documented bug, not a "pre-existing flake" — note it for the architect.
+    2. **Full suite must pass green.** Zero unexpected failures. If failures appear:
+        - Verify they reproduce on `origin/<default-branch>` in a SECOND `$TEMP` worktree (per "baseline-comparison snapshot" pattern below). Do NOT classify a failure as "pre-existing" without this check.
+        - Verified-pre-existing failures: capture them in your final YAML's `tests:` field with specific test IDs, and link to the documented flake (memory entry, project CLAUDE.md, or a tracking issue).
+        - New failures (cannot be reproduced on origin or have no documented flake): STOP and report `STOPPED_FOR_INPUT`. Do NOT merge a PR that introduces failures, even if CI is disabled and auto-merge would let it through.
+    3. **Report full-suite results in the final YAML.** "Isolated 50/50 passed" is incomplete — the dispatcher will treat a missing full-suite count as a yellow flag.
 11. **Run lint locally** using the repo's exact lint command (SCOPED TO THE SAME PATHS CI USES — not the whole repo). Fix anything flagged.
 11a. **Code-quality ratchet self-check.** If the repo ships a project-level ratchet (Types-ratchet, Gaudi-ratchet, SMELL-003 ratchet, or equivalent), run it locally against your worktree BEFORE pushing. The canonical invocation for repos with a `gaudi` dependency is `conda run -n Oversteward gaudi ratchet --check` (or the repo's documented command). Rules:
 
