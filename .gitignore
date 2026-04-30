@@ -44,3 +44,9 @@ htmlcov/
 
 # Per-machine pipeline snapshot log (append-only observability)
 data/pipeline_history.jsonl
+
+# Dispatch agent worktrees (registered git worktrees, ephemeral per-machine)
+.claude/worktrees/
+
+# Local scratch / draft issue bodies / throwaway notes
+.scratch/
