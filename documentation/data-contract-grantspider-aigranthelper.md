@@ -3,7 +3,7 @@ ABOUTME: Canonical cross-repo spec for how grantspider (producer) and aigranthel
 
 # GrantSpider to AIGrantHelper Data Contract
 
-**Status:** Active — v1.1 (2026-04-22)
+**Status:** Active — v1.2 (2026-04-30)
 **Producer:** grantspider
 **Consumer:** aigranthelper
 **Home:** OverSteward `documentation/` (cross-repo governance)
@@ -27,16 +27,16 @@ This is not a public API description, not marketing copy, and not a complete fie
 
 ## 2. Topology
 
-**One Neon cluster, two databases.**
+**Two Neon projects, one database each.** Post-2026-04-30 cutover (aigranthelper PR #413, grantspider PR #626): the producer and consumer no longer share a Neon cluster. grantspider lives on its own Neon project (`ep-plain-breeze-amopwc5f`); aigranthelper retains the original cluster (`ep-solitary-art-aenuetaf`) for its default DB.
 
-| DB alias (Django) | Database | Owner | Migration tool | aigranthelper access |
+| DB alias (Django) | Neon project | Owner | Migration tool | aigranthelper access |
 |---|---|---|---|---|
-| `default` | aigranthelper | aigranthelper | Django migrations | RW |
-| `research` | grantspider | grantspider | Alembic (SQLAlchemy ORM) | **read-only** |
+| `default` | aigranthelper Neon | aigranthelper | Django migrations | RW |
+| `research` | grantspider Neon | grantspider | Alembic (SQLAlchemy ORM) | **read-only** (Neon role `ag_research_reader`) |
 
-**Django routing.** `config/db/router.py::SchemaRouter` maps the `research` app label to the `research` alias. All grantspider-owned models in `apps/research/models/` are declared `managed = False` and queried with `.using("research")`.
+**Django routing.** `apps/core/db_router.py::SchemaRouter` maps the `research` app label to the `research` alias. All grantspider-owned models in `apps/research/models/` are declared `managed = False` and queried with `.using("research")`. After PR #413, `allow_migrate` returns `False` for the entire `research` label whenever a separate research DB is configured — covering `RunSQL` ops that have no `model_name` (the gap that wiped 34 GS-owned tables in the 2026-04-30 incident).
 
-**Connection strings.** `DATABASE_URL` (default) and `RESEARCH_DATABASE_URL` (research). Both resolve to Neon; the research URL must point at a **read-only** Neon role from aigranthelper's side. Cross-database foreign keys are not possible and intentionally are not attempted.
+**Connection strings.** `DATABASE_URL` (default) and `RESEARCH_DATABASE_URL` / `RESEARCH_DATABASE_URL_DIRECT` (research, pooled and direct). The research URL must resolve to the `ag_research_reader` Neon role. Cross-database foreign keys are not possible and intentionally are not attempted; cross-database JOINs are also not possible (see aigranthelper #414 — `Organization.focus_areas` cross-DB M2M is being refactored).
 
 ---
 
@@ -74,7 +74,7 @@ A field is never *implicitly* a cache. New denormalizations must declare which k
 
 **Semantic and full-text search.** Query paths depend on `foundations.embedding` (pgvector) and enrichment-text indexes. These are coverage-critical and are listed in §7.
 
-**Credentials.** The Neon role behind `RESEARCH_DATABASE_URL` is read-only. This is the technical enforcement of the "no write" rule. Create a new role if needed; do not demote the grantspider role.
+**Credentials.** The Neon role behind `RESEARCH_DATABASE_URL` is `ag_research_reader` — read-only by Neon role grant, on the grantspider-owned Neon project. This is the technical enforcement of the "no write" rule. Create a new role if a different access pattern is needed; do not promote `ag_research_reader`.
 
 ---
 
@@ -224,5 +224,6 @@ This contract is versioned as a document. Material changes bump `v#` in the stat
 
 ### Changelog
 
+- **v1.2 (2026-04-30):** Topology rewrite after the 2026-04-30 incident and cutover (aigranthelper #413, grantspider #626). Replaces "one Neon cluster, two databases" with "two Neon projects, one database each." Adds `ag_research_reader` as the named read-only role on the grantspider Neon project — the technical enforcement of §4. Documents the `RunSQL` model_name gap that triggered the wipe and the router hardening that closes it. Notes the residual cross-DB M2M issue tracked as aigranthelper #414. Router path reference updated to `apps/core/db_router.py`.
 - **v1.1 (2026-04-22):** Correct snapshot-vs-cache semantics in §3. `FunderRelationship.foundation_name` and `ProgramGrantAlignment.foundation_name` are intentional snapshots (relationship-scoped name-as-saved), not caches — they do not drift, they carry identity. Retires G3 and removes the "denormalized cache drift" row from §9. Reframes G4 from "reaper" to "DB-view-based TTL filter" to preserve §6's rule that bad rows are flagged, not silently mutated.
 - **v1 (2026-04-20):** Initial ratified contract.
