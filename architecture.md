@@ -1,5 +1,5 @@
 ---
-last_updated: 2026-04-27
+last_updated: 2026-04-30
 scope: aigranthelper, grantspider, wphelper, ai-assistants, oversteward, gaudi
 maintenance: pull-based — update on any session that discovers staleness
 read_by: scoping / planning sessions only. NOT dispatch agents.
@@ -35,7 +35,7 @@ Source: `registry.yaml` (dispatch_target flag), `~/.claude/CLAUDE.md` layer map.
 
 | Producer → Consumer | What flows | Source-of-truth |
 |---|---|---|
-| grantspider → aigranthelper | Foundation/grant/award corpus over shared Neon cluster, two DBs, read-only Neon role on the consumer side | `documentation/data-contract-grantspider-aigranthelper.md` v1.1 |
+| grantspider → aigranthelper | Foundation/grant/award corpus across two Neon projects (post-2026-04-30 cutover); aigranthelper connects as `ag_research_reader` (read-only Neon role) | `documentation/data-contract-grantspider-aigranthelper.md` v1.2 |
 | wphelper → ai-assistants | External connector code (WordPress REST, Kit, GA4, GSC, FTP) imported as library; ai-assistants does not duplicate connector code | memory `project_wphelper_is_connector_home` |
 | oversteward → all | `registry.yaml`, `shared/` (souls + personas), `.claude/skills/` (dispatch playbook + dispatch/answer/questions/project-status skills) | `registry.yaml`, `shared/`, `.claude/skills/` |
 
@@ -50,7 +50,7 @@ Rules that, if violated, break something. Each cites where it lives. Listed roug
 | I-1 | Dispatch agents never touch Nathan's live working tree (worktrees only); fallback to live tree on worktree failure is a fireable offense | `.claude/skills/dispatch/playbook.md` non-negotiables + steps 5-6, grantspider #426 postmortem |
 | I-2 | One dispatch in flight per repo (serialize same-repo, parallelize cross-repo) | memory `feedback_one_dispatch_per_project`; playbook step 1 concurrency check |
 | I-3 | Never bypass git hooks (`--no-verify`, `--admin`, `--no-gpg-sign`); never `git add -A` | playbook non-negotiables; `~/.claude/CLAUDE.md` |
-| I-4 | aigranthelper has no write path to `research.*` (Neon role is read-only; technical enforcement of the no-write rule) | data contract §4 |
+| I-4 | aigranthelper has no write path to `research.*` (Neon role `ag_research_reader` on the grantspider Neon project is read-only; technical enforcement of the no-write rule). Django router additionally returns `False` from `allow_migrate` for the entire `research` label whenever a separate research DB is configured — closes the `RunSQL`/`model_name=None` gap that wiped 34 GS tables 2026-04-30 | data contract §4, aigranthelper PR #413 |
 | I-5 | aigranthelper local copies of producer fields are explicitly Snapshot OR Cache, declared at definition time in docstring/help_text | data contract §3 |
 | I-6 | §7 data-contract fields cannot be removed/renamed/semantically-changed without §8 dual-write procedure | data contract §7-8 |
 | I-7 | grantspider uses the ORM, not raw SQL; raw SQL bypasses client-side defaults/invariants | memory `feedback_orm_only_no_raw_sql`; grantspider ADR-006 |
@@ -83,6 +83,8 @@ Honest list of broken / stale / load-bearing-without-tests. Each owned by one re
 | L-WD-1 | Windows + OneDrive worktree-husk fragility — fresh worktrees can register metadata without populating the checkout. Mitigated by playbook step 4 prune + step 6 viability probe; underlying race remains | oversteward (playbook) | playbook §"Out-of-band cleanup" + step 6 |
 | L-DISP-1 | Branch-protection enforcement absent on private repos (GitHub Free tier limitation); discipline-only on 7 private repos | all dispatch repos | `SESSION_STATE.md` 2026-04-06 |
 | L-GS-1 | Crawl graph (`mine_urls`, `mine_url_entity_links`) at 0 rows after Neon wipe; not in SQLite snapshot. Per-URL → foundation linkage from pre-wipe enrichment is gone; B2 retains markdown but with no embedded original URL (only domain recoverable from key path) | grantspider | grantspider `SESSION_STATE.md` 2026-04-27 |
+| L-AG-1 | `Organization.focus_areas` is a Django M2M to `research.NTEECode` — cross-DB JOIN impossible after the 2026-04-30 cutover. Workaround: `ntee_codes` exists on **both** DBs in lockstep (51-row stub on AG default, canonical on research). Every `NTEE_SEED` edit needs a coordinated GS Alembic upgrade *and* a manual reseed on AG default. Footgun until #414 lands | aigranthelper | aigranthelper #414 (storage swap to `ArrayField`), #415 (test-DB prerequisite), #416 (router fallback retirement) |
+| L-AG-2 | `apps/core/db_router.py` carries a single-DB legacy fallback branch (`allow_migrate` lines 51-57) that exists only because `config/settings/test.py` aliases the research test DB to default via `MIRROR`. Prod-vs-test routing divergence is the same shape that masked the cross-DB M2M issue originally — until tests run against a real second Postgres test DB, the router's primary path is not exercised by CI | aigranthelper | aigranthelper #415 (test config), #416 (delete fallback) |
 
 ---
 
@@ -92,6 +94,7 @@ Rolling, capped at ~10 entries. Older moves drop off; this is the "what changed 
 
 | PR | What changed | Why |
 |---|---|---|
+| aigranthelper #413 + grantspider #626 | Research-DB cutover. Producer moved to its own Neon project; consumer connects as `ag_research_reader` (read-only role). AG router hardened: `allow_migrate` returns `False` for the entire `research` label when a separate research DB is configured (closes the `RunSQL`/`model_name=None` gap). Historical 0001-0006 research migrations neutralised to no-op markers. `crawl_queue` and `cf_scrape_log` (GS-retired) dropped from AG codegen | 2026-04-30 incident: AG's `apps/research/migrations/0001`'s `reverse_sql=DROP TABLE foundations` ran on the shared Neon DB through the router gap, deleting 34 GS-owned tables. GS data restored to a fresh dedicated Neon project from the pre-incident snapshot; AG no longer shares a Neon cluster with the producer. Residual cross-DB M2M (`Organization.focus_areas`) tracked as L-AG-1 / aigranthelper #414. |
 | grantspider #464 | SQLite -> Postgres recovery migration; retry-with-reconnect for Neon transient drops | Neon `research.*` was wiped earlier this month. 2.92M rows recovered (foundations/filings/grants/enrichments) from legacy SQLite; all four tables reconcile +0 OK. Surfaces I-17: streaming INSERTs to Neon must retry-on-drop. Crawl graph (mine_urls) NOT in snapshot — see L-GS-1. |
 | oversteward #20 | Data contract v1.1 — snapshot/cache distinction; retire G3; reframe G4 | `FunderRelationship.foundation_name` and `ProgramGrantAlignment.foundation_name` are intentional snapshots (relationship-scoped name-as-saved), not caches; G4 reframed as DB-view TTL filter (preserves "bad rows flag, never silently mutate" rule) |
 | oversteward #19 | Dispatch playbook v1.6 — harden worktree isolation | grantspider #426 postmortem: agent fell back to live tree on worktree failure, contaminating Nathan's working state; non-negotiable rule + step-6 viability probe added |
@@ -101,7 +104,6 @@ Rolling, capped at ~10 entries. Older moves drop off; this is the "what changed 
 | oversteward #15 | Dispatch kill-switch via `dispatch-paused` label | Per-repo pause without editing skill code |
 | oversteward #14 | Formalize sow.py safety gate + `soul_in_local` in registry schema docs | Pin design contract before Phase 2 implementation |
 | oversteward #13 | (in flight) Pipeline metrics on `/project-status` | Visibility on cycle time, needs-input age, PR success rate, self-critique fire rate |
-| oversteward #12 | Move dispatch target list to `registry.yaml` (`dispatch_target: true`) | One source of truth across `/dispatch`, `/questions`, `/morning-digest`, `/project-status` |
 
 ---
 

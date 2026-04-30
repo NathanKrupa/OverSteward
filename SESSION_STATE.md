@@ -1,52 +1,62 @@
 ---
 session_date: 2026-04-30
-status: paused (Nathan splitting to fresh GS + AG sessions)
-context: 2026-04-30 disaster recovery + research-DB cutover (full sequence)
+status: paused (AG cross-DB residual scoped + filed; ready for dispatch)
+context: audit + scoping session for the cross-DB M2M debt left by the 2026-04-30 cutover
 ---
 
 ## Where we left off
 
-Coordinator session for the 2026-04-30 disaster recovery and research-DB cutover. Detailed per-repo state lives in:
+Audit session for the residual technical debt left in aigranthelper by the morning's research-DB cutover. Three issues filed in dispatch order; data contract and architecture.md refreshed to reflect the new two-Neon-project topology.
 
-- ``~/Tech/Python/grantspider/SESSION_STATE.md``
-- ``~/Tech/Python/aigranthelper/SESSION_STATE.md``
+## What this session did
 
-**Headline:** GrantSpider's research data is now isolated on a dedicated Neon project. The shared ``neondb`` no longer hosts any GS-owned tables. Both PRs merged.
+Read AG's [SESSION_STATE.md](../../aigranthelper/SESSION_STATE.md) and the cutover artefacts. Audited the AG codebase for the cross-DB M2M residue (`Organization.focus_areas` → `research.NTEECode`) and the test-config paperwork (`MIRROR: default`) that papers over it. Reviewed an initial 5-PR plan for holes; principled decisions made; landed on a tighter 3-issue plan.
 
-## What happened (timeline)
+### Decisions committed
 
-1. **Morning incident, ~09:45–10:35 UTC.** ~34 GS-owned tables disappeared from the shared ``neondb``. Forensic root cause: AG's ``apps/research/migrations/0001_create_research_tables.py`` carried ``reverse_sql="DROP TABLE IF EXISTS foundations;"``. Django's router gated by ``model_name`` — but ``RunSQL`` ops have ``model_name=None``, so the gate fell through and the destructive SQL ran.
-2. **Restored from B2 dump** (09:45 UTC pre-loss) onto a brand-new dedicated GrantSpider Neon project (``ep-plain-breeze-amopwc5f``).
-3. **Phase 1 — GS cutover:** rotated GS ``.env`` (NEW URLs primary, OLD preserved as ``_OLD``); separate B2 backup prefix (``GRANTSPIDER_B2_BACKUP_PREFIX=db-backups/grantspider/``); 3,470 GS unit tests green on new DB.
-4. **Phase 2 — AG hardening:** router now refuses every research-label op when a separate research DB is configured (closes the ``RunSQL`` gap); ``apps/research/migrations/0001`` neutralised; stale ``crawl_queue``/``cf_scrape_log`` references dropped. AG full suite: 1,518 passed.
-5. **Phase 3 — drop GS-owned tables from old neondb.** Pre-drop snapshot at ``b2://GrantSpider/db-backups/research-pre-drop/20260430T160135Z_phase3_pre_drop.dump`` (168.5 MB). 36 GS tables + ``alembic_version`` dropped in single transaction. AG suite re-ran: ``ntee_codes`` had to be recreated as an empty stub on AG default DB (cross-DB Django M2M tech debt — see [aigranthelper#414](https://github.com/NathanKrupa/aigranthelper/issues/414)).
+- **Option 1 over option 2 for #414.** `Organization.focus_areas = ArrayField(TextField())`, not a separate `FocusArea` model. Grep confirms no consumer uses the M2M reverse direction (`nteecode.organizations`); per-row metadata has no concrete need; YAGNI applied.
+- **One coherent PR for the storage swap, not three.** Earlier draft staged a service-extract + service-extract + storage-swap sequence. Rejected: the service exists *because of* the swap; pre-extracting it is premature abstraction.
+- **Test config moves to a real second Postgres test DB.** SQLite rejected — ArrayField, pgvector, and UUID variances make Postgres-only the only honest test surface. Removes the `MIRROR: default` paperwork in `config/settings/test.py:24` that hides prod-vs-test routing divergence.
+- **Old code is hidden-failure surface — Issue 3 lands.** The single-DB legacy fallback in `apps/core/db_router.py:51-57` is dead the moment #415 lands. Delete, don't leave.
+- **Doc refresh isn't an issue, it's prescribed maintenance.** Architecture.md §6 obligates it after a §7-surface change. Landed in this session.
 
-## Merged
+## Filed (aigranthelper)
 
-- **[grantspider#626](https://github.com/NathanKrupa/grantspider/pull/626)** — B2 prefix wiring + links v2 / IRS extras housekeeping migrations + ``NteeCode`` model and seed migration (``71e11596ed29``).
-- **[aigranthelper#413](https://github.com/NathanKrupa/aigranthelper/pull/413)** — router gate hardened, destructive 0001 neutralised, ``crawl_queue`` / ``cf_scrape_log`` cleanup with state-only ``DeleteModel`` migration ``0006``.
+| # | Title | Role |
+|---|---|---|
+| [#415](https://github.com/NathanKrupa/aigranthelper/issues/415) | Test config: separate research test DB on local Postgres (remove MIRROR) | **Prerequisite.** Dispatch first. |
+| [#414](https://github.com/NathanKrupa/aigranthelper/issues/414) | Replace cross-DB M2M with ArrayField + introduce NteeCatalogService | Updated in place. Closes the dual-residence footgun. Depends on #415. |
+| [#416](https://github.com/NathanKrupa/aigranthelper/issues/416) | Retire single-DB legacy fallback in db_router (delete dead branch) | Cleanup. Depends on #415. |
 
-## Resume sequence
+Sequencing: 415 → 414 → 416. One AG dispatch in flight at a time per I-2.
 
-Open the per-repo ``SESSION_STATE.md`` in a fresh session for either repo. Each is self-contained.
+## Documents refreshed in this session
+
+- [`documentation/data-contract-grantspider-aigranthelper.md`](documentation/data-contract-grantspider-aigranthelper.md) → **v1.2 (2026-04-30)**. §2 topology rewritten to two Neon projects; `ag_research_reader` named in §4; `RunSQL`/`model_name=None` gap closure documented; aigranthelper #414 referenced as residual debt.
+- [`architecture.md`](architecture.md). §2 seam reworded; §3 I-4 promoted to technical-enforcement language with PR #413 cite; §4 adds **L-AG-1** (cross-DB M2M debt) and **L-AG-2** (router fallback / MIRROR test paperwork); §5 logs the cutover at the top, drops oversteward #12 to keep cap.
+- [`memory/project_ntee_codes_dual_residence.md`](../../.claude/projects/c--Users-natha-OneDrive-Tech-Python-Oversteward/memory/project_ntee_codes_dual_residence.md) rewritten to point at the three filed issues and the option-1 commitment. Marked for deletion once #414 closes.
 
 ## Architectural decisions made this session (load-bearing)
 
-- **GS lives on its own Neon project.** ``ep-plain-breeze-amopwc5f`` (pooled) / ``ep-plain-breeze-amopwc5f`` (direct), DB ``neondb``, owner role ``gs_owner``, AG-side reader ``ag_research_reader`` (read-only).
-- **AG default DB stays on the original shared ``neondb``** (``ep-solitary-art-aenuetaf``). All Django/Django-Stripe/account/billing tables remain there.
-- **Router-as-gate doctrine.** When a separate research DB is configured (``RESEARCH_DATABASE_URL`` set), AG's ``allow_migrate`` returns ``False`` for *every* operation under the research label on either alias. Defense in depth: ``0001``'s destructive ``RunSQL`` is also empty now.
-- **``ntee_codes`` lives on both DBs in lockstep.** Canonical on research DB (Alembic ``71e11596ed29``, seeded from ``grantspider.config.ntee.NTEE_SEED``). Stub on AG default for the cross-DB Django M2M (``Organization.focus_areas`` → ``NTEECode``) until that field is refactored. Tracked in [aigranthelper#414](https://github.com/NathanKrupa/aigranthelper/issues/414); see memory ``project_ntee_codes_dual_residence.md``.
+- **`Organization.focus_areas` becomes `ArrayField(TextField())`.** No FK to research; no per-row metadata; no `FocusArea` model. The reverse query `NTEECode.organizations` is unused — verified by grep.
+- **Tests run against a real second Postgres test DB.** No SQLite. No `MIRROR`. Prod-vs-test routing must match.
+- **The legacy fallback in `db_router.py` is dead code post-#415.** Delete it; don't keep dual paths.
+- **NTEE catalog logic lives in `apps/research/services` as `NteeCatalogService`.** `_ntee_codes_grouped` and `_representative_ntee_codes_for_groups` move out of `accounts/views.py` (they were misclassified as outer-layer code).
 
-## Memories saved this session
+## Resume sequence
 
-- ``project_research_db_cutover.md`` — DB topology + per-DB ownership facts.
-- ``feedback_django_runsql_router_gap.md`` — the ``RunSQL`` ops + ``model_name=None`` trap that caused the wipe.
-- ``project_ntee_codes_dual_residence.md`` — dual ``ntee_codes`` workaround + refactor pointer.
+1. Dispatch [#415](https://github.com/NathanKrupa/aigranthelper/issues/415) on aigranthelper.
+2. After #415 merges, dispatch [#414](https://github.com/NathanKrupa/aigranthelper/issues/414).
+3. After #414 merges and `ntee_codes` is verified absent from AG default DB, dispatch [#416](https://github.com/NathanKrupa/aigranthelper/issues/416).
+4. After #414 closes, delete `memory/project_ntee_codes_dual_residence.md` and remove the L-AG-1 row from `architecture.md` §4.
 
-## Operational follow-ups (not blocking)
+## Memories touched this session
 
-- **GitHub Actions billing still failed** — every PR this session reported CI FAILUREs because Actions jobs never started. Per ``project_ci_required_checks.md``, CI isn't required pre-launch, so merges proceeded; local test discipline is the real gate.
-- **[aigranthelper#414](https://github.com/NathanKrupa/aigranthelper/issues/414)** — refactor ``Organization.focus_areas`` off the cross-DB M2M; until then the ``ntee_codes`` stub on AG default DB must stay in lockstep with ``NTEE_SEED``.
-- Pre-drop snapshot retention: ``db-backups/research-pre-drop/20260430T160135Z_phase3_pre_drop.dump`` is the rollback point if anything Phase-3 needs to be undone.
+- `project_ntee_codes_dual_residence.md` — updated body and description to point at #415/#414/#416. Will be deleted post-#414.
+
+## Operational notes
+
+- GitHub Actions still off (cost). Local test discipline gates per I-16. AG full suite (~1,518 tests) must run green locally before merge.
+- The pre-drop snapshot at `b2://GrantSpider/db-backups/research-pre-drop/20260430T160135Z_phase3_pre_drop.dump` remains the Phase-3 rollback point.
 
 Standing by for resume.
