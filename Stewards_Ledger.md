@@ -5,7 +5,7 @@ ABOUTME: Living document — current state, blockers, and session history.
 
 **Domain:** Technical Projects
 **Purpose:** Two-pillar system — (1) sync governance keeping 14 managed contexts aligned on souls, personas, and CLAUDE.md standards, and (2) orchestration of scoped autonomous agents dispatched against four production repos.
-**Last Updated:** 2026-04-20
+**Last Updated:** 2026-05-01
 
 ---
 
@@ -35,14 +35,17 @@ The OverSteward is the one system that ensures wisdom earned in one quarter of t
 
 | Area | State |
 |---|---|
-| `/dispatch` skill | Active; supports aigranthelper, grantspider, wphelper, ai-assistants |
-| Subagents | Four repo-scoped dev agents defined in `shared/agents/` |
+| Worker model | **In-session** (pivoted 2026-05-01) — Nathan's session reads the workflow doc + repo context doc and does the work directly. Background subagent dispatch retired. |
+| Workflow doc | [`documentation/issue-to-pr-workflow.md`](documentation/issue-to-pr-workflow.md) — canonical 19-step workflow, descended from the retired dispatch playbook |
+| Repo context | [`documentation/repos/{aigranthelper,grantspider,wphelper,ai-assistants}.md`](documentation/repos/) — per-repo paths, commands, denylist, gotchas |
+| `/dispatch` skill | **Retired** 2026-05-01 — Anthropic claude-code #47931 / #47936 silent-termination bug, no upstream fix |
+| Repo-scoped subagents (`<repo>-dev.md`) | **Retired** 2026-05-01 — content survived as `documentation/repos/*.md` |
 | `/answer` | Active; GH-native per-issue reply (replaced Inbox round-trip in H1-5) |
 | `/questions` | Active; ad-hoc |
 | `/project-status` | Active; Python-backed with 30d metrics + stale `needs-input` counter |
-| Self-critique gate | Live in dispatch playbook (PR #4, 2026-04-15) |
+| Self-critique gate | Live in workflow step 12 (formerly dispatch playbook step 12) |
 | Chestertron Inbox | **Retired** as of H1-5 (PR #16, 2026-04-20) — GitHub issues are now the single Q&A channel |
-| Dispatch metrics | Partial — PR turnaround + merge rate + needs-input age/stale surfaced; full cycle time and self-critique fire rate still open |
+| Pipeline metrics | Partial — PR turnaround + merge rate + needs-input age/stale surfaced; full cycle time and self-critique fire rate still open |
 
 ### Contexts in Registry
 
@@ -138,6 +141,18 @@ Ratcheted self-check requirements. Python 3.14 rollout across subagent configs. 
 
 Replaced shell orchestration in `/project-status` with `scripts/project_status.py`. Four repos fetched in parallel; ~2–3s runtime. Scoping surface folded into the dashboard — oldest unscoped issue per repo surfaces when ready queue thins.
 
-### 2026-04-20 — OVERSTEWARD.md Two-Pillar Rewrite (current)
+### 2026-04-20 — OVERSTEWARD.md Two-Pillar Rewrite
 
-OVERSTEWARD.md and Stewards_Ledger.md updated to reflect what this repo has actually become: a two-pillar system, with governance (sync) still ~90% complete on Phase 1 and Phase 2 stubbed, and orchestration (dispatch) actively shipping through PR workflow. New plan under review.
+OVERSTEWARD.md and Stewards_Ledger.md updated to reflect what this repo has actually become: a two-pillar system, with governance (sync) still ~90% complete on Phase 1 and Phase 2 stubbed, and orchestration (dispatch) actively shipping through PR workflow.
+
+### 2026-05-01 — Pivot from /dispatch to in-session pickup (current)
+
+Retired the `/dispatch` skill and the four repo-scoped `<repo>-dev` subagents. Cause: Anthropic claude-code harness silent-termination bug (#47931 / #47936) — both upstream issues open since 2026-04-14 with no Anthropic response, ~80 orphan agent branches accumulated on aigranthelper alone. The bug correlates with long, high-turn dispatches; consumer-rippling refactors (SVC-004, STRUCT-021, dataclass-typing) sat right at the ceiling.
+
+Coincident: Anthropic launched Claude Managed Agents in April 2026 with metered $0.08/session-hour billing. The non-fix may be a deliberate nudge toward the metered tier; in-session work on the existing Max subscription is the cheapest reliable path that doesn't depend on subagent reliability.
+
+Surgery: 12 files removed (`.claude/skills/dispatch/`, `shared/skills/dispatch/`, four `.claude/agents/<repo>-dev.md`, four `shared/agents/<repo>-dev.md`). Content survived: the playbook is now `documentation/issue-to-pr-workflow.md` (heartbeat-commit and dispatcher-verify removed; everything else intact). The four `<repo>-dev.md` files became `documentation/repos/*.md` reference docs. Five obsolete memory files pruned (`dispatch_protocol`, `reference_harness_false_positive_completion_pattern`, `feedback_agent_liveness_signals`, `feedback_one_dispatch_per_project`, `orchestration_plan`); two transitional ones rewritten (`feedback_dispatch_worktree_isolation` → `feedback_worktree_isolation`; `feedback_dataclass_typing_dispatch_strategy` → `feedback_consumer_ripple_scope`). MEMORY.md, OVERSTEWARD.md, architecture.md updated to match.
+
+Pivot is process refactor, not skill swap — there is no replacement slash command. Conversational trigger: Nathan says "let's work AG #415" (or grantspider 150 / wp 84 / ai-assistants 73). The session reads the relevant repo doc + workflow doc, runs preflight, and executes. Parallelism comes from a second Claude Code window, not a second subagent.
+
+The orphan-branch sweep is scoped in `documentation/issue-to-pr-workflow.md` §"Orphan-branch sweeper" as one-time cleanup, not in scope for this PR. The upstream-bug comment drafted at `reports/archive/anthropic-bug-claude-code-harness-47936-comment-2026-04-28.md` should still be posted to #47936.

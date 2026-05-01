@@ -1,15 +1,8 @@
----
-name: grantspider-dev
-description: Autonomous PR worker for the grantspider repo (US grant data crawler). Invoked only via /dispatch. Reads an issue, implements, tests, opens PR with auto-merge, polls to terminal state. Opus 4.6.
-tools: Bash, Read, Edit, Write, Grep, Glob
-model: opus
----
+# grantspider — repo context
 
-# grantspider-dev
+Reference doc the in-session assistant reads when Nathan picks up an issue on **grantspider**. Replaces the retired `.claude/agents/grantspider-dev.md` subagent definition.
 
-You are the dedicated PR worker for the **grantspider** repository.
-
-## Repo Context (baked in)
+## Repo basics
 
 | Attribute | Value |
 |---|---|
@@ -20,7 +13,7 @@ You are the dedicated PR worker for the **grantspider** repository.
 | Dependency install | `pip install -e ".[dev]"` |
 | Venv location | `.venv\Scripts\python` |
 
-### Test / Lint / Security commands (exact, CI-scoped)
+## Test / lint / security commands (exact, CI-scoped)
 
 ```bash
 # Tests (canary baseline: 722 passed in ~80s)
@@ -34,18 +27,11 @@ ruff format --check src/ tests/
 bandit -r src/
 ```
 
-### CI check names (case-sensitive, for reference)
+## CI check names
 
-Currently: `test` (single job). After issue #161 lands: `lint`, `test`, `security` (lowercase).
+Currently: `test` (single job). Post-#161: `lint`, `test`, `security` (lowercase).
 
-### Recent successful PRs (pattern reference)
-
-- **#157** — Remove stale ny_ldc_grants Socrata source (registry surgery, 1 file, +1/-20)
-- **#160** — Remove stale fl_dos_orgs source (registry surgery, same pattern as #157)
-
-For registry/connector cleanup issues, mirror the approach used in #157 and #160.
-
-## Repo-Specific Denylist
+## Repo-specific denylist
 
 - **Never** modify `grant_studio/research/neon_store.py` schema without explicit OK — it writes to production Neon
 - **Never** modify the quality gate logic in `src/grantspider/...` that rejects bad records — it's working as intended
@@ -53,16 +39,19 @@ For registry/connector cleanup issues, mirror the approach used in #157 and #160
 - **Never** commit `.env` or `NEON_DATABASE_URL` values
 - **Never** modify tests marked `@pytest.mark.integration` without running them locally with Neon access first
 
-## Repo-Specific Gotchas
+## Repo-specific gotchas
 
 - **Branch is `master` not `main`.** Every git command referencing the default branch uses `master`.
 - **Ruff check has baseline drift** if you scope to the whole repo. ALWAYS scope to `src/ tests/` (matches CI).
-- **Neon integration tests are skipped in CI** (no `NEON_DATABASE_URL` secret). Don't assume they'll run — if your change depends on schema, flag it in the PR body.
+- **No raw SQL in app code.** Use the ORM. Raw SQL bypasses client-side defaults/invariants. Exceptions need a one-line justification.
+- **Services must be Dagster-callable:** typed config in, structured result out, injected deps, no `click`/`print`/`sys.exit` in service code (see `grantspider/CLAUDE.md`).
+- **Neon integration tests are skipped in CI** (no `NEON_DATABASE_URL` secret). If your change depends on schema, flag it in the PR body.
 - **LLM provider tests are mock-only.** If you change `DEFAULT_MODEL` anywhere, add a real-API check or flag it explicitly. Canary for this class of bug is aigranthelper issue #141.
 - **Coverage gate:** `--cov-fail-under=50` currently. Don't lower it. Raise only if the issue specifically asks.
 - **Fixtures directory `tests/connectors/fixtures/`** currently has exactly one HTML file. Don't assume rich fixture coverage.
+- **Research-DB topology (post-2026-04-30 cutover):** GrantSpider lives on its own Neon project; aigranthelper connects as `ag_research_reader` (read-only). `ntee_codes` is GrantSpider-Alembic-owned, seeded from `NTEE_SEED`. See [data-contract-grantspider-aigranthelper.md](../data-contract-grantspider-aigranthelper.md) v1.2.
 
-## Repo-Specific PR Body Template
+## PR body template
 
 ```markdown
 Closes #<issue>
@@ -81,13 +70,9 @@ Closes #<issue>
 - <any CLI sanity check, e.g. `grantspider gov sync-state NY --help`>
 
 ## Scope
-N files, ±M lines (under 10/400 cap)
+N files, ±M lines
 ```
 
 ## Workflow
 
-Follow the universal playbook at `.claude/skills/dispatch/playbook.md` in full. Substitute `<default-branch>` = `master`, `<owner>/<repo>` = `NathanKrupa/grantspider`.
-
-## Model
-
-You are **Opus 4.6**. Precision. No freelancing. Follow the 17-step playbook exactly.
+Follow [documentation/issue-to-pr-workflow.md](../issue-to-pr-workflow.md). Substitute `<default-branch>` = `master`, `<owner>/<repo>` = `NathanKrupa/grantspider`.

@@ -1,11 +1,11 @@
 ABOUTME: The OverSteward project specification and architecture reference.
-ABOUTME: Two-pillar system: governance (sync across contexts) + orchestration (dispatch autonomous agents).
+ABOUTME: Two-pillar system: governance (sync across contexts) + orchestration (in-session work on production repos).
 
 # The OverSteward
 
-**Steward of the House of Krupa's Claude Code estate: keeps every managed context aligned AND dispatches scoped autonomous agents to work the ticket queue across the production repos.**
+**Steward of the House of Krupa's Claude Code estate: keeps every managed context aligned AND coordinates in-session work across the production repos' issue queues.**
 
-> "If one thing is done late, everything will be late." The OverSteward ensures that wisdom earned in one quarter of the estate is not squandered by ignorance in another — and that the footmen are dispatched with clear scope, brought home, and never left stranded in a corridor.
+> "If one thing is done late, everything will be late." The OverSteward ensures that wisdom earned in one quarter of the estate is not squandered by ignorance in another — and that work is taken up with clear scope, carried through, and never left stranded in a corridor.
 
 ---
 
@@ -17,11 +17,13 @@ The OverSteward serves two complementary missions.
 
 Keep every managed context's `CLAUDE.md`, souls, personas, and shared skills aligned with the canonical source. Propagate improvements. Prevent drift. Nathan is the only integration layer today, and that does not scale across 14 contexts.
 
-### Pillar 2 — Orchestration (dispatch)
+### Pillar 2 — Orchestration (in-session)
 
-Send scoped autonomous agents to work GitHub issues across the four active production repos (aigranthelper, grantspider, wphelper, ai-assistants). Provide the async ask-answer loop that closes the human-in-the-loop gap. Keep Nathan informed without making him the queue bottleneck.
+Work GitHub issues across the four active production repos (aigranthelper, grantspider, wphelper, ai-assistants) directly in-session, using the canonical [issue-to-PR workflow](documentation/issue-to-pr-workflow.md) and per-repo context docs in [`documentation/repos/`](documentation/repos/). Provide the async ask-answer loop that closes the human-in-the-loop gap. Keep Nathan informed without making him the queue bottleneck.
 
-Both pillars share a principle: **Nathan is the principal; the OverSteward is the gentleman's gentleman.** Changes are proposed, not imposed. Agents work scoped tickets; Nathan scopes the work. The system has exactly one escape hatch from its own control — Nathan manages the OverSteward directly (`skip_sow: true`).
+**Pivot note (2026-05-01):** The earlier model used `/dispatch` to spawn background subagents via the Claude Code Task tool. That codepath suffered the harness false-positive completion bug (Anthropic claude-code #47931 / #47936) — silent termination after fast tool round-trips, no fix shipped, and an apparent strategic nudge toward the metered Managed Agents tier. We retired the dispatch ceremony and moved to in-session pickup. The 19-step workflow, non-negotiables, worktree isolation, and per-repo gotchas all survived the move; the subagent harness layer was the only thing dropped. See [Stewards_Ledger.md](Stewards_Ledger.md) entry for 2026-05-01.
+
+Both pillars share a principle: **Nathan is the principal; the OverSteward is the gentleman's gentleman.** Changes are proposed, not imposed. The system has exactly one escape hatch from its own control — Nathan manages the OverSteward directly (`skip_sow: true`).
 
 ---
 
@@ -34,10 +36,10 @@ Both pillars share a principle: **Nathan is the principal; the OverSteward is th
 - Manual sync across 14 contexts is past the point where it reliably happens.
 
 **Orchestration side:**
-- Four production repos generate more ticket work than Nathan can do solo.
-- Agents that ask questions mid-run without a capture path are effectively abandoned.
+- Four production repos generate more ticket work than Nathan can do without structure.
+- Questions raised mid-work without a capture path are effectively abandoned.
 - Without a dashboard, Nathan cannot see the pipeline state at a glance.
-- Without a scoping surface, the agent queue starves even when the backlog is deep.
+- Without a scoping surface, the ready queue starves even when the backlog is deep.
 
 ---
 
@@ -52,7 +54,7 @@ Both pillars share a principle: **Nathan is the principal; the OverSteward is th
 5. **Inheritance model.** `~/.claude/shared/` is the canonical deployed copy. `oversteward/shared/` is the git-tracked source. Scripts sync source → deployed on every run.
 6. **Propose, don't impose.** All sync and dispatch operations surface proposals for approval before meaningful state changes.
 7. **OverSteward manages others. Nathan manages OverSteward.** One escape hatch from the system's own control.
-8. **Issue queue as the task board** (orchestration). `gh issue list` drives dispatch. Labels drive state. PR merges drive completion. No parallel TODO file for dispatch work.
+8. **Issue queue as the task board** (orchestration). `gh issue list` drives the ready queue. Labels drive state. PR merges drive completion. No parallel TODO file for production-repo work.
 
 ### System Diagram
 
@@ -63,8 +65,11 @@ Both pillars share a principle: **Nathan is the principal; the OverSteward is th
 │  registry.yaml       ← manifest of all managed contexts          │
 │  shared/             ← canonical souls, personas, skills, refs   │
 │  contexts/           ← per-context local overrides               │
-│  .claude/skills/     ← dispatch, answer, questions,              │
-│                        project-status, create-persona            │
+│  documentation/      ← issue-to-pr-workflow.md, repos/*.md,      │
+│                        registry-schema, sow-safety-gates,        │
+│                        data-contract                             │
+│  .claude/skills/     ← answer, questions, project-status,        │
+│                        create-persona                            │
 │  scripts/            ← project_status.py, tool registry,         │
 │                        Phase 2 sync stubs                        │
 │  reports/            ← sync check logs                            │
@@ -77,11 +82,13 @@ Both pillars share a principle: **Nathan is the principal; the OverSteward is th
          │    ▼         ▼         ▼          ▼                  ▼
          │  Home_Ob  billions  ai-assist   macgregor    14 contexts
          │
-         └─── ORCHESTRATION ──────────────────────────────────────
-             /dispatch launches repo-scoped subagent
-             agent works GH issue → PR → auto-merge
-             agent blocks → needs-input + structured question comment
-             /answer <repo> <n> → posts Nathan's reply → re-dispatch
+         └─── ORCHESTRATION (in-session) ─────────────────────────
+             Nathan: "let's work AG #415" (or grantspider 150, etc.)
+             session reads documentation/repos/<name>.md +
+                 documentation/issue-to-pr-workflow.md
+             session runs preflight, scope validation, work, ship
+             ambiguity → ask in chat OR post needs-input comment
+             /answer <repo> <n> → posts Nathan's reply → resume
              /project-status / /questions → pipeline visibility
 
              Targets: aigranthelper · grantspider · wphelper · ai-assistants
@@ -113,15 +120,25 @@ oversteward/
 │   │   └── create-todoist-task.md
 │   ├── references/
 │   │   └── wodehouse.md
-│   ├── agents/                # Dispatch subagent definitions (source of truth)
+│   ├── agents/                # Domain agents (e.g. grant-researcher)
 │   ├── templates/
 │   └── inbox.md               # Update notifications (cleared on first read)
 ├── contexts/                  # Per-context local overrides
 │   └── *.md                   # One file per registered context
+├── documentation/
+│   ├── issue-to-pr-workflow.md     # Canonical 19-step in-session workflow
+│   ├── repos/                       # Per-repo context (paths, commands, denylist, gotchas)
+│   │   ├── aigranthelper.md
+│   │   ├── grantspider.md
+│   │   ├── wphelper.md
+│   │   └── ai-assistants.md
+│   ├── registry-schema.md
+│   ├── sow-safety-gates.md
+│   └── data-contract-grantspider-aigranthelper.md
 ├── scripts/
 │   ├── project_status.py      # Dashboard backend (Phase 2 — built)
 │   ├── orchestration/
-│   │   └── setup_dispatch_labels.sh
+│   │   └── setup_dispatch_labels.sh   # GitHub label setup (still useful)
 │   ├── tools/
 │   │   └── generate_tool_registry.py
 │   ├── coordinator.py         # Phase 2 — stubbed
@@ -133,7 +150,6 @@ oversteward/
 │   └── YYYY-MM-DD.md          # Sync check output logs
 └── .claude/
     └── skills/
-        ├── dispatch/          # /dispatch — launch scoped agents
         ├── answer/            # /answer — post one answer, swap labels
         ├── questions/         # /questions — ad-hoc needs-input view
         ├── project-status/    # /project-status — pipeline dashboard
@@ -171,9 +187,9 @@ Deployed working copy — not tracked in git. Sync from `oversteward/shared/` on
 | `personas_available` | Deployed as skill files |
 | `skills_always_on` | Shared skills auto-deployed to context |
 | `skills_available` | Shared skills available but not auto-deployed |
-| `agents_available` | Dispatch subagent types this context can invoke |
+| `agents_available` | Domain agents (e.g. grant-researcher) available in this context |
 | `skip_sow` | If true, governance never writes to this context |
-| `dispatch_target` | If true, context is eligible for `/dispatch` |
+| `dispatch_target` | If true, context is an in-session pickup target — `/project-status` and `/questions` scan it |
 | `soul_in_local` | If true, soul is defined in local section (billions David/"Sir" variant) |
 
 Full schema reference with precise semantics for every field and for the `soul_in_local` / `skip_sow` / `dispatch_target` contracts: [documentation/registry-schema.md](documentation/registry-schema.md).
@@ -256,39 +272,44 @@ OverSteward-deployed persona skills follow naming convention: `persona-{name}.md
 
 ## Pillar 2 — Orchestration
 
-### Dispatch targets
+### In-session pickup targets
 
-Four production repos, each with a dedicated subagent type defined in `shared/agents/`:
+Four production repos, each with a dedicated context doc in [`documentation/repos/`](documentation/repos/):
 
-| Repo | Subagent | Role |
+| Repo | Context doc | Role |
 |---|---|---|
-| aigranthelper | `aigranthelper-dev` | Django SaaS — Stripe, Neon, paid users |
-| grantspider | `grantspider-dev` | US grant data crawler |
-| wphelper | `wphelper-dev` | WordPress client toolkit — REST, SEO, FTP, Gutenberg |
-| ai-assistants | `ai-assistants-dev` | Almoner package — content, CRM, WP integration |
+| aigranthelper | [`repos/aigranthelper.md`](documentation/repos/aigranthelper.md) | Django SaaS — Stripe, Neon, paid users |
+| grantspider | [`repos/grantspider.md`](documentation/repos/grantspider.md) | US grant data crawler |
+| wphelper | [`repos/wphelper.md`](documentation/repos/wphelper.md) | WordPress client toolkit — REST, SEO, FTP, Gutenberg |
+| ai-assistants | [`repos/ai-assistants.md`](documentation/repos/ai-assistants.md) | Almoner package — content, CRM, WP integration |
 
-Each subagent is briefed with the repo's architecture, conventions, self-critique ratchet, and dispatch playbook.
+Each context doc carries the repo's paths, test/lint commands, CI check names, denylist, gotchas, and PR template — what was previously baked into the dispatch subagent system prompt.
 
-### Dispatch loop
+### In-session pickup loop
 
 ```
-/dispatch <repo> <issue-number>
+Nathan: "let's work AG #415" (or grantspider 150 / wp 84 / ai-assistants 73)
     │
     ▼
-scoped subagent reads issue → implements → tests → lints
+session reads documentation/repos/<name>.md
+    + documentation/issue-to-pr-workflow.md
     │
-    ├── clean path: opens PR → enables auto-merge → polls → terminal YAML report
+    ▼
+session walks the 19-step workflow:
+   preflight → worktree → scope validation → implement → test → lint
+   → ratchet → coherence audit → ship → poll → cleanup → report
     │
-    └── blocked path: posts a structured `@nathankrupa question:` comment
-                      on the issue (plan / holes / gaudi check / revised plan)
-                      labels `needs-input`
-                      exits with STOPPED_FOR_INPUT YAML
+    ├── clean path: PR opened, auto-merge enabled, polled to merged
+    │
+    └── blocked path: stops in chat (Nathan present) OR posts a
+                      structured `@nathankrupa question:` comment + labels
+                      needs-input (Nathan async)
 ```
 
-### Async Q&A loop
+### Async Q&A loop (when work blocks while Nathan is away)
 
 ```
-agent blocks → structured question comment on the GH issue
+session blocks → structured question comment on the GH issue
     │
     ▼
 Nathan sees it via /questions or the /project-status stale counter
@@ -301,10 +322,10 @@ Nathan runs /answer <repo> <n>
     └── swaps label needs-input → ready-for-agent
     │
     ▼
-Nathan re-dispatches the issue (/dispatch <repo> <n>)
+Nathan resumes: "let's resume <repo> #<n>" — fresh window or current session
 ```
 
-The previous Chestertron Inbox round-trip (`/morning-digest` → Obsidian file → `/answer-flow`) was retired in H1-5 (PR #16, merged 2026-04-20). GitHub issues are now the only channel for agent Q&A — cross-machine by default, no single-machine Obsidian path.
+The previous Chestertron Inbox round-trip (`/morning-digest` → Obsidian file → `/answer-flow`) was retired in H1-5 (PR #16, merged 2026-04-20). GitHub issues are the only channel for cross-session Q&A. The `/dispatch` skill (PR #4, 2026-04-15) was retired 2026-05-01 — see the pivot note in §"Pillar 2 — Orchestration".
 
 ### Visibility surfaces
 
@@ -316,7 +337,7 @@ The previous Chestertron Inbox round-trip (`/morning-digest` → Obsidian file �
 
 ### Self-critique gate
 
-Before opening a PR, the dispatched agent runs a coherence audit on its own diff against the dispatch playbook ratchet. Cheap at write-time, reduces review churn and failure modes that have bitten previously (documented in memory files as `feedback_*` entries).
+Before opening a PR, the in-session worker runs a coherence audit on its own diff against the workflow ratchet (step 12 of [issue-to-pr-workflow.md](documentation/issue-to-pr-workflow.md)). Cheap at write-time, reduces review churn and failure modes that have bitten previously (documented in memory files as `feedback_*` entries).
 
 ### Scoping surface
 
@@ -346,11 +367,12 @@ When the ready queue drops below threshold, `/project-status` surfaces the oldes
 | Decision | Resolution |
 |---|---|
 | Task board | GitHub issues; labels drive state; no parallel TODO |
-| Subagent scope | One subagent type per production repo, briefed with local conventions |
-| Blocked-agent protocol | `needs-input` label + structured `@nathankrupa question:` issue comment (plan/holes/gaudi/revised plan) |
+| Worker model | In-session — the assistant Nathan is chatting with does the work directly. Background subagents retired 2026-05-01 due to harness false-positive completion bug. |
+| Repo context | One per-repo doc in [`documentation/repos/`](documentation/repos/) — paths, commands, denylist, gotchas. Read at the start of each pickup. |
+| Blocked-worker protocol | Stop in chat if Nathan is present; otherwise `needs-input` label + structured `@nathankrupa question:` issue comment (plan/holes/gaudi/revised plan) |
 | Async Q&A channel | GitHub issue comments — single source of truth, no external inbox file |
-| Re-dispatch trigger | `ready-for-agent` label (swapped by `/answer <repo> <n>`) |
-| Self-critique gate | Coherence audit against playbook ratchet before PR open |
+| Resume trigger | `ready-for-agent` label (swapped by `/answer <repo> <n>`); Nathan says "let's resume" |
+| Self-critique gate | Coherence audit against workflow ratchet before PR open (step 12) |
 | Scoping anti-starve | `/project-status` surfaces oldest unscoped issue when queue thins |
 | PR merge strategy | Auto-merge on green CI; `--admin` bypass never allowed |
 
@@ -368,10 +390,10 @@ When the ready queue drops below threshold, `/project-status` surfaces the oldes
 
 ### Orchestration
 
-- Dispatch loop cycle time (issue → merged PR, excluding needs-input) holds at or below a known median.
+- In-session pickup cycle time (issue → merged PR, excluding needs-input) holds at or below a known median.
 - No `needs-input` issue sits more than 48 hours without Nathan seeing it.
 - Ready queue never starves — `/project-status` surfaces scoping candidates before zero-ready state.
-- Agent self-critique catches regressions against documented past failure modes before PR open.
+- Self-critique catches regressions against documented past failure modes before PR open.
 - Nathan can see full pipeline state in one command, under 3 seconds.
 
 ---
@@ -385,10 +407,10 @@ All 8 local + remote contexts migrated. Canonical souls and personas deployed. 1
 ### Phase 2 — Tooling (partial)
 
 **Orchestration side (built):**
-- [x] `/dispatch` skill and four repo-scoped subagents
+- [x] In-session workflow doc + per-repo context docs (formerly `/dispatch` skill + four repo-scoped subagents — retired 2026-05-01)
 - [x] `/questions` (list) and `/answer` (post one reply, swap labels) skills
 - [x] `/project-status` skill with Python backend (`scripts/project_status.py`) — 30d metrics + stale `needs-input` counter
-- [x] Self-critique gate
+- [x] Self-critique gate (step 12 of issue-to-pr-workflow.md)
 - [x] Tool registry generator (`scripts/tools/generate_tool_registry.py`)
 
 **Governance side (not yet built):**
@@ -417,11 +439,13 @@ All 8 local + remote contexts migrated. Canonical souls and personas deployed. 1
 ## Known Risks
 
 1. **Phase 2 governance scripts stale.** Script stubs have been in place since 2026-02-20 without implementation. Manual sync has been happening irregularly. Either build minimum-viable sow or formally retire the plan.
-2. **Partial dispatch metrics.** `/project-status` now reports PR turnaround, merge rate, `needs-input` age + stale counter. Still missing: full issue-creation → merge cycle time excluding `needs-input` stalls (needs timeline-event fetch) and self-critique fire rate (definition undecided).
+2. **Partial pipeline metrics.** `/project-status` now reports PR turnaround, merge rate, `needs-input` age + stale counter. Still missing: full issue-creation → merge cycle time excluding `needs-input` stalls (needs timeline-event fetch) and self-critique fire rate (definition undecided).
 3. **billions registry modelling.** `soul_in_local: true` works today; Phase 2 sow needs to honor this explicitly or it will overwrite the David variant.
 4. **Private-repo branch protection.** GitHub Free tier blocks branch protection on private repos. Discipline-only today; could hide direct-to-main regressions.
+5. **Orphan agent branches from the dispatch era.** ~80 on aigranthelper, ~30 on wphelper, ~5 on grantspider — heartbeat-pushed stubs from harness-dropped subagents. Not blocking; one-time triage scoped in [issue-to-pr-workflow.md](documentation/issue-to-pr-workflow.md) §"Orphan-branch sweeper". Run when convenient.
+6. **Anthropic strategic shift.** Both upstream bugs (claude-code #47931 / #47936) are open with no Anthropic response. Managed Agents launched April 2026 with metered $0.08/session-hour billing. The non-fix may be a deliberate nudge toward the metered tier; in-session work on the existing Max subscription is the cheapest reliable path.
 
 ---
 
-*Document version: 2026-04-20*
-*Status: Governance Phase 1 complete; Orchestration Phase 2 active; Governance Phase 2 pending scope decision.*
+*Document version: 2026-05-01*
+*Status: Governance Phase 1 complete; Orchestration pivoted to in-session model; Governance Phase 2 pending scope decision.*

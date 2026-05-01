@@ -1,15 +1,8 @@
----
-name: wphelper-dev
-description: Autonomous PR worker for the wphelper repo (WordPress client toolkit — REST API, SEO, FTP, Gutenberg blocks). Invoked only via /dispatch. Opus 4.6.
-tools: Bash, Read, Edit, Write, Grep, Glob
-model: opus
----
+# wphelper — repo context
 
-# wphelper-dev
+Reference doc the in-session assistant reads when Nathan picks up an issue on **wphelper**. Replaces the retired `.claude/agents/wphelper-dev.md` subagent definition.
 
-You are the dedicated PR worker for the **wphelper** repository.
-
-## Repo Context (baked in)
+## Repo basics
 
 | Attribute | Value |
 |---|---|
@@ -20,7 +13,7 @@ You are the dedicated PR worker for the **wphelper** repository.
 | Stack | Python library + CLI (`wphelper` entry point), `requests`, `paramiko` (sftp), `bandit`, `ruff` |
 | Dependency install | `pip install -e ".[dev,sftp]"` |
 
-### Test / Lint / Security commands (exact, CI-scoped)
+## Test / lint / security commands (exact, CI-scoped)
 
 ```bash
 # Tests (baseline: 129 passed in ~1s)
@@ -34,7 +27,7 @@ ruff format --check src/ tests/
 bandit -r src/ -c pyproject.toml
 ```
 
-### CI check names (case-sensitive, all lowercase)
+## CI check names (case-sensitive, all lowercase)
 
 - **`lint`** — required
 - **`test`** — required
@@ -42,12 +35,7 @@ bandit -r src/ -c pyproject.toml
 
 All three must pass for auto-merge.
 
-### Recent successful PRs (pattern reference)
-
-- **#40** — Baseline cleanup: ruff + bandit clean before CI bootstrap (mechanical format + exception chaining)
-- **#41** — Bootstrap CI workflow (ruff + pytest + bandit) — the ci.yml itself
-
-## Repo-Specific Denylist
+## Repo-specific denylist
 
 - **NEVER commit `.env`, `.env.ftp`, `.env.wp`, or any FTP/WordPress credentials**
 - **NEVER disable bandit B321/B402/B101** beyond the existing skips — those three are intentional for the FTP module
@@ -55,15 +43,17 @@ All three must pass for auto-merge.
 - **NEVER push live WordPress content** from this repo's code — that's a consumer-side concern
 - **NEVER change Rank Math meta key names** (e.g. `almoner_faq_schema`) — they map to the mu-plugin on the live site
 
-## Repo-Specific Gotchas
+## Repo-specific gotchas
 
+- **wphelper is the canonical home for external connectors** (WP, Kit, GA4, GSC, FTP). Other repos import from here.
+- **Doctrine:** "content generation" = authoring (forbidden); orchestrating primitives = OK.
 - **FTP module is intentional.** The repo supports FTP for users with only cPanel. Bandit would flag it without the skips in pyproject.toml.
 - **Baseline is clean (#40 landed).** If you see lint/format drift on main, STOP and ask — something regressed.
 - **Rank Math REST meta** relies on a mu-plugin (`almoner-rankmath-rest-meta.php`) on the target WordPress site. If your change touches Rank Math paths, note that the consumer needs the mu-plugin installed.
 - **`tests/test_api.py` is thin** (27 lines). The REST client has light coverage. If you touch `api.py`, expect to add tests.
-- **No live WordPress smoke tests yet.** Unit tests are in-memory (FakeClient, FakeFTP patterns). Adding live tests is a separate issue not your call during routine dispatch.
+- **No live WordPress smoke tests yet.** Unit tests are in-memory (FakeClient, FakeFTP patterns).
 
-## Repo-Specific PR Body Template
+## PR body template
 
 ```markdown
 Closes #<issue>
@@ -82,13 +72,9 @@ Closes #<issue>
 - `bandit -r src/ -c pyproject.toml` → <result>
 
 ## Scope
-N files, ±M lines (under 10/400 cap)
+N files, ±M lines
 ```
 
 ## Workflow
 
-Follow the universal playbook at `.claude/skills/dispatch/playbook.md` in full. Substitute `<default-branch>` = `main`, `<owner>/<repo>` = `NathanKrupa/wphelper`.
-
-## Model
-
-You are **Opus 4.6**. Precision, no freelancing. Follow the 17-step playbook exactly.
+Follow [documentation/issue-to-pr-workflow.md](../issue-to-pr-workflow.md). Substitute `<default-branch>` = `main`, `<owner>/<repo>` = `NathanKrupa/wphelper`.
