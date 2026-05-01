@@ -1,62 +1,78 @@
 ---
-session_date: 2026-04-30
-status: paused (AG cross-DB residual scoped + filed; ready for dispatch)
-context: audit + scoping session for the cross-DB M2M debt left by the 2026-04-30 cutover
+session_date: 2026-05-01
+status: paused (AG cross-DB cutover residue fully closed)
+context: dispatch + verify of #415 → #414 → #416, plus #420 (local PG test backend) and #423 (init.sql fix), plus oversteward cleanup
 ---
 
 ## Where we left off
 
-Audit session for the residual technical debt left in aigranthelper by the morning's research-DB cutover. Three issues filed in dispatch order; data contract and architecture.md refreshed to reflect the new two-Neon-project topology.
+The 2026-04-30 cutover residue is fully closed. Six PRs landed today across two repos: five on aigranthelper, one on oversteward. Architecture is in its target state — two Neon projects (default + research), single-path router (no legacy fallback), no `ntee_codes` dual-residence, ArrayField storage, local Dockerized pgvector test backend.
 
 ## What this session did
 
-Read AG's [SESSION_STATE.md](../../aigranthelper/SESSION_STATE.md) and the cutover artefacts. Audited the AG codebase for the cross-DB M2M residue (`Organization.focus_areas` → `research.NTEECode`) and the test-config paperwork (`MIRROR: default`) that papers over it. Reviewed an initial 5-PR plan for holes; principled decisions made; landed on a tighter 3-issue plan.
+### Morning (audit + scoping → already in master from PR #30)
 
-### Decisions committed
+Audit of the cross-DB residue left by yesterday's cutover. Filed three aigranthelper issues in dispatch order with principled decisions baked in:
 
-- **Option 1 over option 2 for #414.** `Organization.focus_areas = ArrayField(TextField())`, not a separate `FocusArea` model. Grep confirms no consumer uses the M2M reverse direction (`nteecode.organizations`); per-row metadata has no concrete need; YAGNI applied.
-- **One coherent PR for the storage swap, not three.** Earlier draft staged a service-extract + service-extract + storage-swap sequence. Rejected: the service exists *because of* the swap; pre-extracting it is premature abstraction.
-- **Test config moves to a real second Postgres test DB.** SQLite rejected — ArrayField, pgvector, and UUID variances make Postgres-only the only honest test surface. Removes the `MIRROR: default` paperwork in `config/settings/test.py:24` that hides prod-vs-test routing divergence.
-- **Old code is hidden-failure surface — Issue 3 lands.** The single-DB legacy fallback in `apps/core/db_router.py:51-57` is dead the moment #415 lands. Delete, don't leave.
-- **Doc refresh isn't an issue, it's prescribed maintenance.** Architecture.md §6 obligates it after a §7-surface change. Landed in this session.
+- #415 (prereq) — test config: separate research test DB on local Postgres, remove `MIRROR: default`
+- #414 (storage swap) — `Organization.focus_areas` from cross-DB M2M to `ArrayField(TextField())`; new `NteeCatalogService`; drop dual-residence stub. **Option 1 over option 2** committed (no FocusArea model — YAGNI; grep confirms zero consumers of M2M reverse direction).
+- #416 (cleanup) — retire single-DB legacy fallback in `apps/core/db_router.py`. Old code is hidden-failure surface; delete fully.
 
-## Filed (aigranthelper)
+### Afternoon (dispatch + verify + merge)
 
-| # | Title | Role |
+Dispatched #415 → #414 → #416 serially per I-2. Both #414 dispatches stalled on the harness watchdog mid-test-run; took it home directly from a worktree. Along the way:
+
+- **`pytest-timeout` and `pytest-rerunfailures` installed** in AG venv and added to dev deps. Hangs surface as test failures with usable tracebacks instead of pinning forever; transient Neon flakes self-heal up to two retries. Then `timeout_func_only = true` so first-run migration replay (>60s) doesn't trip the per-test timer.
+- **Local Postgres test backend stood up** (#420 / PR #421). Dockerized `pgvector/pgvector:pg17` on `:5433` with two pre-created DBs. Required a Docker Desktop reset partway through — Nathan had deleted the `AppData/Local/Docker/wsl/` directory previously while cleaning up disk space; `wsl --unregister docker-desktop docker-desktop-data` and a clean Docker Desktop relaunch recreated the WSL distros.
+- **Followed-up #423**: init.sql had to install pgvector on `template1` so Django's `--create-db` (recreate from template1) inherits the extension. Hotfixed the running container; landed durable fix in #423.
+- **Final suite on local PG: 1524 → 1528 passed in ~2 min.** ~6× faster than Neon. #414 verified locally, opened #422, merged.
+- **#416** dispatched cleanly (no harness stall this time, ~6 min duration). PR #424 merged. Defending test `test_research_label_blocked_in_all_envs` parametrised across 4 cases.
+
+### Evening (oversteward cleanup → PR #31, merged)
+
+- `architecture.md` §4: dropped L-AG-1 (cross-DB M2M debt) and L-AG-2 (router fallback / MIRROR test paperwork) — both retired.
+- `architecture.md` §5: logged the cross-DB residual cleanup at the top; dropped `oversteward #14` to hold cap.
+- `last_updated: 2026-05-01`.
+- `memory/project_ntee_codes_dual_residence.md` deleted (per-machine, not in repo).
+
+## Merged this session
+
+| Repo | # | What |
 |---|---|---|
-| [#415](https://github.com/NathanKrupa/aigranthelper/issues/415) | Test config: separate research test DB on local Postgres (remove MIRROR) | **Prerequisite.** Dispatch first. |
-| [#414](https://github.com/NathanKrupa/aigranthelper/issues/414) | Replace cross-DB M2M with ArrayField + introduce NteeCatalogService | Updated in place. Closes the dual-residence footgun. Depends on #415. |
-| [#416](https://github.com/NathanKrupa/aigranthelper/issues/416) | Retire single-DB legacy fallback in db_router (delete dead branch) | Cleanup. Depends on #415. |
-
-Sequencing: 415 → 414 → 416. One AG dispatch in flight at a time per I-2.
-
-## Documents refreshed in this session
-
-- [`documentation/data-contract-grantspider-aigranthelper.md`](documentation/data-contract-grantspider-aigranthelper.md) → **v1.2 (2026-04-30)**. §2 topology rewritten to two Neon projects; `ag_research_reader` named in §4; `RunSQL`/`model_name=None` gap closure documented; aigranthelper #414 referenced as residual debt.
-- [`architecture.md`](architecture.md). §2 seam reworded; §3 I-4 promoted to technical-enforcement language with PR #413 cite; §4 adds **L-AG-1** (cross-DB M2M debt) and **L-AG-2** (router fallback / MIRROR test paperwork); §5 logs the cutover at the top, drops oversteward #12 to keep cap.
-- [`memory/project_ntee_codes_dual_residence.md`](../../.claude/projects/c--Users-natha-OneDrive-Tech-Python-Oversteward/memory/project_ntee_codes_dual_residence.md) rewritten to point at the three filed issues and the option-1 commitment. Marked for deletion once #414 closes.
+| aigranthelper | [#419](https://github.com/NathanKrupa/aigranthelper/pull/419) | Test config: separate research test DB (closes #415) |
+| aigranthelper | [#421](https://github.com/NathanKrupa/aigranthelper/pull/421) | Local pgvector test backend (closes #420) |
+| aigranthelper | [#422](https://github.com/NathanKrupa/aigranthelper/pull/422) | ArrayField + NteeCatalogService (closes #414) |
+| aigranthelper | [#423](https://github.com/NathanKrupa/aigranthelper/pull/423) | init.sql template1 pgvector fix |
+| aigranthelper | [#424](https://github.com/NathanKrupa/aigranthelper/pull/424) | Retire single-DB router fallback (closes #416) |
+| oversteward | [#31](https://github.com/NathanKrupa/OverSteward/pull/31) | Retire L-AG-1, L-AG-2; log cleanup |
 
 ## Architectural decisions made this session (load-bearing)
 
-- **`Organization.focus_areas` becomes `ArrayField(TextField())`.** No FK to research; no per-row metadata; no `FocusArea` model. The reverse query `NTEECode.organizations` is unused — verified by grep.
-- **Tests run against a real second Postgres test DB.** No SQLite. No `MIRROR`. Prod-vs-test routing must match.
-- **The legacy fallback in `db_router.py` is dead code post-#415.** Delete it; don't keep dual paths.
-- **NTEE catalog logic lives in `apps/research/services` as `NteeCatalogService`.** `_ntee_codes_grouped` and `_representative_ntee_codes_for_groups` move out of `accounts/views.py` (they were misclassified as outer-layer code).
+- **`Organization.focus_areas` is `ArrayField(TextField())`.** No FocusArea model. No FK to research. Reverse direction (`NTEECode.organizations`) was unused; option 1 picked over option 2 on YAGNI.
+- **Tests run against a real second Postgres test DB.** `MIRROR: default` is gone. Prod-vs-test routing topology now matches.
+- **`apps/core/db_router.py` has one code path.** Single-DB legacy fallback deleted. `_has_research_db()` and `_is_grantspider_owned()` deleted. `GRANTSPIDER_OWNED_TABLES` retained in `apps/research/constants.py` (still consumed by `regenerate_research_models.py` codegen and 2 test files).
+- **NTEE catalog logic lives in `apps/research/services.NteeCatalogService`.** `_ntee_codes_grouped` and `_representative_ntee_codes_for_groups` moved out of `accounts/views.py`. Outer-layer view code no longer carries middle-layer business logic.
+- **Local Dockerized pgvector is the canonical test backend going forward.** ~6× faster than Neon. Documented in AG's CLAUDE.md.
+- **`pytest-timeout` + `pytest-rerunfailures` are now baseline AG test infra.** `timeout = 60`, `timeout_func_only = true`, `--reruns 2 --reruns-delay 1`. Hangs surface; transient flakes self-heal.
 
-## Resume sequence
+## Operational learnings worth remembering
 
-1. Dispatch [#415](https://github.com/NathanKrupa/aigranthelper/issues/415) on aigranthelper.
-2. After #415 merges, dispatch [#414](https://github.com/NathanKrupa/aigranthelper/issues/414).
-3. After #414 merges and `ntee_codes` is verified absent from AG default DB, dispatch [#416](https://github.com/NathanKrupa/aigranthelper/issues/416).
-4. After #414 closes, delete `memory/project_ntee_codes_dual_residence.md` and remove the L-AG-1 row from `architecture.md` §4.
+- **Harness stall pattern persists on long-running tests.** Both #414 dispatches died on the full pytest run (~13 min on Neon, ~2 min on local). After moving tests to local PG, dispatch #416 ran clean. The stall is correlated with long subprocess steps; the heartbeat-commit pattern (playbook v1.8) preserves work but doesn't prevent the stall. Worth a follow-up watchdog improvement at some point.
+- **Docker Desktop on Windows is brittle to `AppData/Local/Docker/` deletion.** WSL keeps the distros registered even after the disk is gone; daemon won't start. Recovery: `wsl --unregister`, then full Docker Desktop relaunch (with Nathan clicking through the EULA / WSL2 backend).
+- **`--create-db` with pgvector requires the extension on `template1`.** Per-DB CREATE EXTENSION isn't enough; Django recreates from template1 which doesn't inherit user-installed extensions. #423 codified this.
+- **VSCode IDE diagnostics noise on pyproject.toml edits is a red herring.** "Package not installed" hints fire because VSCode's selected interpreter isn't the AG venv — ignore.
 
 ## Memories touched this session
 
-- `project_ntee_codes_dual_residence.md` — updated body and description to point at #415/#414/#416. Will be deleted post-#414.
+- Deleted `project_ntee_codes_dual_residence.md` — obsolete after #414 closed; cross-DB M2M debt no longer exists.
 
-## Operational notes
+## Resume sequence
 
-- GitHub Actions still off (cost). Local test discipline gates per I-16. AG full suite (~1,518 tests) must run green locally before merge.
-- The pre-drop snapshot at `b2://GrantSpider/db-backups/research-pre-drop/20260430T160135Z_phase3_pre_drop.dump` remains the Phase-3 rollback point.
+Nothing in flight. AG dispatch chain done. Oversteward master clean at `d606e72`. Local AG main has #424 at HEAD.
+
+Open AG follow-ups to consider (NOT in flight):
+
+- AG #87 — old `needs-input` (Grant Radar 8-pointed star chart). Stale per `/project-status`. Run `/answer aigranthelper 87` when ready.
+- The harness stall on long pytest runs. Worth scoping a heartbeat-watchdog improvement to playbook eventually.
 
 Standing by for resume.
