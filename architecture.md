@@ -1,5 +1,5 @@
 ---
-last_updated: 2026-04-30
+last_updated: 2026-05-01
 scope: aigranthelper, grantspider, wphelper, ai-assistants, oversteward, gaudi
 maintenance: pull-based — update on any session that discovers staleness
 read_by: scoping / planning sessions only. NOT dispatch agents.
@@ -83,8 +83,6 @@ Honest list of broken / stale / load-bearing-without-tests. Each owned by one re
 | L-WD-1 | Windows + OneDrive worktree-husk fragility — fresh worktrees can register metadata without populating the checkout. Mitigated by playbook step 4 prune + step 6 viability probe; underlying race remains | oversteward (playbook) | playbook §"Out-of-band cleanup" + step 6 |
 | L-DISP-1 | Branch-protection enforcement absent on private repos (GitHub Free tier limitation); discipline-only on 7 private repos | all dispatch repos | `SESSION_STATE.md` 2026-04-06 |
 | L-GS-1 | Crawl graph (`mine_urls`, `mine_url_entity_links`) at 0 rows after Neon wipe; not in SQLite snapshot. Per-URL → foundation linkage from pre-wipe enrichment is gone; B2 retains markdown but with no embedded original URL (only domain recoverable from key path) | grantspider | grantspider `SESSION_STATE.md` 2026-04-27 |
-| L-AG-1 | `Organization.focus_areas` is a Django M2M to `research.NTEECode` — cross-DB JOIN impossible after the 2026-04-30 cutover. Workaround: `ntee_codes` exists on **both** DBs in lockstep (51-row stub on AG default, canonical on research). Every `NTEE_SEED` edit needs a coordinated GS Alembic upgrade *and* a manual reseed on AG default. Footgun until #414 lands | aigranthelper | aigranthelper #414 (storage swap to `ArrayField`), #415 (test-DB prerequisite), #416 (router fallback retirement) |
-| L-AG-2 | `apps/core/db_router.py` carries a single-DB legacy fallback branch (`allow_migrate` lines 51-57) that exists only because `config/settings/test.py` aliases the research test DB to default via `MIRROR`. Prod-vs-test routing divergence is the same shape that masked the cross-DB M2M issue originally — until tests run against a real second Postgres test DB, the router's primary path is not exercised by CI | aigranthelper | aigranthelper #415 (test config), #416 (delete fallback) |
 
 ---
 
@@ -94,7 +92,8 @@ Rolling, capped at ~10 entries. Older moves drop off; this is the "what changed 
 
 | PR | What changed | Why |
 |---|---|---|
-| aigranthelper #413 + grantspider #626 | Research-DB cutover. Producer moved to its own Neon project; consumer connects as `ag_research_reader` (read-only role). AG router hardened: `allow_migrate` returns `False` for the entire `research` label when a separate research DB is configured (closes the `RunSQL`/`model_name=None` gap). Historical 0001-0006 research migrations neutralised to no-op markers. `crawl_queue` and `cf_scrape_log` (GS-retired) dropped from AG codegen | 2026-04-30 incident: AG's `apps/research/migrations/0001`'s `reverse_sql=DROP TABLE foundations` ran on the shared Neon DB through the router gap, deleting 34 GS-owned tables. GS data restored to a fresh dedicated Neon project from the pre-incident snapshot; AG no longer shares a Neon cluster with the producer. Residual cross-DB M2M (`Organization.focus_areas`) tracked as L-AG-1 / aigranthelper #414. |
+| aigranthelper #419 + #421 + #422 + #423 + #424 (closes #415, #420, #414, #416) | Cross-DB residual cleanup. Removed `MIRROR: default` test paperwork (separate research test DB on local Postgres); `Organization.focus_areas` swapped from cross-DB M2M to `ArrayField(TextField())` with new `NteeCatalogService`; dual-residence `ntee_codes` stub dropped from default DB; single-DB legacy fallback retired in `apps/core/db_router.py` (router has one code path); Dockerized pgvector test backend stood up (~6× faster suite). Test infra adds `pytest-timeout` (`func_only`) and `pytest-rerunfailures` | Closes the 2026-04-30 cutover. L-AG-1 (cross-DB M2M debt) and L-AG-2 (router fallback) retired; both rows removed from §4 |
+| aigranthelper #413 + grantspider #626 | Research-DB cutover. Producer moved to its own Neon project; consumer connects as `ag_research_reader` (read-only role). AG router hardened: `allow_migrate` returns `False` for the entire `research` label when a separate research DB is configured (closes the `RunSQL`/`model_name=None` gap). Historical 0001-0006 research migrations neutralised to no-op markers. `crawl_queue` and `cf_scrape_log` (GS-retired) dropped from AG codegen | 2026-04-30 incident: AG's `apps/research/migrations/0001`'s `reverse_sql=DROP TABLE foundations` ran on the shared Neon DB through the router gap, deleting 34 GS-owned tables. GS data restored to a fresh dedicated Neon project from the pre-incident snapshot; AG no longer shares a Neon cluster with the producer. |
 | grantspider #464 | SQLite -> Postgres recovery migration; retry-with-reconnect for Neon transient drops | Neon `research.*` was wiped earlier this month. 2.92M rows recovered (foundations/filings/grants/enrichments) from legacy SQLite; all four tables reconcile +0 OK. Surfaces I-17: streaming INSERTs to Neon must retry-on-drop. Crawl graph (mine_urls) NOT in snapshot — see L-GS-1. |
 | oversteward #20 | Data contract v1.1 — snapshot/cache distinction; retire G3; reframe G4 | `FunderRelationship.foundation_name` and `ProgramGrantAlignment.foundation_name` are intentional snapshots (relationship-scoped name-as-saved), not caches; G4 reframed as DB-view TTL filter (preserves "bad rows flag, never silently mutate" rule) |
 | oversteward #19 | Dispatch playbook v1.6 — harden worktree isolation | grantspider #426 postmortem: agent fell back to live tree on worktree failure, contaminating Nathan's working state; non-negotiable rule + step-6 viability probe added |
@@ -102,7 +101,6 @@ Rolling, capped at ~10 entries. Older moves drop off; this is the "what changed 
 | oversteward #17 | Add GrantSpider to AIGrantHelper data contract | Two-repo data contract crystallized as cross-repo governance artifact |
 | oversteward #16 | Collapse answer loop onto GitHub issues (H1-5) | Removed `/morning-digest`, `/answer-flow`, session-start hook; question-asking now structured GH comment; stale counter ≥48h surfaced in `/project-status` metrics block |
 | oversteward #15 | Dispatch kill-switch via `dispatch-paused` label | Per-repo pause without editing skill code |
-| oversteward #14 | Formalize sow.py safety gate + `soul_in_local` in registry schema docs | Pin design contract before Phase 2 implementation |
 | oversteward #13 | (in flight) Pipeline metrics on `/project-status` | Visibility on cycle time, needs-input age, PR success rate, self-critique fire rate |
 
 ---
