@@ -1,78 +1,95 @@
 ---
-session_date: 2026-05-01
-status: paused (AG cross-DB cutover residue fully closed)
-context: dispatch + verify of #415 → #414 → #416, plus #420 (local PG test backend) and #423 (init.sql fix), plus oversteward cleanup
+session_date: 2026-05-02
+status: paused (overnight ontology epic run — 7 PRs merged across grantspider; AG-1 unblocked)
+context: GS-1..GS-5 ontology evolution, packaging refactor, ag_research_reader provisioning
 ---
 
 ## Where we left off
 
-The 2026-04-30 cutover residue is fully closed. Six PRs landed today across two repos: five on aigranthelper, one on oversteward. Architecture is in its target state — two Neon projects (default + research), single-path router (no legacy fallback), no `ntee_codes` dual-residence, ArrayField storage, local Dockerized pgvector test backend.
+Overnight autonomous run through the grantspider ontology epic. Seven grantspider PRs merged tonight, plus one supporting follow-up issue filed on aigranthelper. The epic is past the GS-5 inflection point you baked in (*"do walk-able relationships perform and feel natural in AG's actual code paths?"*); ready for your morning review.
 
-## What this session did
+The cross-repo data-contract surface (``grantspider.ontology``) now ships:
+- 5 semantic types (NteeCode, Ein, Address, Phone, MoneyAmount)
+- 3 entities (NteeCodeEntity, FoundationEntity, GrantEntity)
+- Lineage primitives (Property descriptor, lineage table + helpers)
+- Walk-able relationships (Foundation.grants_given(), Grant.donor())
+- Thin install (8 packages vs. the prior 50+) so AG can import without the heavy stack
 
-### Morning (audit + scoping → already in master from PR #30)
+## Merged this session (grantspider)
 
-Audit of the cross-DB residue left by yesterday's cutover. Filed three aigranthelper issues in dispatch order with principled decisions baked in:
-
-- #415 (prereq) — test config: separate research test DB on local Postgres, remove `MIRROR: default`
-- #414 (storage swap) — `Organization.focus_areas` from cross-DB M2M to `ArrayField(TextField())`; new `NteeCatalogService`; drop dual-residence stub. **Option 1 over option 2** committed (no FocusArea model — YAGNI; grep confirms zero consumers of M2M reverse direction).
-- #416 (cleanup) — retire single-DB legacy fallback in `apps/core/db_router.py`. Old code is hidden-failure surface; delete fully.
-
-### Afternoon (dispatch + verify + merge)
-
-Dispatched #415 → #414 → #416 serially per I-2. Both #414 dispatches stalled on the harness watchdog mid-test-run; took it home directly from a worktree. Along the way:
-
-- **`pytest-timeout` and `pytest-rerunfailures` installed** in AG venv and added to dev deps. Hangs surface as test failures with usable tracebacks instead of pinning forever; transient Neon flakes self-heal up to two retries. Then `timeout_func_only = true` so first-run migration replay (>60s) doesn't trip the per-test timer.
-- **Local Postgres test backend stood up** (#420 / PR #421). Dockerized `pgvector/pgvector:pg17` on `:5433` with two pre-created DBs. Required a Docker Desktop reset partway through — Nathan had deleted the `AppData/Local/Docker/wsl/` directory previously while cleaning up disk space; `wsl --unregister docker-desktop docker-desktop-data` and a clean Docker Desktop relaunch recreated the WSL distros.
-- **Followed-up #423**: init.sql had to install pgvector on `template1` so Django's `--create-db` (recreate from template1) inherits the extension. Hotfixed the running container; landed durable fix in #423.
-- **Final suite on local PG: 1524 → 1528 passed in ~2 min.** ~6× faster than Neon. #414 verified locally, opened #422, merged.
-- **#416** dispatched cleanly (no harness stall this time, ~6 min duration). PR #424 merged. Defending test `test_research_label_blocked_in_all_envs` parametrised across 4 cases.
-
-### Evening (oversteward cleanup → PR #31, merged)
-
-- `architecture.md` §4: dropped L-AG-1 (cross-DB M2M debt) and L-AG-2 (router fallback / MIRROR test paperwork) — both retired.
-- `architecture.md` §5: logged the cross-DB residual cleanup at the top; dropped `oversteward #14` to hold cap.
-- `last_updated: 2026-05-01`.
-- `memory/project_ntee_codes_dual_residence.md` deleted (per-machine, not in repo).
-
-## Merged this session
-
-| Repo | # | What |
+| PR | Issue | What |
 |---|---|---|
-| aigranthelper | [#419](https://github.com/NathanKrupa/aigranthelper/pull/419) | Test config: separate research test DB (closes #415) |
-| aigranthelper | [#421](https://github.com/NathanKrupa/aigranthelper/pull/421) | Local pgvector test backend (closes #420) |
-| aigranthelper | [#422](https://github.com/NathanKrupa/aigranthelper/pull/422) | ArrayField + NteeCatalogService (closes #414) |
-| aigranthelper | [#423](https://github.com/NathanKrupa/aigranthelper/pull/423) | init.sql template1 pgvector fix |
-| aigranthelper | [#424](https://github.com/NathanKrupa/aigranthelper/pull/424) | Retire single-DB router fallback (closes #416) |
-| oversteward | [#31](https://github.com/NathanKrupa/OverSteward/pull/31) | Retire L-AG-1, L-AG-2; log cleanup |
+| [#653](https://github.com/NathanKrupa/grantspider/pull/653) | #642 (GS-1) | Ontology subpackage skeleton + property_lineage partitioned table + import lint |
+| [#654](https://github.com/NathanKrupa/grantspider/pull/654) | #643 (GS-2) | NteeCode semantic type + NteeCodeEntity (canary) |
+| [#656](https://github.com/NathanKrupa/grantspider/pull/656) | #655 | **Packaging refactor** — heavy deps to optional-extras; lazy models/__init__.py; thin install for AG |
+| [#658](https://github.com/NathanKrupa/grantspider/pull/658) | #644 (GS-3 part 1) | FoundationEntity + Ein/Address/Phone types — additive |
+| [#660](https://github.com/NathanKrupa/grantspider/pull/660) | #645 (GS-4 part 1) | GrantEntity + MoneyAmount type — additive |
+| [#661](https://github.com/NathanKrupa/grantspider/pull/661) | #646 (GS-5) | Foundation.grants_given() + Grant.donor() relationship pattern |
+| [#662](https://github.com/NathanKrupa/grantspider/pull/662) | #431 | ag_research_reader provisioning script + runbook |
+
+(The #650 inventory PR for GS-0 #641 also landed earlier in this session before the autonomous run.)
+
+## Issues filed for follow-up
+
+- [grantspider#651](https://github.com/NathanKrupa/grantspider/issues/651) — **scrub SQLite test-backend references** (post-#639 cleanup)
+- [grantspider#657](https://github.com/NathanKrupa/grantspider/issues/657) — **GS-3 part 2** — migrate 13 services/*.py call sites onto FoundationEntity (4-PR sub-sequence, blocked on #644)
+- [grantspider#659](https://github.com/NathanKrupa/grantspider/issues/659) — **GS-4 part 2** — migrate Grant call sites onto GrantEntity (small surface, ~2-4 files)
+- [aigranthelper#435](https://github.com/NathanKrupa/aigranthelper/issues/435) — **verify RESEARCH_DATABASE_URL rotation** to ag_research_reader in prod/staging
+
+## Open ontology issues remaining (epic #640)
+
+- **GS-3 #644** — open until part 2 (#657) merges
+- **GS-4 #645** — open until part 2 (#659) merges
+- **GS-6 #647** — WebsiteProperty consolidation (estimated 8-10 days; not started)
+- **GS-7 #648** — drop deprecated columns (blocked by aigranthelper#429 — AG must migrate to entity reads first)
+- **GS-8 #649** — Foundation.resolve_website() operation (blocked by GS-6)
+
+## AG-side state
+
+The AG-1 session encountered the bloated install problem (50+ packages from `pip install -e ../grantspider`); that is now resolved by [#656](https://github.com/NathanKrupa/grantspider/pull/656) (option 2: optional-extras). The AG session can resume AG-1 by:
+
+1. ``pip install -e ../grantspider`` again (now thin — 8 packages)
+2. Verify only sqlalchemy + pgvector + python-dotenv added
+3. Resume AG-1 implementation
+4. The AG-side ``anthropic 0.97.0 → 0.94.1`` revert is the AG session's local-venv concern
+
+aigranthelper#427 (AG-1) is unblocked.
 
 ## Architectural decisions made this session (load-bearing)
 
-- **`Organization.focus_areas` is `ArrayField(TextField())`.** No FocusArea model. No FK to research. Reverse direction (`NTEECode.organizations`) was unused; option 1 picked over option 2 on YAGNI.
-- **Tests run against a real second Postgres test DB.** `MIRROR: default` is gone. Prod-vs-test routing topology now matches.
-- **`apps/core/db_router.py` has one code path.** Single-DB legacy fallback deleted. `_has_research_db()` and `_is_grantspider_owned()` deleted. `GRANTSPIDER_OWNED_TABLES` retained in `apps/research/constants.py` (still consumed by `regenerate_research_models.py` codegen and 2 test files).
-- **NTEE catalog logic lives in `apps/research/services.NteeCatalogService`.** `_ntee_codes_grouped` and `_representative_ntee_codes_for_groups` moved out of `accounts/views.py`. Outer-layer view code no longer carries middle-layer business logic.
-- **Local Dockerized pgvector is the canonical test backend going forward.** ~6× faster than Neon. Documented in AG's CLAUDE.md.
-- **`pytest-timeout` + `pytest-rerunfailures` are now baseline AG test infra.** `timeout = 60`, `timeout_func_only = true`, `--reruns 2 --reruns-delay 1`. Hangs surface; transient flakes self-heal.
+- **Optional-extras over separate-package** (issue #655): split heavy deps into use-case extras (`db`, `migrations`, `cli`, `http`, `crawl`, `pdf`, `llm`, `dq`, `orchestration`, plus `full` meta-extra). Keeps cross-repo data contract on one package; preserves easy upgrade path to a separate `grantspider-ontology` distributable later if needed.
+
+- **PEP 562 lazy ``models/__init__.py``** (issue #655): ``from grantspider.models import Foundation`` still works for existing callers (lazy + cached) but the package init no longer eagerly imports all 30+ model files. ``register_all_models()`` is the explicit eager-loading entry point that Alembic env.py and conftest.py call.
+
+- **Method-form writes on FoundationEntity / GrantEntity** (instead of extending the GS-1 Property descriptor with transforms): each setter is honest about its own semantics (composite Address spans 5 columns, transformed Ein is str↔Ein, etc.). The Property descriptor stays simple for genuine 1:1 column wraps (NteeCodeEntity); richer entities use plain ``set_<property>`` methods. Both patterns coexist deliberately.
+
+- **2-PR split for GS-3 and GS-4** per workflow §8.5: part 1 introduces the additive type+entity surface; part 2 (filed as separate issues) migrates GS internal call sites in batches. Type-introduction risk decoupled from consumer-migration risk.
+
+- **Grant.donor() vs. issue's "recipient()"**: the issue text said "recipient()" but the inverse of grants_given() is the donor (Foundation that issued the grant). The recipient is the org getting the money — typically not itself a FoundationEntity row. Implemented as ``donor()``. Easy rename if you disagree.
+
+- **Decorator-not-descriptor for relationships**: ``@relationship`` decorator preserves call-form syntax (``foundation.grants_given()``) while adding lazy + cached semantics. A descriptor would have changed the contract to attribute access (``foundation.grants_given``).
 
 ## Operational learnings worth remembering
 
-- **Harness stall pattern persists on long-running tests.** Both #414 dispatches died on the full pytest run (~13 min on Neon, ~2 min on local). After moving tests to local PG, dispatch #416 ran clean. The stall is correlated with long subprocess steps; the heartbeat-commit pattern (playbook v1.8) preserves work but doesn't prevent the stall. Worth a follow-up watchdog improvement at some point.
-- **Docker Desktop on Windows is brittle to `AppData/Local/Docker/` deletion.** WSL keeps the distros registered even after the disk is gone; daemon won't start. Recovery: `wsl --unregister`, then full Docker Desktop relaunch (with Nathan clicking through the EULA / WSL2 backend).
-- **`--create-db` with pgvector requires the extension on `template1`.** Per-DB CREATE EXTENSION isn't enough; Django recreates from template1 which doesn't inherit user-installed extensions. #423 codified this.
-- **VSCode IDE diagnostics noise on pyproject.toml edits is a red herring.** "Package not installed" hints fire because VSCode's selected interpreter isn't the AG venv — ignore.
+- **bash $RANDOM trip-up**: I used `$RANDOM` to pick a worktree path then re-typed a different number into Write tool calls. Created a stray directory at the wrong path; had to move files into the real worktree. Lesson: always read `/tmp/wt<N>.txt` (the recorded path) instead of re-typing the random suffix.
 
-## Memories touched this session
+- **PEP 562 `__getattr__` doesn't handle `as`-renamed exports automatically** — the `SCHOLARSHIP_COMPLETENESS_STATUSES` re-export that aliased `COMPLETENESS_STATUSES` from the source module needed a tuple-form lazy entry: `("module.path", "source_name")`. One test (`test_scholarship_in_models_package`) caught it; tuple support added.
 
-- Deleted `project_ntee_codes_dual_residence.md` — obsolete after #414 closed; cross-DB M2M debt no longer exists.
+- **conftest.py needs `register_all_models()` post-#655 lazy refactor.** Cross-table FK chains (e.g., `Grant.foundation_programme_id → foundation_programmes`) fail mapper-configure with `NoReferencedTableError` if some tables aren't loaded. Alembic env.py has the same pattern; conftest mirrors it for the test session.
+
+- **Ontology subpackage init pulls in entities → models cascade.** Even the seemingly-thin `from grantspider.ontology.types import NteeCode` triggers `ontology/__init__.py` which imports `entities`, which imports `models.ntee_code`, which triggers `models/__init__.py`. The lazy refactor + `pgvector` in core deps fixes this; smoke test (`tests/test_thin_install.py`) catches future regressions.
+
+- **Two issues remain in the ready queue**: aigranthelper#33 (CSV export of saved funders — UI work) and grantspider#624 (DQ command refactor slice 1 of 4 — 5 commands). Both are 5+ hour items; deferred to fresh eyes rather than risk subtle errors at end-of-session.
 
 ## Resume sequence
 
-Nothing in flight. AG dispatch chain done. Oversteward master clean at `d606e72`. Local AG main has #424 at HEAD.
+Nothing in flight. Master clean across grantspider; aigranthelper untouched (no AG work this session beyond the follow-up issue file). Local Docker test container stopped + removed.
 
-Open AG follow-ups to consider (NOT in flight):
-
-- AG #87 — old `needs-input` (Grant Radar 8-pointed star chart). Stale per `/project-status`. Run `/answer aigranthelper 87` when ready.
-- The harness stall on long pytest runs. Worth scoping a heartbeat-watchdog improvement to playbook eventually.
+Highest-value next pickups:
+1. **AG-1 (aigranthelper#427)** — now unblocked; AG session can resume
+2. **GS-3 part 2 (grantspider#657)** — 4 PR sub-sequence to migrate Foundation call sites
+3. **GS-4 part 2 (grantspider#659)** — small consumer migration, single PR
+4. **GS-6 (grantspider#647)** — WebsiteProperty consolidation, the next ontology surface
+5. The two ready-queue items I deferred (aigranthelper#33, grantspider#624)
 
 Standing by for resume.
