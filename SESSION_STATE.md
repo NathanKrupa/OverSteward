@@ -1,95 +1,76 @@
 ---
-session_date: 2026-05-02
-status: paused (overnight ontology epic run — 7 PRs merged across grantspider; AG-1 unblocked)
-context: GS-1..GS-5 ontology evolution, packaging refactor, ag_research_reader provisioning
+session_date: 2026-05-07
+status: paused (overnight ontology batch — 6 PRs merged on epic #640; #763 awaiting daylight architect ruling on IRS pg_insert seam; #648 GS-7 column-drop intentionally skipped)
+context: Nathan asked to run #644/#645/#647/#648/#649 to merge by morning; reality forced architect re-scoping into 7 issues + 6 PRs; 5 architect STOPs all legitimate
 ---
 
 ## Where we left off
 
-Overnight autonomous run through the grantspider ontology epic. Seven grantspider PRs merged tonight, plus one supporting follow-up issue filed on aigranthelper. The epic is past the GS-5 inflection point you baked in (*"do walk-able relationships perform and feel natural in AG's actual code paths?"*); ready for your morning review.
+Overnight session through grantspider epic #640 (ontology layer). Nathan's 5-issue list was substantially advanced — 6 PRs merged, 3 umbrellas closed, 2 follow-up issues filed and 1 dispatched-and-stopped for architect input that warrants daylight thought. The remaining open work is documented at issue level and continues the established §8.5 split pattern.
 
-The cross-repo data-contract surface (``grantspider.ontology``) now ships:
-- 5 semantic types (NteeCode, Ein, Address, Phone, MoneyAmount)
-- 3 entities (NteeCodeEntity, FoundationEntity, GrantEntity)
-- Lineage primitives (Property descriptor, lineage table + helpers)
-- Walk-able relationships (Foundation.grants_given(), Grant.donor())
-- Thin install (8 packages vs. the prior 50+) so AG can import without the heavy stack
+The unfinished work is **#763** (writer + harnesses migration) — agent surfaced an IRS UPSERT path conflict (`pg_insert` not portable to SQLite test DB) that deserves more design thought than late-night triage. **#648 GS-7** (column DROP DDL) was deliberately skipped tonight per `feedback_never_migrate_shared_db.md` — DDL on Neon needs daylight human auth.
 
-## Merged this session (grantspider)
+## Merged this session (6 PRs)
 
 | PR | Issue | What |
 |---|---|---|
-| [#653](https://github.com/NathanKrupa/grantspider/pull/653) | #642 (GS-1) | Ontology subpackage skeleton + property_lineage partitioned table + import lint |
-| [#654](https://github.com/NathanKrupa/grantspider/pull/654) | #643 (GS-2) | NteeCode semantic type + NteeCodeEntity (canary) |
-| [#656](https://github.com/NathanKrupa/grantspider/pull/656) | #655 | **Packaging refactor** — heavy deps to optional-extras; lazy models/__init__.py; thin install for AG |
-| [#658](https://github.com/NathanKrupa/grantspider/pull/658) | #644 (GS-3 part 1) | FoundationEntity + Ein/Address/Phone types — additive |
-| [#660](https://github.com/NathanKrupa/grantspider/pull/660) | #645 (GS-4 part 1) | GrantEntity + MoneyAmount type — additive |
-| [#661](https://github.com/NathanKrupa/grantspider/pull/661) | #646 (GS-5) | Foundation.grants_given() + Grant.donor() relationship pattern |
-| [#662](https://github.com/NathanKrupa/grantspider/pull/662) | #431 | ag_research_reader provisioning script + runbook |
+| #755 | #659 | GS-4 part 2 — Grant entity consumer migration (2 services) |
+| #756 | #657 | GS-3 part 2 — Foundation entity consumer migration (6 services) |
+| #757 | #647 part 1 | GS-6 — WebsiteProperty + WebsiteUrl additive entity surface |
+| #760 | #759 | Hotfix — WebsiteProperty.confidence_label replaces confidence float (column actually stores method-labels, not probabilities) |
+| #761 | #758 PR1 | GS-6 part 2 — website readers + hygiene migration (3 services + 3 tests) |
+| #762 | #649 PR1 | GS-8 — FoundationEntity.resolve_website() additive (entity orchestration via injected providers) |
 
-(The #650 inventory PR for GS-0 #641 also landed earlier in this session before the autonomous run.)
+## Issues closed (3 umbrellas)
 
-## Issues filed for follow-up
+- **#644 GS-3** — closed as pointer to #657 (already-merged additive PR #658 satisfied items 1-2-4-5; #657 = part-2 migration, since-merged via #756)
+- **#645 GS-4** — closed as pointer to #659 (#660 additive merged 2026-05-02; #659 = part-2 migration, merged via #755)
+- **#647 GS-6** — closed as pointer to #758 (#757 additive merged tonight; #758 = part-2 migration, merged via #761)
 
-- [grantspider#651](https://github.com/NathanKrupa/grantspider/issues/651) — **scrub SQLite test-backend references** (post-#639 cleanup)
-- [grantspider#657](https://github.com/NathanKrupa/grantspider/issues/657) — **GS-3 part 2** — migrate 13 services/*.py call sites onto FoundationEntity (4-PR sub-sequence, blocked on #644)
-- [grantspider#659](https://github.com/NathanKrupa/grantspider/issues/659) — **GS-4 part 2** — migrate Grant call sites onto GrantEntity (small surface, ~2-4 files)
-- [aigranthelper#435](https://github.com/NathanKrupa/aigranthelper/issues/435) — **verify RESEARCH_DATABASE_URL rotation** to ag_research_reader in prod/staging
+## Open work on epic #640
 
-## Open ontology issues remaining (epic #640)
+- **#763 GS-6 PR3** — writer migration + 5 FakeStore harness migrations. **needs-input** — architect ruling deferred to daylight. Lean: Option A (writer + 3 non-IRS test files; leave IRS-specific test fixtures using FakeSession with documented exception note for pg_insert UPSERT non-portability). Three substantive design questions worth daylight thought before final ruling — see [#763 comment thread](https://github.com/NathanKrupa/grantspider/issues/763).
+- **GS-8 PR2** — CLI/Dagster wire-through. Not yet filed; combine with #763's harness migration when scoping the next dispatch (same harness ripple).
+- **#648 GS-7** — column DROP DDL. **Deliberately skipped tonight.** Migration generation is fine to dispatch, but the actual application against the GS Neon project deserves daylight review per `feedback_never_migrate_shared_db.md`. Dependencies: gated on writer migration (#763) being live so the deprecated columns are no longer written.
 
-- **GS-3 #644** — open until part 2 (#657) merges
-- **GS-4 #645** — open until part 2 (#659) merges
-- **GS-6 #647** — WebsiteProperty consolidation (estimated 8-10 days; not started)
-- **GS-7 #648** — drop deprecated columns (blocked by aigranthelper#429 — AG must migrate to entity reads first)
-- **GS-8 #649** — Foundation.resolve_website() operation (blocked by GS-6)
+## Architect rulings issued tonight
 
-## AG-side state
+Each issued via comment-on-issue, archived at GitHub URLs in the issues:
 
-The AG-1 session encountered the bloated install problem (50+ packages from `pip install -e ../grantspider`); that is now resolved by [#656](https://github.com/NathanKrupa/grantspider/pull/656) (option 2: optional-extras). The AG session can resume AG-1 by:
+1. **#644 closed as pointer** — completion-via-#657 reasoning
+2. **#645 closed as pointer** — same reasoning, pattern-mirror
+3. **#647 closed as pointer** — same pattern, after #757 merged
+4. **#657 re-scope** — single PR (6 files) instead of stale-audit's 4-batch plan; fresh enumeration showed §8.5 cap easily met
+5. **#647 split (additive + migration)** — §8.5 boundary derived from fresh-audit reality; type-fix prerequisite revealed mid-flight
+6. **#759 hotfix filed + dispatched** — corrected confidence_label type; preempted data-loss latent in #757
+7. **#758 Option B (4 dispatches)** — type contract, then test-harness ripple, then hygiene escape hatch — three legitimate STOPs in sequence; ruling on each
+8. **#649 Option C (2-PR split)** — internal contradiction in dispatch prompt revealed; rescoped to additive PR1
+9. **#763 deferred** — final ruling parked for daylight design thought
 
-1. ``pip install -e ../grantspider`` again (now thin — 8 packages)
-2. Verify only sqlalchemy + pgvector + python-dotenv added
-3. Resume AG-1 implementation
-4. The AG-side ``anthropic 0.97.0 → 0.94.1`` revert is the AG session's local-venv concern
+## Memory captured tonight
 
-aigranthelper#427 (AG-1) is unblocked.
+- **`feedback_audit_assertion_harnesses.md`** — typed-surface migrations must count test files asserting on legacy call patterns (FakeStore.captured_updates, mock spies) in §8.5 audit, not just data callers
+- **`feedback_orm_escape_hatch_for_hygiene.md`** — services whose job is detecting/cleaning dirty data need `entity.orm.X` for reads; the typed view masks the dirt
 
-## Architectural decisions made this session (load-bearing)
+## Pattern observations for next session
 
-- **Optional-extras over separate-package** (issue #655): split heavy deps into use-case extras (`db`, `migrations`, `cli`, `http`, `crawl`, `pdf`, `llm`, `dq`, `orchestration`, plus `full` meta-extra). Keeps cross-repo data contract on one package; preserves easy upgrade path to a separate `grantspider-ontology` distributable later if needed.
+**My dispatch prompts have systematically under-scoped design corners.** Five legitimate architect STOPs tonight, each on a real design issue I missed at dispatch-prep time:
 
-- **PEP 562 lazy ``models/__init__.py``** (issue #655): ``from grantspider.models import Foundation`` still works for existing callers (lazy + cached) but the package init no longer eagerly imports all 30+ model files. ``register_all_models()`` is the explicit eager-loading entry point that Alembic env.py and conftest.py call.
+1. WebsiteProperty.confidence type contract (column carries method-labels, not floats)
+2. Writer-migration test-harness ripple count (107+ captured_updates refs across 5 files, blowing §8.5 cap)
+3. Hygiene needs ORM escape hatch (typed view masks the cleanup signal)
+4. #649 internal contradiction (writer migration deferred but acceptance #2 required it)
+5. IRS pg_insert UPSERT not portable to test DB's SQLite (architectural seam in tests, not data path)
 
-- **Method-form writes on FoundationEntity / GrantEntity** (instead of extending the GS-1 Property descriptor with transforms): each setter is honest about its own semantics (composite Address spans 5 columns, transformed Ein is str↔Ein, etc.). The Property descriptor stays simple for genuine 1:1 column wraps (NteeCodeEntity); richer entities use plain ``set_<property>`` methods. Both patterns coexist deliberately.
+The two saved memories codify lessons 2 and 3. Lesson 4 codifies as: when authoring dispatch prompts that defer adjacent work, audit acceptance criteria for transitive dependencies on the deferred work. Lessons 1 and 5 are domain-specific and don't generalize.
 
-- **2-PR split for GS-3 and GS-4** per workflow §8.5: part 1 introduces the additive type+entity surface; part 2 (filed as separate issues) migrates GS internal call sites in batches. Type-introduction risk decoupled from consumer-migration risk.
+## What to read first when resuming
 
-- **Grant.donor() vs. issue's "recipient()"**: the issue text said "recipient()" but the inverse of grants_given() is the donor (Foundation that issued the grant). The recipient is the org getting the money — typically not itself a FoundationEntity row. Implemented as ``donor()``. Easy rename if you disagree.
+1. This file
+2. **#763 issue + comments** — has the four design options for the IRS pg_insert seam
+3. `feedback_audit_assertion_harnesses.md` and `feedback_orm_escape_hatch_for_hygiene.md` (new memories)
+4. Epic #640 — table of phases, current status
 
-- **Decorator-not-descriptor for relationships**: ``@relationship`` decorator preserves call-form syntax (``foundation.grants_given()``) while adding lazy + cached semantics. A descriptor would have changed the contract to attribute access (``foundation.grants_given``).
+## Stale husks
 
-## Operational learnings worth remembering
-
-- **bash $RANDOM trip-up**: I used `$RANDOM` to pick a worktree path then re-typed a different number into Write tool calls. Created a stray directory at the wrong path; had to move files into the real worktree. Lesson: always read `/tmp/wt<N>.txt` (the recorded path) instead of re-typing the random suffix.
-
-- **PEP 562 `__getattr__` doesn't handle `as`-renamed exports automatically** — the `SCHOLARSHIP_COMPLETENESS_STATUSES` re-export that aliased `COMPLETENESS_STATUSES` from the source module needed a tuple-form lazy entry: `("module.path", "source_name")`. One test (`test_scholarship_in_models_package`) caught it; tuple support added.
-
-- **conftest.py needs `register_all_models()` post-#655 lazy refactor.** Cross-table FK chains (e.g., `Grant.foundation_programme_id → foundation_programmes`) fail mapper-configure with `NoReferencedTableError` if some tables aren't loaded. Alembic env.py has the same pattern; conftest mirrors it for the test session.
-
-- **Ontology subpackage init pulls in entities → models cascade.** Even the seemingly-thin `from grantspider.ontology.types import NteeCode` triggers `ontology/__init__.py` which imports `entities`, which imports `models.ntee_code`, which triggers `models/__init__.py`. The lazy refactor + `pgvector` in core deps fixes this; smoke test (`tests/test_thin_install.py`) catches future regressions.
-
-- **Two issues remain in the ready queue**: aigranthelper#33 (CSV export of saved funders — UI work) and grantspider#624 (DQ command refactor slice 1 of 4 — 5 commands). Both are 5+ hour items; deferred to fresh eyes rather than risk subtle errors at end-of-session.
-
-## Resume sequence
-
-Nothing in flight. Master clean across grantspider; aigranthelper untouched (no AG work this session beyond the follow-up issue file). Local Docker test container stopped + removed.
-
-Highest-value next pickups:
-1. **AG-1 (aigranthelper#427)** — now unblocked; AG session can resume
-2. **GS-3 part 2 (grantspider#657)** — 4 PR sub-sequence to migrate Foundation call sites
-3. **GS-4 part 2 (grantspider#659)** — small consumer migration, single PR
-4. **GS-6 (grantspider#647)** — WebsiteProperty consolidation, the next ontology surface
-5. The two ready-queue items I deferred (aigranthelper#33, grantspider#624)
-
-Standing by for resume.
+Multiple `.git/worktrees/dispatch-grantspider-*` admin-metadata husks accumulated tonight from OneDrive lock pattern. Will drain on next dispatch's `git worktree prune` step (per playbook §"Windows + OneDrive: worktree husk drain").
