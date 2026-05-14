@@ -1,6 +1,6 @@
 ---
 name: questions
-description: "List agent-blocked issues (labeled `needs-input`) across every repo marked `dispatch_target` in registry.yaml (currently aigranthelper, grantspider, wphelper, ai-assistants). Use when the user asks \"what's waiting on me\", \"any questions\", \"check inbox\", or runs /questions. Returns compact list with age, URL, and latest question excerpt; flags items >48h old."
+description: "List agent-blocked issues (labeled `needs-input`) across every repo marked `dispatch_target` in registry.yaml (currently aigranthelper, grantspider, wphelper, ai-assistants, fiscus). Use when the user asks \"what's waiting on me\", \"any questions\", \"check inbox\", or runs /questions. Returns compact list with age, URL, and latest question excerpt; flags items >48h old."
 ---
 
 # /questions — agent inbox aggregator
