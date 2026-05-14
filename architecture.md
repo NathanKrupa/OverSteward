@@ -26,6 +26,7 @@ What has actually been built across the House of Krupa development estate. Autho
 | ai-assistants | almoner package — content authoring, CRM, ingestion, WP integration | Python | yes | chestertron | see registry |
 | oversteward | Governance + this document; orchestration coordination + cross-repo contracts | Python, YAML | no (governance) | chestertron | `C:\Users\natha\OneDrive\Tech\Python\Oversteward` |
 | gaudi | Architecture linter; ratchet runs in issue-to-pr-workflow step 11a | Python AST, PyPI | no (open source) | chestertron | `C:\Users\natha\OneDrive\Tech\Python\Gaudi` |
+| fiscus | Observation-and-kaizen platform; reads telemetry from every estate system, runs weekly/monthly/quarterly reviews, owns the lessons corpus and the standardize-the-gain invariants | Python 3.14, Quarto, pandas, pydantic | no (observability) | chestertron | `C:\Users\natha\OneDrive\Tech\Python\Fiscus` |
 
 Source: `registry.yaml` (`dispatch_target` flag — kept as eligibility signal for `/project-status` and `/questions`), `~/.claude/CLAUDE.md` layer map.
 
@@ -38,6 +39,9 @@ Source: `registry.yaml` (`dispatch_target` flag — kept as eligibility signal f
 | grantspider → aigranthelper | Foundation/grant/award corpus across two Neon projects (post-2026-04-30 cutover); aigranthelper connects as `ag_research_reader` (read-only Neon role). **Canonical pathway:** `grantspider.ontology` subpackage — typed entities (`FoundationEntity`, `GrantEntity`, `NteeCodeEntity`) and value types (`NteeCode`, `Ein`, `Address`, `Phone`, `MoneyAmount`) imported cross-repo; raw-SQL / direct-ORM reads against `research.*` are the in-flight migration path (epic aigranthelper #425), not the target | `documentation/data-contract-grantspider-aigranthelper.md` v1.2; grantspider epic #640 |
 | wphelper → ai-assistants | External connector code (WordPress REST, Kit, GA4, GSC, FTP) imported as library; ai-assistants does not duplicate connector code | memory `project_wphelper_is_connector_home` |
 | oversteward → all | `registry.yaml`, `shared/` (souls + personas), `documentation/issue-to-pr-workflow.md`, `documentation/repos/*.md` (per-repo pickup context), `.claude/skills/` (answer / questions / project-status — inbox + status tools) | `registry.yaml`, `shared/`, `documentation/`, `.claude/skills/` |
+| aigranthelper → fiscus | `pipeline_history.jsonl` via HTTP pull (signed JWT) — both matchmaker telemetry and ghp-general telemetry (pending AG #515) | `Fiscus/subjects/ghp-matchmaker/contract.yaml`, `Fiscus/subjects/ghp-general/contract.yaml` |
+| oversteward → fiscus | `pipeline_history.jsonl` for the dispatch subject (read directly from oversteward's local file) | `Fiscus/subjects/dispatch/contract.yaml` |
+| pickup repos (all) → fiscus | GH `andon`-labelled issues aggregated nightly into `shared/andon.jsonl` | `Fiscus/src/fiscus/andon.py`; `.github/ISSUE_TEMPLATE/andon.md` in each repo |
 
 ---
 
