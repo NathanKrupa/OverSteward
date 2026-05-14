@@ -1,6 +1,6 @@
 ---
 name: dispatch
-description: "Dispatch a scoped background agent to work a GitHub issue autonomously (implement → test → PR → auto-merge). Use when the user says \"dispatch issue N on REPO\" or \"work issue N on REPO\" where REPO is any repo marked `dispatch_target` in registry.yaml (currently aigranthelper, grantspider, wphelper, ai-assistants)."
+description: "Dispatch a scoped background agent to work a GitHub issue autonomously (implement → test → PR → auto-merge). Use when the user says \"dispatch issue N on REPO\" or \"work issue N on REPO\" where REPO is any repo marked `dispatch_target` in registry.yaml (currently aigranthelper, grantspider, wphelper, ai-assistants, fiscus)."
 ---
 
 # /dispatch — autonomous agent PR worker
@@ -25,6 +25,7 @@ Example:
 /dispatch aigranthelper 123
 /dispatch wphelper 37
 /dispatch ai-assistants 61
+/dispatch fiscus 7
 ```
 
 ## What this skill does (in order)

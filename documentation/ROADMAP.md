@@ -20,7 +20,7 @@ Source files this roadmap consolidates:
 OverSteward is a **two-pillar steward** for the House of Krupa Claude Code estate:
 
 1. **Governance (sync).** Keep the `CLAUDE.md`, soul, persona, and shared-skill state of all 14 managed contexts aligned with the canonical `shared/` source. Today: manual sync. Goal: scripted with safety gates.
-2. **Orchestration (dispatch + visibility).** Send scoped agents to work GitHub-issue queues across the four pickup repos (aigranthelper, grantspider, wphelper, ai-assistants). Provide the inbox / status surface so Nathan never becomes the queue bottleneck.
+2. **Orchestration (dispatch + visibility).** Send scoped agents to work GitHub-issue queues across the five pickup repos (aigranthelper, grantspider, wphelper, ai-assistants, fiscus). Provide the inbox / status surface so Nathan never becomes the queue bottleneck.
 
 Both pillars share the same posture: **propose, don't impose**. Nathan is the principal; OverSteward is the gentleman's gentleman.
 

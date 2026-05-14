@@ -19,7 +19,7 @@ Keep every managed context's `CLAUDE.md`, souls, personas, and shared skills ali
 
 ### Pillar 2 — Orchestration (dispatch)
 
-Send scoped autonomous agents to work GitHub issues across the four active production repos (aigranthelper, grantspider, wphelper, ai-assistants). Provide the async ask-answer loop that closes the human-in-the-loop gap. Keep Nathan informed without making him the queue bottleneck.
+Send scoped autonomous agents to work GitHub issues across the five active production repos (aigranthelper, grantspider, wphelper, ai-assistants, fiscus). Provide the async ask-answer loop that closes the human-in-the-loop gap. Keep Nathan informed without making him the queue bottleneck.
 
 Both pillars share a principle: **Nathan is the principal; the OverSteward is the gentleman's gentleman.** Changes are proposed, not imposed. Agents work scoped tickets; Nathan scopes the work. The system has exactly one escape hatch from its own control — Nathan manages the OverSteward directly (`skip_sow: true`).
 

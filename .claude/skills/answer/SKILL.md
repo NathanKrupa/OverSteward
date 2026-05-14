@@ -1,6 +1,6 @@
 ---
 name: answer
-description: "Answer a single agent-blocked GitHub issue. Takes `<repo> <issue-number>`, shows the agent's pending question, captures Nathan's answer, posts it as a `gh issue comment`, and swaps `needs-input` → `ready-for-agent` so the issue becomes eligible for re-dispatch. Use when the user says \"answer AG 148\", \"answer grantspider 170\", \"respond to wp 45\", or runs /answer."
+description: "Answer a single agent-blocked GitHub issue. Takes `<repo> <issue-number>`, shows the agent's pending question, captures Nathan's answer, posts it as a `gh issue comment`, and swaps `needs-input` → `ready-for-agent` so the issue becomes eligible for re-dispatch. Use when the user says \"answer AG 148\", \"answer grantspider 170\", \"respond to wp 45\", \"answer FI 7\", or runs /answer."
 ---
 
 # /answer — post one answer, unblock one agent
@@ -13,7 +13,7 @@ Replaces the Chestertron Inbox round-trip (`/morning-digest` → Obsidian → `/
 /answer <repo> <issue-number>
 ```
 
-- `<repo>` — id of any context in `registry.yaml` marked `dispatch_target: true`. Shorthand accepted (`AG`, `GS`, `WP` → `aigranthelper`, `grantspider`, `wphelper`; `ai-assistants` stays as-is).
+- `<repo>` — id of any context in `registry.yaml` marked `dispatch_target: true`. Shorthand accepted (`AG`, `GS`, `WP`, `FI` → `aigranthelper`, `grantspider`, `wphelper`, `fiscus`; `ai-assistants` stays as-is).
 - `<issue-number>` — integer.
 
 Examples:

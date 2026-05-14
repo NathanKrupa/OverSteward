@@ -1,6 +1,6 @@
 ---
-last_updated: 2026-05-02
-scope: aigranthelper, grantspider, wphelper, ai-assistants, oversteward, gaudi
+last_updated: 2026-05-14
+scope: aigranthelper, grantspider, wphelper, ai-assistants, oversteward, gaudi, fiscus
 maintenance: pull-based — update on any session that discovers staleness
 read_by: scoping / planning sessions only. Read at the start of an in-session pickup if the issue may touch more than one repo or any §3 invariant; routine single-issue work skips this doc.
 token_budget: ~2k. If the doc grows past that, the architecture has outgrown the format — restructure rather than expand.
@@ -26,7 +26,7 @@ What has actually been built across the House of Krupa development estate. Autho
 | ai-assistants | almoner package — content authoring, CRM, ingestion, WP integration | Python | yes | chestertron | see registry |
 | oversteward | Governance + this document; orchestration coordination + cross-repo contracts | Python, YAML | no (governance) | chestertron | `C:\Users\natha\OneDrive\Tech\Python\Oversteward` |
 | gaudi | Architecture linter; ratchet runs in issue-to-pr-workflow step 11a | Python AST, PyPI | no (open source) | chestertron | `C:\Users\natha\OneDrive\Tech\Python\Gaudi` |
-| fiscus | Observation-and-kaizen platform; reads telemetry from every estate system, runs weekly/monthly/quarterly reviews, owns the lessons corpus and the standardize-the-gain invariants | Python 3.14, Quarto, pandas, pydantic | no (observability) | chestertron | `C:\Users\natha\OneDrive\Tech\Python\Fiscus` |
+| fiscus | Observation-and-kaizen platform; reads telemetry from every estate system, runs weekly/monthly/quarterly reviews, owns the lessons corpus and the standardize-the-gain invariants | Python 3.14, Quarto, pandas, pydantic | yes | chestertron | `C:\Users\natha\OneDrive\Tech\Python\Fiscus` |
 
 Source: `registry.yaml` (`dispatch_target` flag — kept as eligibility signal for `/project-status` and `/questions`), `~/.claude/CLAUDE.md` layer map.
 

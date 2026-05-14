@@ -35,8 +35,8 @@ The OverSteward is the one system that ensures wisdom earned in one quarter of t
 
 | Area | State |
 |---|---|
-| `/dispatch` skill | Active; supports aigranthelper, grantspider, wphelper, ai-assistants |
-| Subagents | Four repo-scoped dev agents defined in `shared/agents/` |
+| `/dispatch` skill | Active; supports aigranthelper, grantspider, wphelper, ai-assistants, fiscus |
+| Subagents | Five repo-scoped dev agents defined in `shared/agents/` |
 | `/answer` | Active; GH-native per-issue reply (replaced Inbox round-trip in H1-5) |
 | `/questions` | Active; ad-hoc |
 | `/project-status` | Active; Python-backed with 30d metrics + stale `needs-input` counter |
@@ -78,7 +78,7 @@ The OverSteward is the one system that ensures wisdom earned in one quarter of t
 ## Cross-Domain Connections
 
 - **All 14 managed contexts** — governance pillar deploys shared resources to them.
-- **Four dispatch-target repos** (aigranthelper, grantspider, wphelper, ai-assistants) — orchestration pillar sends scoped agents against their issue queues.
+- **Five dispatch-target repos** (aigranthelper, grantspider, wphelper, ai-assistants, fiscus) — orchestration pillar sends scoped agents against their issue queues (Fiscus elevated 2026-05-14; dev agent authored, in-session-by-default workflow per `feedback_in_session_not_dispatch`).
 - **~/.claude/soul.md and design-soul.md** — originals remain in place; canonical copies live in shared/. Originals can be retired once all contexts migrate to shared paths.
 - **MacGregor** — soul-protected; never receives Chestertron or any cross-context content.
 - **GitHub issue comments** — the canonical async Q&A channel. Agents post `@nathankrupa question:` blocks; Nathan replies via `/answer <repo> <n>`; the `needs-input` → `ready-for-agent` swap closes the loop.
