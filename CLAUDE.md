@@ -18,13 +18,19 @@ Core rules: `~/.claude/CLAUDE.md`
 
 ## Python Environment
 
-**ALWAYS use the `Oversteward` conda environment** for running Python commands:
+**Use the project venv** (uv-managed) for running Python commands:
 ```bash
-conda run -n Oversteward python <script>
-conda run -n Oversteward python -m <module>
+uv run python <script>
+uv run python -m <module>
+uv run pytest
 ```
 
-Do NOT use the base conda environment.
+`uv` auto-creates `.venv/` from `pyproject.toml` on first invocation; subsequent `uv run` calls implicitly activate it. No need to `source .venv/bin/activate` manually.
+
+Bootstrap on a fresh checkout:
+```bash
+uv sync --extra dev
+```
 
 ## Architecture
 

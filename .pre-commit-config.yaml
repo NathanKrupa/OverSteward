@@ -3,7 +3,7 @@ repos:
     hooks:
       - id: gaudi
         name: gaudi architectural linter
-        entry: conda run -n Oversteward gaudi check --exit-code --severity warn
+        entry: uv run gaudi check --exit-code --severity warn
         language: system
         pass_filenames: false
         always_run: true
