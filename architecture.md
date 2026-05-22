@@ -1,5 +1,5 @@
 ---
-last_updated: 2026-05-20
+last_updated: 2026-05-22
 scope: aigranthelper, grantspider, wphelper, ai-assistants, oversteward, gaudi, fiscus
 maintenance: pull-based — update on any session that discovers staleness
 read_by: scoping / planning sessions only. Read at the start of an in-session pickup if the issue may touch more than one repo or any §3 invariant; routine single-issue work skips this doc.
@@ -20,13 +20,13 @@ What has actually been built across the House of Krupa development estate. Autho
 
 | ID | Purpose | Stack | Pickup target | Soul | Local path |
 |---|---|---|---|---|---|
-| aigranthelper | Grant-matching SaaS — paying-user surface | Django, Railway, Neon (default DB) | yes | chestertron | `C:\Users\natha\OneDrive\Tech\Python\aigranthelper` |
-| grantspider | Crawler/enrichment producer | Python, SQLAlchemy + Alembic, Neon (research DB) | yes | chestertron | `C:\Users\natha\OneDrive\Tech\Python\grantspider` |
+| aigranthelper | Grant-matching SaaS — paying-user surface | Django, Railway, Neon (default DB) | yes | chestertron | `/home/natha/aigranthelper` (WSL2) |
+| grantspider | Crawler/enrichment producer | Python, SQLAlchemy + Alembic, Neon (research DB) | yes | chestertron | `/home/natha/grantspider` (WSL2) |
 | wphelper | WordPress client toolkit; canonical home for external connectors (WP, Kit, GA4, GSC, FTP) | Python | yes | chestertron | `C:\Users\natha\OneDrive\Tech\Python\wphelper` |
 | ai-assistants | almoner package — content authoring, CRM, ingestion, WP integration | Python | yes | chestertron | see registry |
-| oversteward | Governance + this document; orchestration coordination + cross-repo contracts | Python, YAML | no (governance) | chestertron | `C:\Users\natha\OneDrive\Tech\Python\Oversteward` |
-| gaudi | Architecture linter; ratchet runs in issue-to-pr-workflow step 11a | Python AST, PyPI | no (open source) | chestertron | `C:\Users\natha\OneDrive\Tech\Python\Gaudi` |
-| fiscus | Observation-and-kaizen platform; reads telemetry from every estate system, runs weekly/monthly/quarterly reviews, owns the lessons corpus and the standardize-the-gain invariants | Python 3.14, Quarto, pandas, pydantic | yes | chestertron | `C:\Users\natha\OneDrive\Tech\Python\Fiscus` |
+| oversteward | Governance + this document; orchestration coordination + cross-repo contracts | Python, YAML | no (governance) | chestertron | `/home/natha/OverSteward` (WSL2) |
+| gaudi | Architecture linter; ratchet runs in issue-to-pr-workflow step 11a | Python AST, PyPI | no (open source) | chestertron | `/home/natha/gaudi` (WSL2) |
+| fiscus | Observation-and-kaizen platform; reads telemetry from every estate system, runs weekly/monthly/quarterly reviews, owns the lessons corpus and the standardize-the-gain invariants | Python 3.12, Quarto, pandas, pydantic | yes | chestertron | `/home/natha/Fiscus` (WSL2) |
 
 Source: `registry.yaml` (`dispatch_target` flag — kept as eligibility signal for `/project-status` and `/questions`), `~/.claude/CLAUDE.md` layer map.
 
