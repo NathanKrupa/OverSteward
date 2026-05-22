@@ -156,6 +156,19 @@ Deployed working copy — not tracked in git. Sync from `oversteward/shared/` on
 └── inbox.md
 ```
 
+### Dual-target deploy: Windows + WSL2
+
+Since 2026-05-20 (AG/GS port off OneDrive), the deploy target is **two homes**, not one:
+
+| Host | Target path |
+|---|---|
+| Windows | `C:\Users\natha\.claude\shared\` |
+| WSL2 (Ubuntu-24.04) | `/home/natha/.claude/shared/` |
+
+A Claude session running natively under WSL resolves `~/.claude/shared/...` against `/home/natha/.claude/`; a Windows session resolves against `C:\Users\natha\.claude\`. They are separate filesystems with no automatic mirror. Every deploy step (sync check, persona scaffold, manual edit) writes to both, or AG/GS (and any future WSL repo) silently break their `@~/.claude/shared/...` imports.
+
+**Inbox caveat:** `shared/inbox.md` is bidirectional state, not deploy-only. The "first context to start a session reads it, applies changes, and clears it" pattern (see below) only sees its own host's copy. To avoid drift: either Nathan appends to both copies, or sync the inbox in both directions before the session-start read. Treat inbox sync as a known soft seam until Phase 2 formalizes it.
+
 ---
 
 ## Pillar 1 — Governance
@@ -206,7 +219,7 @@ Every managed CLAUDE.md follows this structure. OverSteward owns the managed blo
 
 ### Sync Workflow (Phase 1 — manual)
 
-1. **Deploy shared.** Copy `oversteward/shared/` → `~/.claude/shared/`.
+1. **Deploy shared.** Copy `oversteward/shared/` → **both** `C:\Users\natha\.claude\shared\` (Windows) **and** `/home/natha/.claude/shared/` (WSL2). See [Dual-target deploy](#dual-target-deploy-windows--wsl2).
 2. **Gather.** Read each registered repo's CLAUDE.md and skills inventory.
 3. **Diff.** Compute what each context's managed block should contain vs. what it does.
 4. **Report.** Write `reports/YYYY-MM-DD.md` listing proposed changes with rationale.

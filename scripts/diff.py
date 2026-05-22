@@ -1,5 +1,5 @@
-ABOUTME: Computes needed changes per context by comparing current state to registry spec.
-ABOUTME: Pure Python — no Claude invocation. Produces structured change list for coordinator.
+# ABOUTME: Computes needed changes per context by comparing current state to registry spec.
+# ABOUTME: Pure Python — no Claude invocation. Produces structured change list for coordinator.
 
 # Phase 2 — stub. Implement after Phase 1 manual workflow is validated.
 #

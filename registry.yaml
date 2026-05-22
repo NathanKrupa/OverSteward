@@ -150,7 +150,7 @@ contexts:
     type: vscode
     repo: https://github.com/NathanKrupa/aigranthelper.git
     branch: main
-    local_path: "C:\\Users\\natha\\OneDrive\\Tech\\Python\\aigranthelper"
+    local_path: "/home/natha/aigranthelper"
     claude_md_path: CLAUDE.md
     skills_path: .claude/skills/
     soul: chestertron
@@ -273,7 +273,7 @@ contexts:
     type: vscode
     repo: https://github.com/NathanKrupa/grantspider.git
     branch: master
-    local_path: "C:\\Users\\natha\\OneDrive\\Tech\\Python\\grantspider"
+    local_path: "/home/natha/grantspider"
     claude_md_path: CLAUDE.md
     skills_path: .claude/skills/
     soul: chestertron

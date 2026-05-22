@@ -1,5 +1,5 @@
-ABOUTME: Identifies and proposes removal of stale persona skill files in managed repos.
-ABOUTME: Only touches files matching persona-*.md naming convention (OverSteward-owned pattern).
+# ABOUTME: Identifies and proposes removal of stale persona skill files in managed repos.
+# ABOUTME: Only touches files matching persona-*.md naming convention (OverSteward-owned pattern).
 
 # Phase 2 — stub. Implement after Phase 1 manual workflow is validated.
 #
