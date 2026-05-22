@@ -1,5 +1,5 @@
-ABOUTME: Applies approved changes to target repos with safety gates.
-ABOUTME: Never touches managed repos without dirty-tree check. Always branches, never pushes to main.
+# ABOUTME: Applies approved changes to target repos with safety gates.
+# ABOUTME: Never touches managed repos without dirty-tree check. Always branches, never pushes to main.
 
 # Phase 2 — stub. Implement after Phase 1 manual workflow is validated.
 #

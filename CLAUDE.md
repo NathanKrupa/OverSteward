@@ -57,7 +57,10 @@ Oversteward is currently a config-management project in Phase 1 (manual sync). W
 
 When Nathan asks for a sync check:
 1. Read `registry.yaml` for the current context list
-2. Sync `shared/` → `~/.claude/shared/` (copy files)
+2. Deploy `shared/` to **both** Claude home directories:
+   - Windows: `C:\Users\natha\.claude\shared\`
+   - WSL2: `/home/natha/.claude/shared/` (via `\\wsl.localhost\Ubuntu-24.04\home\natha\.claude\shared\` or `wsl --exec bash -c "cp ..."`)
+   Both must stay in lockstep — repos on either filesystem resolve `@~/.claude/shared/...` against their own home. Skipping the WSL mirror silently breaks AG/GS (and any future WSL repo).
 3. For each context (skip `skip_sow: true`): check whether the managed block matches what registry specifies
 4. Generate a report in `reports/YYYY-MM-DD.md`
 5. Present proposed changes; wait for approval before running sow.py

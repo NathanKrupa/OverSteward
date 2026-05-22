@@ -18,7 +18,9 @@ Scaffold a new persona for the House of Krupa persona catalogue and deploy it to
 3. **Commit to OverSteward.** Once approved:
    - Stage `shared/personas/{name}.md`
    - Commit to the OverSteward repo with message: "Add {Name} persona to catalogue"
-   - Also sync to `~/.claude/shared/personas/{name}.md`
+   - Also sync to **both** Claude home directories:
+     - Windows: `C:\Users\natha\.claude\shared\personas\{name}.md`
+     - WSL2: `/home/natha/.claude/shared/personas/{name}.md` (`wsl --exec cp …` or write via `\\wsl.localhost\Ubuntu-24.04\…`). Both must be written; WSL repos (AG, GS) resolve `@~/.claude/shared/...` against the WSL home only. See OVERSTEWARD.md → "Dual-target deploy: Windows + WSL2".
 
 4. **Update the registry.** Show Nathan the full context grid and ask which contexts should get this persona, and whether each should be `personas_always_on` or `personas_available`. Update `registry.yaml` accordingly.
 
