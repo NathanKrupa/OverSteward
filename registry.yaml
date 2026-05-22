@@ -8,7 +8,8 @@ contexts:
     id: oversteward
     type: vscode
     repo: https://github.com/NathanKrupa/OverSteward.git
-    branch: main
+    branch: master
+    local_path: "/home/natha/OverSteward"
     claude_md_path: CLAUDE.md
     skills_path: .claude/skills/
     agents_path: .claude/agents/
@@ -252,7 +253,7 @@ contexts:
     type: vscode
     repo: https://github.com/NathanKrupa/gaudi.git
     branch: main
-    local_path: "C:\\Users\\natha\\OneDrive\\Tech\\Python\\Gaudi"
+    local_path: "/home/natha/gaudi"
     claude_md_path: CLAUDE.md
     skills_path: .claude/skills/
     soul: chestertron
@@ -313,7 +314,7 @@ contexts:
     type: vscode
     repo: https://github.com/NathanKrupa/Fiscus.git
     branch: main
-    local_path: "C:\\Users\\natha\\OneDrive\\Tech\\Python\\Fiscus"
+    local_path: "/home/natha/Fiscus"
     claude_md_path: CLAUDE.md
     skills_path: .claude/skills/
     soul: chestertron
