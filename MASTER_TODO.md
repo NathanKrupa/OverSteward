@@ -1,25 +1,24 @@
 # Master TODO — OverSteward
 
-**Vision:** Two-pillar steward — (1) governance sync across 14 contexts, (2) orchestration of scoped autonomous agents against four production repos.
+**Vision:** Two-pillar steward — (1) governance sync across 15 contexts, (2) orchestration of in-session pickup work across five production repos (aigranthelper, grantspider, wphelper, ai-assistants, fiscus).
 
 **Workflow:** Completed tasks → TODO_COMPLETED.md | Next tasks pull from → TODO_BACKLOG.md
 
-Plan reference: `OVERSTEWARD.md` (Phase Roadmap); full v3 history in Stewards_Ledger.
+Plan reference: `OVERSTEWARD.md` (Phase Roadmap); full session history in Stewards_Ledger.
 
 ---
 
-## Active — Horizon 1 (Integrity + Visibility, target 2 weeks)
+## Active
 
-- [x] **H1-1** — Move dispatch target list to `registry.yaml` (`dispatch_target: true`); `/dispatch`, `/questions`, `/morning-digest`, `/project-status` now read from registry (PR #12, merged 2026-04-20)
-- [ ] **H1-2** — Pipeline metrics on `/project-status` (cycle time, needs-input age, PR success rate, self-critique fire rate) + `data/pipeline_history.jsonl` daily snapshot (PR #13)
-- [x] **H1-3** — Formalize `soul_in_local` in registry schema docs; pin sow.py safety-gate design contract — `documentation/registry-schema.md` + `documentation/sow-safety-gates.md` (PR #14)
-- [x] **H1-4** — Dispatch kill-switch: `dispatch-paused` label added to taxonomy; `/dispatch` preflight refuses paused repos; `/project-status` surfaces paused repos (PR #15)
-- [x] **H1-5** — GH-native answer loop: `/answer <repo> <n>` skill; `/morning-digest` + `/answer-flow` removed from both `.claude/skills/` and `shared/skills/`; session-start hook removed from CLAUDE.md; `registry.yaml` `skills_always_on` updated; dispatch playbook rewrites the question-asking step to a structured GH comment; stale-question counter (>=48h) surfaced in `/project-status` metrics block (PR #16, merged 2026-04-20). **Manual follow-up:** delete the two cron triggers via `/schedule delete --name answer-flow` and `/schedule delete --name morning-digest`. The Chestertron Inbox file stays on disk (historical record); no new entries land there.
+- [ ] **PR #46 — trajectory template** (open, current branch `feat/trajectory-template`). Schema for in-session PR trajectory notes lives at `documentation/trajectories/TEMPLATE.md`; self-bootstrap note for #46 already drafted. Nathan's call whether to merge.
+- [ ] **PR #33 — formally retire `/dispatch` skill** (open since 2026-05-01). De-facto retired since 2026-05-02 orphan-branch sweep — all five pickup repos work via in-session model, captured in `documentation/issue-to-pr-workflow.md` + `documentation/repos/*.md`. PR retains the source-of-truth deletion; either merge or close-and-document.
+- [ ] **Issue #37 — andon issue template + label** (Fiscus channel). Copy Fiscus's canonical `andon.md` template into `.github/ISSUE_TEMPLATE/`; create matching label. Tracking-only per Nathan 2026-05-14; no auto-PR.
+- [ ] **Issue #39 — drain accumulated OneDrive-locked worktree husks** (carryover-2026-05). Operator-driven; ~80 husks across grantspider's `.git/worktrees/`. Mitigated by /dispatch retirement but residue remains. Long-term mitigation (worktree-add outside OneDrive) is a separate spike.
 
 ## Standing (carried across horizons)
 
-- [ ] **Analyst persona** — build via `/create-persona` when a real Stocks/OpportunityMiner use case lands (trigger-gated, not scheduled)
-- [ ] **billions registry note** — `soul_in_local: true` design formalized in H1-3; sow.py implementation in Horizon 3
+- [ ] **Analyst persona** — build via `/create-persona` when a real Stocks/OpportunityMiner use case lands (trigger-gated, not scheduled).
+- [ ] **billions registry note** — `soul_in_local: true` design formalized in H1-3; sow.py implementation in Horizon 3.
 
 ---
 

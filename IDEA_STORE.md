@@ -7,7 +7,7 @@ Ideas worth remembering but not worth building right now. Review quarterly or wh
 
 ---
 
-## From garrytan/gstack (reviewed 2026-03-23)
+## From garrytan/gstack (reviewed 2026-03-23; revisited 2026-05-27)
 
 Source: https://github.com/garrytan/gstack — Garry Tan's Claude Code power-user stack.
 
@@ -15,11 +15,13 @@ Source: https://github.com/garrytan/gstack — Garry Tan's Claude Code power-use
 
 gstack uses Claude Code's `hooks` frontmatter in skill files to register bash scripts that intercept tool calls. The hook receives JSON on stdin (containing the command or file path) and returns a permission decision (`allow`, `ask`, or `deny`).
 
+**Status (2026-05-27):** Hook infrastructure now exists. PR #47 shipped `~/.claude/hooks/check_db_access.py` — a Bash PreToolUse hook for credential hygiene with block-and-redirect behavior. The harness layer is proven; the managed-block governance hook is now a smaller lift.
+
 **Potential OverSteward use:** A hook that detects edits inside `<!-- [oversteward:managed] -->` blocks and warns the user. This would prevent accidental manual edits to managed sections of CLAUDE.md files.
 
-**Implementation:** Write a `check-managed-block.sh` that reads the target file path from stdin JSON, checks if the edit falls within managed markers, and returns `{"permissionDecision":"ask","message":"This edit targets an OverSteward-managed block..."}`.
+**Implementation:** Write a `check-managed-block.py` modeled on `check_db_access.py`. Read the target file path from stdin JSON, check whether the edit falls within managed markers, return `{"permissionDecision":"ask","message":"This edit targets an OverSteward-managed block..."}`.
 
-**Why not now:** We're still in Phase 1 (manual sync). Hooks become valuable once sow.py is automated and managed blocks should be read-only.
+**Why not now:** Sow.py isn't built yet, so managed blocks aren't authoritatively populated. The hook becomes valuable once sow.py is live (Horizon 3). Worth revisiting when H2-1 (cross-repo `.claude/settings.json` parity) forces the issue.
 
 ---
 
@@ -57,9 +59,11 @@ gstack skills declare dependencies: `benefits-from: [prerequisite-skill]`. If th
 
 For large diffs (200+ lines), gstack's `/review` runs parallel reviews across Claude and OpenAI Codex, then synthesizes findings with confidence weighting for multi-source agreement.
 
+**Status (2026-05-27):** Claude Code's `/ultrareview` skill is a partial realization — multi-agent cloud review of the current branch. Single-vendor though (still Claude). True cross-model adversarial would be the next step.
+
 **Potential use:** For critical deployments (aigranthelper production), run Claude + a second model for adversarial validation.
 
-**Why not now:** Nathan's projects are small enough that single-model review is sufficient. Revisit when aigranthelper has paying users.
+**Why not now:** Nathan's projects are small enough that `/ultrareview` (single-vendor multi-agent) covers the bar. Revisit when aigranthelper has paying users.
 
 ---
 
@@ -107,6 +111,8 @@ gstack's `/ship` handles the entire merge→test→review→version-bump→chang
 
 gstack logs skill invocations, durations, and outcomes to JSONL files. Enables analysis of which skills are used most, where failures occur, etc.
 
+**Status (2026-05-27):** Partially realized. `data/pipeline_history.jsonl` (H1-2, PR #13) captures daily pipeline snapshots for `/project-status` metrics. Skill-invocation-level telemetry is still future.
+
 **Potential use:** Track OverSteward sync operations, skill usage, and persona deployments over time.
 
 **Why not now:** Over-engineering for current scale. If we get to 20+ repos or multiple users, revisit.
@@ -117,6 +123,6 @@ gstack logs skill invocations, durations, and outcomes to JSONL files. Enables a
 
 gstack's `/retro` generates weekly retrospectives with shipping streaks, test health trends, and per-person breakdowns. `/retro global` runs across all projects.
 
-**Potential use:** A House of Krupa weekly retro that summarizes activity across all managed contexts.
+**Status (2026-05-27):** Substantially realized by **Fiscus** (added 2026-05-14). Fiscus owns weekly/monthly/quarterly review cadences across the estate, with subject registry, lessons corpus, and an andon channel that aggregates `andon`-labelled issues from every pickup repo. OverSteward emits (`pipeline_history.jsonl`); Fiscus aggregates.
 
-**Why not now:** Nathan's session summaries and the Steward's Ledger serve this purpose manually. Automate when there's enough volume to justify it.
+**What's left to ideate:** automated synthesis of the cross-repo activity timeline — shipping streaks, regression-rate trends — that would feed Fiscus's review surfaces. Mostly a Fiscus concern now, not OverSteward.
