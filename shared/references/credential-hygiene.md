@@ -30,6 +30,8 @@ For any read or write against a project database — counts, recency checks, ad-
 
 `~/.claude/settings.json` denies the failing shapes — `source .env*`, `set -a*`, `python -c *psycopg*`, `psql:*`, `*DATABASE_URL*`, etc. Denial there is a backstop, not an authorization model: if you find yourself fighting the deny-list, you are about to write the wrong code.
 
+**For anyone authoring such a block:** redirect on block, never just deny. A bare deny gives the agent no path forward — it retries, gets denied again, eventually asks Nathan. A PreToolUse hook that exits non-zero with a structured "do this instead" message (pointing at the `db scratch` CLI, the service-layer pattern, or `load_dotenv()`) makes the discipline self-teaching. The deny payload *is* the doctrine surface for the moment the agent is most likely to read it.
+
 ## How to apply
 
 The temptation is loudest when the task feels too small for the full process. "Small" is the threat model the registry + layering rules exist to defend against, not an exception to them. The correct response to "I just need a number" is still "find or write a CLI." If adding a CLI is genuinely out of scope for the current task, stop and ask rather than fall back to raw SQL.
