@@ -59,6 +59,15 @@ Oversteward is currently a config-management project in Phase 1 (manual sync). W
 - **Todo:** `MASTER_TODO.md` (active) + `TODO_BACKLOG.md` (queued) + `TODO_COMPLETED.md` (archive)
 - **Session:** `SESSION_STATE.md` (handoff between sessions)
 
+## Tool Registry
+
+**When looking for a CLI tool, script, or entry point — read `data/tool_registry.md` first.**
+
+Regenerate after adding/removing tools:
+```bash
+uv run python scripts/tools/generate_tool_registry.py
+```
+
 ## Sync Instructions (Phase 1 — Manual)
 
 When Nathan asks for a sync check:
