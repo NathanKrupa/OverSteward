@@ -15,6 +15,7 @@ dependencies = [
 dev = [
     "gaudi-linter>=0.2.0",
     "pre-commit>=3.0",
+    "pytest>=8.0",
 ]
 
 [build-system]

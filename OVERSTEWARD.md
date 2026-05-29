@@ -156,6 +156,16 @@ Deployed working copy — not tracked in git. Sync from `oversteward/shared/` on
 └── inbox.md
 ```
 
+### Canonical shared scripts (in-repo, not ~/.claude/shared/)
+
+A second class of shared artifact lives at `oversteward/shared/scripts/` — Python tools that need to ship **inside each pickup repo** (so they can `Path(__file__).resolve().parent.parent.parent` to that repo's root), not at user level. Currently:
+
+| Script | Source of truth | Deployed to | Used by |
+|---|---|---|---|
+| `generate_tool_registry.py` | `oversteward/shared/scripts/tools/generate_tool_registry.py` | `<repo>/scripts/tools/generate_tool_registry.py` | AG, GS, FI, OS |
+
+Phase-1 sync = byte-copy from source to each pickup repo (any dispatch target). Phase-2 sow.py will fold these into the same workflow as souls/personas. Per-repo configuration (e.g. `data/tool_registry.toml` for project-specific category names) lives in the consuming repo and is **not** managed by OverSteward — only the script itself is canonical.
+
 ### Dual-target deploy: Windows + WSL2
 
 Since 2026-05-20 (AG/GS port off OneDrive), the deploy target is **two homes**, not one:
