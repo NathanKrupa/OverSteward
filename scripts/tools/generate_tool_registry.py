@@ -41,8 +41,9 @@ import shutil
 import subprocess
 import sys
 import tomllib
+from collections.abc import Iterator
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 
@@ -190,7 +191,7 @@ def extract_aboutme(path: Path) -> str | None:
         stripped = line.strip()
         for prefix in (_ABOUTME_HASH_PREFIX, _ABOUTME_PREFIX):
             if stripped.startswith(prefix):
-                aboutme_lines.append(stripped[len(prefix):].strip())
+                aboutme_lines.append(stripped[len(prefix) :].strip())
                 break
     return " — ".join(aboutme_lines) if aboutme_lines else None
 
@@ -225,7 +226,12 @@ def extract_argparse_description(path: Path) -> str | None:
         if not isinstance(node, ast.Call):
             continue
         func = node.func
-        name = func.id if isinstance(func, ast.Name) else (func.attr if isinstance(func, ast.Attribute) else None)
+        if isinstance(func, ast.Name):
+            name = func.id
+        elif isinstance(func, ast.Attribute):
+            name = func.attr
+        else:
+            name = None
         if name != "ArgumentParser":
             continue
         for kw in node.keywords:
@@ -279,7 +285,8 @@ def _has_main_guard(text: str) -> bool:
 
 
 def _imports_module(text: str, module: str) -> bool:
-    return bool(re.search(rf"(?:^|\s)import\s+{module}|from\s+{module}\s+import", text, re.MULTILINE))
+    pattern = rf"(?:^|\s)import\s+{module}|from\s+{module}\s+import"
+    return bool(re.search(pattern, text, re.MULTILINE))
 
 
 def is_cli_tool(path: Path) -> bool:
@@ -314,75 +321,88 @@ _ARGPARSE_SUBPARSERS_BLOCK = re.compile(r"^\s{2,}\{([^}]+)\}\s*$", re.MULTILINE)
 _OPTIONAL_HEADER = re.compile(r"^(options:|optional arguments:)\s*$", re.IGNORECASE)
 
 
-def parse_click_commands(help_text: str) -> list[Subcommand]:
-    """Parse the ``Commands:`` block from Click ``--help`` output.
+def _click_line_kind(raw: str) -> tuple[str, str, str]:
+    """Classify one line within the Click ``Commands:`` block.
 
-    Click prints:
-        Commands:
-          alpha   Do alpha.
-          beta    Do beta.
-
-    Some commands span multiple lines when their summary wraps; the wrap line
-    starts with more leading whitespace than the command itself. We treat
-    indented-but-not-command-shaped lines as wraps of the prior entry.
+    Returns ``(kind, name, desc)``: kind is ``"blank"``, ``"command"``,
+    ``"wrap"``, or ``"end"``. ``name`` and ``desc`` are populated only for
+    ``"command"``. ``"wrap"`` lines carry the continuation text in ``desc``.
     """
-    lines = help_text.splitlines()
+    if not raw.strip():
+        return ("blank", "", "")
+    match = _CLICK_COMMAND_LINE.match(raw)
+    if match and not raw.startswith("    "):
+        return ("command", match.group(1), (match.group(2) or "").strip())
+    if raw.startswith("    "):
+        return ("wrap", "", raw.strip())
+    return ("end", "", "")
+
+
+def parse_click_commands(help_text: str) -> list[Subcommand]:
+    """Parse the ``Commands:`` block from Click ``--help`` output."""
     in_commands = False
     out: list[Subcommand] = []
     last: Subcommand | None = None
-    for raw in lines:
+    for raw in help_text.splitlines():
         if _CLICK_COMMANDS_HEADER.match(raw):
             in_commands = True
             continue
         if not in_commands:
             continue
-        if not raw.strip():
+        kind, name, desc = _click_line_kind(raw)
+        if kind == "blank":
             if out:
                 break
             continue
-        match = _CLICK_COMMAND_LINE.match(raw)
-        if match and not raw.startswith("    "):
-            name, desc = match.group(1), (match.group(2) or "").strip()
+        if kind == "command":
             last = Subcommand(name=name, description=desc)
             out.append(last)
-        elif last is not None and raw.startswith("    "):
-            last.description = (last.description + " " + raw.strip()).strip()
+        elif kind == "wrap" and last is not None:
+            last.description = (last.description + " " + desc).strip()
         else:
             break
     return out
 
 
-def parse_argparse_subcommands(help_text: str) -> list[Subcommand]:
-    """Parse argparse subparsers from ``--help`` output.
+_ARGPARSE_DETAIL_LINE = re.compile(r"^\s{4,}(\S+)(?:\s{2,}(.*))?$")
 
-    argparse prints:
-        positional arguments:
-          {alpha,beta}
-            alpha     Do alpha.
-            beta      Do beta.
-    """
+
+def _argparse_iter_details(
+    lines: list[str],
+    start: int,
+) -> Iterator[tuple[str, str]]:
+    """Yield ``(name, desc)`` rows from the argparse subparsers detail block."""
+    for raw in lines[start:]:
+        if not raw.strip():
+            yield ("__blank__", "")
+            continue
+        if _OPTIONAL_HEADER.match(raw.strip()):
+            yield ("__end__", "")
+            return
+        m = _ARGPARSE_DETAIL_LINE.match(raw)
+        if m:
+            yield (m.group(1), (m.group(2) or "").strip())
+
+
+def parse_argparse_subcommands(help_text: str) -> list[Subcommand]:
+    """Parse argparse subparsers from ``--help`` output."""
     match = _ARGPARSE_SUBPARSERS_BLOCK.search(help_text)
     if not match:
         return []
     names = {n.strip() for n in match.group(1).split(",") if n.strip()}
+    start = help_text[: match.start()].count("\n") + 1
     out: list[Subcommand] = []
     seen: set[str] = set()
-    lines = help_text.splitlines()
-    start = help_text[: match.start()].count("\n") + 1
-    for raw in lines[start:]:
-        if not raw.strip():
+    for name, desc in _argparse_iter_details(help_text.splitlines(), start):
+        if name == "__end__":
+            break
+        if name == "__blank__":
             if out:
                 break
             continue
-        if _OPTIONAL_HEADER.match(raw.strip()):
-            break
-        m = re.match(r"^\s{4,}(\S+)(?:\s{2,}(.*))?$", raw)
-        if not m:
-            continue
-        name = m.group(1)
         if name not in names or name in seen:
             continue
-        out.append(Subcommand(name=name, description=(m.group(2) or "").strip()))
+        out.append(Subcommand(name=name, description=desc))
         seen.add(name)
     return out
 
@@ -392,14 +412,23 @@ def discover_subcommands(command_name: str) -> list[Subcommand]:
     if not shutil.which(command_name):
         return []
     try:
-        result = subprocess.run(
+        # command_name originates from pyproject.toml [project.scripts]
+        # — trusted project config under version control, not user input.
+        # No shell, explicit argv, fixed --help flag.
+        result = subprocess.run(  # nosec B603
             [command_name, _HELP_FLAG],
             capture_output=True,
             text=True,
             timeout=_HELP_TIMEOUT_SECONDS,
             check=False,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except OSError:
+        # Catch each kind separately rather than `except (A, B):` — the
+        # tuple form is rewritten differently across pickup repos (AG
+        # strips parens via PEP 758; GS forbids the unparen form). Two
+        # arms stay byte-identical in both.
+        return []
+    except subprocess.TimeoutExpired:
         return []
     output = (result.stdout or "") + "\n" + (result.stderr or "")
     if not output.strip():
@@ -463,7 +492,11 @@ def collect_console_scripts(config: RegistryConfig) -> list[ToolEntry]:
     return entries
 
 
-def _classify_script_entry(py_file: Path, rel: Path, config: RegistryConfig) -> tuple[str, str, bool]:
+def _classify_script_entry(
+    py_file: Path,
+    rel: Path,
+    config: RegistryConfig,
+) -> tuple[str, str, bool]:
     parts = rel.parts
     if len(parts) >= 2 and parts[0] == _SCRIPTS_DIR_NAME:
         raw_cat = parts[1]
@@ -512,7 +545,8 @@ def collect_module_entries(config: RegistryConfig) -> list[ToolEntry]:
         if _should_skip(rel_str):
             continue
         module_dir = main_file.parent
-        module_name = str(module_dir.relative_to(PROJECT_ROOT)).replace("\\", ".").replace("/", ".")
+        rel_dir = str(module_dir.relative_to(PROJECT_ROOT))
+        module_name = rel_dir.replace("\\", ".").replace("/", ".")
         desc = extract_description(main_file)
         top_dir = rel.parts[0] if len(rel.parts) > 1 else _DEFAULT_CATEGORY
         category = normalize_category(top_dir.replace("_", " "), config)
@@ -617,7 +651,7 @@ def _group_entries(entries: list[ToolEntry]) -> tuple[list[ToolEntry], dict[str,
 
 
 def _render_header(total: int, cat_count: int) -> list[str]:
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    timestamp = datetime.now(tz=UTC).astimezone().strftime("%Y-%m-%d %H:%M")
     return [
         "# Tool Registry",
         "",
@@ -627,12 +661,21 @@ def _render_header(total: int, cat_count: int) -> list[str]:
     ]
 
 
+# Anchor split into a separate constant so the assignment stays under
+# the strictest line-length limit across pickup repos (99 in GS, 120 in
+# AG). f-string interpolation prevents ruff format from merging or
+# rewrapping the literal differently between projects.
+_TOC_ANCHOR_CONSOLE = "#console-scripts-installed-cli-commands"
+_TOC_CONSOLE_LINK = f"- [Console Scripts (installed CLI commands)]({_TOC_ANCHOR_CONSOLE})"
+_TOC_SUBCOMMANDS_LINK = "- [Console Script Subcommands](#console-script-subcommands)"
+
+
 def _render_toc(console: list[ToolEntry], sorted_cats: list[str]) -> list[str]:
     lines = ["## Table of Contents", ""]
     if console:
-        lines.append("- [Console Scripts (installed CLI commands)](#console-scripts-installed-cli-commands)")
+        lines.append(_TOC_CONSOLE_LINK)
         if any(e.subcommands for e in console):
-            lines.append("- [Console Script Subcommands](#console-script-subcommands)")
+            lines.append(_TOC_SUBCOMMANDS_LINK)
     for cat in sorted_cats:
         anchor = cat.lower().replace(" ", "-").replace("/", "").replace("(", "").replace(")", "")
         lines.append(f"- [{cat}](#{anchor})")
