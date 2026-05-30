@@ -94,6 +94,7 @@ contexts:
     type: vscode
     repo: https://github.com/NathanKrupa/ai-assistants.git
     branch: main
+    local_path: "/home/natha/ai-assistants"
     claude_md_path: CLAUDE.md
     skills_path: .claude/skills/
     agents_path: .claude/agents/
@@ -229,7 +230,7 @@ contexts:
     type: vscode
     repo: https://github.com/NathanKrupa/wphelper.git
     branch: main
-    local_path: "C:\\Users\\natha\\OneDrive\\Tech\\Python\\wphelper"
+    local_path: "/home/natha/wphelper"
     claude_md_path: CLAUDE.md
     skills_path: .claude/skills/
     soul: chestertron
