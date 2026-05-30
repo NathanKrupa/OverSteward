@@ -1,11 +1,20 @@
 ---
 name: dispatch
-description: "Dispatch a scoped background agent to work a GitHub issue autonomously (implement → test → PR → auto-merge). Use when the user says \"dispatch issue N on REPO\" or \"work issue N on REPO\" where REPO is any repo marked `dispatch_target` in registry.yaml (currently aigranthelper, grantspider, wphelper, ai-assistants, fiscus)."
+description: "Work a GitHub issue with a scoped repo agent in-session, foreground (implement → test → PR → auto-merge). Runs on the Max subscription, not metered API. Use when the user says \"dispatch issue N on REPO\" or \"work issue N on REPO\" where REPO is any repo marked `dispatch_target` in registry.yaml (currently aigranthelper, grantspider, wphelper, ai-assistants, fiscus)."
 ---
 
-# /dispatch — autonomous agent PR worker
+# /dispatch — in-session scoped agent PR worker
 
-Dispatches a repo-scoped background agent (`<repo>-dev` subagent) to work a single GitHub issue end-to-end. Agent implements, tests, lints, opens PR, enables auto-merge, polls to terminal state, reports back structured YAML.
+Runs a repo-scoped agent (`<repo>-dev`) on a single GitHub issue end-to-end: implement, test, lint, open PR, enable auto-merge, poll to terminal state, return a structured YAML report. The agent works in an isolated worktree so Nathan's live tree is never touched.
+
+## Billing & reliability — why this runs foreground (read once)
+
+This skill **invokes the agent in-session, foreground — never `run_in_background: true`.** Two reasons:
+
+- **Cost.** In-session subagents (the `Agent`/Task tool and the `Workflow` tool) bill against the **Max subscription quota**, not the metered Anthropic API. Background/detached "Managed Agents" are API-metered ($/token + $/session-hour) and are off-limits on a subscription budget. Foreground keeps the work inside the envelope Nathan already pays for.
+- **Reliability.** The Claude Code silent-termination bug ([anthropics/claude-code#47936](https://github.com/anthropics/claude-code/issues/47936)) drops `run_in_background: true` subagents mid-task in ~15–30% of runs and falsely reports them `completed`. It is specific to background-async mode. Foreground subagents return their real final output, so there is no false-completion to detect and no heartbeat-commit insurance to maintain.
+
+The cost is that the session stays alive while the agent works — you watch it finish rather than closing the laptop. That is the trade we accept to stay on Max.
 
 ## Invocation
 
@@ -16,7 +25,7 @@ Dispatches a repo-scoped background agent (`<repo>-dev` subagent) to work a sing
 Where `<repo>` is the `id` of any context in `registry.yaml` marked `dispatch_target: true`. Get the current list with:
 
 ```bash
-conda run -n Oversteward python scripts/registry.py dispatch-targets
+uv run python scripts/registry.py dispatch-targets
 ```
 
 Example:
@@ -35,7 +44,7 @@ Example:
 Look up the dispatch target metadata from the registry:
 
 ```bash
-conda run -n Oversteward python scripts/registry.py info <repo>
+uv run python scripts/registry.py info <repo>
 ```
 
 The helper returns:
@@ -77,31 +86,34 @@ Run these checks. Any failure → refuse to dispatch, report the reason to the u
 
 If all preflights pass: proceed.
 
-### 3. Fire the agent
+### 3. Run the agent (foreground)
 
-Invoke Task tool with:
+Invoke the `Agent` tool with:
 - `subagent_type: <repo>-dev`
-- `run_in_background: true`
+- **No `run_in_background`** (foreground — see billing/reliability note above)
 - `prompt`: structured brief including:
   - Issue number + `gh` commands to read body/comments
   - Reference to `.claude/skills/dispatch/playbook.md` (universal workflow)
-  - Explicit reminder of repo's default branch
+  - Explicit reminder of the repo's default branch
   - Expected structured YAML return format
+
+The session blocks until the agent returns. The agent's final message **is** its structured YAML report — that is the real result, no notification round-trip.
 
 ### 4. Return to user
 
-Immediately return:
-```
-Dispatched <repo>-dev on issue #<n>.
-Agent ID: <id>
-Status will notify on completion.
-```
+When the agent returns, read its YAML report and relay the terminal state directly (no verification round-trip is needed — foreground returns the genuine final output):
 
-Do not block the conversation. The notification comes asynchronously.
+- `final_state: MERGED` → "✅ PR merged: <url>"
+- `final_state: CI_FAILED` → "❌ CI failed on <url> — check the Actions tab"
+- `final_state: STILL_RUNNING` → "⏱ PR open, CI pending: <url>. Will merge when green — re-poll with `gh pr view`."
+- `final_state: STOPPED_FOR_INPUT` → "❓ Agent stopped with a question on issue #<n>. See comments. Answer with `/answer <repo> <n>`."
+- `final_state: REFUSED_PREFLIGHT` → "🚫 Agent refused: <reason>"
+
+If the agent returns prose with no YAML block (rare in foreground), treat it as incomplete: check branch/PR/label state directly with `gh` and report what you find, rather than trusting a bare "done."
 
 ## Refusal messages (what to tell the user on preflight failure)
 
-- **Unknown repo:** "Unknown repo `<arg>`. Run `conda run -n Oversteward python scripts/registry.py dispatch-targets` to see current dispatch targets."
+- **Unknown repo:** "Unknown repo `<arg>`. Run `uv run python scripts/registry.py dispatch-targets` to see current dispatch targets."
 - **Repo paused:** "Repo `<repo>` is paused — issue #<paused-issue> has `dispatch-paused`. Remove that label to resume dispatching."
 - **Issue closed:** "Issue #<n> is closed. Nothing to dispatch."
 - **Label reject-close:** "Issue #<n> is labeled reject-close. Reopen-and-relabel or pick a different issue."
@@ -113,48 +125,20 @@ Do not block the conversation. The notification comes asynchronously.
 - **Open agent PR on repo:** "Repo has an open agent PR (#<pr>). One-per-repo rule — wait for it to merge or close."
 - **Branch exists:** "Branch `<name>` already exists — prior attempt not cleaned up. Delete the branch or pick a new issue."
 
-## Post-dispatch
+## Batch mode — a few issues at once (via Workflow)
 
-When the harness sends a `task-notification` with `status: completed`, **do not trust it blindly** — verify before relaying. The Claude Code harness has a known race condition (see playbook §"The harness false-positive completion" pattern) where it can terminate a subagent immediately after delivering a tool result without waiting for the model's next turn. The notification arrives as `completed` but the agent never finished.
+When Nathan wants several issues worked in one go, do NOT fire several background tasks. Author a small **`Workflow`** that fans out one `<repo>-dev` agent per issue, foreground, in parallel — all on the Max subscription, journaled and resumable.
 
-### Dispatcher verification (mandatory on every completion notification)
+**Two hard constraints:**
 
-Before relaying any final_state, run these checks:
+1. **One issue per repo per batch.** The playbook's step-1 concurrency rule refuses to race a second agent PR on the same repo. So a batch targets *distinct* repos (e.g. GS #150 + AG #123 + WP #37), or sequences same-repo issues one after another. Do not put two grantspider issues in the same parallel batch.
+2. **Keep batches small (2–4).** Each agent maintains its own context window, so N agents burn Max quota ~N× faster. A runaway fan-out can torch a 5-hour window in one sitting. Small, deliberate batches over autopilot drains — Nathan is on a fixed envelope.
 
-1. **YAML report present?** The agent's terminal output should contain a fenced YAML block with `final_state: <X>` and the rest of the structured fields (per playbook §"Structured Final Report"). If the result text is mid-narrative ("Now add regression tests:" / "Let me create the file:" / similar), the agent did NOT finish — this is the false-positive completion bug.
+Run each issue through its full preflight (§2) before adding it to the batch; a Workflow stage that fails preflight drops that issue and continues with the rest. Each agent follows the same playbook (its own worktree isolation, its own structured report). Relay a compact per-issue summary table when the batch returns.
 
-2. **Branch state matches claimed final_state?** Run:
-   ```bash
-   git ls-remote https://github.com/<owner>/<repo>.git "refs/heads/<expected-branch>" 2>&1
-   gh issue view <n> --repo <owner>/<repo> --json labels --jq '.labels[].name'
-   gh pr list --repo <owner>/<repo> --state open --search "head:<expected-branch>" --json number,state --jq '.[]'
-   ```
+## Limitations
 
-   - `final_state: MERGED` → expect remote branch deleted, PR shows MERGED state
-   - `final_state: STILL_RUNNING` → expect remote branch present, open PR
-   - `final_state: STOPPED_FOR_INPUT` → expect `needs-input` label set; possibly draft PR
-   - `final_state: REFUSED_PREFLIGHT` → expect labels cleared, no remote branch
-   - **No YAML report at all** → false-positive completion. Verify branch state directly.
-
-3. **If verification fails (YAML missing OR branch state inconsistent with claimed final_state):**
-   - Treat as a special case: `HARNESS_DROPPED`.
-   - Clear the `agent-in-progress` label: `gh issue edit <n> --remove-label agent-in-progress`.
-   - **Check the heartbeat-pushed branch:** if a branch exists on remote at the expected name with WIP commits, the agent's partial work survives. A re-dispatch (step 1 of playbook) will find it as an existing draft PR or just an existing branch, and step 6 will check it out in a new worktree to resume.
-   - If no branch on remote, the agent died before its first heartbeat-push — work is lost.
-   - Report to user as: "⚠️ Harness dropped agent on #<n> — false-positive completion. <Heartbeat branch found / no branch pushed>. Re-dispatch?"
-
-### Final-state messages (after verification passes)
-
-- `final_state: MERGED` → "✅ PR merged: <url>"
-- `final_state: CI_FAILED` → "❌ CI failed on <url> — check the Actions tab"
-- `final_state: STILL_RUNNING` → "⏱ PR open, CI pending: <url>. Will merge when green."
-- `final_state: STOPPED_FOR_INPUT` → "❓ Agent stopped with a question on issue #<n>. See comments."
-- `final_state: REFUSED_PREFLIGHT` → "🚫 Agent refused: <reason>"
-- `HARNESS_DROPPED` (verification-derived) → "⚠️ Harness dropped agent on #<n>. <Heartbeat status>. Re-dispatch?"
-
-## Limitations (v1)
-
-- One-shot per call. No drain mode. Use `/drain <repo>` (v2) for queue consumption.
-- No cost/token logging.
-- No cross-repo dependency awareness.
-- Synchronous preflight checks can be slow (~3-5s) — acceptable for now.
+- **Foreground only.** No "fire and walk away" — the session stays alive while the agent runs. This is deliberate (Max billing + #47936 reliability).
+- **Cost is real, not free.** It is subscription quota, not an API invoice, but parallel batches consume that quota fast. Watch `/usage`.
+- **No cross-repo dependency awareness.** If issue B depends on issue A's PR merging first, sequence them by hand.
+- Synchronous preflight checks take ~3–5s — acceptable.

@@ -1,6 +1,6 @@
 ---
 name: ai-assistants-dev
-description: Autonomous PR worker for the ai-assistants repo (almoner package — content generation, CRM, ingestion, WordPress integration). Invoked only via /dispatch. Opus 4.6.
+description: Scoped PR worker for the ai-assistants repo (almoner package — content generation, CRM, ingestion, WordPress integration). Worked in-session, foreground, via /dispatch or a Workflow batch.
 tools: Bash, Read, Edit, Write, Grep, Glob
 model: opus
 ---
@@ -13,7 +13,7 @@ You are the dedicated PR worker for the **ai-assistants** repository.
 
 | Attribute | Value |
 |---|---|
-| Local path | `C:\Users\natha\OneDrive\Tech\Python\ai-assistants` |
+| Local path | `/home/natha/ai-assistants` (WSL2) |
 | GitHub remote | `NathanKrupa/ai-assistants` |
 | Default branch | `main` |
 | Python | 3.11 |
@@ -96,4 +96,4 @@ Follow the universal playbook at `.claude/skills/dispatch/playbook.md` in the Ov
 
 ## Model
 
-You are **Opus 4.6**. Precision, no freelancing. Follow the playbook exactly.
+You run on the project's configured Opus model. Precision, no freelancing. Follow the playbook exactly.
