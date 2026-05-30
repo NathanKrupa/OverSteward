@@ -1,6 +1,6 @@
 ---
 name: aigranthelper-dev
-description: Autonomous PR worker for the aigranthelper repo (Django SaaS, paid users, Stripe, Neon). Invoked only via /dispatch. Reads an issue, implements, tests, opens PR with auto-merge, polls to terminal state. Opus 4.6.
+description: Scoped PR worker for the aigranthelper repo (Django SaaS, paid users, Stripe, Neon). Worked in-session, foreground, via /dispatch or a Workflow batch. Reads an issue, implements, tests, opens PR with auto-merge, polls to terminal state.
 tools: Bash, Read, Edit, Write, Grep, Glob
 model: opus
 ---
@@ -15,19 +15,19 @@ You are the dedicated PR worker for the **aigranthelper** repository.
 
 | Attribute | Value |
 |---|---|
-| Local path | `C:\Users\natha\OneDrive\Tech\Python\aigranthelper` |
+| Local path | `/home/natha/aigranthelper` (WSL2) |
 | GitHub remote | `NathanKrupa/aigranthelper` |
 | Default branch | `main` |
 | Python | 3.14 (matches `requires-python = ">=3.14"` in `pyproject.toml` — use the same) |
 | Stack | Django 6.0, HTMX, Tailwind, Neon Postgres (two-schema), Stripe, Resend, Anthropic/Gemini/OpenAI |
 | Dependency install | `pip install -e ".[dev]"` |
-| Venv location | `.venv\Scripts\python` |
+| Venv location | `.venv/bin/python` |
 
 ### Test / Lint / Security commands (exact, CI-scoped)
 
 ```bash
 # Tests (canary baseline: 443 passed in ~275s)
-.venv\Scripts\python -m pytest
+.venv/bin/python -m pytest
 
 # Lint (ruff + format)
 ruff check apps/ config/ tests/
@@ -69,7 +69,7 @@ Branch protection uses the capitalized job names. If you create new jobs, match 
 - **Stripe tests are fully mocked.** A wrong price ID passes unit tests. Adding real Stripe tests needs secrets in CI (not your job unless explicitly asked).
 - **Email provider is Resend via django-anymail.** `RESEND_API_KEY` env var is correct — don't invent variations.
 - **Anthropic model IDs** must match `KNOWN_GOOD_IDENTIFIERS` in `tests/test_model_identifiers.py`. If you need a new model, update both the code and the allowlist in the same PR.
-- **Test DB:** the repo spins a real `pgvector/pgvector:pg16` in CI. Locally your `.venv\Scripts\python -m pytest` runs against whatever your local DB config points at.
+- **Test DB:** the repo spins a real `pgvector/pgvector:pg16` in CI. Locally your `.venv/bin/python -m pytest` runs against whatever your local DB config points at.
 
 ## Repo-Specific PR Body Template
 
@@ -102,4 +102,4 @@ Follow the universal playbook at `.claude/skills/dispatch/playbook.md` in full. 
 
 ## Model
 
-You are **Opus 4.6**. You ship code that paying customers depend on. Precision over speed. If in doubt, use the intent-capture protocol.
+You run on the project's configured Opus model. You ship code that paying customers depend on. Precision over speed. If in doubt, use the intent-capture protocol.

@@ -1,11 +1,20 @@
 ---
 name: dispatch
-description: Dispatch a scoped background agent to work a GitHub issue autonomously (implement → test → PR → auto-merge). Use when the user says "dispatch issue N on REPO" or "work issue N on REPO" where REPO is aigranthelper, grantspider, wphelper, or ai-assistants.
+description: "Work a GitHub issue with a scoped repo agent in-session, foreground (implement → test → PR → auto-merge). Runs on the Max subscription, not metered API. Use when the user says \"dispatch issue N on REPO\" or \"work issue N on REPO\" where REPO is any repo marked `dispatch_target` in registry.yaml (currently aigranthelper, grantspider, wphelper, ai-assistants, fiscus)."
 ---
 
-# /dispatch — autonomous agent PR worker
+# /dispatch — in-session scoped agent PR worker
 
-Dispatches a repo-scoped background agent (`<repo>-dev` subagent) to work a single GitHub issue end-to-end. Agent implements, tests, lints, opens PR, enables auto-merge, polls to terminal state, reports back structured YAML.
+Runs a repo-scoped agent (`<repo>-dev`) on a single GitHub issue end-to-end: implement, test, lint, open PR, enable auto-merge, poll to terminal state, return a structured YAML report. The agent works in an isolated worktree so Nathan's live tree is never touched.
+
+## Billing & reliability — why this runs foreground (read once)
+
+This skill **invokes the agent in-session, foreground — never `run_in_background: true`.** Two reasons:
+
+- **Cost.** In-session subagents (the `Agent`/Task tool and the `Workflow` tool) bill against the **Max subscription quota**, not the metered Anthropic API. Background/detached "Managed Agents" are API-metered ($/token + $/session-hour) and are off-limits on a subscription budget. Foreground keeps the work inside the envelope Nathan already pays for.
+- **Reliability.** The Claude Code silent-termination bug ([anthropics/claude-code#47936](https://github.com/anthropics/claude-code/issues/47936)) drops `run_in_background: true` subagents mid-task in ~15–30% of runs and falsely reports them `completed`. It is specific to background-async mode. Foreground subagents return their real final output, so there is no false-completion to detect and no heartbeat-commit insurance to maintain.
+
+The cost is that the session stays alive while the agent works — you watch it finish rather than closing the laptop. That is the trade we accept to stay on Max.
 
 ## Invocation
 
@@ -13,7 +22,11 @@ Dispatches a repo-scoped background agent (`<repo>-dev` subagent) to work a sing
 /dispatch <repo> <issue-number>
 ```
 
-Where `<repo>` is one of: `aigranthelper`, `grantspider`, `wphelper`, `ai-assistants`.
+Where `<repo>` is the `id` of any context in `registry.yaml` marked `dispatch_target: true`. Get the current list with:
+
+```bash
+uv run python scripts/registry.py dispatch-targets
+```
 
 Example:
 ```
@@ -21,26 +34,36 @@ Example:
 /dispatch aigranthelper 123
 /dispatch wphelper 37
 /dispatch ai-assistants 61
+/dispatch fiscus 7
 ```
 
 ## What this skill does (in order)
 
 ### 1. Repo routing
 
-Map `<repo>` → subagent type + GitHub remote:
+Look up the dispatch target metadata from the registry:
 
-| Arg | Subagent | GitHub remote | Default branch |
-|---|---|---|---|
-| `aigranthelper` | `aigranthelper-dev` | `NathanKrupa/aigranthelper` | `main` |
-| `grantspider` | `grantspider-dev` | `NathanKrupa/grantspider` | `master` |
-| `wphelper` | `wphelper-dev` | `NathanKrupa/wphelper` | `main` |
-| `ai-assistants` | `ai-assistants-dev` | `NathanKrupa/ai-assistants` | `main` |
+```bash
+uv run python scripts/registry.py info <repo>
+```
 
-Unknown repo arg → abort with error.
+The helper returns:
+- `id` — the repo id
+- `subagent` — the subagent type to invoke (`{id}-dev` convention)
+- `repo` — git remote URL
+- `branch` — default branch
+- `owner` — GitHub owner (`NathanKrupa`)
+- `full_name` — `<owner>/<id>` for `gh --repo` calls
+
+Unknown repo arg (helper exits non-zero) → abort with "Unknown repo" refusal.
 
 ### 2. Preflight (before firing the agent)
 
 Run these checks. Any failure → refuse to dispatch, report the reason to the user.
+
+**Repo kill-switch (check first — whole-repo abort):**
+- `gh issue list --repo <owner>/<repo> --label dispatch-paused --state open --limit 1 --json number,title,url`
+- If any result: refuse. The repo is paused. Remove the `dispatch-paused` label from the referenced issue(s) to resume.
 
 **Issue readiness:**
 - `gh issue view <n> --repo <owner>/<repo> --json state,labels,body,comments`
@@ -63,31 +86,35 @@ Run these checks. Any failure → refuse to dispatch, report the reason to the u
 
 If all preflights pass: proceed.
 
-### 3. Fire the agent
+### 3. Run the agent (foreground)
 
-Invoke Task tool with:
+Invoke the `Agent` tool with:
 - `subagent_type: <repo>-dev`
-- `run_in_background: true`
+- **No `run_in_background`** (foreground — see billing/reliability note above)
 - `prompt`: structured brief including:
   - Issue number + `gh` commands to read body/comments
   - Reference to `.claude/skills/dispatch/playbook.md` (universal workflow)
-  - Explicit reminder of repo's default branch
+  - Explicit reminder of the repo's default branch
   - Expected structured YAML return format
+
+The session blocks until the agent returns. The agent's final message **is** its structured YAML report — that is the real result, no notification round-trip.
 
 ### 4. Return to user
 
-Immediately return:
-```
-Dispatched <repo>-dev on issue #<n>.
-Agent ID: <id>
-Status will notify on completion.
-```
+When the agent returns, read its YAML report and relay the terminal state directly (no verification round-trip is needed — foreground returns the genuine final output):
 
-Do not block the conversation. The notification comes asynchronously.
+- `final_state: MERGED` → "✅ PR merged: <url>"
+- `final_state: CI_FAILED` → "❌ CI failed on <url> — check the Actions tab"
+- `final_state: STILL_RUNNING` → "⏱ PR open, CI pending: <url>. Will merge when green — re-poll with `gh pr view`."
+- `final_state: STOPPED_FOR_INPUT` → "❓ Agent stopped with a question on issue #<n>. See comments. Answer with `/answer <repo> <n>`."
+- `final_state: REFUSED_PREFLIGHT` → "🚫 Agent refused: <reason>"
+
+If the agent returns prose with no YAML block (rare in foreground), treat it as incomplete: check branch/PR/label state directly with `gh` and report what you find, rather than trusting a bare "done."
 
 ## Refusal messages (what to tell the user on preflight failure)
 
-- **Unknown repo:** "Unknown repo `<arg>`. Use: aigranthelper, grantspider, wphelper, or ai-assistants."
+- **Unknown repo:** "Unknown repo `<arg>`. Run `uv run python scripts/registry.py dispatch-targets` to see current dispatch targets."
+- **Repo paused:** "Repo `<repo>` is paused — issue #<paused-issue> has `dispatch-paused`. Remove that label to resume dispatching."
 - **Issue closed:** "Issue #<n> is closed. Nothing to dispatch."
 - **Label reject-close:** "Issue #<n> is labeled reject-close. Reopen-and-relabel or pick a different issue."
 - **Label needs-scoping:** "Issue #<n> needs scoping first. Either scope it (pick option, add acceptance criteria) and remove the label, or pick a different issue."
@@ -98,18 +125,20 @@ Do not block the conversation. The notification comes asynchronously.
 - **Open agent PR on repo:** "Repo has an open agent PR (#<pr>). One-per-repo rule — wait for it to merge or close."
 - **Branch exists:** "Branch `<name>` already exists — prior attempt not cleaned up. Delete the branch or pick a new issue."
 
-## Post-dispatch
+## Batch mode — a few issues at once (via Workflow)
 
-The agent's completion notification will include a structured YAML report. Read it and relay:
-- `final_state: MERGED` → "✅ PR merged: <url>"
-- `final_state: CI_FAILED` → "❌ CI failed on <url> — check the Actions tab"
-- `final_state: STILL_RUNNING` → "⏱ PR open, CI pending: <url>. Will merge when green."
-- `final_state: STOPPED_FOR_INPUT` → "❓ Agent stopped with a question on issue #<n>. See comments."
-- `final_state: REFUSED_PREFLIGHT` → "🚫 Agent refused: <reason>"
+When Nathan wants several issues worked in one go, do NOT fire several background tasks. Author a small **`Workflow`** that fans out one `<repo>-dev` agent per issue, foreground, in parallel — all on the Max subscription, journaled and resumable.
 
-## Limitations (v1)
+**Two hard constraints:**
 
-- One-shot per call. No drain mode. Use `/drain <repo>` (v2) for queue consumption.
-- No cost/token logging.
-- No cross-repo dependency awareness.
-- Synchronous preflight checks can be slow (~3-5s) — acceptable for now.
+1. **One issue per repo per batch.** The playbook's step-1 concurrency rule refuses to race a second agent PR on the same repo. So a batch targets *distinct* repos (e.g. GS #150 + AG #123 + WP #37), or sequences same-repo issues one after another. Do not put two grantspider issues in the same parallel batch.
+2. **Keep batches small (2–4).** Each agent maintains its own context window, so N agents burn Max quota ~N× faster. A runaway fan-out can torch a 5-hour window in one sitting. Small, deliberate batches over autopilot drains — Nathan is on a fixed envelope.
+
+Run each issue through its full preflight (§2) before adding it to the batch; a Workflow stage that fails preflight drops that issue and continues with the rest. Each agent follows the same playbook (its own worktree isolation, its own structured report). Relay a compact per-issue summary table when the batch returns.
+
+## Limitations
+
+- **Foreground only.** No "fire and walk away" — the session stays alive while the agent runs. This is deliberate (Max billing + #47936 reliability).
+- **Cost is real, not free.** It is subscription quota, not an API invoice, but parallel batches consume that quota fast. Watch `/usage`.
+- **No cross-repo dependency awareness.** If issue B depends on issue A's PR merging first, sequence them by hand.
+- Synchronous preflight checks take ~3–5s — acceptable.
