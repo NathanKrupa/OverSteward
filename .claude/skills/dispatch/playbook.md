@@ -40,19 +40,19 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
 ### Worktree setup (isolation — keeps Nathan's live working tree untouched)
 
 4. **Fetch.** `cd` into the repo. Run `git worktree prune 2>/dev/null || true` to drain any stale worktree metadata left by a prior run. Then run `git fetch origin <default-branch>`. Do NOT run `git checkout` or `git pull` on the main working tree — Nathan may be editing there.
-5. **Create worktree.** Generate a temp path: `WORKTREE_PATH=$(mktemp -d -t dispatch-<repo>-<n>-XXXX)` (WSL2 repos — grantspider, aigranthelper, fiscus — land in `/tmp` on ext4, no husk issues). On the two repos still under Windows/OneDrive (wphelper, ai-assistants): `WORKTREE_PATH="$TEMP/dispatch-<repo>-<n>-$RANDOM"; mkdir -p "$WORKTREE_PATH"`. Then:
+5. **Create worktree.** Generate a temp path: `WORKTREE_PATH=$(mktemp -d -t dispatch-<repo>-<n>-XXXX)`. All five pickup repos run on WSL2, so the worktree lands in `/tmp` on ext4 — no OneDrive lock contention, no husk fragility. Then:
    - **Continuing existing draft PR** (from step 1): `git worktree add "$WORKTREE_PATH" <existing-branch>`
    - **Fresh start:** `git worktree add -B <target-branch> "$WORKTREE_PATH" origin/<default-branch>`
 6. **Switch to worktree, then verify viability.** `cd "$WORKTREE_PATH"`. Then run these checks — all must pass before you proceed:
    - `git rev-parse --is-inside-work-tree` → must print `true`.
    - `git rev-parse --show-toplevel` → must print a path that starts with `$WORKTREE_PATH` (confirms you're in the worktree, not nested inside the main repo via a silent `cd` failure).
-   - `ls "$WORKTREE_PATH" | head -3` → must show repo contents (at minimum a `.git` reference and a tracked file like `pyproject.toml` or `README`). An empty directory means `git worktree add` registered metadata but the checkout never populated — a Windows+OneDrive fragility (see Out-of-band cleanup); it does not occur on the WSL2 repos.
+   - `ls "$WORKTREE_PATH" | head -3` → must show repo contents (at minimum a `.git` reference and a tracked file like `pyproject.toml` or `README`).
 
    **If any check fails, STOP.** Emit `final_state: REFUSED_PREFLIGHT` with `notes` describing which check failed, and `question: "worktree viability probe failed at step 6 — retry when the system is quiet."`. Release the `agent-in-progress` label (step 18) and the worktree metadata (step 19). Do NOT attempt to work around the failure by `cd`ing back into the main repo or by running `git checkout` on Nathan's live tree — that is the non-negotiable documented above, driven by the grantspider #426 postmortem.
 
    ALL subsequent git, test, lint, edit operations happen in `$WORKTREE_PATH`. Nathan's live working tree is never touched.
 
-   **Mid-run vanishing worktree.** If a `git` command later in the workflow fails with "fatal: not a git repository" or similar, the temp tree has disappeared mid-flight. Same rule: STOP, do not migrate work to the main checkout. Emit `final_state: STOPPED_FOR_INPUT` with the failure context; any unpushed commits are lost. (Windows/OneDrive only.)
+   **Mid-run vanishing worktree.** If a `git` command later in the workflow fails with "fatal: not a git repository" or similar, the temp tree has disappeared mid-flight. Same rule: STOP, do not migrate work to the main checkout. Emit `final_state: STOPPED_FOR_INPUT` with the failure context; any unpushed commits are lost.
 
 ### Issue scope validation
 
@@ -264,14 +264,4 @@ The `.baseline` worktree is owned by your dispatch — same lifecycle, removed a
 
 Foreground dispatch rarely orphans state — the agent returns and releases its `agent-in-progress` label at step 18 in the same session. But if an agent is interrupted (rate limit, network, manual stop) before step 18, the label can be left set. A manual `/sweep`-style reconciliation (not part of this skill) can remove a stale label: find issues labeled `agent-in-progress` with no open PR carrying recent commits (<30 min) and clear the label with a note.
 
-### Windows + OneDrive: worktree husk drain (wphelper, ai-assistants only)
-
-These two repos still live under Windows/OneDrive. On Windows, `git worktree remove --force` (step 19) reliably succeeds on the filesystem tree (in `$TEMP/`) but can fail with `Permission denied` on the admin-metadata half (`<repo>/.git/worktrees/<name>/`) because OneDrive holds file locks during sync. The result is a husk: no live worktree (`git worktree list` is clean), but an orphan metadata dir accumulates.
-
-The step-4 `git worktree prune` drains any husk whose OneDrive lock has since released — locks are transient. Husks that resist prune across multiple runs can be cleaned manually when no dispatch is in flight on that repo: `rm -rf <repo>/.git/worktrees/*` (safe only when `git worktree list` shows just the main working tree).
-
-**The WSL2 repos (grantspider, aigranthelper, fiscus) do not exhibit this** — `/tmp` on ext4 has no OneDrive lock contention. The husk machinery applies to the two Windows repos only.
-
-### Windows + OneDrive: vanishing temp worktree (wphelper, ai-assistants only)
-
-A related Windows-only failure mode: the temp checkout at `$TEMP/dispatch-...` is created by `git worktree add` (step 5) but disappears before or during step 6 — antivirus quarantining `.git` internals, OS idle-cleanup sweeping `%TEMP%`, or OneDrive locking a contested path. The step-6 viability probe catches it at `cd` time. The non-negotiable stands: **if the worktree goes away, STOP. Do not migrate work to the main checkout** (grantspider #426 postmortem). Mitigation: run these two repos' dispatches when the system is quiet, or move the temp root off `%TEMP%`. Not applicable to the WSL2 repos.
+All five pickup repos now run on WSL2 (ext4). The Windows/OneDrive worktree-husk and vanishing-temp-worktree failure modes that older playbook versions documented (driven by OneDrive sync locks on `$TEMP`) no longer apply and have been removed. The step-4 `git worktree prune` and the step-6 viability probe remain as cheap, generic safety checks.

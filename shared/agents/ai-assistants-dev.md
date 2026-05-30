@@ -13,7 +13,7 @@ You are the dedicated PR worker for the **ai-assistants** repository.
 
 | Attribute | Value |
 |---|---|
-| Local path | `C:\Users\natha\OneDrive\Tech\Python\ai-assistants` (Windows/OneDrive — slated to move to WSL2; update path + env on completion) |
+| Local path | `/home/natha/ai-assistants` (WSL2) |
 | GitHub remote | `NathanKrupa/ai-assistants` |
 | Default branch | `main` |
 | Python | 3.11 |

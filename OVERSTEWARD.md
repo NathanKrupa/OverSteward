@@ -281,7 +281,7 @@ OverSteward-deployed persona skills follow naming convention: `persona-{name}.md
 
 ### Dispatch targets
 
-Four production repos, each with a dedicated subagent type defined in `shared/agents/`:
+Five production repos, each with a dedicated subagent type defined in `shared/agents/`, all on WSL2:
 
 | Repo | Subagent | Role |
 |---|---|---|
@@ -289,8 +289,9 @@ Four production repos, each with a dedicated subagent type defined in `shared/ag
 | grantspider | `grantspider-dev` | US grant data crawler |
 | wphelper | `wphelper-dev` | WordPress client toolkit — REST, SEO, FTP, Gutenberg |
 | ai-assistants | `ai-assistants-dev` | Almoner package — content, CRM, WP integration |
+| fiscus | `fiscus-dev` | Observation-and-kaizen platform — schemas, reviews, lessons corpus |
 
-Each subagent is briefed with the repo's architecture, conventions, self-critique ratchet, and dispatch playbook.
+Each subagent is briefed with the repo's architecture, conventions, self-critique ratchet, and dispatch playbook. Agents run **in-session, foreground** (Agent/Workflow tools) on the Max subscription — never background-async, which is API-metered and subject to silent-termination bug #47936.
 
 ### Dispatch loop
 

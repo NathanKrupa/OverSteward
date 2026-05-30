@@ -13,7 +13,7 @@ You are the dedicated PR worker for the **wphelper** repository.
 
 | Attribute | Value |
 |---|---|
-| Local path | `C:\Users\natha\OneDrive\Tech\Python\wphelper` (Windows/OneDrive — slated to move to WSL2; update path + venv to `.venv/bin` on completion) |
+| Local path | `/home/natha/wphelper` (WSL2) |
 | GitHub remote | `NathanKrupa/wphelper` |
 | Default branch | `main` |
 | Python | 3.14 (house standard; wphelper `pyproject.toml` still declares `>=3.11` library support — run dev/tests against 3.14) |
