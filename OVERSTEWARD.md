@@ -124,6 +124,8 @@ oversteward/
 │   │   └── setup_dispatch_labels.sh
 │   ├── tools/
 │   │   └── generate_tool_registry.py
+│   ├── workflows/
+│   │   └── generate_workflow_registry.py
 │   ├── coordinator.py         # Phase 2 — stubbed
 │   ├── gather.py              # Phase 2 — stubbed
 │   ├── diff.py                # Phase 2 — stubbed
@@ -163,8 +165,40 @@ A second class of shared artifact lives at `oversteward/shared/scripts/` — Pyt
 | Script | Source of truth | Deployed to | Used by |
 |---|---|---|---|
 | `generate_tool_registry.py` | `oversteward/shared/scripts/tools/generate_tool_registry.py` | `<repo>/scripts/tools/generate_tool_registry.py` | AG, GS, FI, OS |
+| `generate_workflow_registry.py` | `oversteward/shared/scripts/workflows/generate_workflow_registry.py` | `<repo>/scripts/workflows/generate_workflow_registry.py` | GS (others as they grow workflows) |
 
 Phase-1 sync = byte-copy from source to each pickup repo (any dispatch target). Phase-2 sow.py will fold these into the same workflow as souls/personas. Per-repo configuration (e.g. `data/tool_registry.toml` for project-specific category names) lives in the consuming repo and is **not** managed by OverSteward — only the script itself is canonical.
+
+### Workflow registry & descriptor convention
+
+The **tool registry** catalogs single entry points (CLI scripts, console commands). The **workflow registry** catalogs the higher-altitude thing: multi-step **Python↔Claude workflows** — a Claude Agent SDK Workflow script, a Python pipeline, or an operator-in-loop loop. It is the same durable, regenerable pattern, one level up.
+
+Unlike the tool registry, the workflow registry does **not** sniff the filesystem. Each workflow is described by one hand-authored **descriptor** at `<repo>/.claude/workflows/<name>.md` (co-located with any `.js` Workflow script). `generate_workflow_registry.py` aggregates these descriptors into `<repo>/data/workflow_registry.md`. This decouples the catalog from implementation shape; the accepted trade-off is that descriptors are manual, so the generator validates that any path-shaped `components` entry exists on disk and warns (without failing) when one has drifted.
+
+Descriptor frontmatter schema (YAML) + free-form body:
+
+```yaml
+---
+name: enrich-drain
+summary: One-line what-it-does.            # required
+when_to_use: When to reach for this.       # required
+kind: workflow-script                      # required: workflow-script | python-pipeline | operator-loop
+status: active                             # optional (default active): active | experimental | deprecated
+entrypoint: .claude/workflows/enrich-drain.js   # optional: how you start it (path or command)
+components:                                # optional: files/commands it touches (paths are drift-checked)
+  - scripts/enrich/split_batch.py
+  - "grantspider enrich-profile pull-batch"
+phases:                                    # optional; omit for workflow-script (the .js meta is authoritative)
+  - name: Generate
+    detail: N Sonnet agents draft profiles per slice (no write)
+  - name: Verify
+    detail: Opus grounds + repairs, then apply
+    model: opus
+---
+Free-form body: the file-exchange contract, gotchas, links to docs/PRs.
+```
+
+Regenerate after adding or editing a descriptor: `uv run python scripts/workflows/generate_workflow_registry.py`.
 
 ### Dual-target deploy: Windows + WSL2
 
