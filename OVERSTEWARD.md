@@ -166,8 +166,35 @@ A second class of shared artifact lives at `oversteward/shared/scripts/` — Pyt
 |---|---|---|---|
 | `generate_tool_registry.py` | `oversteward/shared/scripts/tools/generate_tool_registry.py` | `<repo>/scripts/tools/generate_tool_registry.py` | AG, GS, FI, OS |
 | `generate_workflow_registry.py` | `oversteward/shared/scripts/workflows/generate_workflow_registry.py` | `<repo>/scripts/workflows/generate_workflow_registry.py` | GS (others as they grow workflows) |
+| `guard_main_worktree.py` | `oversteward/shared/scripts/dev/guard_main_worktree.py` | `<repo>/.claude/hooks/guard_main_worktree.py` | all repos (session-per-worktree guard) |
+| `new-session.sh` | `oversteward/shared/scripts/dev/new-session.sh` | `<repo>/scripts/dev/new-session.sh` | all repos (worktree launcher) |
+| `test_worktree_guard.py` | `oversteward/shared/scripts/dev/test_worktree_guard.py` | `<repo>/tests/dev/test_worktree_guard.py` | all repos (guard tests) |
 
 Phase-1 sync = byte-copy from source to each pickup repo (any dispatch target). Phase-2 sow.py will fold these into the same workflow as souls/personas. Per-repo configuration (e.g. `data/tool_registry.toml` for project-specific category names) lives in the consuming repo and is **not** managed by OverSteward — only the script itself is canonical.
+
+### Session-per-worktree discipline
+
+**One git worktree per session — the estate-wide standard.** Parallel Claude/human sessions that share a single checkout collide: a `git checkout`/`switch` in one session yanks another's branch out from under it and strands uncommitted work (it bit GS twice, which is where the guard originated — GS PR #1196). The discipline: each unit of work gets its own worktree under `.claude/worktrees/<name>` on a `session/<name>` branch, cut from the integration branch.
+
+Three byte-identical canonical files (above) make it portable:
+
+- **`guard_main_worktree.py`** — `PreToolUse(Bash)` hook (registered in `<repo>/.claude/settings.json`) that refuses branch checkout/switch in the *primary* worktree. Linked worktrees, file restores (`git checkout -- `, `git restore`), and `git worktree add` are exempt. Override per-command with `CLAUDE_ALLOW_MAIN_GIT=1` (GS also honors `GS_ALLOW_MAIN_GIT=1` for back-compat).
+- **`new-session.sh`** — self-adapting launcher: base ref is `origin/staging` if it exists (GS/AG), else the remote default branch (trunk-only repos); `PYTHONPATH` is `src/` if present, else the worktree root (Django/flat). One shared `.venv` is symlinked in — `PYTHONPATH` overrides the editable install's `.pth` (verified for pip and uv), so worktrees cost ~nothing. (uv repos: invoke `.venv/bin/<tool>` directly, not `uv run`, which may re-sync the shared venv.)
+- **`test_worktree_guard.py`** — pure-logic unit tests for the guard (locates the hook by walking up to the repo root, so it is depth-independent).
+
+**New-project / new-repo bootstrap** (this IS "the template" — copy these three from the canonical source):
+
+```bash
+mkdir -p .claude/hooks scripts/dev tests/dev
+cp <oversteward>/shared/scripts/dev/guard_main_worktree.py .claude/hooks/
+cp <oversteward>/shared/scripts/dev/new-session.sh         scripts/dev/   # chmod +x
+cp <oversteward>/shared/scripts/dev/test_worktree_guard.py tests/dev/
+# register the hook in .claude/settings.json under hooks.PreToolUse (matcher "Bash"):
+#   python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/guard_main_worktree.py"
+echo '.claude/worktrees/' >> .gitignore
+```
+
+Then document it in the repo's `CONTRIBUTING.md` (or `CLAUDE.md` where there is none).
 
 ### Workflow registry & descriptor convention
 

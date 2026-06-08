@@ -27,9 +27,8 @@ Thumbs.db
 .coverage
 htmlcov/
 
-# Claude Code local/session settings
+# Claude Code local/session settings (settings.json is team-shared — tracked)
 .claude/settings.local.json
-.claude/settings.json
 
 # Skill runtime state (ephemeral per-machine)
 .claude/skills/*/state.json

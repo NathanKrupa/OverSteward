@@ -32,6 +32,25 @@ Bootstrap on a fresh checkout:
 uv sync --extra dev
 ```
 
+## Session worktree discipline
+
+**One git worktree per session.** Parallel Claude/human sessions that share the
+primary checkout collide — a `git checkout`/`switch` in one strands another's
+uncommitted work. Start every unit of work in its own worktree:
+
+```bash
+scripts/dev/new-session.sh <name>   # → .claude/worktrees/<name> on session/<name>
+```
+
+The `.claude/hooks/guard_main_worktree.py` `PreToolUse(Bash)` hook **refuses
+branch checkout/switch in the primary worktree** (file restores, `git worktree
+add`, and linked worktrees are exempt). Deliberate one-offs (a promote, a
+rebase) prefix the command with `CLAUDE_ALLOW_MAIN_GIT=1`.
+
+This is the estate-wide standard, canonical here in `shared/scripts/dev/` and
+deployed to every repo's `.claude/hooks/` + `scripts/dev/`. See OVERSTEWARD.md
+§ "Session-per-worktree discipline" for the rollout + new-project bootstrap.
+
 ## Architecture
 
 Principles: `@~/.claude/shared/references/architecture-principles.md`
