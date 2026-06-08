@@ -22,7 +22,7 @@ Decision logic is split into pure functions so it is unit-tested without git.
 import json
 import os
 import re
-import subprocess  # noqa: S404 -- list-form argv, no shell, cwd is the only input
+import subprocess  # list-form argv, no shell; cwd is the only input
 import sys
 
 # Env vars that wave the guard through. CLAUDE_ALLOW_MAIN_GIT is the standard;
@@ -76,14 +76,14 @@ def has_override(command: str) -> bool:
 
 def _git_dir(cwd: str) -> str:
     try:
-        result = subprocess.run(  # noqa: S603 -- list-form argv, no shell
+        result = subprocess.run(  # list-form argv, no shell
             ["git", "-C", cwd, "rev-parse", "--git-dir"],
             capture_output=True,
             text=True,
             timeout=5,
             check=False,
         )
-    except Exception:  # noqa: BLE001 -- any failure → don't block
+    except Exception:  # any failure → do not block
         return ""
     return result.stdout.strip()
 
@@ -91,7 +91,7 @@ def _git_dir(cwd: str) -> str:
 def main() -> int:
     try:
         event = json.load(sys.stdin)
-    except Exception:  # noqa: BLE001 -- unparseable input → don't block
+    except Exception:  # unparseable input → don't block
         return 0
     if event.get("tool_name") != "Bash":
         return 0
