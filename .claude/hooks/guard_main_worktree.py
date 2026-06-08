@@ -69,9 +69,7 @@ def in_main_worktree(git_dir: str) -> bool:
 
 def has_override(command: str) -> bool:
     """True if an override env var is set in the environment or inline."""
-    return any(
-        os.environ.get(var) == "1" or f"{var}=1" in command for var in _OVERRIDE_VARS
-    )
+    return any(os.environ.get(var) == "1" or f"{var}=1" in command for var in _OVERRIDE_VARS)
 
 
 def _git_dir(cwd: str) -> str:
