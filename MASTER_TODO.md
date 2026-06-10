@@ -10,10 +10,9 @@ Plan reference: `OVERSTEWARD.md` (Phase Roadmap); full session history in Stewar
 
 ## Active
 
-- [ ] **PR #46 — trajectory template** (open, current branch `feat/trajectory-template`). Schema for in-session PR trajectory notes lives at `documentation/trajectories/TEMPLATE.md`; self-bootstrap note for #46 already drafted. Nathan's call whether to merge.
-- [ ] **PR #33 — formally retire `/dispatch` skill** (open since 2026-05-01). De-facto retired since 2026-05-02 orphan-branch sweep — all five pickup repos work via in-session model, captured in `documentation/issue-to-pr-workflow.md` + `documentation/repos/*.md`. PR retains the source-of-truth deletion; either merge or close-and-document.
-- [ ] **Issue #37 — andon issue template + label** (Fiscus channel). Copy Fiscus's canonical `andon.md` template into `.github/ISSUE_TEMPLATE/`; create matching label. Tracking-only per Nathan 2026-05-14; no auto-PR.
-- [ ] **Issue #39 — drain accumulated OneDrive-locked worktree husks** (carryover-2026-05). Operator-driven; ~80 husks across grantspider's `.git/worktrees/`. Mitigated by /dispatch retirement but residue remains. Long-term mitigation (worktree-add outside OneDrive) is a separate spike.
+- [ ] **Issue #49 — `.claude/settings.json` parity across repos** (scoped 2026-06-10, read-only first). Phase 1 of the build: `gather.py` + `diff.py` + `/sync-status` skill (H2-3/H2-4/H2-5) covering CLAUDE.md managed blocks, dual-target `shared/` parity, per-repo `.claude/settings.json` + hooks drift, and tracking-doc freshness. Write-side `sow.py` stays gated per H2-6.
+- [ ] **Issue #37 — andon issue template + label** (Fiscus channel). Green-lit by Nathan 2026-06-10 (was tracking-only since 2026-05-14). Copy Fiscus's canonical `andon.md` into `.github/ISSUE_TEMPLATE/`; create matching label; confirm Fiscus's aggregator scan list includes OverSteward (it isn't a pickup repo).
+- [ ] **Issue #58 — decommission dormant OneDrive checkouts** (supersedes #39, closed 2026-06-10). Operator-driven: triage untracked Windows-only artifacts in the seven dormant checkouts, then delete them. Husk residue from #39 goes with them.
 
 ## Standing (carried across horizons)
 
