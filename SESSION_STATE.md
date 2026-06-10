@@ -1,40 +1,31 @@
 ---
-session_date: 2026-06-03
-status: complete — workflow-registry pattern shipped (GS live) + GS git-workflow reconciled, renamed master→main, discipline hardcoded
-branch_at_close: feat/workflow-registry (OverSteward PR #54 OPEN/CLEAN — ready to merge, Nathan's call)
+session_date: 2026-06-10
+status: in progress — tracking sweep landing (PR #59); #49 read-only sync tooling next
+branch_at_close: session/housekeeping-2026-06-10
 ---
 
 ## Where we left off
 
-Two arcs in one session.
+Estate review session: Nathan asked for a project + open-issues review, then "do all of the above."
 
-**Arc 1 — Workflow registry** (a tool-registry-style catalog of hybrid Python↔Claude workflows, one altitude up).
-- Decisions (with Nathan): descriptor-docs-only (no filesystem sniffing) + per-repo topology (mirror the tool registry).
-- **OverSteward PR #54 (OPEN/CLEAN)** — canonical `generate_workflow_registry.py` in `shared/scripts/workflows/` + byte-copy in `scripts/workflows/`, 15-test module, convention spec in `OVERSTEWARD.md`, tool-registry regenerated. *Ready to merge; left for Nathan.*
-- **GS PR #1166 (MERGED)** — generator deployed + 3 seed descriptors (`enrich-drain`, `backfill`, `llm-extract`) + `data/workflow_registry.md` + CLAUDE.md line.
-- Lesson: canonical shared scripts must lint clean under the *strictest* deploy-target config (GS ruff: line-length 99 + DTZ005), else the byte-copy breaks. Memory: `feedback_canonical_strictest_linter`, `reference_workflow_registry`.
+**Done this session:**
+- **PR #52 MERGED** — wphelper + ai-assistants WSL2 port docs (the clones were verified on disk; OneDrive era closed).
+- **#39 closed → #58 filed** — "drain worktree husks" superseded by "decommission dormant OneDrive checkouts" (one-time triage-then-delete of all seven dormant checkouts; operator-driven).
+- **Tracking sweep (PR #59)** — MASTER_TODO Active rebuilt (stale PR #46/#33 items moved to TODO_COMPLETED with the #33→#53 supersession story); TODO_BACKLOG closed-issue rows (#2/#3) removed, H2-1 updated; architecture.md corrected: GS master→main rename reflected in §2 seam row + I-19, new I-20 (`main ⊆ staging` + divergence watchdog) and I-21 (session-per-worktree discipline), §4 H1-2 → partially-shipped + L-WD-1 → L-OD-1, §5 pruned to 10 rows with new top row for the GS rename.
 
-**Arc 2 — GS git workflow: reconcile → rename → hardcode discipline.** GS `staging` had diverged from `master` (82 ahead / 22 behind). Root cause: `staging` had `required_linear_history=TRUE`, forcing every back-merge into a rebase (new SHAs) → master's commits never became staging ancestors → guaranteed divergence. AG never had this (its staging was non-linear → `main ⊆ staging`). Fixed end-to-end:
-1. Disabled `required_linear_history` on GS `staging` (preserved all other protections).
-2. **Reconciled** — GS PR #1177: merged master→staging (true merge); 2 sitemap conflicts resolved toward master (verified strict successor) while preserving staging-only 600s drain deadline. → master 0 ahead.
-3. **Renamed `master`→`main`** (GitHub). Default still `staging`.
-4. **Retargeted automation** — GS PR #1178 (`notify-ag-on-main.yml`, ci/pages triggers, watchdog, ci scripts, docs) + AG PRs #806/#807 (CI installs `grantspider@main`, `bump-gs-pin` guard → `refs/heads/main`). `gs-master-bump` event-type kept (contract key). Cross-repo bump chain VERIFIED (AG draft #808 from a GS main push).
-5. **Hardcoded the invariant** — new `divergence-watchdog.yml`: fails CI + files a tracking issue when `main` is ahead of `staging`; auto-closes when healthy. PROVEN LIVE (#1179 opened then auto-closed).
-6. **Back-merged** — GS #1180, AG #807 → **both repos at `main ⊆ staging`**.
-7. **Railway**: Nathan repointed both GS Dagster services (webserver + daemon) to `main`.
-8. **Obsidian canvas** revised to the resolved/working state: `GTD/Projects/The Almoner Business/Research/Git Workflow - GS vs AG.canvas`.
+**In flight / next:**
+- **Issue #37** (andon template + label) — green-lit by Nathan 2026-06-10; PR next. Check whether Fiscus's `andon.py` aggregator scan list includes OverSteward (not a pickup repo).
+- **Issue #49** — scoped read-only first: build `gather.py` + `diff.py` + `/sync-status` (H2-3/H2-4/H2-5), covering CLAUDE.md managed blocks, dual-target `shared/` parity (Windows `/mnt/c/Users/natha/.claude/shared/` vs WSL `~/.claude/shared/`), per-repo `.claude/settings.json` + hooks drift, and tracking-doc freshness (flag SESSION_STATE older than last merged PR). Write-side sow stays gated (H2-6).
 
-## Pending / next session
+## Pending (carried from 2026-06-03 session)
 
-- **OverSteward PR #54** — OPEN/CLEAN, ready to merge (the workflow-registry system). Nathan to merge or review. (This SESSION_STATE commit rides on the same branch.)
-- **GS issue #1181** — "Dagster-aware promotion gate" (`ops`/`architecture`). Designed-not-built: a Railway pre-deploy hook that queries the Dagster run-storage Postgres (private; no Cloudflare) for in-flight runs, polls-and-waits before redeploy, aborts+alerts on timeout. Scoped; implementation left open.
-- **GS PR #1079** — stale feature (success-rate asset check), `MERGEABLE/UNSTABLE`, 6 days old. Nathan's call to rebase/verify/merge or close.
-- **Optional** — add `staging` to `divergence-watchdog.yml` push triggers so the debt issue auto-closes immediately on back-merge (currently closes on next main push / daily cron).
+- **GS issue #1181** — "Dagster-aware promotion gate" (`ops`/`architecture`). Designed-not-built: Railway pre-deploy hook that queries Dagster run-storage Postgres for in-flight runs, polls-and-waits before redeploy, aborts+alerts on timeout.
+- **GS PR #1079** — stale feature (success-rate asset check), `MERGEABLE/UNSTABLE`. Nathan's call to rebase/verify/merge or close.
+- **Optional** — add `staging` to GS `divergence-watchdog.yml` push triggers so the debt issue auto-closes immediately on back-merge (currently closes on next main push / daily cron).
 
 ## Context / gotchas for next session
 
-- **GS branch model is now main + staging** (memory `project_gs_branch_model`): `main` = production (Railway Dagster + AG SHA-pin); `staging` = integration (default branch). Feature→staging; promote/hotfix→main as merge commits; back-merge main→staging as a TRUE merge commit, immediately, same sitting. Invariant: `git rev-list --count origin/staging..origin/main == 0`.
-- **GS boy-scout base ref is now `origin/main`** (was origin/master): `GRANTSPIDER_BOY_SCOUT_BASE_REF=origin/main make verify` when branched off main; skip boy-scout (`GRANTSPIDER_CI_LOCAL_SKIP_BOY_SCOUT=1`) for pure merges/back-merges. Memory `feedback_boy_scout_rule` updated.
-- GS main checkout was repointed local `master`→`main` (tracking origin/main, was 2 behind — `git pull` to ff). 6 temp worktrees removed. Nathan's 6 stashes + local feature branches untouched.
-- Squash disabled in both repos; never re-enable (severs parent-links → #1010 storm). master-target = merge commit; staging-target = rebase or merge (linear history now OFF on staging).
-- Memory written/updated this session: `project_gs_branch_model`, `feedback_canonical_strictest_linter`, `reference_workflow_registry`, `feedback_boy_scout_rule`.
+- **GS branch model is main + staging** (memory `project_gs_branch_model`): `main` = production (Railway Dagster + AG SHA-pin); `staging` = integration (default branch). Feature→staging; promote/hotfix→main as merge commits; back-merge main→staging as TRUE merge, same sitting. Invariant: `git rev-list --count origin/staging..origin/main == 0`. Never squash anywhere in GS/AG.
+- **GS boy-scout base ref is `origin/main`**: `GRANTSPIDER_BOY_SCOUT_BASE_REF=origin/main make verify` when branched off main; skip boy-scout for pure merges/back-merges.
+- **All seven repos on WSL2** (memory `project_wsl2_port_ag_gs`); OneDrive checkouts dormant pending #58 decommission.
+- **Session worktrees**: `scripts/dev/new-session.sh <name>`; the guard hook blocks `git switch -c` even inside compound `cd <worktree> && git switch` commands (it pattern-matches the command, not the cwd) — work directly on the `session/<name>` branch the script creates.

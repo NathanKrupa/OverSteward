@@ -10,7 +10,9 @@ Plan reference: `OVERSTEWARD.md` (Phase Roadmap).
 
 ### H2-1 — Cross-repo `.claude/settings.json` parity
 
-Open thread from PR #47 (2026-05-26): each pickup repo's project-level Claude Code settings drift independently. `registry.yaml` could carry a `permissions:` block that sows deny-lists, allow-lists, and hook config to each `.claude/settings.json`. Currently the credential-hygiene rules only live at the user level (`~/.claude/settings.json`); per-project rules vary by repo.
+Tracked as issue #49; scoped 2026-06-10 as read-only first (H2-3 + H2-4 + H2-5 cover the settings/hooks surface in their drift report; the write side waits for H2-6's gate).
+
+Open thread from PR #47 (2026-05-26): each pickup repo's project-level Claude Code settings drift independently. `registry.yaml` could carry a `permissions:` block that sows deny-lists, allow-lists, and hook config to each `.claude/settings.json`. Currently the credential-hygiene rules only live at the user level (`~/.claude/settings.json`); per-project rules vary by repo. Since PRs #55–#57 the manually-synced surface also includes `.claude/hooks/guard_main_worktree.py` + `scripts/dev/new-session.sh` byte-copies in every repo.
 
 Touchpoints:
 - New registry field (`settings_sync: true` or richer block)
@@ -83,13 +85,6 @@ Phase 3 automation from original roadmap — cron or Actions-triggered coordinat
 ### H3-6 — Full issue → merged-PR cycle time (excluding `needs-input` stalls)
 
 Currently `/project-status` reports PR turnaround + merge rate + `needs-input` age. Full cycle time needs timeline-event fetch (label-change events to subtract `needs-input` intervals). Worth doing once enough data accumulates.
-
----
-
-## Open GitHub issues (tracked separately, not in horizons)
-
-- **#2** — Build `/dispatch v2`: sweeper agent (clears orphaned agent-in-progress labels). Mostly moot post-`/dispatch` retirement, but the concept transfers to in-session label hygiene. Re-evaluate or close.
-- **#3** — Build `/drain` skill: autonomous backlog consumption per repo. Tension with in-session pickup model — `/drain` was a dispatch-era concept. Re-evaluate or close.
 
 ---
 

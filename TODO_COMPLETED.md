@@ -4,6 +4,21 @@ Tasks move here from MASTER_TODO.md when finished. Newest at top.
 
 ---
 
+## 2026-06-10 — Tracking sweep + stale-item close-out (PRs #52, #59)
+
+- [x] **PR #52 merged** — wphelper + ai-assistants WSL2 port documented (registry.yaml + architecture.md §1); OneDrive era closed
+- [x] **PR #46** (trajectory template) merged 2026-05-30 — removed from Active
+- [x] **PR #33** closed unmerged 2026-05-30, superseded by #53: `/dispatch` revived as in-session **foreground** invocation (Agent/Workflow tools, Max-billed); `<repo>-dev` agent defs kept and refreshed for WSL2 — removed from Active
+- [x] **Issue #39** closed, superseded by #58 (decommission dormant OneDrive checkouts — triage-then-delete replaces the drain procedure)
+- [x] **architecture.md corrected** — GS master→main rename reflected in §2 seam + I-19; I-20 (`main ⊆ staging` + divergence watchdog) and I-21 (session-per-worktree discipline) added; §4 H1-2 row corrected to partially-shipped, L-WD-1 → L-OD-1; §5 pruned to 10 rows
+- [x] Backlog hygiene — closed issues #2/#3 rows removed; H2-1 updated to point at issue #49 read-only-first scoping
+
+## 2026-05-30 → 2026-06-08 — Dispatch foreground pivot, workflow registry, worktree discipline (PRs #53–#57)
+
+- [x] **PR #53** — `/dispatch` foreground pivot (supersedes #33); in-session Agent/Workflow invocation on the Max subscription
+- [x] **PR #54** — workflow registry: canonical `generate_workflow_registry.py` (`shared/scripts/workflows/`) + descriptor convention in OVERSTEWARD.md; GS live via GS #1166
+- [x] **PRs #55–#57** — session-per-worktree discipline: `scripts/dev/new-session.sh` + `guard_main_worktree.py` PreToolUse hook, canonical in `shared/scripts/dev/`, deployed estate-wide; lint-portability (#56) and ruff-format-match (#57) hardening
+
 ## 2026-05-26/27 — Cross-repo credential-hygiene + CLI-discipline rollout (PR #47 + sibling PRs)
 
 Six-layer response to the 2026-05-26 GS Neon credential leak (bash job-control interpreted `&` in DATABASE_URL and printed five Neon strings to stderr → transcript). Generalised the GS-specific feedback memory into universal estate discipline.
@@ -21,7 +36,7 @@ Trajectory note: [documentation/trajectories/2026-05-26-PR47.md](documentation/t
 ## 2026-05-22/23 — PR-workflow propagation surface + trajectory template (PRs #45, #46)
 
 - [x] **PR #45** — `shared/references/pr-workflow.md` canonical PR checklist; `~/.claude/CLAUDE.md` rewired to `@-include` from shared; trajectory-note step added
-- [x] PR #46 trajectory template (`documentation/trajectories/TEMPLATE.md`) **drafted and committed** but PR still open as of 2026-05-27
+- [x] PR #46 trajectory template (`documentation/trajectories/TEMPLATE.md`) — merged 2026-05-30
 
 ## 2026-05-22 — WSL2 port + conda → uv migration (PRs #42, #43, #44)
 
