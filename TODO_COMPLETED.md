@@ -4,6 +4,13 @@ Tasks move here from MASTER_TODO.md when finished. Newest at top.
 
 ---
 
+## 2026-06-11 — GS CI/boy-scout transfer + first /sync-status remediation (OS PRs #63, #66; 11 sibling PRs)
+
+- [x] **GS #1276/#1277 learnings transferred estate-wide** — boy-scout per-file mirror to AG (#868, full suite 2548 passed); uv CI installs to AG (#870), wphelper (#177), Fiscus (#62), gaudi (#233). gaudi #235 healed the same-day PYSEC-2026-196 pip-audit break. Fiscus #63 filed (Phase-1 boy-scout via GS pattern).
+- [x] **First /sync-status remediation** (report: `reports/2026-06-11.md`) — `architecture-principles.md` adopted into canonical (OS #63); `shared/` deployed to both homes (drift rows cleared; 10/11 "diffs" were CRLF artifacts); worktree kit + managed blocks distributed: GS #1291, gaudi #234, wphelper #178, ai-assistants #88, Fiscus #64; AG #871 (kit files; hook registration deferred to Nathan's settings call).
+- [x] **Issue #37 closed 2026-06-10** (PR #60 + label; verified via test issue #61) — removed from Active.
+- [x] Follow-ups filed: OS #64 (gather origin refs), OS #65 (canonical hook ERR-001 hardening). Memories: `canonical-bytecopy-ratchet-treaty`, `pip-audit-advisory-day`.
+
 ## 2026-06-10 — Tracking sweep + stale-item close-out (PRs #52, #59)
 
 - [x] **PR #52 merged** — wphelper + ai-assistants WSL2 port documented (registry.yaml + architecture.md §1); OneDrive era closed

@@ -1,31 +1,35 @@
 ---
-session_date: 2026-06-10
-status: in progress — tracking sweep landing (PR #59); #49 read-only sync tooling next
-branch_at_close: session/housekeeping-2026-06-10
+session_date: 2026-06-11
+status: complete — GS CI/boy-scout learnings transferred estate-wide + first /sync-status remediation executed
+branch_at_close: session/wrapup-2026-06-11
 ---
 
 ## Where we left off
 
-Estate review session: Nathan asked for a project + open-issues review, then "do all of the above."
+Two arcs, both Nathan-directed: (1) transfer GS PRs #1276 (CI installs via uv) + #1277 (boy-scout gaudi scoped to changed files) to the other projects; (2) execute the approved sync/cleanup remediation from the 2026-06-10 drift report.
 
-**Done this session:**
-- **PR #52 MERGED** — wphelper + ai-assistants WSL2 port docs (the clones were verified on disk; OneDrive era closed).
-- **#39 closed → #58 filed** — "drain worktree husks" superseded by "decommission dormant OneDrive checkouts" (one-time triage-then-delete of all seven dormant checkouts; operator-driven).
-- **Tracking sweep (PR #59)** — MASTER_TODO Active rebuilt (stale PR #46/#33 items moved to TODO_COMPLETED with the #33→#53 supersession story); TODO_BACKLOG closed-issue rows (#2/#3) removed, H2-1 updated; architecture.md corrected: GS master→main rename reflected in §2 seam row + I-19, new I-20 (`main ⊆ staging` + divergence watchdog) and I-21 (session-per-worktree discipline), §4 H1-2 → partially-shipped + L-WD-1 → L-OD-1, §5 pruned to 10 rows with new top row for the GS rename.
+**Arc 1 — CI-speed transfer (all merged):**
+- **AG #868** — boy-scout per-file mirror (the follow-up GS #1277 named). `count_file_findings` in `apps/core/gaudi.py`, per-file counting both sides, `file: None` hardening, real-gaudi equivalence test. Two judgment calls: `resolve_venv_gaudi` privatised (CPLX-001 on the 5th public name), `/scripts/tools/` ratchet-exempted (GS's circular-gate rationale). Full suite 2548 passed.
+- **AG #870, wphelper #177, Fiscus #62, gaudi #233** — uv installs in CI (`setup-uv@v8.2.0`, cache keyed on the actual manifest — pyproject vs requirements-lock varies by repo). wphelper test job 19s; gaudi's 5-version matrix was the biggest multiplier. Fiscus #63 filed: its Phase-0 boy-scout stub should implement via the GS file-scoped pattern.
+- **gaudi #235** — same-day CI heal: PYSEC-2026-196 (published 2026-06-11) flags the runner image's own pip; pip-audit fails every PR. Upgrade step added before audit. Memory `pip-audit-advisory-day`.
 
-**In flight / next:**
-- **Issue #37** (andon template + label) — green-lit by Nathan 2026-06-10; PR next. Check whether Fiscus's `andon.py` aggregator scan list includes OverSteward (not a pickup repo).
-- **Issue #49** — scoped read-only first: build `gather.py` + `diff.py` + `/sync-status` (H2-3/H2-4/H2-5), covering CLAUDE.md managed blocks, dual-target `shared/` parity (Windows `/mnt/c/Users/natha/.claude/shared/` vs WSL `~/.claude/shared/`), per-repo `.claude/settings.json` + hooks drift, and tracking-doc freshness (flag SESSION_STATE older than last merged PR). Write-side sow stays gated (H2-6).
+**Arc 2 — sync remediation (reports/2026-06-11.md is the full record):**
+- **OS #63** — `architecture-principles.md` adopted into canonical (was deployed with no source); sync report. Canonical `shared/` deployed to BOTH homes; drift rows cleared. 10 of 11 "differing" files were Windows-era CRLF artifacts; only credential-hygiene.md truly differed (canonical ahead).
+- **Governance distribution, all merged:** GS #1291 (canonical kit refresh + managed block + `/.claude/hooks/` ratchet exemption), gaudi #234 (kit + tracked settings + block + gitignore carve-out + bandit exclude), wphelper #178 + ai-assistants #88 (kit + tracked settings), Fiscus #64 (block only — its #60 had the kit).
+- **Estate state:** every repo now has the canonical worktree kit + managed block, hook registered via tracked settings everywhere EXCEPT AG (Nathan's untracked local `.claude/settings.json` — his move, see report § Deferred). AG kit files PR: #871.
+- **Follow-ups filed:** OS #64 (gather reads origin refs, not local working trees — two rows were overstated by checkout lag), OS #65 (narrow canonical hook's ERR-001 fail-open handlers at the source, redeploy).
 
-## Pending (carried from 2026-06-03 session)
+## Pending / next session
 
-- **GS issue #1181** — "Dagster-aware promotion gate" (`ops`/`architecture`). Designed-not-built: Railway pre-deploy hook that queries Dagster run-storage Postgres for in-flight runs, polls-and-waits before redeploy, aborts+alerts on timeout.
-- **GS PR #1079** — stale feature (success-rate asset check), `MERGEABLE/UNSTABLE`. Nathan's call to rebase/verify/merge or close.
-- **Optional** — add `staging` to GS `divergence-watchdog.yml` push triggers so the debt issue auto-closes immediately on back-merge (currently closes on next main push / daily cron).
+- **AG hook registration** — Nathan: move local `.claude/settings.json` aside (or approve tracking its content), then register the guard hook (Fiscus pattern).
+- **Issue #58** — OneDrive checkout decommission (operator-driven).
+- **Issue #49 phase 2** — settings parity schema + sow write path (H2-6 gate).
+- **OS #64 / #65** — gather-origin fix; canonical hook hardening.
+- Carried: GS #1181 (Dagster promotion gate), GS PR #1079 (stale), watchdog staging-trigger option.
 
 ## Context / gotchas for next session
 
-- **GS branch model is main + staging** (memory `project_gs_branch_model`): `main` = production (Railway Dagster + AG SHA-pin); `staging` = integration (default branch). Feature→staging; promote/hotfix→main as merge commits; back-merge main→staging as TRUE merge, same sitting. Invariant: `git rev-list --count origin/staging..origin/main == 0`. Never squash anywhere in GS/AG.
-- **GS boy-scout base ref is `origin/main`**: `GRANTSPIDER_BOY_SCOUT_BASE_REF=origin/main make verify` when branched off main; skip boy-scout for pure merges/back-merges.
-- **All seven repos on WSL2** (memory `project_wsl2_port_ag_gs`); OneDrive checkouts dormant pending #58 decommission.
-- **Session worktrees**: `scripts/dev/new-session.sh <name>`; the guard hook blocks `git switch -c` even inside compound `cd <worktree> && git switch` commands (it pattern-matches the command, not the cwd) — work directly on the `session/<name>` branch the script creates.
+- **AG verify gate:** commit FIRST, then `make verify` (marker is sha-keyed to HEAD), then push. Don't pipe verify through `tail` (masks exit code — bit us once; a transient `test (migrate)` local-DB race also cost one re-run). AG worktrees need `.env` copied + `.venv` symlinked.
+- **Canonical-vs-ratchet treaty** (memory `canonical-bytecopy-ratchet-treaty`): per-repo ratchets exempt canonical byte-copy paths; improvements go through OverSteward and redeploy.
+- **Deploy excludes mutable files:** the 2026-06-11 rsync overwrote both homes' `inbox.md` (excluded from *comparison* but not from *deploy*); contents were the stale 2026-03-09 entry, both since reset to the empty template. Future deploys: `--exclude=inbox.md`.
+- GS primary checkout is dirty (deleted-.venv entry + 6 stashes) and was left strictly alone; WP/AA/Fiscus/gaudi primaries ff-pulled clean.
