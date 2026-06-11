@@ -22,16 +22,17 @@ Two arcs, both Nathan-directed: (1) transfer GS PRs #1276 (CI installs via uv) +
 
 ## Pending / next session
 
-- **AG hook registration** — Nathan: move local `.claude/settings.json` aside (or approve tracking its content), then register the guard hook (Fiscus pattern).
+- **AG hook registration** — **AG #872**: Nathan to move local `.claude/settings.json` aside (or approve tracking its content), then register the guard hook (Fiscus pattern).
 - **Issue #58** — OneDrive checkout decommission (operator-driven).
 - **Issue #49 phase 2** — settings parity schema + sow write path (H2-6 gate).
-- **OS #64 / #65** — gather-origin fix; canonical hook hardening.
-- Carried: GS #1181 (Dagster promotion gate), GS PR #1079 (stale), watchdog staging-trigger option.
+- **OS #64 / #65 / #68** — gather-origin fix; canonical hook hardening; deploy `--exclude=inbox.md` so syncs don't clobber runtime state.
+- **GS #1229** — live back-merge debt: GS `main` is currently ahead of `staging` (15 commits at close); the divergence-watchdog filed it. Back-merge `main → staging` to clear. (See GS #1292 to make that auto-close.)
+- Carried: GS #1181 (Dagster promotion gate), GS PR #1079 (stale), **GS #1292** (watchdog also trigger on staging-push so the debt issue auto-closes).
 
 ## Context / gotchas for next session
 
 - **AG verify gate:** commit FIRST, then `make verify` (marker is sha-keyed to HEAD), then push. Don't pipe verify through `tail` (masks exit code — bit us once; a transient `test (migrate)` local-DB race also cost one re-run). AG worktrees need `.env` copied + `.venv` symlinked.
 - **Canonical-vs-ratchet treaty** (memory `canonical-bytecopy-ratchet-treaty`): per-repo ratchets exempt canonical byte-copy paths; improvements go through OverSteward and redeploy.
-- **Deploy excludes mutable files:** the 2026-06-11 rsync overwrote both homes' `inbox.md` (excluded from *comparison* but not from *deploy*); contents were the stale 2026-03-09 entry, both since reset to the empty template. Future deploys: `--exclude=inbox.md`.
+- **Deploy excludes mutable files:** the 2026-06-11 rsync overwrote both homes' `inbox.md` (excluded from *comparison* but not from *deploy*); contents were the stale 2026-03-09 entry, both since reset to the empty template. Future deploys: `--exclude=inbox.md` — now tracked as **OS #68**.
 - GS primary checkout is dirty (deleted-.venv entry + 6 stashes) and was left strictly alone; WP/AA/Fiscus/gaudi primaries ff-pulled clean.
 - **Worktree-cleanup slip (confessed):** the end-of-session sweep glob-removed Nathan's leftover GS worktree `funding-stats-migration`. Branch = PR #1271, merged that morning, so only post-merge scratch could be lost. Rule now in memory `worktree-cleanup-own-only`: remove only worktrees you created, by literal path.
