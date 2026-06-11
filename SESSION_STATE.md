@@ -1,7 +1,7 @@
 ---
 session_date: 2026-06-11
-status: complete — GS CI/boy-scout learnings transferred estate-wide + first /sync-status remediation executed
-branch_at_close: session/wrapup-2026-06-11
+status: complete — GS CI/boy-scout learnings transferred estate-wide + first /sync-status remediation executed; all 13 sibling PRs merged
+branch_at_close: session/session-close-0611
 ---
 
 ## Where we left off
@@ -16,7 +16,8 @@ Two arcs, both Nathan-directed: (1) transfer GS PRs #1276 (CI installs via uv) +
 **Arc 2 — sync remediation (reports/2026-06-11.md is the full record):**
 - **OS #63** — `architecture-principles.md` adopted into canonical (was deployed with no source); sync report. Canonical `shared/` deployed to BOTH homes; drift rows cleared. 10 of 11 "differing" files were Windows-era CRLF artifacts; only credential-hygiene.md truly differed (canonical ahead).
 - **Governance distribution, all merged:** GS #1291 (canonical kit refresh + managed block + `/.claude/hooks/` ratchet exemption), gaudi #234 (kit + tracked settings + block + gitignore carve-out + bandit exclude), wphelper #178 + ai-assistants #88 (kit + tracked settings), Fiscus #64 (block only — its #60 had the kit).
-- **Estate state:** every repo now has the canonical worktree kit + managed block, hook registered via tracked settings everywhere EXCEPT AG (Nathan's untracked local `.claude/settings.json` — his move, see report § Deferred). AG kit files PR: #871.
+- **Estate state:** every repo now has the canonical worktree kit + managed block, hook registered via tracked settings everywhere EXCEPT AG (Nathan's untracked local `.claude/settings.json` — his move, see report § Deferred). AG kit files: PR #871 MERGED 2026-06-11 (guard inert in AG until registration; AG `.gitignore` keeps settings.json + skills/ ignored deliberately).
+- **Final drift report (post-sweep):** clean except two origin-lag rows — AG + GS local checkouts deliberately untouched (feature branch / 6 stashes); their origin branches carry everything. OS #64 makes gather read origin refs.
 - **Follow-ups filed:** OS #64 (gather reads origin refs, not local working trees — two rows were overstated by checkout lag), OS #65 (narrow canonical hook's ERR-001 fail-open handlers at the source, redeploy).
 
 ## Pending / next session
@@ -33,3 +34,4 @@ Two arcs, both Nathan-directed: (1) transfer GS PRs #1276 (CI installs via uv) +
 - **Canonical-vs-ratchet treaty** (memory `canonical-bytecopy-ratchet-treaty`): per-repo ratchets exempt canonical byte-copy paths; improvements go through OverSteward and redeploy.
 - **Deploy excludes mutable files:** the 2026-06-11 rsync overwrote both homes' `inbox.md` (excluded from *comparison* but not from *deploy*); contents were the stale 2026-03-09 entry, both since reset to the empty template. Future deploys: `--exclude=inbox.md`.
 - GS primary checkout is dirty (deleted-.venv entry + 6 stashes) and was left strictly alone; WP/AA/Fiscus/gaudi primaries ff-pulled clean.
+- **Worktree-cleanup slip (confessed):** the end-of-session sweep glob-removed Nathan's leftover GS worktree `funding-stats-migration`. Branch = PR #1271, merged that morning, so only post-merge scratch could be lost. Rule now in memory `worktree-cleanup-own-only`: remove only worktrees you created, by literal path.
