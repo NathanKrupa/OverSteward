@@ -1,6 +1,6 @@
 ---
 name: project-status
-description: "Show a per-project status table of open issues, open PRs, items completed since the last check-in, and any agents currently working across every repo marked `dispatch_target` in registry.yaml (currently aigranthelper, grantspider, wphelper, ai-assistants, fiscus). Surfaces oldest unscoped issues when the ready queue is thin. Use when Nathan asks for \"project status\", \"pipeline status\", \"what's in flight\", or runs /project-status."
+description: "Show a per-project status table of open issues, open PRs, items completed since the last check-in, and any agents currently working across every repo marked `dispatch_target` in registry.yaml (currently aigranthelper, grantspider, wphelper, ai-assistants, fiscus, exchequer). Surfaces oldest unscoped issues when the ready queue is thin. Use when Nathan asks for \"project status\", \"pipeline status\", \"what's in flight\", or runs /project-status."
 ---
 
 # /project-status -- pipeline dashboard

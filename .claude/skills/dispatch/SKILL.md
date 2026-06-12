@@ -1,6 +1,6 @@
 ---
 name: dispatch
-description: "Work a GitHub issue with a scoped repo agent in-session, foreground (implement → test → PR → auto-merge). Runs on the Max subscription, not metered API. Use when the user says \"dispatch issue N on REPO\" or \"work issue N on REPO\" where REPO is any repo marked `dispatch_target` in registry.yaml (currently aigranthelper, grantspider, wphelper, ai-assistants, fiscus)."
+description: "Work a GitHub issue with a scoped repo agent in-session, foreground (implement → test → PR → auto-merge). Runs on the Max subscription, not metered API. Use when the user says \"dispatch issue N on REPO\" or \"work issue N on REPO\" where REPO is any repo marked `dispatch_target` in registry.yaml (currently aigranthelper, grantspider, wphelper, ai-assistants, fiscus, exchequer)."
 ---
 
 # /dispatch — in-session scoped agent PR worker
