@@ -53,6 +53,7 @@ Both pillars share a principle: **Nathan is the principal; the OverSteward is th
 6. **Propose, don't impose.** All sync and dispatch operations surface proposals for approval before meaningful state changes.
 7. **OverSteward manages others. Nathan manages OverSteward.** One escape hatch from the system's own control.
 8. **Issue queue as the task board** (orchestration). `gh issue list` drives dispatch. Labels drive state. PR merges drive completion. No parallel TODO file for dispatch work.
+9. **Deterministic, fail-open mechanics; tokens for judgment only.** Drift detection, hashing, manifest comparison, and diffing are deterministic Python that costs zero Claude tokens and **fails open** — a broken or unreachable check never blocks or mutates an estate it cannot read cleanly; it reports the gap and proceeds. Claude tokens are spent only where genuine judgment is required: conflict resolution, content proposals, scoping. This sharpens principle 3 — "Python for mechanics" also means *cheap, safe, and silent on the happy path*. (Learned from gbrain's zero-LLM auto-link and observe-only guardrail seams; see [documentation/gbrain-learnings.md](documentation/gbrain-learnings.md).)
 
 ### System Diagram
 
@@ -316,6 +317,21 @@ conda run -n Oversteward python scripts/coordinator.py --apply
 
 Formal pre-conditions, per-context contracts (including `soul_in_local` write rules), post-conditions, and rejected "convenient" behaviours: [documentation/sow-safety-gates.md](documentation/sow-safety-gates.md). This is the design contract sow must honor before any first real run.
 
+### Deployment manifest & drift classification
+
+The current sow contract compares **canonical-now vs on-disk-now** (two-way). On a hash mismatch for a byte-copy file (skill, persona, hook), the only safe two-way action is to overwrite — but that silently discards a local edit if one exists, and it cannot tell *why* the file diverged. gbrain hit exactly this with `skillpack reference --apply-clean-hunks`: a two-way merge has no record of what was originally deployed, so it clobbers intentional local edits and accidental drift alike.
+
+OverSteward avoids this by recording a **deployment manifest** — the per-file SHA of every byte-copy artifact at the moment sow last deployed it (`reports/manifest.json`, keyed by `context → path → sha`). Drift detection then becomes **three-way** (deployed-baseline vs canonical-now vs on-disk-now) and classifies every managed path into one of four states:
+
+| State | Condition | Meaning | sow/sweep action |
+|---|---|---|---|
+| `identical` | on-disk == canonical | Up to date | No-op |
+| `stale` | on-disk == baseline, baseline != canonical | Canonical moved forward; repo untouched | Safe to redeploy |
+| `diverged` | on-disk != baseline **and** on-disk != canonical | Repo's copy was edited locally | **Flag, never silently overwrite.** Surface the diff; Nathan decides — a byte-copy ratchet-treaty violation to correct, or a deliberate downstream hotfix to promote back upstream |
+| `missing` | path absent on disk | Never deployed, or deleted downstream | Deploy (sow) / propose (sweep) |
+
+`sync-status` reports use this `identical / stale / diverged / missing` vocabulary directly. Only `diverged` ever requires human judgment; the other three are deterministic, fail-open, and zero-token (principle 9). The byte-copy ratchet treaty assumes *no* intentional local divergence in canonical files — the manifest is what lets OverSteward **detect and surface** a violation of that assumption instead of erasing the evidence. Full mechanics fold into the skill-file deployment contract in [documentation/sow-safety-gates.md](documentation/sow-safety-gates.md).
+
 ### Sweep Strategy
 
 OverSteward-deployed persona skills follow naming convention: `persona-{name}.md`. Files not matching this pattern are never touched.
@@ -478,7 +494,8 @@ All 8 local + remote contexts migrated. Canonical souls and personas deployed. 1
 
 **Governance side (not yet built):**
 - [ ] `scripts/gather.py` — pull state from all repos
-- [ ] `scripts/diff.py` — structured change list
+- [ ] `scripts/diff.py` — structured change list (three-way: deployed-baseline vs canonical vs on-disk; classifies `identical / stale / diverged / missing`)
+- [ ] `reports/manifest.json` — per-file deployment baseline (`context → path → sha`) written by sow, read by diff/sweep/`sync-status`
 - [ ] `scripts/sow.py` — apply changes with safety gates
 - [ ] `scripts/sweep.py` — stale persona skill cleanup
 - [ ] `scripts/coordinator.py` — orchestrator
@@ -508,5 +525,5 @@ All 8 local + remote contexts migrated. Canonical souls and personas deployed. 1
 
 ---
 
-*Document version: 2026-04-20*
-*Status: Governance Phase 1 complete; Orchestration Phase 2 active; Governance Phase 2 pending scope decision.*
+*Document version: 2026-06-16*
+*Status: Governance Phase 1 complete; Orchestration Phase 2 active; Governance Phase 2 pending scope decision. gbrain learnings (deployment manifest, fail-open principle) folded in 2026-06-16.*
