@@ -58,7 +58,12 @@ For `skills_always_on` listed on the target context:
 
 - Source: `shared/skills/<name>.md`
 - Destination: `<context_repo>/<skills_path>/<name>.md`
-- Deploy = copy + git add. If destination matches source by hash, skip (no-op).
+- Deploy decision is **three-way**, not "overwrite on hash mismatch". sow compares the on-disk SHA against both the canonical source SHA and the deployment baseline recorded in `reports/manifest.json` (`context → path → sha`), and acts per the classification table in OVERSTEWARD.md § "Deployment manifest & drift classification":
+  - `identical` (on-disk == canonical) → skip (no-op).
+  - `stale` (on-disk == baseline, baseline != canonical) → copy + git add; update the manifest entry to the new SHA.
+  - `missing` (no file on disk) → copy + git add; write the manifest entry.
+  - `diverged` (on-disk != baseline **and** on-disk != canonical) → **abort this path with a flagged diff in the report. sow MUST NOT overwrite a diverged file.** A diverged byte-copy means the downstream was edited after the last deploy; silently overwriting it would destroy a possible deliberate hotfix and erase the only evidence of a ratchet-treaty violation. Resolution is a conscious operator decision (promote upstream, or restore canonical), never inline.
+- On a brain-new context with no manifest entries, every path is `missing` — the first deploy seeds the baseline.
 
 Sow MUST NOT delete skill files that were previously deployed but are no longer in `skills_always_on` — that is sweep's job. Sow is additive.
 
@@ -97,6 +102,7 @@ The following "convenient" behaviours are explicitly forbidden because past inci
 - **Merge conflict auto-resolution** — if branch creation or checkout produces conflicts, sow aborts. The operator resolves.
 - **Multi-context single PR** — one PR per target context. Batching PRs hides per-context review.
 - **Retrying on auth failure** — one attempt per target. Auth errors abort that target with a clear diagnostic.
+- **Silent overwrite of a diverged byte-copy** — if an on-disk skill/persona/hook file matches neither its deployment baseline nor canonical, sow aborts that path and flags the diff. A two-way "canonical wins" overwrite would erase a deliberate downstream edit and the evidence of a ratchet-treaty breach (gbrain's `--apply-clean-hunks` lesson). Resolution is an operator decision.
 
 ## Testing requirements (before first real run)
 
@@ -108,6 +114,8 @@ Beyond gates, integration tests must cover:
 - `soul_in_local: true`: managed block never contains the soul @file import.
 - `skip_sow: true`: context is skipped, no git activity on that repo.
 - Lockfile: two concurrent invocations — the second aborts cleanly.
+- Manifest classification: each of `identical / stale / missing` deploys correctly and updates the baseline; `diverged` aborts the path with a flagged diff and writes nothing.
+- First-deploy seeding: a context with no manifest entries treats every path as `missing` and records baselines after a successful apply.
 
 These tests belong in `tests/test_sow.py` when implementation begins.
 
