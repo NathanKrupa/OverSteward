@@ -3,7 +3,7 @@ ABOUTME: Draft for review 2026-06-17; no code yet — design gate first, per est
 
 # The Telegraph — One Wire for the Whole Estate
 
-**Status:** **Draft for review (2026-06-17).** No implementation yet. This is the Phase-0 design gate; nothing is built until the architecture, the two-mode trust model, and the rollout are approved.
+**Status:** **Scope approved 2026-06-17.** No implementation yet — Phase 0 (design gate) clears to Phase 1 on Nathan's sign-off of the three proposed decisions in §9. A future **email ingestion channel** is captured as deferred intent (§3.4, §9 item 10).
 
 **Name:** **The Telegraph** — a telegraph network has many *stations* (the repos), one *operator key* from which the steward can send to any station (Nathan's single chat), *station-to-station relay* that needs no operator at the desk (repos filing work to each other), and a *bell that sounds on receipt* (a push when Nathan is actually needed). The central *telegraph office* routes traffic and, for a coordinated operation across several stations, runs the line under a single hand. It also puns gently on **Telegram**, the chosen front-door channel.
 
@@ -93,7 +93,22 @@ The session is a thin router, not an author. A message maps to a verb by a small
 
 Repo prefixes resolve through `registry.yaml` (the existing `dispatch_target` set), so the grammar needs no separate config.
 
-### 3.3 The operational caveat (stated honestly)
+### 3.3 Channels are adapters (the core is channel-agnostic)
+The membrane's core is "turn an inbound request into a routed verb / a filed issue." Telegram is the **first** adapter onto that core; it is not the only conceivable one. Adapters fall into two kinds, and the distinction matters for trust:
+
+- **Interactive channels** (Telegram now; Discord/iMessage available) — push into the *live* control session, are bound to **Nathan** (one chat ID), and may use the full verb grammar (§3.2), including privileged verbs (`dispatch`, `answer`). Trusted because authenticated to the principal.
+- **Async ingestion adapters** (a future email inbox, §3.4; webhooks) — feed the filer *without* requiring the live session, come from **outside parties**, and are confined to the lowest-trust verb only: *file a `needs-scoping` issue*. Never dispatch, never answer.
+
+Designing the filer (§4) as the shared convergence point is what keeps this open: a new adapter is a new front-end on the same primitive, not a new system.
+
+### 3.4 Deferred: an email ingestion channel (outside pinging for scoping)
+A dedicated inbox (e.g. `scope@…`) that turns inbound mail into `needs-scoping` issues, so people *outside* the estate (or Nathan, async from anywhere) can lob a scoping request into the queue without a chat client. **Captured now, built later (§9 item 10).** Design constraints, fixed here so the rest of the architecture accommodates it:
+
+- **Async ingestion adapter, not a Channel.** Email is not an official Channel type, and an external inbox should *not* depend on the live control session. Implement as a headless IMAP/forwarding **poller** (the Vintner-cron shape — plain Python, runs even when the control session is down) that calls the §4 filer. This also isolates an untrusted surface from the privileged session.
+- **Lowest trust, always.** Email-sourced items land **only** as `needs-scoping`, labelled `from:email` (or `from:external`), never `ready-for-agent`, never auto-dispatched. The sender is a stranger until Nathan says otherwise.
+- **Abuse-bounded.** Optional sender allowlist; rate limiting; spam/empty filtering; subject→repo routing is a *hint* Nathan confirms at scoping time, never an instruction the system obeys blindly. Body becomes the issue body with the sender recorded.
+
+### 3.5 The operational caveat (stated honestly)
 Channels needs the session **running**. Two consequences, each with a mitigation:
 - **It can die.** Mitigation — **the session holds no state; all state lives on GitHub.** A restarted control session re-reads open issues and any in-flight epic tracking issue (§5.2) and resumes. *Stateless conductor, durable bus.* Run it under a supervisor (tmux + restart, or the web/desktop session).
 - **It costs tokens** to have the model mediate routing. Mitigation — the routing grammar (§3.2) is deliberately mechanical; the model is doing classification, not reasoning, for the front-door path. (A future optimization is a dumb pre-router; out of scope for v1.)
@@ -200,6 +215,7 @@ Each phase is independently shippable and ordered by ascending trust. **The memb
 | **2 — the relay** | `file_cross_repo_issue` helper (§4), deployed estate-wide; `from:<src>` label + `/project-status` surfacing | A GS agent files an AG `needs-scoping` issue with backlink; it appears in Nathan's queue and the status table, untouched by Nathan |
 | **3 — the conductor** | Epic tracking-issue schema (§5.2); the loop (§5.3) + three rails (§5.4); run **one** real AG↔GS epic end-to-end | A coordinated epic (e.g. the `funder_ein` worked example) merges across both repos with Nathan blessing the plan once and answering only genuine `needs-input`; max_rounds + freeze both demonstrably fire on a forced case |
 | **4 — polish** | Delta-digest push (shared with Vintner channel); dumb pre-router to cut front-door tokens | Optional; adopt only if Phase 1 token cost or notification noise warrants |
+| **5 — email ingestion** *(deferred, §3.4)* | A `scope@…` inbox → `needs-scoping` issues for outside pinging. Headless poller, lowest-trust, abuse-bounded | Optional; an outside party emails the inbox and a `from:email` scoping candidate appears in Nathan's queue, untouched |
 
 ---
 
@@ -232,3 +248,4 @@ Each phase is independently shippable and ordered by ascending trust. **The memb
 7. Whether any *trusted class* of ambient cross-repo issue should auto-promote to `ready-for-agent` (Nathan's third option, "decide later"). Revisit after observing real cross-repo traffic from Phase 2.
 8. Delta-digest cadence and whether it shares the Vintner's exact push channel (§6, §7 Phase 4).
 9. Always-on hosting of the control session — local tmux vs a web/desktop session vs a Railway-hosted headless session. Decide when Phase 1 bring-up starts.
+10. **Email ingestion channel (§3.4) — wanted by Nathan, deferred to a later phase.** A `scope@…` inbox → `needs-scoping` issues for outside pinging. Async ingestion adapter (headless IMAP/forwarding poller, Vintner-cron shape), lowest-trust (`from:email`, never auto-dispatched), abuse-bounded. Sequence as an optional **Phase 5** after the membrane and relay (Phases 1–2) prove the filer convergence point. Decide the inbox provider (forwarding address vs hosted mailbox vs Railway) at build time.
