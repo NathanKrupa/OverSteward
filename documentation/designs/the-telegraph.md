@@ -238,11 +238,9 @@ Each phase is independently shippable and ordered by ascending trust. **The memb
 1. ✅ Front door = **Channels + official Telegram plugin** (running control session), not a standalone bot.
 2. ✅ Ambient cross-repo filing **lands as `needs-scoping`** (per-issue gate retained).
 3. ✅ **Build the conducted mode** — supervised AG↔GS epic coordination.
-
-**Proposed, pending Nathan:**
-4. **System name = "The Telegraph"** (metaphor in header). Alternatives if it doesn't sit right: *The Annunciator* (the manor bell-board — leans toward the notification face), *The Speaking-Tube* (room-to-room voice pipes — leans toward the relay face), *The Footman* (carries notes between houses). The Vintner precedent treats naming as a Nathan decision.
-5. **Filer implementation = shared script vs MCP tool (§4).** Recommendation: **start as a `shared/scripts/` helper** (byte-copy-deployed estate-wide, zero new runtime, lints under the strictest deploy target) and graduate to an MCP tool only if the agents need it as a first-class callable surface. Confirm.
-6. **Home of the conductor logic.** Recommendation: **OverSteward** `src/oversteward/telegraph/` (broker already lives here; independent of watched repos; same call the Vintner made). Confirm.
+4. ✅ **System name = "The Telegraph"** (metaphor in header).
+5. ✅ **Filer = a `shared/scripts/` helper first** (byte-copy-deployed estate-wide, zero new runtime, lints under the strictest deploy target); graduate to an MCP tool only if the agents later need it as a first-class callable surface.
+6. ✅ **Conductor home = OverSteward `src/oversteward/telegraph/`** (broker already lives here; independent of watched repos; same call the Vintner made).
 
 **Deferred (not blocking Phase 1):**
 7. Whether any *trusted class* of ambient cross-repo issue should auto-promote to `ready-for-agent` (Nathan's third option, "decide later"). Revisit after observing real cross-repo traffic from Phase 2.
