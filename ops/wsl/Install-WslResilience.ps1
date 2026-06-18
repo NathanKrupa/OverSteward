@@ -83,7 +83,9 @@ if ($PSCmdlet.ShouldProcess('WSL Weekly Backup', 'Register-ScheduledTask')) {
 $logonCmd = "& '$gatePath' -Quiet; if (`$LASTEXITCODE -ne 0) { Add-Type -AssemblyName PresentationFramework; [void][System.Windows.MessageBox]::Show('WSL integrity check FAILED - system.vhd/modules.vhd may be missing (microsoft/WSL #40616 class). See the wsl-recovery runbook before trusting this machine.','WSL RESILIENCE ALERT','OK','Error') }"
 $logonArgs = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command `"$logonCmd`""
 $logonAction = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $logonArgs
-$logonTrigger = New-ScheduledTaskTrigger -AtLogOn
+# Scope the logon trigger to the current user — a bare -AtLogOn is an "any user"
+# (machine-wide) trigger that requires elevation; per-user does not.
+$logonTrigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
 $logonSettings = New-ScheduledTaskSettingsSet -StartWhenAvailable
 if ($PSCmdlet.ShouldProcess('WSL Integrity Check', 'Register-ScheduledTask')) {
     Register-ScheduledTask -TaskName 'WSL Integrity Check' -Action $logonAction -Trigger $logonTrigger `
