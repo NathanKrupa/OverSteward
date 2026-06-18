@@ -92,12 +92,15 @@ the ones that actually save you:
    scheduled task) and alerts immediately if an update broke the platform —
    so you learn at logon, not mid-task.
 4. **Routine backups.** `Backup-Wsl.ps1` exports weekly to `E:\WSLBackups`
-   (separate physical drive from C:), keeping the newest 3. A wipe becomes a
+   (separate physical drive from C:), keeping the newest 2. A wipe becomes a
    `wsl --import`.
 
-**Cadence & retention defaults:** weekly backup (Sunday 03:17), keep 3; monthly
-deliberate update via `Update-WslSafely.ps1`. Keep the last-good WSL MSI beside
-the backups so Path B/C never waits on a download.
+**Cadence & retention defaults:** weekly backup (Sunday 03:17), keep 2 (measured
+~82 GB each; E: is shared, ~393 GB free); monthly deliberate update via
+`Update-WslSafely.ps1`. Keep the last-good WSL MSI beside the backups so Path B/C
+never waits on a download. Deeper history needs compression or a bigger drive —
+an uncompressed full export at this size makes a weekly+monthly tier infeasible
+on E: today.
 
 **Test the backup quarterly** — a backup never restored is not a backup:
 ```powershell
@@ -111,8 +114,10 @@ wsl --unregister wsl-restore-test
 - **Update cadence:** pinning/delaying updates **delays security fixes**. Mitigated
   by a *monthly* deliberate window rather than freezing forever — the regression
   is fixed in later builds, so staying current (carefully) is the goal.
-- **Backup size vs retention:** a ~108 GB ext4 image exports to a large `.tar`.
-  **Keep 3** on E: (393 GB free); tune after the first run reports real size.
+- **Backup size vs retention:** the ext4 image exports to **~82 GB** (measured
+  2026-06-17, uncompressed). E: is shared (~393 GB free, not a dedicated backup
+  drive), so the default is **Keep 2** (~164 GB). Compression would roughly halve
+  this and allow deeper history; deferred as a future enhancement.
 - **Snapshot consistency:** `wsl --export` briefly **stops the distro** for a clean
   snapshot — schedule it off-hours (the 03:17 default).
 - **`run only when logged on`:** the weekly task needs **no stored password** but

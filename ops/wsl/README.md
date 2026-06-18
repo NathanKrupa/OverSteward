@@ -25,7 +25,7 @@ Scheduler can run them even when WSL itself is broken.
 |---|---|---|
 | `Test-WslIntegrity.ps1` | The gate: `system.vhd` + `modules.vhd` present/non-empty and `wsl -l -v` responds. Exit 0/1. Read-only, safe to run anytime. | auto (logon task) + you |
 | `Update-WslSafely.ps1` | Run **instead of** `wsl --update`: snapshot → update → gate → auto `--rollback` on failure. | you, monthly |
-| `Backup-Wsl.ps1` | Dated `wsl --export` to `E:\WSLBackups`, keep newest 3. | auto (weekly task) + you |
+| `Backup-Wsl.ps1` | Dated `wsl --export` to `E:\WSLBackups`, keep newest 2 (~82 GB each). | auto (weekly task) + you |
 | `Set-WslUpdatePolicy.ps1` | Reports update-control state; `-Apply` (elevated) disables Store auto-download. Best-effort. | you, once |
 | `Install-WslResilience.ps1` | Deploys the scripts to `%LOCALAPPDATA%\WslResilience` and registers the weekly-backup + logon-integrity tasks. | you, once |
 

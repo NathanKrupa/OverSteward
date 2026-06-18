@@ -26,8 +26,10 @@
   Backup directory. Default: E:\WSLBackups (the "Dagger" drive, 393 GB free).
 
 .PARAMETER Keep
-  How many most-recent archives to retain. Older ones are pruned. Default: 3.
-  Tune after the first run reveals the real archive size (Get-ChildItem $Dest).
+  How many most-recent archives to retain. Older ones are pruned. Default: 2.
+  Measured 2026-06-17: one export is ~82 GB, and E: is shared (not a dedicated
+  backup drive), so 2 copies (~164 GB) leaves comfortable headroom on its ~393 GB
+  free. Raise to 3+ only if E: gains room, or add compression for deeper history.
 
 .EXAMPLE
   powershell -NoProfile -ExecutionPolicy Bypass -File .\Backup-Wsl.ps1
@@ -36,7 +38,7 @@
 param(
     [string]$Distro = 'Ubuntu-24.04',
     [string]$Dest = 'E:\WSLBackups',
-    [int]$Keep = 3
+    [int]$Keep = 2
 )
 
 $ErrorActionPreference = 'Stop'
