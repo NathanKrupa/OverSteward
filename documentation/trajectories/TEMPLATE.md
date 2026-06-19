@@ -25,25 +25,33 @@ later by someone who wasn't there.
 
 ## What worked
 
-Approaches, patterns, tools, or framings that produced visible leverage. One
-bullet per item. Specific over abstract.
+Capture: approaches / patterns / framings that produced visible leverage.
+Specific over abstract. One bullet per item.
 
 - …
 
-## What didn't
+## What didn't  (cost: trivial | minutes | hours | blocked)
 
-False starts, wrong assumptions, friction. Include things that wasted time
-even if they ultimately didn't block the PR. The review-fork subagent reads
-these to identify recurring drag.
+Capture: failed approaches, wrong assumptions, friction that wasted time — even
+if it ultimately didn't block the PR.
+Skip: one-off typos, anything that won't recur.
+Format: `- [cost] <what happened> — <why it bit> → remedy: <proposed fix, or "none">`
 
 - …
 
 ## What was learned
 
-Generalizable lessons — what a future pickup in this surface should do
-differently or remember. These are the candidate inputs for promotion into
-`Fiscus/shared/lessons.jsonl`, `~/.claude/projects/.../memory/`, or per-repo
-doctrine. Phrase each as a rule + brief why.
+Capture: generalizable rules a future pickup in this surface should follow.
+Rule + brief why.
+Skip: restatements of what just happened.
+Format: `- <rule> — <why> → promote: doctrine | memory | lessons.jsonl | none`
+
+- …
+
+## Tools
+
+Capture: tools / commands / scripts used this pickup. Mark NEW ones built here.
+Format: `- <tool/command> [used | NEW] — <what for>`
 
 - …
 
