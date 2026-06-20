@@ -276,7 +276,7 @@ contexts:
     id: grantspider
     type: vscode
     repo: https://github.com/NathanKrupa/grantspider.git
-    branch: master
+    branch: staging
     local_path: "/home/natha/grantspider"
     claude_md_path: CLAUDE.md
     skills_path: .claude/skills/
