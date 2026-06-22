@@ -49,3 +49,7 @@ data/pipeline_history.jsonl
 
 # Local scratch / draft issue bodies / throwaway notes
 .scratch/
+
+# Per-machine session handoff scratchpad — durable handoff lives in memory + GH
+# issues, never committed to master. See CLAUDE.md § Session handoff (OS#90).
+SESSION_STATE.md
