@@ -84,6 +84,10 @@ Run these checks. Any failure → refuse to dispatch, report the reason to the u
 - `git ls-remote https://github.com/<owner>/<repo>.git refs/heads/<branch>`
 - If exists → refuse ("branch exists, prior failed attempt — clean up first")
 
+**Environment — docker (DB-touching issues):**
+- The agent's local `make verify` / full test suite needs the repo's `compose.test.yml` Postgres(+pgvector) container, which needs a docker runtime. Without it the verify marker can never be generated and a misbehaving agent may **loop** on the failing step (postmortem: AG#947, 2026-06-21). See `reference_gs_dispatch_needs_docker_verify` memory.
+- If the issue plausibly touches DB code (models, migrations, an ingest/seam service, anything that hits the test DB), run `docker info >/dev/null 2>&1`. If docker is **down**, refuse and tell the operator to start it first. Pure-doc / non-DB issues don't need this gate.
+
 If all preflights pass: proceed.
 
 ### 3. Run the agent (foreground)
@@ -95,9 +99,20 @@ Invoke the `Agent` tool with:
   - Issue number + `gh` commands to read body/comments
   - Reference to `.claude/skills/dispatch/playbook.md` (universal workflow)
   - Explicit reminder of the repo's default branch
+  - **No-loop reminder:** if a step fails for an environmental reason (DB/container down, can't generate the verify marker), STOP after ≤2 attempts and report — never retry-loop (playbook Non-negotiables)
   - Expected structured YAML return format
 
 The session blocks until the agent returns. The agent's final message **is** its structured YAML report — that is the real result, no notification round-trip.
+
+### 3.5 Arm the dispatch watchdog (silent-loop guard)
+
+Right after launching the agent, arm the watchdog as a background task so a stalled dispatch rings the bell instead of churning unnoticed (postmortem: AG#947 looped ~2.5h before anyone checked):
+
+```bash
+uv run python scripts/dispatch/dispatch_watchdog.py <owner>/<repo> <n>
+```
+
+It polls for the agent's `issue-<n>-…` branch and exits `0` (progressing) once the branch is pushed, or exits `3` with an alert if no branch appears within `--warn-min` (default 22). Run it via `run_in_background`; on a stall alert, inspect the agent transcript's turn count and `TaskStop` + re-dispatch if it is looping. Tune with `--warn-min` for issues expected to take longer before a first push.
 
 ### 4. Return to user
 
@@ -124,6 +139,7 @@ If the agent returns prose with no YAML block (rare in foreground), treat it as 
 - **Unpicked options:** "Issue #<n> presents options but none is picked in comments. Choose one (1/2/3) and comment on the issue, then re-dispatch."
 - **Open agent PR on repo:** "Repo has an open agent PR (#<pr>). One-per-repo rule — wait for it to merge or close."
 - **Branch exists:** "Branch `<name>` already exists — prior attempt not cleaned up. Delete the branch or pick a new issue."
+- **Docker down (DB-touching issue):** "Issue #<n> touches DB code, but docker isn't running — the agent's `make verify` needs the test container and would loop without it. Start docker, then re-dispatch."
 
 ## Batch mode — a few issues at once (via Workflow)
 

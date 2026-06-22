@@ -17,6 +17,7 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
 - **Never** commit files matching `.env*`, `*.pem`, `*.key`, `credentials*`, `secrets*`, `local_settings*`
 - **Never** run migrations, drop tables, delete external data, or modify CI config of other repos
 - **Never** silently fix unrelated pre-existing failures — report them, don't mask them
+- **Never** retry a failing command in a loop hoping the environment will change. If a step fails for an **environmental** reason — test DB / docker container unreachable, `make verify`'s marker can't be generated, repeated `OperationalError` / `connection refused` / `ReadTimeout` against a live dependency — STOP after at most **2** attempts and emit `STOPPED_FOR_INPUT` (or `REFUSED_PREFLIGHT` if it's still pre-work) naming the blocker. The fix for an environmental blocker is the operator's, not yours; churning on it burns Max quota and trips the operator's dispatch watchdog. (Postmortem: aigranthelper #947, 2026-06-21 — an agent looped ~2.5h / 397 turns retrying a live-DB seam read it could not satisfy in the sandbox. The correct move was a clean stop, as grantspider #1053 did the same day.)
 - **Never** expand scope beyond the issue's acceptance criteria
 - **Never** use `git add -A` or `git add .` — stage specific files only
 - **Never** guess when ambiguous — use the intent-capture protocol
