@@ -76,7 +76,30 @@ Oversteward is currently a config-management project in Phase 1 (manual sync). W
 - **Spec:** `OVERSTEWARD.md` (architecture and all design decisions)
 - **Ledger:** `Stewards_Ledger.md` (project status and session log)
 - **Todo:** `MASTER_TODO.md` (active) + `TODO_BACKLOG.md` (queued) + `TODO_COMPLETED.md` (archive)
-- **Session:** `SESSION_STATE.md` (handoff between sessions)
+- **Session:** `SESSION_STATE.md` (local-only "where we left off" scratchpad — **gitignored, never committed**; see § Session handoff)
+
+## Session handoff
+
+`SESSION_STATE.md` is a **per-machine local scratchpad** — gitignored, never
+committed. The durable, shareable handoff lives in two already-synced places:
+**auto-loaded memory** (`~/.claude/projects/.../memory/`) and **GitHub issues**
+(the real work tracker). This is deliberate: the resident Telegraph operator runs
+in the primary checkout and can't cleanly branch per handoff, so committing
+`SESSION_STATE.md` directly to `master` used to leave local-only commits that
+never pushed *and* a `master` that fell behind origin — drift that compounded
+every session (OS#90).
+
+Drift-prevention rules for the primary checkout:
+- **Never commit `SESSION_STATE.md`** (it's gitignored) — write handoff facts to
+  memory + issues instead.
+- **Never commit anything directly to the primary checkout's `master`** — all
+  changes flow through a worktree → PR (see PR workflow in `~/.claude/CLAUDE.md`).
+- **At session start, while the tree is quiet:** `git pull --ff-only origin master`
+  to pick up merged PRs. Because the primary checkout never carries local
+  commits, this fast-forward can never diverge or fail. Do **not** pull
+  mid-session (worktree-isolation), and you do **not** need to pull on every
+  merge — read current code mid-session from origin (`git show
+  origin/master:<path>`) rather than mutating the live tree.
 
 ## Tool Registry
 
