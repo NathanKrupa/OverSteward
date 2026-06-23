@@ -1,9 +1,9 @@
 ABOUTME: Phase 0 architecture note for OverSteward's sleep-time memory-consolidation loop — a cold-path background process that digests each session's transcript into durable, de-duplicated, contradiction-resolved Markdown memory, automatically, without hand-curation.
-ABOUTME: Design gate only (2026-06-23). No Phase 1 code until Nathan signs off the open decisions in §9.
+ABOUTME: Design gate only (2026-06-23). No Phase 1 code until Nathan signs off the open decisions in §14.
 
 # Sleep-Time Consolidation Loop — Auto-Dream for the Estate's Memory
 
-**Status:** **Phase 0 — design for review (2026-06-23).** No implementation code. Phase 1 clears on Nathan's sign-off of the open decisions in §9.
+**Status:** **Phase 0 — design for review (2026-06-23).** No implementation code. Phase 1 clears on Nathan's sign-off of the open decisions in §14.
 
 **Name:** the *sleep-time* loop — the steward labours over the day's ledger while the House is abed, so the books are clean by morning without anyone sitting up to do them.
 
@@ -12,6 +12,17 @@ ABOUTME: Design gate only (2026-06-23). No Phase 1 code until Nathan signs off t
 **Kinship:** Reuses the estate's existing nervous system — the per-file Markdown memory store already auto-loaded each session (`~/.claude/projects/.../memory/` + `MEMORY.md`), the `.claude/hooks/` mechanism (already running `guard_main_worktree.py`), and — for the eventual *read* side only — GrantSpider's BM25 + pgvector + Reciprocal Rank Fusion. Sibling to **The Telegraph** (both are background coordinators) and downstream of the existing hand-written-memory discipline this loop automates.
 
 ---
+
+## Operating rule — when the loop runs (Nathan-stated law, 2026-06-23)
+
+**The gate is work-assignment, not time-of-day** — this supersedes the earlier "no code at night" framing:
+
+> The gate is work-assignment, NOT time-of-day. Assigned work → you may do it, code included, any hour. When the assigned queue is exhausted → automatically enter the dream cycle (doc/memory consolidation only, never code). No "don't code at night" rule.
+
+Two consequences for this design:
+
+- **The loop is queue-triggered, not clock-triggered.** It is what the steward does *when the assigned work runs out*, at any hour — not a nightly window that forbids daytime work, nor one that licenses unsupervised night coding. The dream cycle writes **docs and memory only**; it never writes code. (A hotfix is *assigned* work, handled on the live path, not by the dream cycle.)
+- **Doc-changes-skip-CI.** The dream cycle's only writes are Markdown — memory files, `MEMORY.md`, design notes. Doc-only PRs (no Python touched) skip the full pytest suite; ruff/lint still run. That is what lets a consolidation commit land cheaply, without burning a CI run on every memory update.
 
 ## 1. The problem
 
@@ -48,7 +59,7 @@ metadata:
 ---
 ```
 
-**Fleet-awareness** (§9-7): the store must serve GrantSpider, the Matchmaker, Gaudí, and Design Cortex, so a lesson learned by one is readable by another. Two sub-questions are open (§9): (a) **where the source-of-truth lives** — the per-machine `~/.claude/...` auto-load dir is *not* git-tracked and *not* shared, which contradicts Nathan's "commit to git, each commit is the audit trail" and "fleet-aware" requirements; and (b) the **sync mechanism**. Recommended reconciliation: the **git-tracked source of truth lives in the OverSteward repo** (e.g. `memory/`), the loop commits there (audit trail + fleet-shared), and a deploy step mirrors it into each machine's `~/.claude/.../memory/` auto-load location — exactly the pattern `shared/` already uses to reach `~/.claude/shared/`. This is the single most important decision to confirm.
+**Fleet-awareness** (§14-7): the store must serve GrantSpider, the Matchmaker, Gaudí, and Design Cortex, so a lesson learned by one is readable by another. Two sub-questions are open (§14): (a) **where the source-of-truth lives** — the per-machine `~/.claude/...` auto-load dir is *not* git-tracked and *not* shared, which contradicts Nathan's "commit to git, each commit is the audit trail" and "fleet-aware" requirements; and (b) the **sync mechanism**. Recommended reconciliation: the **git-tracked source of truth lives in the OverSteward repo** (e.g. `memory/`), the loop commits there (audit trail + fleet-shared), and a deploy step mirrors it into each machine's `~/.claude/.../memory/` auto-load location — exactly the pattern `shared/` already uses to reach `~/.claude/shared/`. This is the single most important decision to confirm.
 
 ## 4. Trigger — automatic, never on willpower
 
@@ -88,7 +99,7 @@ For each extracted candidate, the consolidation model scores similarity against 
 
 Phase-1 similarity = the **consolidation model's judgment** over the candidate vs each existing `description` (a closed, cheap comparison), optionally pre-filtered by slug/title token-overlap (Jaccard) to keep the model call small. No embeddings in Phase 1 (§ Phase 2 earns them only if this fails).
 
-**Flag surface (§9-5):** flagged items land somewhere Nathan actually sees them — candidate: a `MEMORY_REVIEW.md` at the store root that the next session surfaces, and/or the loop's commit/PR. Open decision.
+**Flag surface (§14-5):** flagged items land somewhere Nathan actually sees them — candidate: a `MEMORY_REVIEW.md` at the store root that the next session surfaces, and/or the loop's commit/PR. Open decision.
 
 ## 7. Signal gate — deciding NOT to remember
 
@@ -132,7 +143,17 @@ Explicitly **out of Phase 1:** embeddings/vector store, graph store, cross-fleet
 
 Only if Markdown demonstrably fails: a richer **read** side reusing GrantSpider's **BM25 + pgvector + Reciprocal Rank Fusion** rather than a new invention — RRF over the memory corpus for relevance recall at scale; optionally a graph layer for `[[slug]]` relationship traversal. Documented here as the sanctioned future path; not built until the Markdown store's recall measurably breaks.
 
-## 13. Open decisions (need Nathan)
+## 13. The broader dream cycle — nightly reconciliation
+
+Memory consolidation (§1–§12) is the **first** movement of the estate's dream cycle. The same cold-path, queue-empty trigger (§ *Operating rule*) drives three further **reconciliation** passes — each compares what the estate *believes* against what is *actually true*, and files the drift as memory or issues for the waking session. All three are read-and-report only: none mutates production, and none writes code.
+
+1. **Ought-vs-actual map.** Reconcile the *declared* state — `architecture.md`, `registry.yaml`, the design docs, the standing invariants — against the *real* repos: open PRs, merged migrations, live seams, deployed code. Drift (a doc that claims a seam not yet live; an invariant a recent merge quietly violated) becomes a flagged memory or a filed issue. The documentation-truth audit the steward runs while the House sleeps.
+2. **Nightly Playwright journeys.** Drive the real customer-facing journeys headless against the live app (e.g. AG signup → onboarding → first search) and capture where they break. The 2026-06-22 onboarding-500 that stopped the estate's first real customer before he reached search is exactly the failure a nightly journey catches *before* a human hits it. Output: a pass/fail journey report + screenshots, surfaced for the morning.
+3. **Predicted-vs-actual usage.** Compare what the estate predicted customers would do against what they actually did — signups, logins, feature reach, drop-off. Divergence (a customer who signed up but never reached search) is surfaced as a finding, not silently logged.
+
+These inherit the memory loop's discipline — strict signal gate (§7), privacy filter (§8), flag-don't-act on the ambiguous (§6) — and feed the same store and review surface. They are **out of the memory-loop's Phase 1** (§11); their own scope and cadence fold into the same sign-off gate below before any code is written.
+
+## 14. Open decisions (need Nathan)
 
 1. **Storage source-of-truth: OverSteward repo (git-tracked, fleet-shared, audited) with a deploy-to-`~/.claude` step — vs the existing per-machine `~/.claude/.../memory/` dir.** (Recommend: repo is source of truth, mirrors the `shared/` deploy pattern.) *Central — everything else assumes this.*
 2. **Transcript access:** exact path/format Claude Code exposes the just-finished transcript to a `Stop` hook (and how the cron fallback enumerates unprocessed ones).
@@ -142,7 +163,8 @@ Only if Markdown demonstrably fails: a richer **read** side reusing GrantSpider'
 6. **Decay parameters:** the N-day staleness window (proposed 90) and eviction = flag-vs-archive-vs-delete.
 7. **Fleet scope for Phase 1:** OverSteward sessions only first, then generalize — or all fleet repos from the start? (Recommend: OverSteward first.)
 8. **Procedural-lesson promotion:** keep lessons as `feedback` memories with human promotion to CLAUDE.md, or let the loop propose CLAUDE.md edits as flagged PRs? (Recommend: human-gated.)
+9. **Reconciliation scope/cadence (§13):** which of the three reconciliation passes ships first, and on what trigger (queue-empty vs a fixed nightly tick), given the operating rule is queue-triggered not clock-triggered? (Recommend: ought-vs-actual map first — cheapest, all-local — then Playwright journeys, then usage.)
 
 ---
 
-*Phase 0 deliverable. Awaiting sign-off on §13 before any Phase 1 code is written.*
+*Phase 0 deliverable. Awaiting sign-off on §14 before any Phase 1 code is written.*
