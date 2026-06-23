@@ -97,7 +97,7 @@ Invoke the `Agent` tool with:
 - **No `run_in_background`** (foreground — see billing/reliability note above)
 - `prompt`: structured brief including:
   - Issue number + `gh` commands to read body/comments
-  - Reference to `.claude/skills/dispatch/playbook.md` (universal workflow)
+  - Reference to the universal playbook by its **OverSteward-absolute path** — `/home/natha/OverSteward/.claude/skills/dispatch/playbook.md`. The agent's cwd is the pickup-repo checkout, where a repo-relative `.claude/skills/dispatch/playbook.md` does **not** exist; only the absolute path resolves.
   - Explicit reminder of the repo's default branch
   - **No-loop reminder:** if a step fails for an environmental reason (DB/container down, can't generate the verify marker), STOP after ≤2 attempts and report — never retry-loop (playbook Non-negotiables)
   - Expected structured YAML return format
