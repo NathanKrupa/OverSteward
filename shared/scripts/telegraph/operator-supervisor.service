@@ -1,0 +1,40 @@
+# ABOUTME: systemd --user unit for the Telegraph operator supervisor (deaf-detector Shape 1).
+# ABOUTME: Restart=always relaunches the supervisor itself; the supervisor relaunches the operator.
+#
+# Install (see operator_supervisor.README.md for the full walk-through):
+#   mkdir -p ~/.config/systemd/user
+#   cp operator-supervisor.service ~/.config/systemd/user/
+#   # edit the ExecStart chat id / relaunch command + the EnvironmentFile path below
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now operator-supervisor.service
+#   loginctl enable-linger "$USER"   # keep the --user manager alive across logout
+#
+# The bot token is read from EnvironmentFile, never embedded here. Keep that file
+# 0600 and out of git.
+
+[Unit]
+Description=Telegraph operator deaf-detector supervisor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# The token lives here, not in the unit. chmod 600, never commit it.
+EnvironmentFile=%h/.claude/channels/telegram/supervisor.env
+# The CLI imports the `oversteward` package; point Python at the repo src
+# (an editable `uv sync` install also satisfies this).
+Environment=PYTHONPATH=%h/OverSteward/src
+# --loop: the supervisor runs continuously, ticking every --poll-interval seconds.
+# Everything after --relaunch-cmd is the operator relaunch command line.
+ExecStart=/usr/bin/env python3 %h/OverSteward/shared/scripts/telegraph/operator_supervisor.py \
+    --chat-id ${TELEGRAPH_CHAT_ID} \
+    --loop \
+    --relaunch-cmd claude --channels plugin:telegram@claude-plugins-official
+Restart=always
+RestartSec=10
+# Stop signal goes to the supervisor; the operator it spawned is in its own
+# session (start_new_session) and is reaped on the next launch's eviction.
+KillMode=process
+
+[Install]
+WantedBy=default.target
