@@ -44,6 +44,9 @@ htmlcov/
 # Per-machine pipeline snapshot log (append-only observability)
 data/pipeline_history.jsonl
 
+# Per-machine dream-cycle processed-transcript ledger (append-only idempotency)
+data/dream/processed_transcripts.jsonl
+
 # Dispatch agent worktrees (registered git worktrees, ephemeral per-machine)
 .claude/worktrees/
 
