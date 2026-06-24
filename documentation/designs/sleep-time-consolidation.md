@@ -7,7 +7,7 @@ ABOUTME: Design gate only (2026-06-23). No Phase 1 code until Nathan signs off t
 
 **Name:** the *sleep-time* loop — the steward labours over the day's ledger while the House is abed, so the books are clean by morning without anyone sitting up to do them.
 
-**Author:** Chestertron, 2026-06-23.
+**Author:** Chestertron, 2026-06-23. **Revised 2026-06-24:** added the two living artifacts (§13a) — the scope-map (present) and the roadmap (present→future intent) — and the intent-reconciliation pass (§13.4) that maintains the roadmap.
 
 **Kinship:** Reuses the estate's existing nervous system — the per-file Markdown memory store already auto-loaded each session (`~/.claude/projects/.../memory/` + `MEMORY.md`), the `.claude/hooks/` mechanism (already running `guard_main_worktree.py`), and — for the eventual *read* side only — GrantSpider's BM25 + pgvector + Reciprocal Rank Fusion. Sibling to **The Telegraph** (both are background coordinators) and downstream of the existing hand-written-memory discipline this loop automates.
 
@@ -145,11 +145,25 @@ Only if Markdown demonstrably fails: a richer **read** side reusing GrantSpider'
 
 ## 13. The broader dream cycle — nightly reconciliation
 
-Memory consolidation (§1–§12) is the **first** movement of the estate's dream cycle. The same cold-path, queue-empty trigger (§ *Operating rule*) drives three further **reconciliation** passes — each compares what the estate *believes* against what is *actually true*, and files the drift as memory or issues for the waking session. All three are read-and-report only: none mutates production, and none writes code.
+Memory consolidation (§1–§12) is the **first** movement of the estate's dream cycle. The same cold-path, queue-empty trigger (§ *Operating rule*) drives **four** further **reconciliation** passes — each compares what the estate *believes* against what is *actually true*, and either files the drift as memory or issues for the waking session, or maintains a **living artifact** (§13a). All four are read-and-report only: none mutates production, and none writes code.
 
 1. **Ought-vs-actual map.** Reconcile the *declared* state — `architecture.md`, `registry.yaml`, the design docs, the standing invariants — against the *real* repos: open PRs, merged migrations, live seams, deployed code. Drift (a doc that claims a seam not yet live; an invariant a recent merge quietly violated) becomes a flagged memory or a filed issue. The documentation-truth audit the steward runs while the House sleeps.
 2. **Nightly Playwright journeys.** Drive the real customer-facing journeys headless against the live app (e.g. AG signup → onboarding → first search) and capture where they break. The 2026-06-22 onboarding-500 that stopped the estate's first real customer before he reached search is exactly the failure a nightly journey catches *before* a human hits it. Output: a pass/fail journey report + screenshots, surfaced for the morning.
 3. **Predicted-vs-actual usage.** Compare what the estate predicted customers would do against what they actually did — signups, logins, feature reach, drop-off. Divergence (a customer who signed up but never reached search) is surfaced as a finding, not silently logged.
+4. **Intent reconciliation — the roadmap.** Harvest *intent* from the same session transcripts the memory loop already reads (§5) plus the issues filed across the estate, and reconcile it against what's built (pass 1) and what's in-flight (open PRs/issues). The output is a maintained `documentation/ROADMAP.md` — *where we are trying to go* — and, crucially, the **gap**: intent expressed but never filed, filed but never started, started but never landed. This is the steward's answer to the House's standing weakness — *pieces begun and not finished*. Nothing said in a conversation or filed as an issue evaporates: the roadmap is where loose intent is caught and held until it either ships or is consciously shelved. Read-and-report like the others — it proposes a refreshed roadmap and a flagged started-not-landed list; it does not itself do the work.
+
+### 13a. Living artifacts — the estate's self-portrait
+
+Two of the reconciliation passes don't merely file drift; they **maintain a durable, always-current document** so that any agent, on any session, opens with a true picture. They are a facing pair — *present* and *future*:
+
+| Map | Tense | Canonical (rich) | Agent-facing (slim) | Kept current by |
+|---|---|---|---|---|
+| **Scope-map** — *what's built* | present | `architecture.md` | a slim, auto-loaded digest of §1 repos + §3 invariants | ought-vs-actual pass (§13.1) |
+| **Roadmap** — *where we're going* | future | `documentation/ROADMAP.md` | a slim, auto-loaded digest of active horizons + the started-not-landed gap | intent pass (§13.4) |
+
+**Decided (Nathan, 2026-06-24):** the rich canonical docs stay the source of truth; the dream cycle **emits the slim agent-facing digests** rather than expanding the rich docs or letting dispatch agents read the heavy ones. (Confirms option B for the scope-map; the roadmap follows the same shape.) The digest is what a dispatch agent loads for "current scope of the project" — small enough to carry every session, regenerated whenever its canonical parent changes. This resolves the long-standing tension that `architecture.md` is explicitly *not* read by dispatch agents: the rich doc stays a scoping-time tool, the slim digest is the agent-time view.
+
+**Why this matters — a live example.** The instant PR#100 merged (OverSteward became a dispatch target), `architecture.md`'s oversteward row went stale — *"Pickup target: no"* — and nothing caught it. That five-minute-old drift is exactly what the ought-vs-actual pass exists to find and the scope-map digest exists to keep honest. Fittingly, the design for the unfinished-work-catcher was itself an unmerged PR (this one, #94) — the same lesson, one level up.
 
 These inherit the memory loop's discipline — strict signal gate (§7), privacy filter (§8), flag-don't-act on the ambiguous (§6) — and feed the same store and review surface. They are **out of the memory-loop's Phase 1** (§11); their own scope and cadence fold into the same sign-off gate below before any code is written.
 
@@ -163,7 +177,10 @@ These inherit the memory loop's discipline — strict signal gate (§7), privacy
 6. **Decay parameters:** the N-day staleness window (proposed 90) and eviction = flag-vs-archive-vs-delete.
 7. **Fleet scope for Phase 1:** OverSteward sessions only first, then generalize — or all fleet repos from the start? (Recommend: OverSteward first.)
 8. **Procedural-lesson promotion:** keep lessons as `feedback` memories with human promotion to CLAUDE.md, or let the loop propose CLAUDE.md edits as flagged PRs? (Recommend: human-gated.)
-9. **Reconciliation scope/cadence (§13):** which of the three reconciliation passes ships first, and on what trigger (queue-empty vs a fixed nightly tick), given the operating rule is queue-triggered not clock-triggered? (Recommend: ought-vs-actual map first — cheapest, all-local — then Playwright journeys, then usage.)
+9. **Reconciliation scope/cadence (§13):** which of the four reconciliation passes ships first, and on what trigger (queue-empty vs a fixed nightly tick), given the operating rule is queue-triggered not clock-triggered? (Recommend: ought-vs-actual map first — cheapest, all-local — then the roadmap/intent pass, then Playwright journeys, then usage.)
+10. **Digest location + format (§13a):** where the two slim agent-facing digests live and how they auto-load — generated `data/scope_digest.md` / `data/roadmap_digest.md` read at session start, vs a managed block in each repo's `CLAUDE.md`? (Recommend: generated files in `data/`, mirrored like the tool/workflow registries.)
+11. **Digest cadence (§13a):** regenerate a digest only when its canonical parent (`architecture.md` / `ROADMAP.md`) changes, vs every dream cycle. (Recommend: on-parent-change — cheap and drift-free.)
+12. **Roadmap intent sources + dedup (§13.4):** how to weight and reconcile the two intent feeds — conversation transcripts vs filed issues — so an idea discussed *and* filed isn't double-counted, while a conversation idea never filed still surfaces. And: does the intent pass auto-*file* an issue for un-filed intent, or only flag it for the waking session? (Recommend: flag-don't-file in Phase 1, mirroring §6 flag-don't-act.)
 
 ---
 
