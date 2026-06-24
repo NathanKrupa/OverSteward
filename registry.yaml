@@ -15,6 +15,7 @@ contexts:
     agents_path: .claude/agents/
     soul: chestertron
     skip_sow: true
+    dispatch_target: true
     personas_always_on: []
     personas_available: []
     skills_always_on: []
@@ -25,6 +26,7 @@ contexts:
       - wphelper-dev
       - fiscus-dev
       - exchequer-dev
+      - oversteward-dev
     tags:
       - meta
       - governance
