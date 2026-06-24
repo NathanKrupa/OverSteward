@@ -59,23 +59,23 @@ metadata:
 ---
 ```
 
-**Fleet-awareness** (§14-7): the store must serve GrantSpider, the Matchmaker, Gaudí, and Design Cortex, so a lesson learned by one is readable by another. Two sub-questions are open (§14): (a) **where the source-of-truth lives** — the per-machine `~/.claude/...` auto-load dir is *not* git-tracked and *not* shared, which contradicts Nathan's "commit to git, each commit is the audit trail" and "fleet-aware" requirements; and (b) the **sync mechanism**. Recommended reconciliation: the **git-tracked source of truth lives in the OverSteward repo** (e.g. `memory/`), the loop commits there (audit trail + fleet-shared), and a deploy step mirrors it into each machine's `~/.claude/.../memory/` auto-load location — exactly the pattern `shared/` already uses to reach `~/.claude/shared/`. This is the single most important decision to confirm.
+**Fleet-awareness** (§14-7): the store must serve GrantSpider, the Matchmaker, Gaudí, and Design Cortex, so a lesson learned by one is readable by another. Two sub-questions are open (§14): (a) **where the source-of-truth lives** — the per-machine `~/.claude/...` auto-load dir is *not* git-tracked and *not* shared, which contradicts Nathan's "commit to git, each commit is the audit trail" and "fleet-aware" requirements; and (b) the **sync mechanism**. Recommended reconciliation: the **git-tracked source of truth lives in the OverSteward repo** (e.g. `memory/`), the loop commits there (audit trail + fleet-shared), and a deploy step mirrors it into each machine's `~/.claude/.../memory/` auto-load location — exactly the pattern `shared/` already uses to reach `~/.claude/shared/`. **Confirmed by Nathan 2026-06-24 (§14-1).**
 
 ## 4. Trigger — automatic, never on willpower
 
 Nathan named the constraint directly: *"the system must not depend on my daily diligence."* So the trigger is mechanical, belt-and-braces ([arXiv 2603.15642](https://arxiv.org/pdf/2603.15642)):
 
-- **Primary: a Claude Code `Stop` hook** in `.claude/settings.json` (this repo already runs a `PreToolUse` hook, so the mechanism is proven). On session end it enqueues the just-finished transcript for consolidation.
-- **Fallback: a cron / systemd-timer nightly sweep** that consolidates any transcript not yet processed (catches sessions that crashed, were killed, or never fired `Stop` — e.g. the resident Telegraph operator session, which rarely ends cleanly).
+- **Primary: the operating-rule auto-dream.** When a live Claude Code session's assigned queue empties, that same in-session agent (on the Max subscription) runs the consolidation over the just-finished transcript(s). A `Stop` hook in `.claude/settings.json` enqueues the transcript and can surface the prompt; the *work itself runs in-session*, not inside the hook.
+- **Fallback: a scheduled headless Claude Code run** — a cron that invokes `claude -p "run the dream cycle"` over any transcripts not yet processed (catches crashed/killed sessions and the resident Telegraph operator, which rarely ends cleanly). This is **still in-session / Max** (headless Claude Code uses the subscription), **not** a metered-API daemon.
 
 The two together mean a session is consolidated whether it exits gracefully or not. Idempotency (a processed-transcript ledger) prevents double-counting.
 
 ## 5. Extract — cheap model reads, expensive model reasons
 
-Two models, cheap-then-expensive ([Bustamante](https://nicolasbustamante.com/blog/agent-memory-engineering)):
+Two stages, cheap-then-expensive ([Bustamante](https://nicolasbustamante.com/blog/agent-memory-engineering)) — **both run IN-SESSION on the Max subscription** (Nathan-stated 2026-06-24), never on the metered API:
 
-- **Extraction (cheap — Haiku 4.5):** read transcript → candidate facts, entities, relations, and **procedural lessons** (operational heuristics — "X failed because Y; do Z next time"). High volume, low reasoning, runs per session.
-- **Consolidation (expensive — Sonnet/Opus):** take the candidates + the relevant existing memory and do the contradiction-resolution / merge reasoning. Low volume, high stakes.
+- **Extraction (cheap):** read transcript → candidate facts, entities, relations, and **procedural lessons** (operational heuristics — "X failed because Y; do Z next time"). High volume, low reasoning. Runs as an in-session sub-agent (the `Task`/`Agent` tool) — which can use a cheaper model tier but is **billed to the subscription, not metered** — the same Max-vs-metered logic as the dispatch foreground pivot ([[reference_in_session_vs_background_billing]]).
+- **Consolidation (expensive):** the session model takes the candidates + the relevant existing memory and does the contradiction-resolution / merge reasoning. Low volume, high stakes.
 
 Procedural-lesson capture is its own first-class output, not just facts ([Analytics Vidhya, *Memory Systems in AI Agents*](https://www.analyticsvidhya.com/blog/2026/04/memory-systems-in-ai-agents/)) — e.g. today's session would yield *"merged GS migrations are not auto-applied to prod; check `alembic_version` vs head and migrate-before-promote since prod deploys from main."*
 
@@ -169,9 +169,9 @@ These inherit the memory loop's discipline — strict signal gate (§7), privacy
 
 ## 14. Open decisions (need Nathan)
 
-1. **Storage source-of-truth: OverSteward repo (git-tracked, fleet-shared, audited) with a deploy-to-`~/.claude` step — vs the existing per-machine `~/.claude/.../memory/` dir.** (Recommend: repo is source of truth, mirrors the `shared/` deploy pattern.) *Central — everything else assumes this.*
-2. **Transcript access:** exact path/format Claude Code exposes the just-finished transcript to a `Stop` hook (and how the cron fallback enumerates unprocessed ones).
-3. **Extraction model billing:** Haiku via metered API per session — confirm cost tolerance, or run consolidation only on a schedule to batch. (Background API calls are metered, not subscription.)
+1. **✅ RESOLVED (Nathan, 2026-06-24):** storage source-of-truth = the **OverSteward repo** (git-tracked `memory/`, audited, fleet-shared), with a deploy step mirroring it into each machine's `~/.claude/.../memory/` auto-load dir — exactly the `shared/` → `~/.claude/shared/` pattern. The existing per-machine store migrates into the repo. *Central — everything else assumes this.*
+2. **✅ RESOLVED (2026-06-24):** transcripts are per-repo `.jsonl` at `~/.claude/projects/<dash-encoded-cwd>/*.jsonl`. Caveats: worktrees get their own project dirs (enumerate ALL matching dirs, not just the canonical one); the store is per-machine, so historical reach on a given box is bounded (this box: ~2026-05-21 onward; pre-WSL-migration history lives in the Windows-side `~/.claude`).
+3. **✅ RESOLVED (Nathan, 2026-06-24): extraction runs IN-SESSION, never on the metered API.** The loop is Claude Code itself (Max subscription) doing extract + consolidate — not a headless daemon hitting the Anthropic API — so there is no per-token metered cost. See the revised §4/§5.
 4. **Dedup compute:** pure consolidation-model judgment vs Jaccard-prefilter + model. (Recommend prefilter to bound cost.)
 5. **Flag-review surface:** `MEMORY_REVIEW.md` surfaced next session, a Telegraph push, and/or the consolidation commit/PR?
 6. **Decay parameters:** the N-day staleness window (proposed 90) and eviction = flag-vs-archive-vs-delete.
@@ -184,4 +184,4 @@ These inherit the memory loop's discipline — strict signal gate (§7), privacy
 
 ---
 
-*Phase 0 deliverable. Awaiting sign-off on §14 before any Phase 1 code is written.*
+*Phase 0 deliverable. The load-bearing decisions §14-1/2/3 are **RESOLVED** (2026-06-24); §14-4 through 12 proceed on the doc's recommendations (Nathan, 2026-06-24). **Phase 1 build is cleared** and tracked as an epic on the OverSteward issue board.*
