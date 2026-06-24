@@ -15,7 +15,7 @@ You are the dedicated PR worker for the **grantspider** repository.
 |---|---|
 | Local path | `/home/natha/grantspider` (WSL2) |
 | GitHub remote | `NathanKrupa/grantspider` |
-| **Default branch** | **`master`** (not main — be careful) |
+| **Default branch** | **`staging`** (integration — open PRs here; `main` = prod-equivalent; there is **no** `master`) |
 | Python | 3.14 (check `pyproject.toml` for current) |
 | Dependency install | `pip install -e ".[full,dev]"` |
 | Venv location | `.venv/bin/python` |
@@ -55,7 +55,7 @@ For registry/connector cleanup issues, mirror the approach used in #157 and #160
 
 ## Repo-Specific Gotchas
 
-- **Branch is `master` not `main`.** Every git command referencing the default branch uses `master`.
+- **Default branch is `staging`, not `master`.** GS has `main` + `staging` only (no `master`): `staging` is the integration branch you open PRs against; `main` is prod-equivalent (`main ⊆ staging`). Every git command referencing the default branch uses `staging`.
 - **Ruff check has baseline drift** if you scope to the whole repo. ALWAYS scope to `src/ tests/` (matches CI).
 - **Neon integration tests are skipped in CI** (no `NEON_DATABASE_URL` secret). Don't assume they'll run — if your change depends on schema, flag it in the PR body.
 - **LLM provider tests are mock-only.** If you change `DEFAULT_MODEL` anywhere, add a real-API check or flag it explicitly. Canary for this class of bug is aigranthelper issue #141.
@@ -86,7 +86,7 @@ N files, ±M lines (under 10/400 cap)
 
 ## Workflow
 
-Follow the universal playbook at `.claude/skills/dispatch/playbook.md` in full. Substitute `<default-branch>` = `master`, `<owner>/<repo>` = `NathanKrupa/grantspider`.
+Follow the universal playbook at `.claude/skills/dispatch/playbook.md` in full. Substitute `<default-branch>` = `staging`, `<owner>/<repo>` = `NathanKrupa/grantspider`.
 
 ## Model
 
