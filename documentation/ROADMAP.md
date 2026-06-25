@@ -3,7 +3,7 @@ ABOUTME: Pulls from registry.yaml, OVERSTEWARD.md horizons, MASTER_TODO/TODO_BAC
 
 # OverSteward Roadmap
 
-**As of 2026-05-07.** Authoritative for "what we're trying to do, what's been done, and what's next." Pull-based — refresh whenever a horizon item lands or a new one promotes from backlog.
+**As of 2026-06-24** (reconciled by the first dream cycle; §2–§4 were last hand-updated 2026-05-07). Authoritative for "what we're trying to do, what's been done, and what's next." Pull-based — refresh whenever a horizon item lands or a new one promotes from backlog. **Read §3.5 first** for current state — the June 2026 program lives there; §2–§4 cover through early May and some of their "next up" items have since shipped (corrections in §3.5).
 
 Source files this roadmap consolidates:
 - `OVERSTEWARD.md` (vision, two pillars, phase plan)
@@ -73,6 +73,61 @@ Heavy delivery between 2026-04-15 and 2026-05-07. Center of gravity moved here.
 
 - `documentation/data-contract-grantspider-aigranthelper.md` v1.2 (PRs #17, #20, #28, #30) — producer/consumer surface, snapshot/cache distinction, dual-write rules.
 - `architecture.md` (PRs #21, #22, #31, #35) — machine-readable cross-repo state snapshot (§3 invariants, §4 known liabilities, §5 recent moves). Scope/plan-time read.
+
+---
+
+## §3.5 June 2026 — Sphere II expansion (reconciled by the first dream cycle, 2026-06-24)
+
+> §2–§3 cover through early May. The center of gravity since has been a wave of
+> Sphere-II (internal/DevOps) capability. This section is the intent-reconciliation
+> pass's output: intent → built → in-flight, plus the started-not-landed gap.
+
+### Shipped (June)
+
+- **The Telegraph** — one Telegram chat (`@KrannocBot`) as Nathan's single front
+  door to every repo, ending copy-paste-between-windows. Operator skill
+  (`/telegraph-operator`), cross-repo issue relay, two-mode trust (ambient
+  needs-scoping vs conducted per-plan). Validated 2026-06-18 running a full
+  multi-repo dev day from his phone. **Deaf-detector watchdog (PR#116) merged
+  2026-06-24.** Nathan's favorite invention.
+- **Sleep-time consolidation (the dream cycle)** — cold-path session→memory +
+  nightly reconciliation. Design PR#94; engine components a–d merged
+  (#106/#108/#110/#112/#113); `steward-memory` private repo is the git-tracked
+  memory source-of-truth, deployed to `~/.claude` by `scripts/deploy_memory.py`.
+  **First full cycle ran 2026-06-24 — this refresh is its output.**
+- **OverSteward became a dispatch target** (#100) with an `oversteward-dev` agent
+  (pytest + gaudi gates, no CI/ruff). Now appears in `/project-status` + `/questions`.
+- **exchequer** — private back-office counting-house (cost/MRR ingestion via
+  `exchequer pull`, CSV ledgers, monthly close; zero LLM tokens at runtime).
+  Created 2026-06-08; GA4 + Anthropic/Stripe/Neon/Railway seams.
+- **The Vintner** — runtime pipeline-health monitor for Grant Helper Pro; design
+  approved PR#71, read-only Neon roles live on both projects; Phase-1 spine in build.
+- **WSL2 port** — all 7 repos migrated to WSL2; uv adopted in Fiscus/Gaudi/
+  OverSteward; OneDrive copies dormant. WSL-resilience process added after the
+  2026-06-17 update-wipe (integrity gate + safe-update-with-rollback + backups).
+- **Estate-wide git hygiene** — merge-commit-only locked on all 6 code repos
+  (2026-06-19; squash+rebase off); session-per-worktree discipline (guard hook +
+  `new-session.sh`); `sync_repos.py` (#92) keeps dev checkouts current; GS
+  master→main rename with `main ⊆ staging` invariant.
+
+### Started, not yet landed (the gap to watch)
+
+| Item | Where | State |
+|---|---|---|
+| Telegraph Epic Conductor (Phase 3) | OverSteward | scoped, supervised multi-repo epic execution; not built |
+| Dream-cycle trigger (component e) | OS#114 | engine exists; nothing fires it automatically — today's cycle was hand-run |
+| The Vintner Phase-1 spine | OverSteward | design approved (PR#71), implementation in progress |
+| GS Tuesday-night enrichment trigger | GS#1526 | in-session trigger filed 2026-06-24 |
+| GS enrich-drain counter bug | GS#1525 | `totalApplied` undercount filed 2026-06-24 |
+| Memory SoT write-back | steward-memory | hot-path writes land only in deployed `~/.claude`; the dream cycle reconciles each run (did 2026-06-24), but there is no automatic between-cycle write-back |
+
+### Stale-but-now-true corrections to §2–§9 below
+
+- §5 listed `/sync-status` and `scripts/gather.py` as "next up" — **both shipped.**
+- §1's "five pickup repos" is now **six** (oversteward added as a control-plane
+  pickup target, #100) plus **exchequer** as a seventh dispatch target.
+- §7's "Phase 2 governance scripts stubbed" liability has partially cleared
+  (gather + sync-status exist; diff/sow still pending).
 
 ---
 
@@ -181,4 +236,4 @@ Captured in `IDEA_STORE.md` from gstack research and conversational drift. None 
 - If §2-§3 grow past readable length, extract to a `documentation/changelog.md` and keep this doc thin.
 - This doc is the single answer to "what are we trying to do, what's done, what's next?" If it can't answer that in under 60 seconds of reading, it's grown past its purpose — restructure rather than expand.
 
-*Last updated: 2026-05-07 (covers through Stewards_Ledger 2026-05-07 entry, AG #275 close, in-session-default decision).*
+*Last updated: 2026-06-24 (first dream cycle — §3.5 June reconciliation added; §2–§4 unchanged from the 2026-05-07 hand-update).*
