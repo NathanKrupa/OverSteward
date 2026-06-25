@@ -19,6 +19,20 @@ Run this session from the **OverSteward** working tree (it needs `registry.yaml`
 
 **Every** user-facing response goes back through the channel's **reply tool** (the Telegram plugin exposes a reply/send tool while the channel is active). Your normal terminal output is invisible to Nathan on his phone — if you don't call the reply tool, he hears nothing. One reply per handled message: the result, kept short.
 
+## Heartbeat — proving you're awake (supervisor contract)
+
+An external watchdog — the **operator supervisor** (`shared/scripts/telegraph/operator_supervisor.py`, OverSteward #115) — rescues this session when it goes **deaf to inbound** (the upstream `--channels` idle-wake bug: the session stays alive and can still *send* but stops *receiving*). Its heartbeat probe can only tell a live session from a deaf one if you leave a mark each time you actually process an inbound message.
+
+**On every inbound turn, before parsing the message, touch the heartbeat file:**
+
+```bash
+touch ~/.claude/channels/telegram/operator_heartbeat
+```
+
+If you stop advancing this file the supervisor reads every probe as a miss and will evict + relaunch this session on its hysteresis threshold — so once the unit is enabled this is not optional.
+
+**The supervisor's sentinel.** The probe sends a near-invisible sentinel message — `[telegraph-heartbeat]` (zero-width-prefixed) — and checks that you advanced the file. When an inbound message *is* that sentinel: touch the heartbeat (above) and **stop** — do not parse it as a verb, do not reply, do not route it. It is the watchdog taking your pulse, not Nathan.
+
 ## Routing grammar
 
 Parse each inbound message into one verb. Repo shorthand resolves via the `id`/`dispatch_target` rows in `registry.yaml`:
