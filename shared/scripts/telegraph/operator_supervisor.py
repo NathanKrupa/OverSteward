@@ -10,15 +10,16 @@ code has stopped running) and supervises ``claude --channels plugin:telegram``.
 It holds **no decision logic** — every judgement lives in the unit-tested
 services:
   - :mod:`oversteward.telegraph.supervisor` — detection fusion + the four
-    anti-flap guards + proactive recycle.
-  - :mod:`oversteward.telegraph.eviction` — SIGTERM→SIGKILL eviction, PID-file
-    single-instance, ancestor-walk orphan reaper.
+    anti-flap guards + proactive recycle + the process-start state reset.
+  - :mod:`oversteward.telegraph.operator_session` — relaunch + adopt the operator
+    inside a fixed-name detached ``tmux`` session (a pty so claude runs
+    interactive under systemd; single-instance for free via the session name).
   - :mod:`oversteward.telegraph.heartbeat` — the round-trip freshness probe.
 
 This CLI only wires those services to real edges: the Telegram Bot API (reusing
-``channel_watchdog``'s ``getWebhookInfo`` / ``sendMessage`` calls), the POSIX
-``/proc`` process table (``PosixProcessControl``), the relaunch command, and the
-JSON state file.
+``channel_watchdog``'s ``getWebhookInfo`` / ``sendMessage`` / ``deleteMessage``
+calls), the ``tmux`` server (``TmuxControl``), the relaunch command, and the JSON
+state file.
 
 Unlike the portable relay primitives in this directory, this file is
 **operator-side only** and is *not* byte-copied to sibling repos — it depends on
@@ -34,22 +35,27 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import os
-import subprocess  # list-form argv, never shell
 import sys
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from oversteward.telegraph.eviction import EvictionConfig, claim_single_instance
 from oversteward.telegraph.heartbeat import probe_heartbeat
-from oversteward.telegraph.proc_control import PosixProcessControl
+from oversteward.telegraph.operator_session import (
+    DEFAULT_SESSION_NAME,
+    SessionControl,
+    TmuxControl,
+    relaunch_operator,
+)
 from oversteward.telegraph.supervisor import (
     Action,
     Observation,
     SupervisorConfig,
+    SupervisorState,
     decide,
     load_supervisor_state,
+    reset_for_process_start,
     save_supervisor_state,
 )
 
@@ -76,11 +82,10 @@ class SupervisorSettings:
     token: str
     chat_id: str
     state_file: Path
-    pid_file: Path
     heartbeat_file: Path
     relaunch_cmd: list[str]
+    session_name: str
     config: SupervisorConfig
-    eviction: EvictionConfig
     heartbeat_window_s: float
 
 
@@ -93,9 +98,9 @@ def build_settings(args: argparse.Namespace, env: dict[str, str]) -> SupervisorS
         token=token,
         chat_id=args.chat_id,
         state_file=Path(args.state_file),
-        pid_file=Path(args.pid_file),
         heartbeat_file=Path(args.heartbeat_file),
         relaunch_cmd=args.relaunch_cmd,
+        session_name=args.session_name,
         config=SupervisorConfig(
             poll_interval_s=args.poll_interval,
             hysteresis=args.hysteresis,
@@ -105,13 +110,19 @@ def build_settings(args: argparse.Namespace, env: dict[str, str]) -> SupervisorS
             restart_window_s=args.restart_window,
             max_idle_s=args.max_idle,
         ),
-        eviction=EvictionConfig(
-            term_timeout_s=args.term_timeout,
-            poll_interval_s=args.evict_poll_interval,
-            operator_cmd_substr=args.operator_cmd_substr,
-        ),
         heartbeat_window_s=args.heartbeat_window,
     )
+
+
+def _send_heartbeat_sentinel(settings: SupervisorSettings, bot_api) -> None:
+    """Send the sentinel and immediately delete it (silent in Nathan's chat).
+
+    The inbound update Telegram queues for the operator at send time survives the
+    deletion, so the round-trip still completes — but the visible message is gone.
+    """
+    message_id = bot_api.send_alert(settings.token, settings.chat_id, _HEARTBEAT_SENTINEL)
+    if message_id is not None:
+        bot_api.delete_message(settings.token, settings.chat_id, message_id)
 
 
 def _observe(settings: SupervisorSettings, bot_api, now: float) -> Observation:
@@ -119,9 +130,7 @@ def _observe(settings: SupervisorSettings, bot_api, now: float) -> Observation:
     pending = bot_api.fetch_pending_update_count(settings.token)
     heartbeat_ok = probe_heartbeat(
         settings.heartbeat_file,
-        send_sentinel=lambda: bot_api.send_alert(
-            settings.token, settings.chat_id, _HEARTBEAT_SENTINEL
-        ),
+        send_sentinel=lambda: _send_heartbeat_sentinel(settings, bot_api),
         wait=time.sleep,
         now=time.monotonic,
         window_s=settings.heartbeat_window_s,
@@ -129,12 +138,14 @@ def _observe(settings: SupervisorSettings, bot_api, now: float) -> Observation:
     return Observation(now=now, pending_update_count=pending, heartbeat_ok=heartbeat_ok)
 
 
-def _act(action: Action, reason: str, settings: SupervisorSettings, bot_api, proc) -> None:
+def _act(
+    action: Action, reason: str, settings: SupervisorSettings, bot_api, session: SessionControl
+) -> None:
     """Carry out the supervisor's decision through the live edges.
 
-    A relaunch/recycle evicts the wedged operator (single-instance ownership of
-    the PID file) and then starts a fresh one; a spent restart budget alerts
-    Nathan that manual intervention is needed.
+    A relaunch/recycle evicts the wedged operator's tmux session and recreates the
+    canonical one (the fixed session name is the single-instance guarantee); a
+    spent restart budget alerts Nathan that manual intervention is needed.
     """
     if action in (Action.RELAUNCH, Action.RECYCLE):
         bot_api.send_alert(
@@ -142,8 +153,7 @@ def _act(action: Action, reason: str, settings: SupervisorSettings, bot_api, pro
             settings.chat_id,
             f"\U0001f501 Telegraph supervisor: {action.value} — {reason}",
         )
-        claim_single_instance(settings.pid_file, os.getpid(), proc, settings.eviction)
-        subprocess.Popen(settings.relaunch_cmd, start_new_session=True)  # noqa: S603
+        relaunch_operator(session, settings.session_name, settings.relaunch_cmd)
     elif action == Action.ALERT_LOOP:
         bot_api.send_alert(
             settings.token,
@@ -153,13 +163,29 @@ def _act(action: Action, reason: str, settings: SupervisorSettings, bot_api, pro
         )
 
 
-def run_tick(settings: SupervisorSettings, bot_api, proc) -> str:
+def _boot(settings: SupervisorSettings) -> SupervisorState:
+    """Reset the grace anchor + streaks on process start; keep the cooldown ledger.
+
+    Called once when the supervisor process starts (before the tick loop). The
+    cooldown ledger persists across restarts so a crash-looping supervisor cannot
+    relaunch the operator every few seconds; the grace anchor + detection streaks
+    reset so a freshly (re)started supervisor gets a clean grace window instead of
+    inheriting the dead run's spent guards (OverSteward #120).
+    """
+    now = time.monotonic()
+    persisted = load_supervisor_state(settings.state_file, default_launched_at=now)
+    fresh = reset_for_process_start(persisted, now)
+    save_supervisor_state(settings.state_file, fresh)
+    return fresh
+
+
+def run_tick(settings: SupervisorSettings, bot_api, session: SessionControl) -> str:
     """One supervision tick: observe, decide, act, persist. Returns the action."""
     now = time.monotonic()
     state = load_supervisor_state(settings.state_file, default_launched_at=now)
     obs = _observe(settings, bot_api, now)
     decision = decide(obs, state, settings.config)
-    _act(decision.action, decision.reason, settings, bot_api, proc)
+    _act(decision.action, decision.reason, settings, bot_api, session)
     save_supervisor_state(settings.state_file, decision.state)
     return f"{decision.action.value}: {decision.reason}"
 
@@ -171,8 +197,9 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="command to relaunch the operator (everything after this flag)")
     p.add_argument("--token-env", default="TELEGRAM_BOT_TOKEN")
     p.add_argument("--state-file", default=str(_CHANNEL_BASE / "supervisor_state.json"))
-    p.add_argument("--pid-file", default=str(_CHANNEL_BASE / "operator.pid"))
     p.add_argument("--heartbeat-file", default=str(_CHANNEL_BASE / "operator_heartbeat"))
+    p.add_argument("--session-name", default=DEFAULT_SESSION_NAME,
+                   help="tmux session name the operator runs in (single-instance key)")
     p.add_argument("--poll-interval", type=float, default=15.0)
     p.add_argument("--hysteresis", type=int, default=2)
     p.add_argument("--cooldown", type=float, default=21600.0)
@@ -180,9 +207,6 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--restart-budget", type=int, default=3)
     p.add_argument("--restart-window", type=float, default=3600.0)
     p.add_argument("--max-idle", type=float, default=14400.0)
-    p.add_argument("--term-timeout", type=float, default=3.0)
-    p.add_argument("--evict-poll-interval", type=float, default=0.1)
-    p.add_argument("--operator-cmd-substr", default="claude")
     p.add_argument("--heartbeat-window", type=float, default=8.0)
     p.add_argument("--loop", action="store_true", help="run continuously (else a single tick)")
     return p
@@ -200,11 +224,14 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     bot_api = _load_bot_api()
-    proc = PosixProcessControl()
-    runner: Callable[[], str] = lambda: run_tick(settings, bot_api, proc)
+    session = TmuxControl()
+    runner: Callable[[], str] = lambda: run_tick(settings, bot_api, session)
     if not args.loop:
         print(runner())
         return 0
+    # Process start: fresh grace window + zeroed streaks, but keep the cooldown
+    # ledger so Restart=always cannot relaunch the operator every few seconds.
+    _boot(settings)
     while True:
         try:
             print(runner())

@@ -12,6 +12,7 @@ from oversteward.telegraph.supervisor import (
     SupervisorState,
     decide,
     load_supervisor_state,
+    reset_for_process_start,
     save_supervisor_state,
 )
 
@@ -206,6 +207,49 @@ def test_proactive_recycle_respects_cooldown():
     state = SupervisorState(launched_at=now - 14401.0, last_relaunch_at=now - 100.0)
     decision = decide(_obs(now=now, pending=0, heartbeat_ok=True), state, cfg)
     assert decision.action == Action.NONE
+
+
+# --- process-start reset (cross-process vs cross-tick memory) --------------
+
+
+def test_reset_clears_grace_anchor_and_streaks():
+    stale = SupervisorState(
+        launched_at=10.0,
+        pending_streak=5,
+        heartbeat_fail_streak=5,
+    )
+    fresh = reset_for_process_start(stale, now=1000.0)
+    assert fresh.launched_at == 1000.0
+    assert fresh.pending_streak == 0
+    assert fresh.heartbeat_fail_streak == 0
+
+
+def test_reset_preserves_the_cooldown_ledger():
+    stale = SupervisorState(
+        launched_at=10.0,
+        heartbeat_fail_streak=9,
+        last_relaunch_at=42.0,
+        restart_timestamps=(40.0, 41.0),
+    )
+    fresh = reset_for_process_start(stale, now=1000.0)
+    # The cooldown ledger survives a supervisor restart (crash-loop guard).
+    assert fresh.last_relaunch_at == 42.0
+    assert fresh.restart_timestamps == (40.0, 41.0)
+
+
+def test_restart_with_stale_failures_does_not_relaunch_healthy_operator():
+    # A prior dead run left spent grace + maxed streaks; the fresh process must
+    # still get a clean grace window and not relaunch a now-healthy operator.
+    cfg = _cfg(startup_grace_s=30.0, hysteresis=2)
+    stale = SupervisorState(
+        launched_at=10.0,
+        pending_streak=9,
+        heartbeat_fail_streak=9,
+    )
+    fresh = reset_for_process_start(stale, now=1000.0)
+    decision = decide(_obs(now=1005.0, pending=0, heartbeat_ok=True), fresh, cfg)
+    assert decision.action == Action.NONE
+    assert "grace" in decision.reason.lower()
 
 
 # --- config guard ----------------------------------------------------------
