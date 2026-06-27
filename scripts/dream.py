@@ -1,12 +1,18 @@
-# ABOUTME: Thin CLI for the dream cycle's transcript reader (list / show).
-# ABOUTME: Parses args, calls the oversteward.dream service, formats output. No business logic.
+# ABOUTME: Thin CLI for the dream cycle — transcript reader plus the convergent runner's batch steps.
+# ABOUTME: Parses args, calls the oversteward.dream services, formats JSON. No business logic here.
 
 from __future__ import annotations
 
 import argparse
+import json
 import sys
-from datetime import datetime
+from datetime import date, datetime
+from pathlib import Path
 
+from oversteward.dream import cycle
+from oversteward.dream.consolidate import MemoryStore
+from oversteward.dream.extract import CandidateFact
+from oversteward.dream.ledger import ProcessedLedger
 from oversteward.dream.transcripts import (
     TranscriptMeta,
     default_projects_root,
@@ -40,9 +46,90 @@ def _cmd_show(args: argparse.Namespace) -> int:
     return 0
 
 
-def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="oversteward dream")
-    sub = parser.add_subparsers(dest="group", required=True)
+# ---- cycle subcommands (the /dream skill's deterministic steps) --------------
+
+
+def _read_json(path: str):
+    text = sys.stdin.read() if path == "-" else Path(path).read_text(encoding="utf-8")
+    return json.loads(text)
+
+
+def _emit(payload: object) -> int:
+    json.dump(payload, sys.stdout, indent=2)
+    sys.stdout.write("\n")
+    return 0
+
+
+def _cmd_unprocessed(args: argparse.Namespace) -> int:
+    ledger = ProcessedLedger(Path(args.ledger))
+    pending = cycle.find_unprocessed(args.projects_root, ledger, repo=args.repo)
+    return _emit([p.to_dict() for p in pending])
+
+
+def _cmd_worksheet(args: argparse.Namespace) -> int:
+    raw = sys.stdin.read() if args.extract == "-" else Path(args.extract).read_text(encoding="utf-8")
+    store = MemoryStore(Path(args.store))
+    sheets = cycle.build_worksheets(raw, store, top_k=args.top_k)
+    return _emit({"worksheets": [s.to_dict() for s in sheets]})
+
+
+def _cmd_apply(args: argparse.Namespace) -> int:
+    sheets = _read_json(args.worksheet)["worksheets"]
+    verdicts = _read_json(args.verdicts)
+    if len(sheets) != len(verdicts):
+        print("worksheet/verdicts length mismatch", file=sys.stderr)
+        return 1
+    judged = [
+        (CandidateFact.from_dict(sheet["candidate"]), cycle.Verdict.from_dict(verdict))
+        for sheet, verdict in zip(sheets, verdicts)
+    ]
+    store = MemoryStore(Path(args.store))
+    today = date.fromisoformat(args.today) if args.today else date.today()
+    outcomes = cycle.apply_verdicts(judged, store, today=today, session_id=args.session)
+    return _emit(
+        {
+            "outcomes": [
+                {"action": o.action, "similarity": o.similarity, "description": o.candidate.description}
+                for o in outcomes
+            ],
+            "flagged": [cycle.flagged_to_dict(f) for f in cycle.collect_flagged(outcomes)],
+            "written_paths": [str(p) for p in cycle.collect_written_paths(store, outcomes)],
+        }
+    )
+
+
+def _cmd_finalize(args: argparse.Namespace) -> int:
+    results = _read_json(args.results)
+    store = MemoryStore(Path(args.store))
+    ledger = ProcessedLedger(Path(args.ledger))
+    run_results = cycle.RunResults(
+        flagged=[cycle.flagged_from_dict(d) for d in results.get("flagged", [])],
+        written_paths=[Path(p) for p in results.get("written_paths", [])],
+        processed=[cycle.PendingTranscript.from_dict(d) for d in results.get("transcripts", [])],
+    )
+    result = cycle.finalize_run(
+        store,
+        run_results,
+        ledger,
+        cycle.FinalizeOptions(
+            repo_root=Path(args.store_repo),
+            message=args.message,
+            queue_path=Path(args.queue) if args.queue else None,
+        ),
+    )
+    return _emit(
+        {
+            "committed": result.commit.committed,
+            "message": result.commit.message,
+            "index_path": str(result.index_path),
+            "review_path": str(result.review_path),
+            "recorded": result.recorded,
+            "queue_drained": result.queue_drained,
+        }
+    )
+
+
+def _add_transcripts_subparser(sub: argparse._SubParsersAction) -> None:
     transcripts = sub.add_parser("transcripts", help="inspect session transcripts")
     actions = transcripts.add_subparsers(dest="action", required=True)
     list_p = actions.add_parser("list", help="enumerate discovered transcripts")
@@ -51,13 +138,55 @@ def _build_parser() -> argparse.ArgumentParser:
     show_p = actions.add_parser("show", help="render one transcript as role-tagged text")
     show_p.add_argument("session_id")
     show_p.set_defaults(func=_cmd_show)
+
+
+def _add_cycle_subparser(sub: argparse._SubParsersAction) -> None:
+    grp = sub.add_parser("cycle", help="the convergent dream-cycle batch steps")
+    actions = grp.add_subparsers(dest="action", required=True)
+
+    unp = actions.add_parser("unprocessed", help="transcripts not yet in the ledger (JSON)")
+    unp.add_argument("--projects-root", default=None)
+    unp.add_argument("--ledger", default=str(cycle.DEFAULT_LEDGER_PATH))
+    unp.add_argument("--repo", default=None, help="filter to one inferred repo")
+    unp.set_defaults(func=_cmd_unprocessed)
+
+    wks = actions.add_parser("worksheet", help="gate + prefilter raw extractor output (JSON)")
+    wks.add_argument("--extract", required=True, help="raw extractor JSON file, or - for stdin")
+    wks.add_argument("--store", default=str(cycle.DEFAULT_STORE_PATH))
+    wks.add_argument("--top-k", type=int, default=10)
+    wks.set_defaults(func=_cmd_worksheet)
+
+    app = actions.add_parser("apply", help="apply in-session verdicts to the store (JSON)")
+    app.add_argument("--worksheet", required=True, help="worksheet JSON from `cycle worksheet`")
+    app.add_argument("--verdicts", required=True, help="judge verdicts JSON, aligned by index")
+    app.add_argument("--store", default=str(cycle.DEFAULT_STORE_PATH))
+    app.add_argument("--today", default=None, help="YYYY-MM-DD stamp (default: today)")
+    app.add_argument("--session", default=None, help="originating session id")
+    app.set_defaults(func=_cmd_apply)
+
+    fin = actions.add_parser("finalize", help="index + review + commit + ledger (JSON)")
+    fin.add_argument("--results", required=True, help="merged flagged/written/transcripts JSON")
+    fin.add_argument("--store", default=str(cycle.DEFAULT_STORE_PATH))
+    fin.add_argument("--store-repo", default=str(cycle.DEFAULT_STORE_REPO))
+    fin.add_argument("--ledger", default=str(cycle.DEFAULT_LEDGER_PATH))
+    fin.add_argument("--queue", default=str(cycle.DEFAULT_QUEUE_PATH))
+    fin.add_argument("--message", default=None, help="override the doc-only commit message")
+    fin.set_defaults(func=_cmd_finalize)
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="oversteward dream")
+    sub = parser.add_subparsers(dest="group", required=True)
+    _add_transcripts_subparser(sub)
+    _add_cycle_subparser(sub)
     return parser
 
 
 def main(argv: list[str]) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
-    args.projects_root = default_projects_root()
+    projects_root = getattr(args, "projects_root", None)
+    args.projects_root = default_projects_root() if projects_root is None else Path(projects_root)
     return args.func(args)
 
 

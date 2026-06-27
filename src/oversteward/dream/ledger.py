@@ -1,5 +1,5 @@
-# ABOUTME: Append-only processed-transcript ledger for dream-cycle idempotency.
-# ABOUTME: Records which transcripts were consolidated (by content hash) so re-runs don't double-process.
+# ABOUTME: Stdlib-only dream-cycle idempotency state — the processed-transcript ledger and pending queue.
+# ABOUTME: Importable by the Stop hook (system python3, no yaml) so re-runs and re-stops don't double-process.
 
 from __future__ import annotations
 
@@ -8,6 +8,13 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+
+# The Stop hook's lightweight enqueue surface, outside any git repo (machine-local
+# runtime state). Overridable; the hook honors OVERSTEWARD_DREAM_QUEUE.
+DEFAULT_QUEUE_PATH = Path.home() / ".claude" / "dream_queue.jsonl"
+
+# The idempotency key both JSONL records (ledger + queue) carry.
+_CONTENT_HASH = "content_hash"
 
 
 @dataclass(frozen=True)
@@ -30,6 +37,29 @@ def transcript_hash(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _read_jsonl(path: Path) -> list[dict]:
+    """Read a JSONL file into dict records, skipping malformed/blank lines.
+
+    A missing file yields an empty list — both the ledger and the queue are created
+    lazily, so absence is a normal state, not an error.
+    """
+    if not path.is_file():
+        return []
+    records: list[dict] = []
+    with path.open(encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(record, dict):
+                records.append(record)
+    return records
+
+
 class ProcessedLedger:
     """Append-only JSONL record of processed transcripts.
 
@@ -46,20 +76,10 @@ class ProcessedLedger:
         self._load()
 
     def _load(self) -> None:
-        if not self._path.is_file():
-            return
-        with self._path.open(encoding="utf-8") as handle:
-            for line in handle:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    record = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                content_hash = record.get("content_hash")
-                if isinstance(content_hash, str):
-                    self._hashes.add(content_hash)
+        for record in _read_jsonl(self._path):
+            content_hash = record.get(_CONTENT_HASH)
+            if isinstance(content_hash, str):
+                self._hashes.add(content_hash)
 
     def is_processed(self, content_hash: str) -> bool:
         """True if a transcript with this content hash was already recorded."""
@@ -91,3 +111,77 @@ class ProcessedLedger:
             handle.write(json.dumps(entry.__dict__, sort_keys=True) + "\n")
         self._hashes.add(content_hash)
         return True
+
+
+# ---- pending queue (Stop-hook enqueue surface) ------------------------------
+
+
+@dataclass(frozen=True)
+class QueueEntry:
+    """One transcript a Stop hook flagged as awaiting consolidation."""
+
+    session_id: str
+    path: str
+    content_hash: str
+    enqueued_at: str
+
+
+def queued_hashes(queue_path: Path) -> set[str]:
+    """Content hashes currently sitting in the pending queue."""
+    return {
+        record[_CONTENT_HASH]
+        for record in _read_jsonl(queue_path)
+        if isinstance(record.get(_CONTENT_HASH), str)
+    }
+
+
+def enqueue_transcript(
+    queue_path: Path,
+    ledger: ProcessedLedger,
+    *,
+    session_id: str,
+    path: str,
+    content_hash: str,
+    now: datetime | None = None,
+) -> bool:
+    """Append a transcript to the pending queue, returning False on a no-op.
+
+    Idempotent against BOTH the ledger (already consolidated → skip) and the queue
+    itself (already enqueued → skip), so a Stop hook firing repeatedly over the
+    same session bytes never double-enqueues. The queue is created lazily.
+    """
+    if ledger.is_processed(content_hash):
+        return False
+    if content_hash in queued_hashes(queue_path):
+        return False
+    entry = QueueEntry(
+        session_id=session_id,
+        path=str(path),
+        content_hash=content_hash,
+        enqueued_at=(now or datetime.now(timezone.utc)).isoformat(),
+    )
+    queue_path.parent.mkdir(parents=True, exist_ok=True)
+    with queue_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(entry.__dict__, sort_keys=True) + "\n")
+    return True
+
+
+def pending_queue_count(queue_path: Path, ledger: ProcessedLedger) -> int:
+    """How many queued transcripts are not yet recorded in the ledger."""
+    return sum(
+        1
+        for record in _read_jsonl(queue_path)
+        if isinstance(record.get(_CONTENT_HASH), str)
+        and not ledger.is_processed(record[_CONTENT_HASH])
+    )
+
+
+def drain_queue(queue_path: Path, ledger: ProcessedLedger) -> int:
+    """Drop queue entries whose transcript is now in the ledger; return the count removed."""
+    records = _read_jsonl(queue_path)
+    kept = [r for r in records if not ledger.is_processed(str(r.get(_CONTENT_HASH, "")))]
+    removed = len(records) - len(kept)
+    if removed:
+        text = "".join(json.dumps(r, sort_keys=True) + "\n" for r in kept)
+        queue_path.write_text(text, encoding="utf-8")
+    return removed
