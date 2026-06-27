@@ -44,6 +44,7 @@ def _diff_worktree_discipline(ctx: dict[str, Any], canonical_dev: dict[str, Any]
     checks = (
         ("hook_sha256", "guard_main_worktree.py", ".claude/hooks/guard_main_worktree.py"),
         ("new_session_sha256", "new-session.sh", "scripts/dev/new-session.sh"),
+        ("with_test_env_sha256", "with_test_env.py", "scripts/dev/with_test_env.py"),
     )
     for key, canonical_name, deployed_path in checks:
         expected = canonical_dev.get(canonical_name)

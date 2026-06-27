@@ -87,11 +87,14 @@ class TestGatherContext:
         dev = tmp_path / "scripts" / "dev" / "new-session.sh"
         dev.parent.mkdir(parents=True)
         dev.write_bytes(b"dev-script")
+        runner = tmp_path / "scripts" / "dev" / "with_test_env.py"
+        runner.write_bytes(b"runner-code")
 
         result = gather_context(self._ctx(tmp_path))
         assert result["settings_sha256"] == _sha(b"{}")
         assert result["hook_sha256"] == _sha(b"hook-code")
         assert result["new_session_sha256"] == _sha(b"dev-script")
+        assert result["with_test_env_sha256"] == _sha(b"runner-code")
 
     def test_absent_optional_files_are_none(self, tmp_path):
         (tmp_path / "CLAUDE.md").write_text(UNMANAGED_CLAUDE_MD, encoding="utf-8")
@@ -99,6 +102,7 @@ class TestGatherContext:
         assert result["settings_sha256"] is None
         assert result["hook_sha256"] is None
         assert result["new_session_sha256"] is None
+        assert result["with_test_env_sha256"] is None
 
     def test_registry_flags_carried_into_snapshot(self, tmp_path):
         (tmp_path / "CLAUDE.md").write_text(UNMANAGED_CLAUDE_MD, encoding="utf-8")
@@ -136,6 +140,7 @@ class TestGatherState:
         dev.mkdir(parents=True)
         (dev / "guard_main_worktree.py").write_bytes(b"hook-code")
         (dev / "new-session.sh").write_bytes(b"dev-script")
+        (dev / "with_test_env.py").write_bytes(b"runner-code")
         target = tmp_path / "deployed"
         target.mkdir()
         (target / "f.md").write_bytes(b"f")
@@ -159,6 +164,7 @@ class TestGatherState:
         assert [c["id"] for c in snapshot["contexts"]] == ["demo"]
         assert snapshot["canonical_dev"]["guard_main_worktree.py"] == _sha(b"hook-code")
         assert snapshot["canonical_dev"]["new-session.sh"] == _sha(b"dev-script")
+        assert snapshot["canonical_dev"]["with_test_env.py"] == _sha(b"runner-code")
         assert snapshot["deploy_targets"]["wsl"] == {"f.md": _sha(b"f")}
         assert snapshot["deploy_targets"]["windows"] is None
         assert "scripts/dev/guard_main_worktree.py" in snapshot["canonical_shared"]

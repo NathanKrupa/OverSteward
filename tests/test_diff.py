@@ -27,6 +27,7 @@ def _context(**overrides):
         "settings_sha256": "s1",
         "hook_sha256": "hook-ok",
         "new_session_sha256": "dev-ok",
+        "with_test_env_sha256": "runner-ok",
     }
     ctx.update(overrides)
     return ctx
@@ -39,6 +40,7 @@ def _snapshot(contexts=None, **overrides):
         "canonical_dev": {
             "guard_main_worktree.py": "hook-ok",
             "new-session.sh": "dev-ok",
+            "with_test_env.py": "runner-ok",
         },
         "deploy_targets": {"wsl": {"souls/chestertron.md": "soul-sha"}},
     }
@@ -107,6 +109,17 @@ class TestWorktreeDiscipline:
         findings = diff_state(_snapshot([_context(new_session_sha256="stale")]))
         surface = _by_surface(findings, "worktree-discipline")
         assert [f["severity"] for f in surface] == ["drift"]
+
+    def test_with_test_env_drift_flagged(self):
+        findings = diff_state(_snapshot([_context(with_test_env_sha256="stale")]))
+        surface = _by_surface(findings, "worktree-discipline")
+        assert [f["severity"] for f in surface] == ["drift"]
+
+    def test_missing_with_test_env_flagged(self):
+        surface = _by_surface(
+            diff_state(_snapshot([_context(with_test_env_sha256=None)])), "worktree-discipline"
+        )
+        assert [f["severity"] for f in surface] == ["missing"]
 
 
 class TestSharedDeploy:

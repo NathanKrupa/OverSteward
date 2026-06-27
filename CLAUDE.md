@@ -51,6 +51,30 @@ This is the estate-wide standard, canonical here in `shared/scripts/dev/` and
 deployed to every repo's `.claude/hooks/` + `scripts/dev/`. See OVERSTEWARD.md
 § "Session-per-worktree discipline" for the rollout + new-project bootstrap.
 
+## Running a command with `.env` loaded (sanctioned `with_test_env` runner)
+
+When a command needs secrets from `.env` (the dockerized test backend, `make
+verify`, integration `pytest`), **do not** `source .env` or put a `DB-URL=...`
+assignment on the command line. The credential-hygiene hook blocks those shapes
+because an unquoted `&` in a connection string (every Neon URL carries
+`&channel_binding=require`) leaks through bash job control onto stderr — and
+stderr is captured in the transcript. Do **not** hand-roll a one-off in-process
+shim either; use the sanctioned runner:
+
+```bash
+scripts/dev/with_test_env.py make verify
+scripts/dev/with_test_env.py -- pytest -k integration
+scripts/dev/with_test_env.py --env-file .env.test python -m mytool
+```
+
+It parses `.env` in-process (never through the shell), merges the values into the
+environment **without ever printing a value**, and `exec`s the target command so
+it inherits them. Existing process environment wins over `.env` (matching
+`load_dotenv`'s default). Stdlib-only and dependency-free, so it deploys to every
+repo. It is a canonical byte-copy in the `shared/scripts/dev/` family (same
+deploy + drift-tracking as `new-session.sh` and `guard_main_worktree.py`) — see
+`@~/.claude/shared/references/credential-hygiene.md` for the rule it satisfies.
+
 ## Architecture
 
 Principles: `@~/.claude/shared/references/architecture-principles.md`
