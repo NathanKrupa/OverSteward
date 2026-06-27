@@ -26,16 +26,23 @@ stopped running, so this supervisor runs **outside** the operator
    window → alert, don't loop).
 3. **ALERT** — a one-shot `sendMessage` to Nathan via the bot token **directly**
    (outbound survives a deaf inbound).
-4. **RELAUNCH + single-instance** — evict the wedged operator
-   (SIGTERM → poll `kill(pid,0)` every 100ms up to 3s → SIGKILL), claim a PID
-   file so a zombie poller cannot 409-fight the relaunch, then start a fresh
-   operator. An ancestor-walk reaper distinguishes a true orphan (PPID chain ends
-   at PID 1) from a process a live `claude` session still owns.
+4. **RELAUNCH + single-instance (via tmux)** — evict the wedged operator with
+   `tmux kill-session -t telegraph-operator`, then start a fresh one with
+   `tmux new-session -d -s telegraph-operator '<relaunch_cmd>'`. The detached
+   tmux session allocates a **pty**, so `claude --channels …` runs *interactive*
+   (under systemd there is no controlling terminal, and a bare process would drop
+   into `--print` mode and die immediately). The **fixed session name** gives
+   single-instance for free — tmux refuses a duplicate name, so a hand-started
+   operator and the supervised one converge on ONE canonical session, and the
+   supervisor adopts a manually-launched operator instead of spawning a rival
+   that would 409-fight over `getUpdates`. The tmux *server* keeps the session
+   alive independently of supervisor restarts and logout (linger).
 5. **Proactive recycle** — a healthy session older than `--max-idle` is recycled
    (uptime degrades the session: httpx pool / fd leak, session age).
 
-Decision logic, eviction, and the heartbeat freshness rule are unit-tested with
-fakes in `tests/telegraph/` — no live Telegram, no real token, no real process.
+Decision logic, the tmux relaunch/adopt service, and the heartbeat freshness rule
+are unit-tested with fakes in `tests/telegraph/` — no live Telegram, no real
+token, no real tmux.
 
 ## Operator-side instrumentation (required)
 
@@ -56,10 +63,15 @@ touch ~/.claude/channels/telegram/operator_heartbeat
 (or the Python equivalent `Path(...).touch()`). If the operator does not advance
 this file, every heartbeat probe reads as a miss and the supervisor will relaunch
 on the hysteresis threshold — so wire the instrumentation before enabling the
-unit. The sentinel is near-invisible (zero-width-prefixed) but still arrives as a
-message; mute that thread if desired.
+unit. The supervisor **deletes its own sentinel** immediately after sending it
+(`deleteMessage`), so it does not appear in Nathan's chat — but Telegram has
+already queued the inbound update for the operator's poll at send time, and the
+deletion does not purge an already-queued update, so the round-trip still works.
 
 ## Install (systemd `--user`)
+
+Prerequisite: `tmux` on `PATH` (the supervisor launches the operator inside a
+detached tmux session). Confirm with `command -v tmux`.
 
 ```bash
 mkdir -p ~/.config/systemd/user ~/.claude/channels/telegram
@@ -88,9 +100,26 @@ Check it: `systemctl --user status operator-supervisor.service` and
 turn relaunches the **operator** when it goes deaf. Two layers, each watching the
 one below.
 
-## Running it by hand
+## Launching the operator by hand
 
-A single tick (what a systemd timer or `/loop` would call):
+The canonical way to start the operator — whether by hand or via the supervisor —
+is inside the fixed-name detached `telegraph-operator` tmux session:
+
+```bash
+tmux new-session -d -s telegraph-operator \
+  'claude --channels plugin:telegram@claude-plugins-official'
+# then, from inside that session, run /telegraph-operator once
+```
+
+Because the session name is fixed, the supervisor **adopts** this session (it
+checks `tmux has-session -t telegraph-operator`, not a PID file) instead of
+spawning a rival, and a second `tmux new-session -s telegraph-operator` is refused
+— single-instance for free. Attach to watch it with
+`tmux attach -t telegraph-operator` (detach again with `Ctrl-b d`).
+
+## Running the supervisor by hand
+
+A single tick (what a manual check would call):
 
 ```bash
 TELEGRAM_BOT_TOKEN=… python3 ~/OverSteward/shared/scripts/telegraph/operator_supervisor.py \
@@ -98,10 +127,12 @@ TELEGRAM_BOT_TOKEN=… python3 ~/OverSteward/shared/scripts/telegraph/operator_s
   --relaunch-cmd claude --channels plugin:telegram@claude-plugins-official
 ```
 
-Continuous mode adds `--loop`. Everything after `--relaunch-cmd` is the operator
-launch command. Tunables (all have sane defaults): `--poll-interval`,
-`--hysteresis`, `--cooldown`, `--startup-grace`, `--restart-budget`,
-`--restart-window`, `--max-idle`, `--term-timeout`, `--heartbeat-window`.
+Continuous mode adds `--loop` (the systemd unit uses this); on each process start
+the supervisor resets its grace window + detection streaks while preserving the
+cooldown ledger. Everything after `--relaunch-cmd` is the operator launch command.
+Tunables (all have sane defaults): `--session-name` (default `telegraph-operator`),
+`--poll-interval`, `--hysteresis`, `--cooldown`, `--startup-grace`,
+`--restart-budget`, `--restart-window`, `--max-idle`, `--heartbeat-window`.
 
 ## Credential hygiene
 
@@ -112,7 +143,8 @@ The bot token is read from the environment (`--token-env`, default
 
 ## Scope
 
-Shape 1 only: detect → alert → relaunch + single-instance eviction. **Out of
+Shape 1 only: detect → alert → relaunch the operator inside its `telegraph-operator`
+tmux session (single-instance via the fixed session name). **Out of
 scope** (tracked separately): Shape 2 (a dumb poller that *owns* the Telegram
 queue so messages can never be silently lost) and switching the MCP transport off
 stdio (a partial cure that does not fix the core idle-wake bug).

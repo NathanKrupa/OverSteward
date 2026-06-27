@@ -197,6 +197,31 @@ def decide(obs: Observation, state: SupervisorState, cfg: SupervisorConfig) -> D
     return Decision(Action.NONE, "healthy", advanced)
 
 
+# --- cross-process vs cross-tick memory ------------------------------------
+
+
+def reset_for_process_start(state: SupervisorState, now: float) -> SupervisorState:
+    """Reset the grace anchor + detection streaks on a supervisor process start.
+
+    Two kinds of memory live in :class:`SupervisorState`. The **cooldown ledger**
+    (``last_relaunch_at``, ``restart_timestamps``) must survive a supervisor
+    restart, or a crash-looping supervisor (``Restart=always``) would relaunch
+    the operator every few seconds — so it is preserved. The **grace anchor +
+    detection streaks** (``launched_at``, ``pending_streak``,
+    ``heartbeat_fail_streak``) are *cross-tick* memory that belongs to the dead
+    run; inheriting them spends the startup-grace + hysteresis guards before the
+    fresh process has observed anything, so it false-relaunches on the first
+    tick. Reset those: a freshly (re)started supervisor always gets a clean grace
+    window and rebuilds streaks from live evidence (OverSteward #120).
+    """
+    return replace(
+        state,
+        launched_at=now,
+        pending_streak=0,
+        heartbeat_fail_streak=0,
+    )
+
+
 # --- state persistence (carried between one-shot ticks) --------------------
 
 

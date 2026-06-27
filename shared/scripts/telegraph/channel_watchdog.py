@@ -158,6 +158,17 @@ def _get_json(url: str, urlopen: Callable) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
+def _post_method(token: str, method: str, fields: dict, urlopen: Callable) -> dict:
+    """POST ``fields`` to a Bot-API ``method``; return the parsed body or raise."""
+    payload = urllib.parse.urlencode(fields).encode()
+    req = urllib.request.Request(f"{API_BASE}/bot{token}/{method}", data=payload, method="POST")
+    with urlopen(req, timeout=_TIMEOUT_S) as resp:
+        body = json.loads(resp.read().decode("utf-8"))
+    if not body.get("ok"):
+        raise RuntimeError(f"{method} failed: {body.get('description', body)}")
+    return body
+
+
 def fetch_pending_update_count(
     token: str, *, urlopen: Callable = urllib.request.urlopen
 ) -> int:
@@ -174,14 +185,34 @@ def send_alert(
     text: str,
     *,
     urlopen: Callable = urllib.request.urlopen,
+) -> int | None:
+    """Send via ``sendMessage`` (outbound survives a deaf inbound); return its id.
+
+    Returns the Telegram ``message_id`` of the sent message so a caller can delete
+    it again (the supervisor's heartbeat sentinel), or ``None`` if the response
+    omits one. A failed send raises.
+    """
+    body = _post_method(token, "sendMessage", {"chat_id": chat_id, "text": text}, urlopen)
+    message_id = body.get("result", {}).get("message_id")
+    return int(message_id) if message_id is not None else None
+
+
+def delete_message(
+    token: str,
+    chat_id: str,
+    message_id: int,
+    *,
+    urlopen: Callable = urllib.request.urlopen,
 ) -> None:
-    """Send an out-of-band alert via ``sendMessage`` (outbound survives a deaf inbound)."""
-    payload = urllib.parse.urlencode({"chat_id": chat_id, "text": text}).encode()
-    req = urllib.request.Request(f"{API_BASE}/bot{token}/sendMessage", data=payload, method="POST")
-    with urlopen(req, timeout=_TIMEOUT_S) as resp:
-        body = json.loads(resp.read().decode("utf-8"))
-    if not body.get("ok"):
-        raise RuntimeError(f"sendMessage failed: {body.get('description', body)}")
+    """Delete a previously-sent message via ``deleteMessage``.
+
+    The supervisor uses this to remove its own heartbeat sentinel right after
+    sending it: Telegram has already queued the inbound update for the operator's
+    ``getUpdates`` poll at send time, and ``deleteMessage`` does not purge an
+    already-queued update — so the round-trip still works while the message
+    disappears from the chat. A best-effort op: a vanished message is not an error.
+    """
+    _post_method(token, "deleteMessage", {"chat_id": chat_id, "message_id": message_id}, urlopen)
 
 
 def _alert_text(reason: str) -> str:

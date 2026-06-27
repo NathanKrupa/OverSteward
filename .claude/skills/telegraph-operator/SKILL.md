@@ -13,7 +13,14 @@ Run this session from the **OverSteward** working tree (it needs `registry.yaml`
 
 1. Confirm the Telegram channel is attached (the session was started with `--channels plugin:telegram@claude-plugins-official`). If not, tell Nathan to relaunch with the channel — you cannot receive without it.
 2. Confirm the allowlist is locked: `/telegram:access policy allowlist` with only chat `8742962362` paired. The plugin gates senders server-side; you **also** verify the sender id on every event as defense-in-depth (§R5). Drop anything not from `8742962362` silently.
-3. Reply to Nathan on Telegram: `Telegraph operator online. Send "help" for the grammar.`
+3. **Supervisor health (read-only).** Check whether the deaf-detector supervisor is running:
+
+   ```bash
+   systemctl --user is-active operator-supervisor.service
+   ```
+
+   If it prints anything other than `active`, reply to Nathan with a warning, e.g. `⚠️ operator-supervisor.service is <state> — I am running unsupervised; if I go deaf nothing will relaunch me.` This check is **read-only**: never `start`, `restart`, `stop`, `enable`, or `kill` the unit, and never spawn your own watchdog. The supervisor is owned solely by systemd (see § Heartbeat) — a session managing its own parent watchdog is a race and an ownership inversion, and the skill cannot act anyway once the session has gone deaf, which is the exact failure mode.
+4. Reply to Nathan on Telegram: `Telegraph operator online. Send "help" for the grammar.`
 
 ## How you communicate
 
@@ -21,7 +28,7 @@ Run this session from the **OverSteward** working tree (it needs `registry.yaml`
 
 ## Heartbeat — proving you're awake (supervisor contract)
 
-An external watchdog — the **operator supervisor** (`shared/scripts/telegraph/operator_supervisor.py`, OverSteward #115) — rescues this session when it goes **deaf to inbound** (the upstream `--channels` idle-wake bug: the session stays alive and can still *send* but stops *receiving*). Its heartbeat probe can only tell a live session from a deaf one if you leave a mark each time you actually process an inbound message.
+An external watchdog — the **operator supervisor** (`shared/scripts/telegraph/operator_supervisor.py`, OverSteward #115/#120) — rescues this session when it goes **deaf to inbound** (the upstream `--channels` idle-wake bug: the session stays alive and can still *send* but stops *receiving*). It runs **outside** this session under systemd (`operator-supervisor.service`) and relaunches the operator inside the `telegraph-operator` tmux session. **systemd is its sole owner** — this skill never starts, stops, restarts, or kills the supervisor (its only interaction is the read-only pre-flight `is-active` check above). Its heartbeat probe can only tell a live session from a deaf one if you leave a mark each time you actually process an inbound message.
 
 **On every inbound turn, before parsing the message, touch the heartbeat file:**
 
@@ -31,7 +38,7 @@ touch ~/.claude/channels/telegram/operator_heartbeat
 
 If you stop advancing this file the supervisor reads every probe as a miss and will evict + relaunch this session on its hysteresis threshold — so once the unit is enabled this is not optional.
 
-**The supervisor's sentinel.** The probe sends a near-invisible sentinel message — `[telegraph-heartbeat]` (zero-width-prefixed) — and checks that you advanced the file. When an inbound message *is* that sentinel: touch the heartbeat (above) and **stop** — do not parse it as a verb, do not reply, do not route it. It is the watchdog taking your pulse, not Nathan.
+**The supervisor's sentinel.** The probe sends a sentinel message — `[telegraph-heartbeat]` — and checks that you advanced the file. The supervisor **deletes the sentinel immediately after sending**, so it does not normally appear in the chat; the queued inbound update still reaches you. If you ever do see one (a delete that lost the race), touch the heartbeat (above) and **stop** — do not parse it as a verb, do not reply, do not route it. It is the watchdog taking your pulse, not Nathan.
 
 ## Routing grammar
 

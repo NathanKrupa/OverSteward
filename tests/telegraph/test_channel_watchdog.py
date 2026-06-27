@@ -183,3 +183,32 @@ def test_fetch_pending_update_count_raises_on_not_ok():
         assert "unauthorized" in str(exc)
     else:
         raise AssertionError("expected RuntimeError on ok=false")
+
+
+def test_send_alert_returns_message_id_from_response():
+    def fake_urlopen(req, timeout=0):
+        return _FakeResp({"ok": True, "result": {"message_id": 4242}})
+
+    message_id = wd.send_alert("SECRET", "123", "hi", urlopen=fake_urlopen)
+    assert message_id == 4242
+
+
+def test_send_alert_returns_none_when_response_omits_message_id():
+    def fake_urlopen(req, timeout=0):
+        return _FakeResp({"ok": True, "result": {}})
+
+    assert wd.send_alert("SECRET", "123", "hi", urlopen=fake_urlopen) is None
+
+
+def test_delete_message_posts_chat_and_message_id():
+    captured = {}
+
+    def fake_urlopen(req, timeout=0):
+        captured["url"] = req.full_url
+        captured["data"] = req.data
+        return _FakeResp({"ok": True, "result": True})
+
+    wd.delete_message("SECRET", "123", 4242, urlopen=fake_urlopen)
+    assert captured["url"].endswith("/botSECRET/deleteMessage")
+    assert b"4242" in captured["data"]
+    assert b"123" in captured["data"]

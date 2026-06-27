@@ -25,15 +25,21 @@ EnvironmentFile=%h/.claude/channels/telegram/supervisor.env
 # (an editable `uv sync` install also satisfies this).
 Environment=PYTHONPATH=%h/OverSteward/src
 # --loop: the supervisor runs continuously, ticking every --poll-interval seconds.
-# Everything after --relaunch-cmd is the operator relaunch command line.
+# On each process start it resets its grace window + detection streaks while
+# preserving the cooldown ledger (so Restart=always cannot relaunch-loop the
+# operator). Everything after --relaunch-cmd is the operator relaunch command,
+# which the supervisor runs inside a detached `telegraph-operator` tmux session
+# (a pty, so claude runs interactive — systemd has no controlling terminal).
+# Requires tmux on PATH (/usr/bin/tmux).
 ExecStart=/usr/bin/env python3 %h/OverSteward/shared/scripts/telegraph/operator_supervisor.py \
     --chat-id ${TELEGRAPH_CHAT_ID} \
     --loop \
     --relaunch-cmd claude --channels plugin:telegram@claude-plugins-official
 Restart=always
 RestartSec=10
-# Stop signal goes to the supervisor; the operator it spawned is in its own
-# session (start_new_session) and is reaped on the next launch's eviction.
+# Stop signal goes to the supervisor only; the operator lives in the tmux server's
+# own session, so it survives a supervisor restart and is evicted explicitly by
+# the next relaunch (tmux kill-session) rather than by systemd.
 KillMode=process
 
 [Install]
