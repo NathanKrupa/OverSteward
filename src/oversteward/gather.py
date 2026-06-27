@@ -21,8 +21,9 @@ MUTABLE_SHARED_FILES = {"inbox.md"}
 
 HOOK_RELPATH = ".claude/hooks/guard_main_worktree.py"
 NEW_SESSION_RELPATH = "scripts/dev/new-session.sh"
+WITH_TEST_ENV_RELPATH = "scripts/dev/with_test_env.py"
 SETTINGS_RELPATH = ".claude/settings.json"
-CANONICAL_DEV_FILES = ("guard_main_worktree.py", "new-session.sh")
+CANONICAL_DEV_FILES = ("guard_main_worktree.py", "new-session.sh", "with_test_env.py")
 
 
 def _sha256(path: Path) -> str:
@@ -73,6 +74,7 @@ def gather_context(ctx: dict[str, Any]) -> dict[str, Any]:
         "settings_sha256": _sha256_or_none(root / SETTINGS_RELPATH),
         "hook_sha256": _sha256_or_none(root / HOOK_RELPATH),
         "new_session_sha256": _sha256_or_none(root / NEW_SESSION_RELPATH),
+        "with_test_env_sha256": _sha256_or_none(root / WITH_TEST_ENV_RELPATH),
     }
 
 
