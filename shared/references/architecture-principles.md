@@ -133,6 +133,28 @@ bugfix, every other finding is structural): land a separate cleanup PR for
 that file first, then rebase. Do not raise thresholds. Do not `# noqa` to
 dodge.
 
+**Three kinds of finding — fix, justify, or defer; never chase the count.**
+The ratchet's purpose is *less real defect surface*, not a smaller number.
+When a touched file's remaining findings can't be honestly reduced, classify
+each before acting:
+
+1. **Real defect** (silent `except`, dead code, weak name, genuine smell) —
+   *fix it in scope.* The normal case; this is what the rule is for.
+2. **Tool false-positive, already correctly suppressed** — a `# noqa` over a
+   finding the tool is *demonstrably wrong about* is a legitimate suppression,
+   not a dodge. Do **not** refactor correct, working code to drive a count
+   that is already zero. Justify in place and fix the rule **upstream at the
+   canonical tool** (e.g. a gaudi issue); the upstream fix clears the
+   suppression fleet-wide at zero blast radius.
+3. **Desirable but orthogonal modernization** (e.g. a framework-idiom
+   migration) — worthwhile, but it is **its own scoped work**, never collateral
+   forced by an unrelated lint chore. Spin it out; don't let ratchet pressure
+   drag a risky refactor into a change that didn't need it.
+
+This refines "don't `# noqa` to dodge": the ban is on hiding a *real* finding.
+Suppressing one the tool misjudges is correct — the honest move is to fix the
+tool, not the code it misreads.
+
 **Where it's enforced by tooling:** projects with `check_boy_scout.py` gate
 this in CI and pre-push. Elsewhere, apply by judgment — scan for one or
 more cleanups (stale comment, weak name, dead branch, lint finding) and
