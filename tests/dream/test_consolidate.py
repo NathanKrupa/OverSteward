@@ -17,6 +17,7 @@ from oversteward.dream.consolidate import (
     Band,
     CommitResult,
     ConsolidationOutcome,
+    FlaggedItem,
     Judge,
     JudgeResult,
     MemoryFile,
@@ -25,6 +26,7 @@ from oversteward.dream.consolidate import (
     classify_band,
     commit_store,
     consolidate,
+    flagged_key,
     jaccard_prefilter,
     jaccard_similarity,
 )
@@ -252,22 +254,45 @@ def test_merge_without_merged_body_keeps_existing(tmp_path: Path) -> None:
     assert store.memories()[0].body.strip() == "Keep me."
 
 
-# ---- flag (ambiguous middle) -------------------------------------------------
+# ---- flag band (ambiguous middle) auto-approves (OS#134) ---------------------
 
 
-def test_ambiguous_flags_never_merges(tmp_path: Path) -> None:
+def test_ambiguous_band_auto_appends_not_held(tmp_path: Path) -> None:
+    # 0.55-0.85 is auto-approved (Nathan's OS#134 ruling): the judge declined to
+    # merge, so the candidate is appended as a new file — never held for review.
     existing = _memory("feedback_x", "merged migrations", body="Untouched.\n")
     store = _store_with(tmp_path, existing)
     target = store.memories()[0]
     outcome = consolidate(
         _fact(), store, judge=_fake_judge(0.70, match=target), today=date(2026, 6, 24)
     )
+    assert outcome.action == Band.APPEND
+    assert outcome.flagged is None
+    assert outcome.written is not None
+    # The matched memory is left untouched; a brand-new file is added alongside it.
+    mems = store.memories()
+    assert len(mems) == 2
+    assert {m.filename for m in mems if m.body.strip() == "Untouched."} == {"feedback_x.md"}
+
+
+def test_flag_band_contradiction_vs_nathan_stated_still_held(tmp_path: Path) -> None:
+    # A flag-band contradiction against a nathan-stated law must be surfaced, not
+    # silently auto-appended (acceptance #3): the guard now fires below auto-merge.
+    existing = _memory(
+        "feedback_law", "durable nathan law", provenance="nathan-stated", body="Nathan's law.\n"
+    )
+    store = _store_with(tmp_path, existing)
+    target = store.memories()[0]
+    outcome = consolidate(
+        _fact(),
+        store,
+        judge=_fake_judge(0.70, match=target, is_contradiction=True),
+        today=date(2026, 6, 24),
+    )
     assert outcome.action == Band.FLAG
     assert outcome.flagged is not None
-    # Store unchanged: no merge, no new file.
-    mems = store.memories()
-    assert len(mems) == 1
-    assert mems[0].body.strip() == "Untouched."
+    # Nothing written: the law stands alone, no contradicting file appended.
+    assert [m.filename for m in store.memories()] == ["feedback_law.md"]
 
 
 # ---- provenance guard --------------------------------------------------------
@@ -327,11 +352,14 @@ def test_index_regen_one_line_per_memory(tmp_path: Path) -> None:
 
 
 def test_review_surface_written(tmp_path: Path) -> None:
-    existing = _memory("feedback_x", "near thing")
+    existing = _memory("feedback_x", "near thing", provenance="nathan-stated")
     store = _store_with(tmp_path, existing)
     target = store.memories()[0]
     outcome = consolidate(
-        _fact(), store, judge=_fake_judge(0.70, match=target), today=date(2026, 6, 24)
+        _fact(),
+        store,
+        judge=_fake_judge(0.95, match=target, is_contradiction=True),
+        today=date(2026, 6, 24),
     )
     assert outcome.flagged is not None
     path = store.write_review_surface([outcome.flagged])
@@ -339,7 +367,25 @@ def test_review_surface_written(tmp_path: Path) -> None:
     text = path.read_text(encoding="utf-8")
     assert outcome.candidate.description in text
     assert "feedback_x.md" in text
-    assert "0.70" in text
+    assert "0.95" in text
+    assert f"**key:** {flagged_key(outcome.flagged)}" in text
+
+
+def test_flagged_key_stable_and_distinguishes_nearest(tmp_path: Path) -> None:
+    law = _memory("feedback_law", "a law", provenance="nathan-stated")
+    store = _store_with(tmp_path, law)
+    target = store.memories()[0]
+    outcome = consolidate(
+        _fact(), store, judge=_fake_judge(0.95, match=target, is_contradiction=True),
+        today=date(2026, 6, 24),
+    )
+    assert outcome.flagged is not None
+    # The key is deterministic for the same hold and differs when the nearest does.
+    assert flagged_key(outcome.flagged) == flagged_key(outcome.flagged)
+    other = FlaggedItem(
+        candidate=outcome.flagged.candidate, reason="r", similarity=0.95, nearest=None
+    )
+    assert flagged_key(other) != flagged_key(outcome.flagged)
 
 
 # ---- commit wrapper ----------------------------------------------------------

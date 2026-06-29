@@ -47,6 +47,9 @@ data/pipeline_history.jsonl
 # Per-machine dream-cycle processed-transcript ledger (append-only idempotency)
 data/dream/processed_transcripts.jsonl
 
+# Per-machine dream-cycle flagged open set (held items, drained explicitly)
+data/dream/flagged.jsonl
+
 # Dispatch agent worktrees (registered git worktrees, ephemeral per-machine)
 .claude/worktrees/
 

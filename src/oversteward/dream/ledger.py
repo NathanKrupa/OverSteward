@@ -75,6 +75,11 @@ class ProcessedLedger:
         self._hashes: set[str] = set()
         self._load()
 
+    @property
+    def path(self) -> Path:
+        """The backing JSONL path — siblings (e.g. the flagged open set) anchor off it."""
+        return self._path
+
     def _load(self) -> None:
         for record in _read_jsonl(self._path):
             content_hash = record.get(_CONTENT_HASH)

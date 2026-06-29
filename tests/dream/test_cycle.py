@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from oversteward.dream import cycle
-from oversteward.dream.consolidate import Band, MemoryFile, MemoryStore
+from oversteward.dream.consolidate import Band, FlaggedItem, MemoryFile, MemoryStore, flagged_key
 from oversteward.dream.extract import CandidateFact
 from oversteward.dream.ledger import ProcessedLedger, transcript_hash
 
@@ -33,13 +33,15 @@ def _candidate_dict(**overrides: object) -> dict:
     return base
 
 
-def _memory(name: str, description: str, *, body: str = "Original.\n") -> MemoryFile:
+def _memory(
+    name: str, description: str, *, body: str = "Original.\n", provenance: str = "claude-inferred"
+) -> MemoryFile:
     return MemoryFile(
         name=name,
         description=description,
         metadata={
             "type": "feedback",
-            "provenance": "claude-inferred",
+            "provenance": provenance,
             "created": "2026-01-01",
             "last_reinforced": "2026-01-01",
             "confidence": "high",
@@ -226,7 +228,9 @@ def test_apply_merges_on_match(tmp_path: Path) -> None:
     assert store.memories()[0].body.strip() == "Refined."
 
 
-def test_apply_flags_ambiguous(tmp_path: Path) -> None:
+def test_apply_auto_appends_ambiguous(tmp_path: Path) -> None:
+    # Ambiguous 0.55-0.85 is auto-approved now (OS#134): apply appends a new file
+    # rather than collecting a flag.
     store = MemoryStore(tmp_path / "memory")
     store.write(_memory("feedback_x", "merged migrations", body="Untouched.\n"))
     cand = CandidateFact.from_dict(_candidate_dict())
@@ -235,12 +239,26 @@ def test_apply_flags_ambiguous(tmp_path: Path) -> None:
         store,
         today=date(2026, 6, 27),
     )
+    assert outcomes[0].action == Band.APPEND
+    assert cycle.collect_flagged(outcomes) == []
+    assert len(store.memories()) == 2
+
+
+def test_apply_holds_nathan_stated_contradiction(tmp_path: Path) -> None:
+    # The only thing apply still flags: a contradiction against a nathan-stated law.
+    store = MemoryStore(tmp_path / "memory")
+    store.write(_memory("feedback_law", "nathan law", body="Law.\n", provenance="nathan-stated"))
+    cand = CandidateFact.from_dict(_candidate_dict())
+    outcomes = cycle.apply_verdicts(
+        [(cand, cycle.Verdict(similarity=0.95, match_filename="feedback_law.md", is_contradiction=True))],
+        store,
+        today=date(2026, 6, 27),
+    )
     assert outcomes[0].action == Band.FLAG
     flagged = cycle.collect_flagged(outcomes)
     assert len(flagged) == 1
-    assert flagged[0].nearest is not None
-    assert flagged[0].nearest.filename == "feedback_x.md"
-    assert store.memories()[0].body.strip() == "Untouched."
+    assert flagged[0].nearest is not None and flagged[0].nearest.filename == "feedback_law.md"
+    assert [m.filename for m in store.memories()] == ["feedback_law.md"]
 
 
 def test_verdict_roundtrips() -> None:
@@ -253,10 +271,10 @@ def test_verdict_roundtrips() -> None:
 
 def test_flagged_roundtrip_preserves_render_fields(tmp_path: Path) -> None:
     store = MemoryStore(tmp_path / "memory")
-    store.write(_memory("feedback_x", "near"))
+    store.write(_memory("feedback_x", "near", provenance="nathan-stated"))
     cand = CandidateFact.from_dict(_candidate_dict())
     outcomes = cycle.apply_verdicts(
-        [(cand, cycle.Verdict(similarity=0.7, match_filename="feedback_x.md"))],
+        [(cand, cycle.Verdict(similarity=0.95, match_filename="feedback_x.md", is_contradiction=True))],
         store,
         today=date(2026, 6, 27),
     )
@@ -328,6 +346,94 @@ def test_finalize_records_even_with_no_facts(tmp_path: Path) -> None:
     result = cycle.finalize_run(store, cycle.RunResults(processed=processed), ledger)
     # No facts → still records the transcript so it is not re-processed.
     assert result.recorded == ["s1"]
+
+
+# ---- durable open set (OS#134 Bug 1) ----------------------------------------
+
+
+def _flagged_item(description: str, *, nearest: str | None = "feedback_law.md") -> FlaggedItem:
+    near = _memory(Path(nearest).stem, "law", provenance="nathan-stated") if nearest else None
+    return FlaggedItem(
+        candidate=CandidateFact.from_dict(_candidate_dict(description=description)),
+        reason="contradicts a nathan-stated memory — surfaced, never auto-written",
+        similarity=0.95,
+        nearest=near,
+    )
+
+
+def test_flagged_store_merge_dedupes_and_accumulates(tmp_path: Path) -> None:
+    fs = cycle.FlaggedStore(tmp_path / "flagged.jsonl")
+    a = _flagged_item("hold A")
+    b = _flagged_item("hold B")
+    fs.merge([a])
+    full = fs.merge([b])
+    assert {i.candidate.description for i in full} == {"hold A", "hold B"}
+    # Re-surfacing A collapses onto its key — no duplicate.
+    again = fs.merge([a])
+    assert len(again) == 2
+
+
+def test_flagged_store_drain_all_and_by_key(tmp_path: Path) -> None:
+    fs = cycle.FlaggedStore(tmp_path / "flagged.jsonl")
+    a = _flagged_item("hold A")
+    b = _flagged_item("hold B")
+    fs.merge([a, b])
+    # Drain one by key.
+    removed = fs.drain([flagged_key(a)])
+    assert removed == 1
+    assert [i.candidate.description for i in fs.open_items()] == ["hold B"]
+    # Drain the rest (no keys → all).
+    assert fs.drain() == 1
+    assert fs.open_items() == []
+
+
+def test_finalize_preserves_prior_flags_on_barren_run(tmp_path: Path) -> None:
+    # Acceptance #4: two back-to-back finalize_run calls. Run 1 holds an item; a
+    # second consecutive run with ZERO flags must NOT wipe it.
+    repo = tmp_path / "steward-memory"
+    repo.mkdir()
+    _init_git_repo(repo)
+    store = MemoryStore(repo / "memory")
+    ledger = ProcessedLedger(tmp_path / "ledger.jsonl")
+    opts = cycle.FinalizeOptions(repo_root=repo, flagged_path=tmp_path / "flagged.jsonl")
+
+    held = _flagged_item("a held contradiction")
+    run1 = cycle.finalize_run(store, cycle.RunResults(flagged=[held]), ledger, opts)
+    assert run1.open_flagged == 1
+    assert "a held contradiction" in run1.review_path.read_text(encoding="utf-8")
+
+    # Run 2: zero flags. The prior hold survives — the consecutive-run clobber is gone.
+    run2 = cycle.finalize_run(store, cycle.RunResults(flagged=[]), ledger, opts)
+    assert run2.open_flagged == 1
+    assert "a held contradiction" in run2.review_path.read_text(encoding="utf-8")
+
+
+def test_finalize_accumulates_flags_across_runs(tmp_path: Path) -> None:
+    repo = tmp_path / "steward-memory"
+    repo.mkdir()
+    _init_git_repo(repo)
+    store = MemoryStore(repo / "memory")
+    ledger = ProcessedLedger(tmp_path / "ledger.jsonl")
+    opts = cycle.FinalizeOptions(repo_root=repo, flagged_path=tmp_path / "flagged.jsonl")
+
+    cycle.finalize_run(store, cycle.RunResults(flagged=[_flagged_item("hold A")]), ledger, opts)
+    run2 = cycle.finalize_run(
+        store, cycle.RunResults(flagged=[_flagged_item("hold B")]), ledger, opts
+    )
+    assert run2.open_flagged == 2
+    text = run2.review_path.read_text(encoding="utf-8")
+    assert "hold A" in text and "hold B" in text
+
+
+def test_drain_flagged_clears_open_set_and_rebuilds_surface(tmp_path: Path) -> None:
+    store = MemoryStore(tmp_path / "memory")
+    fs = cycle.FlaggedStore(tmp_path / "flagged.jsonl")
+    fs.merge([_flagged_item("hold A"), _flagged_item("hold B")])
+    result = cycle.drain_flagged(store, fs)
+    assert result.drained == 2
+    assert result.remaining == 0
+    text = result.review_path.read_text(encoding="utf-8")
+    assert "hold A" not in text and "hold B" not in text
 
 
 # ---- Stop hook (subprocess: enqueue + fail-open) ----------------------------
