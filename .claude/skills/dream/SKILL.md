@@ -52,7 +52,7 @@ For each worksheet candidate, judge it against its `prefiltered` memories yourse
 
 - score `similarity` (0–1) vs the nearest existing memory;
 - name the matched memory's `filename` (or null if nothing is close);
-- propose `merged_body` for an auto-merge; set `is_contradiction` when the candidate contradicts the match (a contradiction vs a `nathan-stated` memory is **flagged, never overwritten**).
+- propose `merged_body` for an auto-merge; set `is_contradiction` when the candidate contradicts the match (a contradiction vs a `nathan-stated` memory is **surfaced, never auto-written**).
 
 Write a verdicts JSON list **aligned by index** to the worksheet (`[{"similarity":…, "match_filename":…, "merged_body":…, "is_contradiction":…}, …]`), then apply:
 
@@ -61,7 +61,7 @@ $DREAM apply --worksheet /tmp/dream/worksheet_<i>.json --verdicts /tmp/dream/ver
     --today $(date +%F) --session <session_id> > /tmp/dream/apply_<i>.json
 ```
 
-`apply` routes each verdict through the existing `consolidate(...)` write ops — auto-merge ≥0.85, **flag** 0.55–0.85 (never silent-merge the ambiguous middle), append <0.55 — and reports `flagged` + `written_paths`. **Never** re-implement the band logic here.
+`apply` routes each verdict through the existing `consolidate(...)` write ops — auto-merge ≥0.85, then **auto-append everything below** (Nathan's OS#134 ruling: the ambiguous 0.55–0.85 band is auto-approved as a new file, not held) — and reports `flagged` + `written_paths`. The **only** thing still `flagged` is a candidate that contradicts a `nathan-stated` memory (held, never auto-written). **Never** re-implement the band logic here.
 
 ## Step 4 — finalize once per run (batched)
 
@@ -75,11 +75,22 @@ Merge every `apply_<i>.json`'s `flagged` and `written_paths` with step 1's trans
 $DREAM finalize --results /tmp/dream/results.json > /tmp/dream/finalize.json
 ```
 
-This regenerates `MEMORY.md`, writes the `MEMORY_REVIEW.md` flag surface, **commits the store as a doc-only `[skip ci]` change** (HARD CONSTRAINT #2 / acceptance #5 — memory commits never burn a CI run), records every processed transcript in the ledger (even barren ones, so they are not re-processed), and drains the Stop-hook queue.
+This regenerates `MEMORY.md`, **merges this run's holds into the durable open set** (`data/dream/flagged.jsonl`, de-duped by key) and rebuilds `MEMORY_REVIEW.md` from the **full** open set — a barren run never wipes prior holds (OS#134 Bug 1). It then **commits the store as a doc-only `[skip ci]` change** (HARD CONSTRAINT #2 / acceptance #5 — memory commits never burn a CI run), records every processed transcript in the ledger (even barren ones, so they are not re-processed), and drains the Stop-hook queue.
+
+## Draining the review surface (approve held items)
+
+`MEMORY_REVIEW.md` is no longer a blocking queue — it accumulates only the `nathan-stated`-contradiction holds across runs. When Nathan has adjudicated, clear them explicitly (all, or one by its `key` shown in the surface):
+
+```bash
+$DREAM drain                       # approve & clear every hold
+$DREAM drain --key <hold-key>      # clear just one
+```
+
+`drain` removes the items from the open set and rebuilds `MEMORY_REVIEW.md` from what remains, committing the surface as a doc-only `[skip ci]` change.
 
 ## Report
 
-One short summary: sessions processed, facts appended/merged, items flagged for review (point Nathan at `MEMORY_REVIEW.md`), and whether the commit landed. On a no-op run, just "ledger current."
+One short summary: sessions processed, facts appended/merged, holds surfaced for review (point Nathan at `MEMORY_REVIEW.md`, drained via `cycle drain`), and whether the commit landed. On a no-op run, just "ledger current."
 
 ## Invariants (do not violate)
 

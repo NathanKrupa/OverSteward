@@ -25,6 +25,7 @@ one implementation.
 
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
 from pathlib import Path
@@ -40,6 +41,7 @@ from .consolidate import (
     MemoryStore,
     commit_store,
     consolidate,
+    flagged_key,
     jaccard_prefilter,
 )
 from .extract import CandidateFact, parse_candidates, privacy_filter, signal_gate
@@ -60,9 +62,12 @@ __all__ = [
     "DEFAULT_LEDGER_PATH",
     "DEFAULT_STORE_PATH",
     "DEFAULT_STORE_REPO",
+    "FLAGGED_FILENAME",
     "SKIP_CI_MARKER",
+    "DrainResult",
     "FinalizeOptions",
     "FinalizeResult",
+    "FlaggedStore",
     "PendingTranscript",
     "RunResults",
     "Verdict",
@@ -72,11 +77,13 @@ __all__ = [
     "collect_flagged",
     "collect_written_paths",
     "default_commit_message",
+    "drain_flagged",
     "drain_queue",
     "enqueue_transcript",
     "find_unprocessed",
     "finalize_run",
     "flagged_from_dict",
+    "flagged_key",
     "flagged_to_dict",
     "gate_candidates",
     "pending_queue_count",
@@ -96,6 +103,12 @@ DEFAULT_LEDGER_PATH = default_ledger_path(OVERSTEWARD_ROOT)
 # CONSTRAINT #2 / acceptance #5).
 _COMMIT_PREFIX = "dream: consolidate memory"
 SKIP_CI_MARKER = "[skip ci]"
+
+# The durable open set of held flagged items, a per-machine JSONL sibling of the
+# ledger (OS#134). The review surface is rebuilt from this full set each run so a
+# barren cycle never wipes prior holds; items leave only via an explicit drain.
+FLAGGED_FILENAME = "flagged.jsonl"
+_FLAGGED_KEY = "key"
 
 # Serialization keys shared across the JSON-shuttle (de)serializers.
 _CANDIDATE = "candidate"
@@ -345,6 +358,122 @@ def flagged_from_dict(data: dict) -> FlaggedItem:
     )
 
 
+# ---- durable open set (OS#134 Bug 1) ----------------------------------------
+
+
+def default_flagged_path(ledger: ProcessedLedger) -> Path:
+    """The flagged open set's path — a JSONL sibling of the ledger."""
+    return ledger.path.parent / FLAGGED_FILENAME
+
+
+class FlaggedStore:
+    """The durable, keyed open set of held flagged items, persisted as JSONL.
+
+    The review surface is rebuilt from the **full** set each run (OS#134 Bug 1):
+    :meth:`merge` folds a run's new holds in, de-duped by :func:`flagged_key`, and
+    :meth:`drain` is the explicit approve/clear operation. A barren run merges
+    nothing and the prior open set survives — the consecutive-run clobber is gone.
+    Each line is ``{"key": <key>, ...flagged_to_dict(item)}``; the key makes both
+    de-dup and selective drain self-describing.
+    """
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+
+    @property
+    def path(self) -> Path:
+        return self._path
+
+    def _records(self) -> list[dict]:
+        if not self._path.is_file():
+            return []
+        records: list[dict] = []
+        for line in self._path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(record, dict):
+                records.append(record)
+        return records
+
+    def _write(self, records: list[dict]) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        text = "".join(json.dumps(record, sort_keys=True) + "\n" for record in records)
+        self._path.write_text(text, encoding="utf-8")
+
+    def open_items(self) -> list[FlaggedItem]:
+        """Every held item currently in the open set, in insertion order."""
+        return [flagged_from_dict(record) for record in self._records()]
+
+    def merge(self, items: list[FlaggedItem]) -> list[FlaggedItem]:
+        """Fold ``items`` into the open set (de-duped by key); return the full set.
+
+        Existing entries are preserved and re-surfaced holds collapse onto their
+        key rather than duplicating, so the set only ever grows by genuinely new
+        holds. The full open set is returned for the caller to render.
+        """
+        by_key: dict[str, dict] = {}
+        for record in self._records():
+            key = record.get(_FLAGGED_KEY)
+            if isinstance(key, str):
+                by_key[key] = record
+        for item in items:
+            key = flagged_key(item)
+            by_key[key] = {_FLAGGED_KEY: key, **flagged_to_dict(item)}
+        ordered = list(by_key.values())
+        self._write(ordered)
+        return [flagged_from_dict(record) for record in ordered]
+
+    def drain(self, keys: list[str] | None = None) -> int:
+        """Clear approved holds — all of them, or only the named ``keys``.
+
+        Returns the number removed. This is the explicit approve/drain operation
+        the open-set model needs: a hold leaves the set only here, never by a
+        later run silently overwriting the surface.
+        """
+        records = self._records()
+        if keys is None:
+            kept: list[dict] = []
+        else:
+            wanted = set(keys)
+            kept = [record for record in records if record.get(_FLAGGED_KEY) not in wanted]
+        removed = len(records) - len(kept)
+        self._write(kept)
+        return removed
+
+
+@dataclass
+class DrainResult:
+    """What a drain did — items cleared, the rebuilt surface, the remaining count."""
+
+    drained: int
+    review_path: Path
+    remaining: int
+
+
+def drain_flagged(
+    store: MemoryStore,
+    flagged_store: FlaggedStore,
+    *,
+    keys: list[str] | None = None,
+) -> DrainResult:
+    """Approve/clear holds, then rebuild ``MEMORY_REVIEW.md`` from what remains.
+
+    Clears the named ``keys`` (or ALL when ``keys`` is None) from the open set and
+    regenerates the review surface from the survivors — the explicit drain the
+    open-set model needs (OS#134). Does NOT commit; the caller batches the
+    store-repo commit, matching :func:`finalize_run`'s split.
+    """
+    drained = flagged_store.drain(keys)
+    remaining = flagged_store.open_items()
+    review_path = store.write_review_surface(remaining)
+    return DrainResult(drained=drained, review_path=review_path, remaining=len(remaining))
+
+
 # ---- step 4: finalize (batched once per run) --------------------------------
 
 
@@ -377,6 +506,7 @@ class FinalizeResult:
     commit: CommitResult
     recorded: list[str] = field(default_factory=list)
     queue_drained: int = 0
+    open_flagged: int = 0
 
 
 def _record_processed(
@@ -394,12 +524,37 @@ def _record_processed(
 
 @dataclass(frozen=True)
 class FinalizeOptions:
-    """Optional finalize knobs. ``repo_root`` defaults to the store's parent."""
+    """Optional finalize knobs. ``repo_root`` defaults to the store's parent.
+
+    ``flagged_path`` is the durable open set; it defaults to a JSONL sibling of
+    the ledger so a test's temp ledger keeps its open set isolated.
+    """
 
     repo_root: Path | None = None
     message: str | None = None
     now: datetime | None = None
     queue_path: Path | None = None
+    flagged_path: Path | None = None
+
+
+def _rebuild_surfaces(
+    store: MemoryStore,
+    ledger: ProcessedLedger,
+    results: RunResults,
+    flagged_path: Path | None,
+) -> tuple[Path, Path, int]:
+    """Regenerate the index and rebuild the review surface from the FULL open set.
+
+    The run's holds are merged into the durable :class:`FlaggedStore` (de-duped by
+    key) and the survivors render ``MEMORY_REVIEW.md``, so a barren run can no
+    longer wipe prior unreviewed state (OS#134 Bug 1). Returns the index path, the
+    review path, and the open-set size.
+    """
+    index_path = store.regenerate_index()
+    path = flagged_path if flagged_path is not None else default_flagged_path(ledger)
+    open_set = FlaggedStore(path).merge(results.flagged)
+    review_path = store.write_review_surface(open_set)
+    return index_path, review_path, len(open_set)
 
 
 def finalize_run(
@@ -412,12 +567,14 @@ def finalize_run(
 
     Batched once per cycle (step 4). Each processed transcript is recorded even when
     it yielded no facts, so a barren session is not re-processed next run. The commit
-    is the audit trail; the ledger update is local idempotency state.
+    is the audit trail; the ledger update is local idempotency state. The review
+    surface is rebuilt from the full open set (see :func:`_rebuild_surfaces`).
     """
     opts = options or FinalizeOptions()
     repo_root = opts.repo_root if opts.repo_root is not None else store.root.parent
-    index_path = store.regenerate_index()
-    review_path = store.write_review_surface(results.flagged)
+    index_path, review_path, open_flagged = _rebuild_surfaces(
+        store, ledger, results, opts.flagged_path
+    )
     message = opts.message or default_commit_message(results.processed)
     commit = commit_store(repo_root, [*results.written_paths, index_path, review_path], message)
     drained = drain_queue(opts.queue_path, ledger) if opts.queue_path is not None else 0
@@ -425,6 +582,7 @@ def finalize_run(
         index_path=index_path,
         review_path=review_path,
         commit=commit,
+        open_flagged=open_flagged,
         recorded=_record_processed(ledger, results.processed, opts.now),
         queue_drained=drained,
     )

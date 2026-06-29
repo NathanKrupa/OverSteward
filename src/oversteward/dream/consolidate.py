@@ -19,15 +19,17 @@ of the model judgment itself:
   the in-session Max model step scoring similarity + proposing merged text; this
   module never constructs an API client.
 - :func:`classify_band` — the §6 band classifier (≥0.85 / 0.55-0.85 / <0.55).
-- :func:`consolidate` — the orchestrator wiring prefilter → judge → band → write,
-  with the §6 provenance guard (a contradiction vs a ``nathan-stated`` fact
-  FLAGS, never overwrites).
+- :func:`consolidate` — the orchestrator wiring prefilter → judge → band → write.
+  Per Nathan's ruling (OS#134) the ambiguous 0.55-0.85 band is **auto-approved**
+  (appended as a new file), not held; only the provenance guard still surfaces a
+  candidate that contradicts a ``nathan-stated`` memory (surfaced, never written).
 - :func:`commit_store` — a thin ``git add``/``commit`` wrapper over the store
   repo (injectable path) — the audit trail.
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 import subprocess
@@ -183,12 +185,26 @@ class MemoryStore:
         return path
 
     def write_review_surface(self, flagged: list[FlaggedItem]) -> Path:
-        """Write ``MEMORY_REVIEW.md`` — the §14-5 human-adjudication flag surface.
+        """Write ``MEMORY_REVIEW.md`` from the full open set of held candidates.
 
-        One section per flagged candidate, recording why it was held and the
-        nearest existing memory, so Nathan can adjudicate without re-deriving.
+        The cycle auto-approves the ambiguous 0.55-0.85 band, so the only items
+        that land here are candidates the provenance guard held — a contradiction
+        against a ``nathan-stated`` memory (surfaced, never auto-written). The
+        caller passes the **full accumulated open set** (not just the current
+        run's holds), so a barren run never wipes prior state; items leave the set
+        only via an explicit drain. One section per held candidate, each carrying
+        its dedupe ``key`` for selective drain.
         """
-        lines = ["# Memory Review Queue", "", "Items the dream cycle held for human adjudication.", ""]
+        lines = [
+            "# Memory Review Queue",
+            "",
+            "Held candidates the dream cycle surfaced instead of auto-writing — each",
+            "contradicts a `nathan-stated` memory (the provenance guard). Auto-approved",
+            "writes land directly in the store (their git history is the audit trail);",
+            "only these holds accumulate here across runs until cleared by an explicit",
+            "drain (`scripts/dream.py cycle drain`).",
+            "",
+        ]
         for item in flagged:
             lines.extend(_render_flag(item))
         text = "\n".join(lines).rstrip("\n") + "\n"
@@ -204,6 +220,7 @@ def _render_flag(item: FlaggedItem) -> list[str]:
     return [
         f"## {cand.description}",
         "",
+        f"- **key:** {flagged_key(item)}",
         f"- **reason:** {item.reason}",
         f"- **type:** {cand.type}",
         f"- **provenance:** {cand.provenance}",
@@ -316,6 +333,19 @@ class FlaggedItem:
     nearest: MemoryFile | None
 
 
+def flagged_key(item: FlaggedItem) -> str:
+    """Stable dedupe key for a held item across runs (candidate + nearest).
+
+    The durable open set (OS#134) keys holds so the same contradiction surfaced
+    by two consecutive cycles collapses to one entry, and the operator can drain
+    a single hold by its key. Derived from the content that identifies the hold —
+    the candidate's type + description and the nearest existing memory.
+    """
+    nearest = item.nearest.filename if item.nearest is not None else ""
+    raw = f"{item.candidate.type}\x00{item.candidate.description}\x00{nearest}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+
+
 @dataclass
 class ConsolidationOutcome:
     """The result of resolving one candidate — what the loop did and why."""
@@ -352,12 +382,14 @@ def consolidate(
     session_id: str | None = None,
     top_k: int = 10,
 ) -> ConsolidationOutcome:
-    """Resolve one candidate against ``store`` and write/merge/flag/append (§6, §11).
+    """Resolve one candidate against ``store`` and merge/append/hold (§6, §11).
 
     The model judgment is INJECTED via ``judge`` (§14-3) — never a hardcoded API
-    call. Pipeline: Jaccard prefilter → judge → §6 band → write op. The §6
-    provenance guard runs first: a *contradiction* at any flag-or-higher
-    similarity against a ``nathan-stated`` memory FLAGS, it never overwrites.
+    call. Pipeline: Jaccard prefilter → judge → §6 band → write op. The provenance
+    guard runs first: a *contradiction* against a ``nathan-stated`` memory at the
+    flag band or above is HELD (surfaced, never auto-written). Otherwise ≥0.85
+    auto-merges and everything below auto-appends as a new file — the ambiguous
+    0.55-0.85 band is auto-approved (Nathan's OS#134 ruling), no longer held.
 
     Does NOT regenerate the index or commit — the caller batches those after all
     candidates (the index is rewritten once, the commit is the audit trail for
@@ -370,43 +402,46 @@ def consolidate(
     return _route(candidate, store, verdict, ctx)
 
 
-_AMBIGUOUS_REASON = "ambiguous similarity — held for human review"
-
-
 def _route(
     candidate: CandidateFact,
     store: MemoryStore,
     verdict: JudgeResult,
     ctx: WriteContext,
 ) -> ConsolidationOutcome:
-    """Apply the §6 band + provenance guard to one judged candidate."""
+    """Apply the §6 band + provenance guard to one judged candidate.
+
+    The provenance guard surfaces a ``nathan-stated`` contradiction (held, never
+    auto-written). Otherwise the auto-merge band merges and BOTH lower bands
+    auto-append: the ambiguous 0.55-0.85 middle is auto-approved (OS#134), no
+    longer held for human review.
+    """
     band = classify_band(verdict.similarity)
     guard = _provenance_guard(candidate, verdict, band)
     if guard is not None:
         return _flag(candidate, verdict, guard)
     if band == Band.AUTO_MERGE:
         return _merge(candidate, store, verdict, ctx)
-    if band == Band.FLAG:
-        return _flag(candidate, verdict, _AMBIGUOUS_REASON)
     return _append(candidate, store, verdict, ctx)
 
 
 def _provenance_guard(
     candidate: CandidateFact, verdict: JudgeResult, band: str
 ) -> str | None:
-    """Return a flag reason if the §6 provenance guard trips, else None.
+    """Return a flag reason if the provenance guard trips, else None.
 
-    A contradiction against a matched ``nathan-stated`` memory must FLAG rather
-    than overwrite (``feedback_memory_provenance``). The guard applies whenever
-    the judge marks a contradiction and similarity is high enough to have
-    otherwise merged.
+    A contradiction against a matched ``nathan-stated`` memory must be HELD rather
+    than written (``feedback_memory_provenance``): an auto-merge would overwrite
+    Nathan's law, and — now that the 0.55-0.85 band auto-appends (OS#134) — a
+    flag-band contradiction would silently add a contradicting file. The guard
+    therefore fires at the flag band and above. The genuinely-unrelated append
+    band (<0.55) is ignored: a "contradiction" there is spurious noise.
     """
     if not verdict.is_contradiction or verdict.match is None:
         return None
-    if band != Band.AUTO_MERGE:
+    if band == Band.APPEND:
         return None
     if verdict.match.provenance() == "nathan-stated":
-        return "contradicts a nathan-stated memory — flagged, never overwritten"
+        return "contradicts a nathan-stated memory — surfaced, never auto-written"
     return None
 
 

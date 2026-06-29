@@ -10,7 +10,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from oversteward.dream import cycle
-from oversteward.dream.consolidate import MemoryStore
+from oversteward.dream.consolidate import MemoryStore, commit_store
 from oversteward.dream.extract import CandidateFact
 from oversteward.dream.ledger import ProcessedLedger
 from oversteward.dream.transcripts import (
@@ -115,6 +115,7 @@ def _cmd_finalize(args: argparse.Namespace) -> int:
             repo_root=Path(args.store_repo),
             message=args.message,
             queue_path=Path(args.queue) if args.queue else None,
+            flagged_path=Path(args.flagged) if args.flagged else None,
         ),
     )
     return _emit(
@@ -125,6 +126,24 @@ def _cmd_finalize(args: argparse.Namespace) -> int:
             "review_path": str(result.review_path),
             "recorded": result.recorded,
             "queue_drained": result.queue_drained,
+            "open_flagged": result.open_flagged,
+        }
+    )
+
+
+def _cmd_drain(args: argparse.Namespace) -> int:
+    store = MemoryStore(Path(args.store))
+    flagged_store = cycle.FlaggedStore(Path(args.flagged))
+    keys = args.key or None
+    result = cycle.drain_flagged(store, flagged_store, keys=keys)
+    if not args.no_commit and result.drained:
+        message = f"dream: drain {result.drained} reviewed hold(s) {cycle.SKIP_CI_MARKER}"
+        commit_store(Path(args.store_repo), [result.review_path], message)
+    return _emit(
+        {
+            "drained": result.drained,
+            "remaining": result.remaining,
+            "review_path": str(result.review_path),
         }
     )
 
@@ -170,8 +189,21 @@ def _add_cycle_subparser(sub: argparse._SubParsersAction) -> None:
     fin.add_argument("--store-repo", default=str(cycle.DEFAULT_STORE_REPO))
     fin.add_argument("--ledger", default=str(cycle.DEFAULT_LEDGER_PATH))
     fin.add_argument("--queue", default=str(cycle.DEFAULT_QUEUE_PATH))
+    fin.add_argument("--flagged", default=None, help="open-set path (default: ledger sibling)")
     fin.add_argument("--message", default=None, help="override the doc-only commit message")
     fin.set_defaults(func=_cmd_finalize)
+
+    drn = actions.add_parser("drain", help="approve/clear held items + rebuild review surface (JSON)")
+    drn.add_argument("--key", action="append", help="drain only this hold key (repeatable; default: all)")
+    drn.add_argument("--store", default=str(cycle.DEFAULT_STORE_PATH))
+    drn.add_argument("--store-repo", default=str(cycle.DEFAULT_STORE_REPO))
+    drn.add_argument(
+        "--flagged",
+        default=str(cycle.DEFAULT_LEDGER_PATH.parent / cycle.FLAGGED_FILENAME),
+        help="open-set path (default: ledger sibling)",
+    )
+    drn.add_argument("--no-commit", action="store_true", help="rebuild the surface but do not commit")
+    drn.set_defaults(func=_cmd_drain)
 
 
 def _build_parser() -> argparse.ArgumentParser:
