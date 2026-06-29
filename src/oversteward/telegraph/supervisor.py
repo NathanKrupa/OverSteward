@@ -14,9 +14,15 @@ the inner edges measured this tick), the carried :class:`SupervisorState`, and
 the :class:`SupervisorConfig` thresholds, it returns the single next
 :class:`Decision`. It performs **no** I/O — polling ``getWebhookInfo``, the
 heartbeat round-trip, ``sendMessage``, and the relaunch/eviction are inner edges
-the CLI supplies. Every clock value arrives as ``Observation.now`` (monotonic
-seconds), so the whole engine is exhaustively testable without a network, real
-time, or a real process.
+the CLI supplies. Every clock value arrives as ``Observation.now`` (**wall-clock
+epoch seconds**), so the whole engine is exhaustively testable without a network,
+real time, or a real process. Wall clock — not ``time.monotonic`` — is mandatory:
+the cooldown anchor is persisted across supervisor restarts, where a monotonic
+value resets to garbage, and the heartbeat round-trip is judged against a file
+mtime (also wall-clock epoch). A persisted anchor that a wall-clock step leaves
+in the future or implausibly far in the past is self-healed each tick
+(:func:`_sanitize_ledger`) so a corrupted ledger can never wedge the supervisor
+(OverSteward #139).
 
 Two detection signals feed the verdict, fused by OR:
   - **pending-update debounce** — ``getWebhookInfo().pending_update_count`` stays
@@ -45,6 +51,9 @@ import json
 from dataclasses import asdict, dataclass, field, replace
 from enum import Enum
 from pathlib import Path
+
+
+_LEDGER_STALE_FACTOR = 30  # clear a cooldown anchor older than 30x cooldown (skew self-heal)
 
 
 class Action(str, Enum):
@@ -79,7 +88,7 @@ class SupervisorConfig:
 class SupervisorState:
     """Cross-tick memory carried between probes (persisted as JSON by the CLI)."""
 
-    launched_at: float                                  # monotonic ts of last (re)launch
+    launched_at: float                                  # wall-clock ts of last (re)launch
     pending_streak: int = 0                             # consecutive non-zero pending probes
     heartbeat_fail_streak: int = 0                      # consecutive heartbeat round-trip failures
     last_relaunch_at: float | None = None               # cooldown anchor
@@ -90,7 +99,7 @@ class SupervisorState:
 class Observation:
     """What the inner edges measured this tick."""
 
-    now: float                      # monotonic seconds
+    now: float                      # wall-clock epoch seconds
     pending_update_count: int = 0
     heartbeat_ok: bool = True
 
@@ -137,11 +146,42 @@ def _recent_restarts(state: SupervisorState, cfg: SupervisorConfig, now: float) 
     return tuple(ts for ts in state.restart_timestamps if ts >= cutoff)
 
 
+def _sanitize_ledger(
+    state: SupervisorState, cfg: SupervisorConfig, now: float
+) -> SupervisorState:
+    """Self-heal a future-dated or implausibly-old cooldown anchor (clock-skew guard).
+
+    ``last_relaunch_at`` is a persisted wall-clock timestamp. A WSL wall-clock
+    step — or a stale ``time.monotonic`` value left by an older build — can leave
+    it in the *future* (``elapsed < 0``) or implausibly far in the past
+    (``elapsed > _LEDGER_STALE_FACTOR * cooldown_s``). Either way the cooldown
+    window is meaningless and would otherwise wedge the supervisor (OverSteward
+    #139), so clear the anchor and let detection act normally. Called at the top
+    of every :func:`decide`, so the repaired ledger is what gets persisted.
+    """
+    anchor = state.last_relaunch_at
+    if anchor is None:
+        return state
+    elapsed = now - anchor
+    if elapsed < 0 or elapsed > _LEDGER_STALE_FACTOR * cfg.cooldown_s:
+        return replace(state, last_relaunch_at=None)
+    return state
+
+
 def _in_cooldown(state: SupervisorState, cfg: SupervisorConfig, now: float) -> bool:
-    """True while a prior relaunch is still inside the cooldown ledger window."""
+    """True while a prior relaunch is still inside the cooldown ledger window.
+
+    The window is guarded on BOTH ends: ``0 <= elapsed < cooldown_s``. A negative
+    ``elapsed`` means ``last_relaunch_at`` sits in the *future* — a skewed or
+    corrupted anchor — which must NOT count as in-cooldown, or the supervisor
+    wedges and never relaunches (OverSteward #139: an anchor ~22h in the future
+    produced 3,699 consecutive deaf probes and zero relaunches). The persisted
+    anchor itself is repaired by :func:`_sanitize_ledger`.
+    """
     if state.last_relaunch_at is None:
         return False
-    return (now - state.last_relaunch_at) < cfg.cooldown_s
+    elapsed = now - state.last_relaunch_at
+    return 0 <= elapsed < cfg.cooldown_s
 
 
 def _record_relaunch(state: SupervisorState, cfg: SupervisorConfig, now: float) -> SupervisorState:
@@ -178,6 +218,7 @@ def decide(obs: Observation, state: SupervisorState, cfg: SupervisorConfig) -> D
     relaunch (subject to cooldown + loop-breaker), then a proactive uptime
     recycle (subject to cooldown), else nothing.
     """
+    state = _sanitize_ledger(state, cfg, obs.now)
     if (obs.now - state.launched_at) < cfg.startup_grace_s:
         return Decision(Action.NONE, "within startup grace window", state)
 

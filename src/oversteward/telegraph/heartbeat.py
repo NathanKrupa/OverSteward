@@ -62,6 +62,10 @@ def probe_heartbeat(
     ``send_sentinel`` (Bot-API ``sendMessage`` of the sentinel text), ``wait``
     (sleep), and ``now`` (clock) are injected so the round-trip is testable
     without a network. Returns whether the operator processed the sentinel.
+
+    ``now`` MUST be a **wall-clock** source (``time.time``), not ``time.monotonic``:
+    freshness compares ``now`` against the touch file's mtime, which is wall-clock
+    epoch seconds. Mixing the two made every probe read stale (OverSteward #139).
     """
     sent_at = now()
     send_sentinel()

@@ -24,16 +24,23 @@ EnvironmentFile=%h/.claude/channels/telegram/supervisor.env
 # The CLI imports the `oversteward` package; point Python at the repo src
 # (an editable `uv sync` install also satisfies this).
 Environment=PYTHONPATH=%h/OverSteward/src
+# A systemd --user manager starts with a minimal PATH, so `claude` (in
+# ~/.local/bin) and `tmux` (/usr/bin) would not resolve. The relaunched operator
+# inherits this PATH, so both must be on it (OverSteward #119).
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 # --loop: the supervisor runs continuously, ticking every --poll-interval seconds.
 # On each process start it resets its grace window + detection streaks while
 # preserving the cooldown ledger (so Restart=always cannot relaunch-loop the
-# operator). Everything after --relaunch-cmd is the operator relaunch command,
-# which the supervisor runs inside a detached `telegraph-operator` tmux session
-# (a pty, so claude runs interactive — systemd has no controlling terminal).
-# Requires tmux on PATH (/usr/bin/tmux).
+# operator). --session-name names the tmux session the operator runs in (the
+# single-instance key); it MUST be passed before --relaunch-cmd, because
+# --relaunch-cmd consumes every remaining token (argparse REMAINDER) as the
+# operator relaunch command. The supervisor runs that command inside a detached
+# `telegraph-operator` tmux session (a pty, so claude runs interactive — systemd
+# has no controlling terminal). Requires tmux on PATH (/usr/bin/tmux).
 ExecStart=/usr/bin/env python3 %h/OverSteward/shared/scripts/telegraph/operator_supervisor.py \
     --chat-id ${TELEGRAPH_CHAT_ID} \
     --loop \
+    --session-name telegraph-operator \
     --relaunch-cmd claude --channels plugin:telegram@claude-plugins-official
 Restart=always
 RestartSec=10

@@ -5,12 +5,18 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import os
 import sys
+import time
 from pathlib import Path
 
 import pytest
 
 from oversteward.telegraph.supervisor import SupervisorState, save_supervisor_state
+
+# A fixed wall-clock epoch the tick tests pin time.time() to, so the heartbeat
+# round-trip (judged against the touch file's wall-clock mtime) is deterministic.
+_FIXED_NOW = 1_700_000_000.0
 
 
 def _load_cli():
@@ -58,6 +64,7 @@ class _FakeBotApi:
         self.pending = pending
         self.heartbeat_touches = heartbeat_touches
         self.alerts: list[str] = []
+        self.sends: list[tuple[str, bool]] = []  # (text, silent) for every send_alert
         self.deleted: list[int] = []
         self._next_message_id = 1000
         self._hb_path: Path | None = None
@@ -65,11 +72,16 @@ class _FakeBotApi:
     def fetch_pending_update_count(self, token: str) -> int:
         return self.pending
 
-    def send_alert(self, token: str, chat_id: str, text: str) -> int:
+    def send_alert(self, token: str, chat_id: str, text: str, *, silent: bool = False) -> int:
         self.alerts.append(text)
-        # Model a responsive operator: receiving the sentinel touches the file.
+        self.sends.append((text, silent))
+        # Model a responsive operator: receiving the sentinel touches the file
+        # with a fresh (wall-clock) mtime, completing the round-trip. The mtime is
+        # pinned to the patched clock so freshness is deterministic on any fs.
         if self.heartbeat_touches and self._hb_path is not None:
             self._hb_path.write_text("beat")
+            stamp = time.time()
+            os.utime(self._hb_path, (stamp, stamp))
         self._next_message_id += 1
         return self._next_message_id
 
@@ -122,7 +134,7 @@ def test_factory_never_puts_token_in_repr():
 
 
 def test_tick_healthy_does_not_alert_or_relaunch(tmp_path, monkeypatch):
-    monkeypatch.setattr(cli.time, "monotonic", lambda: 1000.0)
+    monkeypatch.setattr(cli.time, "time", lambda: _FIXED_NOW)
     monkeypatch.setattr(cli.time, "sleep", lambda s: None)
     settings = cli.build_settings(
         _args(
@@ -142,7 +154,7 @@ def test_tick_healthy_does_not_alert_or_relaunch(tmp_path, monkeypatch):
 
 
 def test_tick_deletes_its_own_heartbeat_sentinel(tmp_path, monkeypatch):
-    monkeypatch.setattr(cli.time, "monotonic", lambda: 1000.0)
+    monkeypatch.setattr(cli.time, "time", lambda: _FIXED_NOW)
     monkeypatch.setattr(cli.time, "sleep", lambda s: None)
     settings = cli.build_settings(
         _args(
@@ -162,7 +174,7 @@ def test_tick_deletes_its_own_heartbeat_sentinel(tmp_path, monkeypatch):
 
 
 def test_tick_deaf_pending_relaunches_via_tmux(tmp_path, monkeypatch):
-    monkeypatch.setattr(cli.time, "monotonic", lambda: 1000.0)
+    monkeypatch.setattr(cli.time, "time", lambda: _FIXED_NOW)
     monkeypatch.setattr(cli.time, "sleep", lambda s: None)
     settings = cli.build_settings(
         _args(
@@ -185,7 +197,7 @@ def test_tick_deaf_pending_relaunches_via_tmux(tmp_path, monkeypatch):
 
 
 def test_tick_persists_state_between_calls(tmp_path, monkeypatch):
-    monkeypatch.setattr(cli.time, "monotonic", lambda: 1000.0)
+    monkeypatch.setattr(cli.time, "time", lambda: _FIXED_NOW)
     monkeypatch.setattr(cli.time, "sleep", lambda s: None)
     settings = cli.build_settings(
         _args(
@@ -208,7 +220,7 @@ def test_tick_persists_state_between_calls(tmp_path, monkeypatch):
 
 
 def test_boot_resets_stale_grace_but_keeps_cooldown(tmp_path, monkeypatch):
-    monkeypatch.setattr(cli.time, "monotonic", lambda: 5000.0)
+    monkeypatch.setattr(cli.time, "time", lambda: 5000.0)
     save_supervisor_state(
         tmp_path / "state.json",
         SupervisorState(
@@ -230,6 +242,110 @@ def test_boot_resets_stale_grace_but_keeps_cooldown(tmp_path, monkeypatch):
     # Cooldown ledger survives the restart.
     assert booted.last_relaunch_at == 42.0
     assert booted.restart_timestamps == (40.0, 41.0)
+
+
+# --- buzz fix: the heartbeat sentinel is silent, real alerts notify (bug A) ---
+
+
+def test_heartbeat_sentinel_is_sent_silently(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli.time, "time", lambda: _FIXED_NOW)
+    monkeypatch.setattr(cli.time, "sleep", lambda s: None)
+    settings = cli.build_settings(
+        _args(
+            state_file=str(tmp_path / "state.json"),
+            heartbeat_file=str(tmp_path / "hb"),
+            startup_grace=0.0,
+        ),
+        {"TELEGRAM_BOT_TOKEN": "SECRET"},
+    )
+    bot = _FakeBotApi(pending=0, heartbeat_touches=True)
+    bot._hb_path = tmp_path / "hb"
+    session = _FakeSession(exists=True)
+    cli.run_tick(settings, bot, session)
+    # Exactly one send this healthy tick: the sentinel, and it went out silent
+    # (disable_notification) so it never buzzes Nathan's phone.
+    assert bot.sends == [(cli._HEARTBEAT_SENTINEL, True)]
+
+
+def test_real_relaunch_alert_notifies(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli.time, "time", lambda: _FIXED_NOW)
+    monkeypatch.setattr(cli.time, "sleep", lambda s: None)
+    settings = cli.build_settings(
+        _args(
+            state_file=str(tmp_path / "state.json"),
+            heartbeat_file=str(tmp_path / "hb"),
+            startup_grace=0.0,
+            hysteresis=1,
+        ),
+        {"TELEGRAM_BOT_TOKEN": "SECRET"},
+    )
+    bot = _FakeBotApi(pending=5, heartbeat_touches=True)
+    bot._hb_path = tmp_path / "hb"
+    session = _FakeSession(exists=True)
+    cli.run_tick(settings, bot, session)
+    # The sentinel is silent; the relaunch alert is NOT (a real, rare event).
+    silent_by_text = dict(bot.sends)
+    assert silent_by_text[cli._HEARTBEAT_SENTINEL] is True
+    relaunch_alerts = [(t, s) for (t, s) in bot.sends if "relaunch" in t]
+    assert relaunch_alerts and all(s is False for _, s in relaunch_alerts)
+
+
+# --- relaunch target is the real session + full command, not "none"/truncated (bug C) ---
+
+
+def test_relaunch_uses_full_command_and_real_session_name(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli.time, "time", lambda: _FIXED_NOW)
+    monkeypatch.setattr(cli.time, "sleep", lambda s: None)
+    full_cmd = ["claude", "--channels", "plugin:telegram@claude-plugins-official"]
+    settings = cli.build_settings(
+        _args(
+            state_file=str(tmp_path / "state.json"),
+            heartbeat_file=str(tmp_path / "hb"),
+            startup_grace=0.0,
+            hysteresis=1,
+            session_name="telegraph-operator",
+            relaunch_cmd=full_cmd,
+        ),
+        {"TELEGRAM_BOT_TOKEN": "SECRET"},
+    )
+    bot = _FakeBotApi(pending=5, heartbeat_touches=True)
+    bot._hb_path = tmp_path / "hb"
+    session = _FakeSession(exists=True)
+    cli.run_tick(settings, bot, session)
+    assert session.started == [("telegraph-operator", full_cmd)]
+    started_name, started_cmd = session.started[0]
+    assert started_name != "none"  # not the stale default-session bug
+    assert started_cmd == full_cmd  # full command, not truncated to ["claude"]
+
+
+def test_remainder_parsing_captures_whole_relaunch_command():
+    # argparse REMAINDER must keep every token after --relaunch-cmd, including
+    # the operator's own flags, rather than swallowing only the first word.
+    args = cli._build_parser().parse_args(
+        [
+            "--chat-id", "1",
+            "--session-name", "telegraph-operator",
+            "--relaunch-cmd", "claude", "--channels", "plugin:telegram@claude-plugins-official",
+        ]
+    )
+    assert args.session_name == "telegraph-operator"
+    assert args.relaunch_cmd == [
+        "claude", "--channels", "plugin:telegram@claude-plugins-official",
+    ]
+
+
+# --- log rate-limiting so a stuck state can't flood journald (bug D) ---
+
+
+def test_changed_line_always_emits():
+    assert cli._should_emit("relaunch: deaf", "none: healthy", 0)
+
+
+def test_identical_line_suppressed_between_intervals():
+    # Same line repeating: emit on the boundary, suppress in between.
+    assert not cli._should_emit("none: in cooldown", "none: in cooldown", 1, every=40)
+    assert not cli._should_emit("none: in cooldown", "none: in cooldown", 39, every=40)
+    assert cli._should_emit("none: in cooldown", "none: in cooldown", 40, every=40)
 
 
 # --- arg parsing -----------------------------------------------------------

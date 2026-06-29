@@ -115,12 +115,17 @@ def build_settings(args: argparse.Namespace, env: dict[str, str]) -> SupervisorS
 
 
 def _send_heartbeat_sentinel(settings: SupervisorSettings, bot_api) -> None:
-    """Send the sentinel and immediately delete it (silent in Nathan's chat).
+    """Send the sentinel **silently**, then delete it (no buzz, no chat clutter).
 
-    The inbound update Telegram queues for the operator at send time survives the
-    deletion, so the round-trip still completes — but the visible message is gone.
+    ``silent=True`` (``disable_notification``) is the buzz fix: deleting the
+    message only removes the chat line, but the push notification has already
+    fired — a mobile buzz cannot be un-rung (OverSteward #139). The inbound update
+    Telegram queues for the operator at send time survives the deletion, so the
+    round-trip still completes — but no phone ping and no visible message.
     """
-    message_id = bot_api.send_alert(settings.token, settings.chat_id, _HEARTBEAT_SENTINEL)
+    message_id = bot_api.send_alert(
+        settings.token, settings.chat_id, _HEARTBEAT_SENTINEL, silent=True
+    )
     if message_id is not None:
         bot_api.delete_message(settings.token, settings.chat_id, message_id)
 
@@ -132,7 +137,10 @@ def _observe(settings: SupervisorSettings, bot_api, now: float) -> Observation:
         settings.heartbeat_file,
         send_sentinel=lambda: _send_heartbeat_sentinel(settings, bot_api),
         wait=time.sleep,
-        now=time.monotonic,
+        # Wall clock (not monotonic): the round-trip is judged against the touch
+        # file's mtime, which is wall-clock epoch seconds. Mixing clocks made the
+        # probe always read stale (OverSteward #139).
+        now=time.time,
         window_s=settings.heartbeat_window_s,
     )
     return Observation(now=now, pending_update_count=pending, heartbeat_ok=heartbeat_ok)
@@ -172,7 +180,7 @@ def _boot(settings: SupervisorSettings) -> SupervisorState:
     reset so a freshly (re)started supervisor gets a clean grace window instead of
     inheriting the dead run's spent guards (OverSteward #120).
     """
-    now = time.monotonic()
+    now = time.time()
     persisted = load_supervisor_state(settings.state_file, default_launched_at=now)
     fresh = reset_for_process_start(persisted, now)
     save_supervisor_state(settings.state_file, fresh)
@@ -181,13 +189,31 @@ def _boot(settings: SupervisorSettings) -> SupervisorState:
 
 def run_tick(settings: SupervisorSettings, bot_api, session: SessionControl) -> str:
     """One supervision tick: observe, decide, act, persist. Returns the action."""
-    now = time.monotonic()
+    # Wall clock everywhere: the cooldown anchor + restart window persist across
+    # supervisor restarts, where a monotonic value resets to garbage (OverSteward
+    # #139). The decision engine self-heals a skewed anchor each tick.
+    now = time.time()
     state = load_supervisor_state(settings.state_file, default_launched_at=now)
     obs = _observe(settings, bot_api, now)
     decision = decide(obs, state, settings.config)
     _act(decision.action, decision.reason, settings, bot_api, session)
     save_supervisor_state(settings.state_file, decision.state)
     return f"{decision.action.value}: {decision.reason}"
+
+
+_LOG_REPEAT_EVERY = 40  # collapse identical consecutive tick lines (~10 min at 15s poll)
+
+
+def _should_emit(line: str, prev_line: str | None, repeat: int, *, every: int = _LOG_REPEAT_EVERY) -> bool:
+    """Rate-limit identical consecutive tick lines so a stuck state can't flood journald.
+
+    A changed line always prints. An unchanged line ("deaf … but in cooldown",
+    "none: healthy") prints only once every ``every`` repeats — enough to prove
+    liveness without thousands of duplicate lines (OverSteward #139, Bug D).
+    """
+    if line != prev_line:
+        return True
+    return repeat % every == 0
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -232,11 +258,19 @@ def main(argv: list[str] | None = None) -> int:
     # Process start: fresh grace window + zeroed streaks, but keep the cooldown
     # ledger so Restart=always cannot relaunch the operator every few seconds.
     _boot(settings)
+    prev_line: str | None = None
+    repeat = 0
     while True:
         try:
-            print(runner())
+            line = runner()
         except (RuntimeError, OSError) as exc:
             sys.stderr.write(f"supervisor: tick failed: {exc}\n")
+            time.sleep(settings.config.poll_interval_s)
+            continue
+        repeat = repeat + 1 if line == prev_line else 0
+        if _should_emit(line, prev_line, repeat):
+            print(f"{line} (x{repeat + 1})" if repeat else line)
+        prev_line = line
         time.sleep(settings.config.poll_interval_s)
 
 

@@ -127,6 +127,64 @@ def test_relaunch_after_cooldown_elapsed_fires():
     assert decision.action == Action.RELAUNCH
 
 
+# --- cooldown window guard + ledger self-heal (bug B, OverSteward #139) -----
+
+
+def test_future_dated_anchor_is_not_in_cooldown_and_relaunches():
+    # A wall-clock step left last_relaunch_at ~22h in the FUTURE → elapsed < 0.
+    # The old `(now - anchor) < cooldown` read this as "in cooldown" forever and
+    # wedged. The two-ended guard must treat a future anchor as NOT-in-cooldown.
+    cfg = _cfg(cooldown_s=21600.0, hysteresis=2)
+    now = 100000.0
+    state = SupervisorState(
+        launched_at=0.0, pending_streak=1, last_relaunch_at=now + 79200.0
+    )
+    decision = decide(_obs(now=now, pending=4), state, cfg)
+    assert decision.action == Action.RELAUNCH
+
+
+def test_future_dated_anchor_is_self_healed_to_none():
+    # The corrupted anchor is cleared from the persisted state, not just ignored.
+    # A young, healthy session: no relaunch/recycle re-anchors over the clear.
+    cfg = _cfg(cooldown_s=21600.0, hysteresis=2)
+    now = 100000.0
+    state = SupervisorState(launched_at=now - 10.0, last_relaunch_at=now + 5000.0)
+    decision = decide(_obs(now=now, pending=0, heartbeat_ok=True), state, cfg)
+    assert decision.action == Action.NONE
+    assert decision.state.last_relaunch_at is None
+
+
+def test_implausibly_old_anchor_is_self_healed_to_none():
+    # An anchor older than 30x cooldown is meaningless; clear it.
+    cfg = _cfg(cooldown_s=3600.0, hysteresis=2)
+    now = 1_000_000.0
+    state = SupervisorState(launched_at=now - 10.0, last_relaunch_at=now - 31 * 3600.0)
+    decision = decide(_obs(now=now, pending=0, heartbeat_ok=True), state, cfg)
+    assert decision.state.last_relaunch_at is None
+
+
+def test_normal_window_anchor_is_preserved_and_holds_cooldown():
+    # A plausible recent anchor inside the window is kept and still suppresses.
+    cfg = _cfg(cooldown_s=21600.0, hysteresis=2)
+    now = 100000.0
+    anchor = now - 3600.0  # 1h ago, inside the 6h cooldown
+    state = SupervisorState(launched_at=0.0, pending_streak=1, last_relaunch_at=anchor)
+    decision = decide(_obs(now=now, pending=4), state, cfg)
+    assert decision.action == Action.NONE
+    assert "cooldown" in decision.reason.lower()
+    assert decision.state.last_relaunch_at == anchor
+
+
+def test_expired_window_anchor_is_preserved_and_relaunches():
+    # An anchor past the window (but not implausibly old) is kept; cooldown ended.
+    cfg = _cfg(cooldown_s=3600.0, hysteresis=2)
+    now = 100000.0
+    anchor = now - 7200.0  # 2h ago, past the 1h cooldown, within 30x
+    state = SupervisorState(launched_at=0.0, pending_streak=1, last_relaunch_at=anchor)
+    decision = decide(_obs(now=now, pending=4), state, cfg)
+    assert decision.action == Action.RELAUNCH
+
+
 # --- restart-loop-breaker --------------------------------------------------
 
 
