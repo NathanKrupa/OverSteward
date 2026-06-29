@@ -200,6 +200,28 @@ def test_send_alert_returns_none_when_response_omits_message_id():
     assert wd.send_alert("SECRET", "123", "hi", urlopen=fake_urlopen) is None
 
 
+def test_send_alert_silent_sets_disable_notification():
+    captured = {}
+
+    def fake_urlopen(req, timeout=0):
+        captured["data"] = req.data
+        return _FakeResp({"ok": True, "result": {"message_id": 1}})
+
+    wd.send_alert("SECRET", "123", "hi", silent=True, urlopen=fake_urlopen)
+    assert b"disable_notification=true" in captured["data"]
+
+
+def test_send_alert_default_does_not_disable_notification():
+    captured = {}
+
+    def fake_urlopen(req, timeout=0):
+        captured["data"] = req.data
+        return _FakeResp({"ok": True, "result": {"message_id": 1}})
+
+    wd.send_alert("SECRET", "123", "hi", urlopen=fake_urlopen)
+    assert b"disable_notification" not in captured["data"]
+
+
 def test_delete_message_posts_chat_and_message_id():
     captured = {}
 

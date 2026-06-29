@@ -184,6 +184,7 @@ def send_alert(
     chat_id: str,
     text: str,
     *,
+    silent: bool = False,
     urlopen: Callable = urllib.request.urlopen,
 ) -> int | None:
     """Send via ``sendMessage`` (outbound survives a deaf inbound); return its id.
@@ -191,8 +192,17 @@ def send_alert(
     Returns the Telegram ``message_id`` of the sent message so a caller can delete
     it again (the supervisor's heartbeat sentinel), or ``None`` if the response
     omits one. A failed send raises.
+
+    ``silent=True`` sets ``disable_notification`` so the message lands in the chat
+    without firing a push notification. The ~20s heartbeat sentinel uses it — a
+    deleted message still un-shows the chat line, but a push notification cannot
+    be un-rung once fired, so the buzz must be suppressed at send time (OverSteward
+    #139). Real alerts (relaunch / budget-spent) leave it ``False`` and notify.
     """
-    body = _post_method(token, "sendMessage", {"chat_id": chat_id, "text": text}, urlopen)
+    fields = {"chat_id": chat_id, "text": text}
+    if silent:
+        fields["disable_notification"] = "true"
+    body = _post_method(token, "sendMessage", fields, urlopen)
     message_id = body.get("result", {}).get("message_id")
     return int(message_id) if message_id is not None else None
 
