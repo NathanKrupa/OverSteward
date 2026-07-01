@@ -156,6 +156,17 @@ Nathan's time is expensive. Most "I need to ask" moments dissolve under a moment
 
 When the self-critique gate confirms a real blocker:
 
+**If the blocker is a decision between two or more defensible paths** (not just a
+missing fact), shape the question as a **decision brief** — see
+`shared/references/decision-brief.md` for the full schema (`D<N>` label, ELI10 +
+stakes, a `Recommendation: <choice> because <reason>` line, per-option
+`Completeness: N/10`, ≥2 ✅ / ≥1 ❌ per option, a `Net:` synthesis line, and the
+pre-emit self-check). The `@nathankrupa question:` comment below is the envelope;
+the decision brief is its body. The brief operationalizes the estate laws
+`feedback_architect_decision_completeness`, `feedback_service_surface_completeness`,
+and `feedback_no_silent_exceptions`. For a plain missing-fact question, the
+lightweight template alone is fine.
+
 1. **Post a structured question comment on the issue.** GitHub is the single source of truth — no external inbox file. Use this exact body:
 
 ```markdown
