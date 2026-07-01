@@ -21,8 +21,8 @@ def _rows() -> list[StageRow]:
         StageRow(2, "grantmakers_active", 120_000, _fresh(2)),
         StageRow(3, "gov_opps_total", 26_000, _fresh(1)),
         StageRow(4, "gov_opps_open_or_rolling", 5_000, _fresh(1)),
-        StageRow(5, "sitemaps_discovered", 40_000, _fresh(3)),
-        StageRow(6, "foundations_with_website", 100_000, _fresh(5)),
+        StageRow(5, "foundations_with_website", 100_000, _fresh(5)),
+        StageRow(6, "foundations_with_sitemap", 40_000, _fresh(3)),
         StageRow(7, "websites_crawled", 36_000, _fresh(10)),
         StageRow(8, "enrichments_active", 0, None),
         StageRow(9, "missions_present", 8_000, _fresh(200)),
@@ -99,7 +99,7 @@ def test_ag_visibility_flags():
     assert stages["foundations_total"].ag_visible is True
     assert stages["missions_present"].ag_visible is True
     assert stages["websites_crawled"].ag_visible is False
-    assert stages["sitemaps_discovered"].ag_visible is False
+    assert stages["foundations_with_sitemap"].ag_visible is False
     assert stages["deadlines_present"].ag_visible is False
     assert stages["enrichments_active"].ag_visible is False
 
