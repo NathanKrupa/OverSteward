@@ -61,6 +61,12 @@ Then ask Nathan for the answer. One prompt, free-form reply. Allow multi-line (a
 
 If Nathan types `skip` / `cancel` / empty → abort without side effects.
 
+When the pending question is a **decision brief** (a `D<N>` block with per-option
+`Completeness: N/10` scores, ✅/❌ bullets, and a `Recommendation:` line — the shape
+a dispatch agent is told to use in `shared/references/decision-brief.md`), Nathan
+can answer by the option letter (`D1: B`, or a bare `B`) as well as free-form. Pass
+his reply through verbatim; the agent maps the letter back to the option it posted.
+
 ### 4. Post the comment
 
 ```bash
