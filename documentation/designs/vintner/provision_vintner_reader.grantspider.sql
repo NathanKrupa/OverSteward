@@ -161,6 +161,87 @@ FROM (
     LIMIT 10
 ) t;
 
+-- 3f. Corpus & enrichment funnel (the pipeline-status data layer, issue #146).
+--     One row per stage: (stage_order, stage, count, newest_at). stage_order
+--     preserves the funnel sequence for the consumer; newest_at is the relevant
+--     freshness stamp so the spine can judge running-vs-stopped / staleness.
+--     Stages with no meaningful freshness column report newest_at = NULL.
+--     Aggregate counts only — no row-level data leaves the cellar.
+--
+--     Notes baked from the scout (2026-06-30):
+--       * sitemaps_discovered counts CANDIDATES discovered (sitemap_candidate_queue),
+--         NOT fetched pages — do not conflate with websites_crawled (mine_urls).
+--       * The enrichment stages (enrichments_active, missions_present,
+--         deadlines_present) are fed by a stage that is currently kill-switched
+--         OFF; the newest_at stamp is what reveals that. The view only reports
+--         count + freshness; the spine interprets on/off.
+--       * display_name_present is a deliberate "field exists / ~0% populated"
+--         health signal.
+--     website is NOT NULL DEFAULT '' — "has website"/"present" = <> '' (see 3b).
+CREATE OR REPLACE VIEW vintner.corpus_funnel_v AS
+SELECT 1  AS stage_order, 'foundations_total'        AS stage,
+       count(*)                                                              AS count,
+       NULL::timestamptz                                                     AS newest_at
+FROM public.foundations
+UNION ALL
+SELECT 2, 'grantmakers_active',
+       count(*) FILTER (WHERE is_active_grantmaker = true),
+       max(last_classified_at) FILTER (WHERE is_active_grantmaker = true)
+FROM public.foundations
+UNION ALL
+SELECT 3, 'gov_opps_total',
+       count(*),
+       max(updated_at)
+FROM public.gov_opportunities
+UNION ALL
+SELECT 4, 'gov_opps_open_or_rolling',
+       count(*) FILTER (WHERE status IN ('posted', 'preview', 'forecasted')
+                        OR close_date IS NULL),
+       max(updated_at) FILTER (WHERE status IN ('posted', 'preview', 'forecasted')
+                        OR close_date IS NULL)
+FROM public.gov_opportunities
+UNION ALL
+SELECT 5, 'sitemaps_discovered',
+       count(*),
+       max(enumerated_at)
+FROM public.sitemap_candidate_queue
+UNION ALL
+SELECT 6, 'foundations_with_website',
+       count(*) FILTER (WHERE website <> ''),
+       max(website_resolved_at) FILTER (WHERE website <> '')
+FROM public.foundations
+UNION ALL
+SELECT 7, 'websites_crawled',
+       count(*) FILTER (WHERE status IN ('fetched', 'parsed')),
+       max(last_fetched_at) FILTER (WHERE status IN ('fetched', 'parsed'))
+FROM public.mine_urls
+UNION ALL
+SELECT 8, 'enrichments_active',
+       count(*) FILTER (WHERE enrichment_status = 'active'),
+       max(created_at) FILTER (WHERE enrichment_status = 'active')
+FROM public.enrichments
+UNION ALL
+SELECT 9, 'missions_present',
+       count(*) FILTER (WHERE mission IS NOT NULL AND mission <> ''),
+       max(updated_at) FILTER (WHERE mission IS NOT NULL AND mission <> '')
+FROM public.foundations
+UNION ALL
+SELECT 10, 'deadlines_present',
+       count(*),
+       max(source_captured_at)
+FROM public.foundation_deadlines
+UNION ALL
+SELECT 11, 'display_name_present',
+       count(*) FILTER (WHERE display_name IS NOT NULL AND display_name <> ''),
+       NULL::timestamptz
+FROM public.foundations
+ORDER BY stage_order;
+
+-- Explicit grant for the funnel view (issue #146) — the ALL TABLES grant in
+-- section 4 also covers it, but this makes the vintner_reader access explicit.
+-- No base-table grant is added; vintner_reader still reads only vintner.* views.
+GRANT SELECT ON vintner.corpus_funnel_v TO vintner_reader;
+
 -- 4. Grant SELECT on the views only (views are tables for this grant).
 GRANT SELECT ON ALL TABLES IN SCHEMA vintner TO vintner_reader;
 
