@@ -8,6 +8,7 @@ license = {text = "Proprietary"}
 readme = "OVERSTEWARD.md"
 
 dependencies = [
+    "python-dotenv>=1.0",
     "pyyaml>=6.0",
 ]
 
