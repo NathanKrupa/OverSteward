@@ -20,7 +20,7 @@ def _rows() -> list[StageRow]:
         StageRow(1, "foundations_total", 300_000, None),
         StageRow(2, "grantmakers_active", 120_000, _fresh(2)),
         StageRow(3, "gov_opps_total", 26_000, _fresh(1)),
-        StageRow(4, "gov_opps_open_or_rolling", 5_000, _fresh(1)),
+        StageRow(4, "gov_opps_grant_relevant", 34_000, _fresh(1)),
         StageRow(5, "foundations_with_website", 100_000, _fresh(5)),
         StageRow(6, "foundations_with_sitemap", 40_000, _fresh(3)),
         StageRow(7, "websites_crawled", 36_000, _fresh(10)),

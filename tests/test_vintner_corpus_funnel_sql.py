@@ -17,11 +17,13 @@ _SQL_PATH = (
 
 # The 11 funnel stages, in order. Stages 5-7 corrected in issue #149:
 # foundations_with_website → foundations_with_sitemap → websites_crawled.
+# Stage 4 corrected in issue #154: gov_opps_open_or_rolling → gov_opps_grant_relevant
+# (funding_instrument = 'G', the grant-relevant subset the AG site surfaces).
 _EXPECTED_STAGES = [
     "foundations_total",
     "grantmakers_active",
     "gov_opps_total",
-    "gov_opps_open_or_rolling",
+    "gov_opps_grant_relevant",
     "foundations_with_website",
     "foundations_with_sitemap",
     "websites_crawled",
@@ -82,24 +84,32 @@ def test_view_reads_expected_base_tables(sql_text: str) -> None:
 def test_key_predicates_present(sql_text: str) -> None:
     # Spot-check the load-bearing predicates from the issue table.
     assert "is_active_grantmaker = true" in sql_text
-    assert "status IN ('posted', 'preview', 'forecasted')" in sql_text
+    assert "funding_instrument = 'G'" in sql_text
     assert "enrichment_status = 'active'" in sql_text
+
+
+def test_gov_stage_is_grant_relevant_issue_154(sql_text: str) -> None:
+    # Issue #154: the "available to users" gov stage counts the grant-relevant
+    # subset (funding_instrument = 'G', ~34k the AG site surfaces), not the
+    # procurement-inflated ~455k that the prior open-or-rolling predicate
+    # admitted via blank-instrument ma_grants_public rows (NULL close_date).
+    view_start = sql_text.index("CREATE OR REPLACE VIEW vintner.corpus_funnel_v AS")
+    view_end = sql_text.index("ORDER BY stage_order;", view_start)
+    view_body = sql_text[view_start:view_end]
+    assert "'gov_opps_grant_relevant'" in view_body
+    assert "count(*) FILTER (WHERE funding_instrument = 'G')" in view_body
+    assert "max(updated_at) FILTER (WHERE funding_instrument = 'G')" in view_body
+    # The retired open-or-rolling stage no longer appears in the view body
+    # (it survives only in the explanatory comment above the view).
+    assert "'gov_opps_open_or_rolling'" not in view_body
+    assert "OR close_date IS NULL" not in view_body
 
 
 def test_corrected_predicates_issue_149(sql_text: str) -> None:
     # Issue #149 corrected three stage predicates.
-    # 1. gov_opps_open_or_rolling: closed rows (close_date IS NULL) no longer
-    #    slip through — status AND (rolling OR future close_date).
-    assert (
-        "status IN ('posted', 'preview', 'forecasted')\n"
-        "                        AND (close_date IS NULL OR close_date >= now())"
-    ) in sql_text
-    # The old no-op `OR close_date IS NULL` clause is gone from the view body
-    # (it survives only in the explanatory comment above the view).
     view_start = sql_text.index("CREATE OR REPLACE VIEW vintner.corpus_funnel_v AS")
     view_end = sql_text.index("ORDER BY stage_order;", view_start)
     view_body = sql_text[view_start:view_end]
-    assert "OR close_date IS NULL" not in view_body
     # 2. foundations_with_sitemap counts DISTINCT foundations, not PAGE rows.
     assert "count(DISTINCT foundation_id)" in view_body
     assert "'sitemaps_discovered'" not in view_body
