@@ -182,11 +182,27 @@ FROM (
 --         only 42 rows). A captured markdown snapshot is the durable crawl
 --         signal; DISTINCT domain (~42k sites) is true per-site crawl coverage.
 --         mine_urls has no foundation_id, so domain is the site key.
---       * gov_opps_open_or_rolling excludes 'closed' rows and past-deadline
---         rows: status IN ('posted','preview','forecasted') AND (close_date IS
---         NULL OR close_date >= now()). The prior OR close_date IS NULL clause
---         was a no-op — every 'closed' row also has close_date IS NULL, so it
---         matched all rows and equalled gov_opps_total.
+--       * gov_opps_total is the honest corpus size (~559k). The vast majority
+--         is NOT grant-relevant and never reaches users: ~443k blank-instrument
+--         ma_grants_public rows + ~34k SAM procurement notices (Combined
+--         Synopsis/Solicitation, Sources Sought, Presolicitation, etc.).
+--       * gov_opps_grant_relevant is the "available to users" gov stage: the
+--         grant-instrument subset the AG website surfaces, funding_instrument =
+--         'G' (~34k). This is the number users see — it excludes the ~443k
+--         unclassified ma_grants_public (blank instrument) and the ~34k SAM
+--         procurement, which are correctly filtered OUT of the user surface
+--         (GS#1340 gov_opportunities_v). Issue #154: the prior
+--         gov_opps_open_or_rolling stage counted ~455k because its
+--         (close_date IS NULL OR close_date >= now()) clause admitted every
+--         blank-instrument ma_grants_public row (all NULL close_date) — the same
+--         procurement-inflation the sitemaps=11.6M bug had. funding_instrument
+--         is the load-bearing grant-relevance filter (verified against prod
+--         2026-07-01: G=34,141; blank=442,830; CA=46,925; SAM procurement ~34k).
+--         Note: an additional open-status restriction is deliberately NOT
+--         applied here — grants.gov retains historical 'posted' G rows with past
+--         close_dates, so an open-only filter collapses to ~2k and misses the
+--         ~29-34k users actually browse. Grant-relevance, not open-status, is
+--         what separates the user-visible corpus from the procurement noise.
 --       * The enrichment stages (enrichments_active, missions_present,
 --         deadlines_present) are fed by a stage that is currently kill-switched
 --         OFF; the newest_at stamp is what reveals that. The view only reports
@@ -210,11 +226,9 @@ SELECT 3, 'gov_opps_total',
        max(updated_at)
 FROM public.gov_opportunities
 UNION ALL
-SELECT 4, 'gov_opps_open_or_rolling',
-       count(*) FILTER (WHERE status IN ('posted', 'preview', 'forecasted')
-                        AND (close_date IS NULL OR close_date >= now())),
-       max(updated_at) FILTER (WHERE status IN ('posted', 'preview', 'forecasted')
-                        AND (close_date IS NULL OR close_date >= now()))
+SELECT 4, 'gov_opps_grant_relevant',
+       count(*) FILTER (WHERE funding_instrument = 'G'),
+       max(updated_at) FILTER (WHERE funding_instrument = 'G')
 FROM public.gov_opportunities
 UNION ALL
 SELECT 5, 'foundations_with_website',

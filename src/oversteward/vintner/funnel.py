@@ -12,7 +12,7 @@ from .models import FunnelReport, StageReport, StageRow, StageState
 FOUNDATIONS_TOTAL = "foundations_total"
 GRANTMAKERS_ACTIVE = "grantmakers_active"
 GOV_OPPS_TOTAL = "gov_opps_total"
-GOV_OPPS_OPEN = "gov_opps_open_or_rolling"
+GOV_OPPS_GRANT_RELEVANT = "gov_opps_grant_relevant"
 FOUNDATIONS_WITH_WEBSITE = "foundations_with_website"
 FOUNDATIONS_WITH_SITEMAP = "foundations_with_sitemap"
 WEBSITES_CRAWLED = "websites_crawled"
@@ -28,7 +28,7 @@ STAGE_PARENT: dict[str, str | None] = {
     FOUNDATIONS_TOTAL: None,
     GRANTMAKERS_ACTIVE: FOUNDATIONS_TOTAL,
     GOV_OPPS_TOTAL: None,
-    GOV_OPPS_OPEN: GOV_OPPS_TOTAL,
+    GOV_OPPS_GRANT_RELEVANT: GOV_OPPS_TOTAL,
     FOUNDATIONS_WITH_WEBSITE: GRANTMAKERS_ACTIVE,
     FOUNDATIONS_WITH_SITEMAP: FOUNDATIONS_WITH_WEBSITE,
     WEBSITES_CRAWLED: FOUNDATIONS_WITH_WEBSITE,
