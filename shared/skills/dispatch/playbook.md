@@ -63,6 +63,7 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
    - No "Acceptance" or checkbox list exists in body or comments
    - Label `needs-scoping` or `reject-close` is present
    - "Already done" case: verify each acceptance item against current code. If all satisfied, STOP and comment: "Acceptance already satisfied on main — see <file:line> evidence. Closing unnecessary."
+   - **Settled-decision check.** If the issue's scope, an auto-loaded memory, or a `decision`-labeled issue records a *durable* decision (architecture, scope boundary, tool/vendor pick, branch-model rule, or a settled Nathan-law) that your work would reverse, do NOT silently implement the opposite. Treat it as a prior settled call: STOP and surface the reversal as a decision brief, naming the decision and *why* it should be overturned. Respecting settled calls here is what stops the same decision being re-litigated session to session. Full rule: `~/.claude/shared/references/decision-provenance.md`.
 
 8.5. **Consumer-enumeration pre-flight (type / data-shape refactors only).** If the issue is "type X as dataclass," "convert X dict to typed object," "promote X to TextChoices," or any other refactor that changes the SHAPE of a value, the surface is wider than the type-definition file. Before any code change:
 
@@ -78,6 +79,8 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
 ### Work
 
 9. **Implement** the minimum change that satisfies acceptance. No refactoring, no "while I'm here" cleanups, no tangential improvements.
+
+   **Respect durable decisions; announce reversals.** A durable decision already recorded — in the issue scope, an auto-loaded memory (`decided_at` / `supersedes` / `superseded_by` frontmatter), or a `decision`-labeled issue — is a settled call. Do not silently re-litigate it or quietly ship the opposite. If your change genuinely reverses one, say so explicitly in the PR body: name the decision, give the *why*, and record the reversal via the supersede link (memory `supersedes` / `superseded_by`, or a new `decision` issue citing `Supersedes #<n>`). A reversal without an announced rationale is a bug, not a decision. Full rule + substrate: `~/.claude/shared/references/decision-provenance.md`.
 
    **Before each Edit/Write tool call, verify your cwd.** Run `pwd` (or check via `git rev-parse --show-toplevel`) — the path MUST start with `$WORKTREE_PATH`. If it does not (e.g., a `cd` failed silently and you're now in the main checkout), STOP. The step-6 viability probe is your starting line, but cwd drift mid-run is also covered. Recover by `cd "$WORKTREE_PATH"` and re-verify; if `cd` won't take, emit `STOPPED_FOR_INPUT` per §6.
 
