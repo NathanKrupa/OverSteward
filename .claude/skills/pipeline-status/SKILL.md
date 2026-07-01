@@ -53,7 +53,8 @@ The script is read-only against the database (the `vintner_reader` role cannot w
 
 ## Notes on interpretation
 
-- `sitemaps_discovered` counts sitemap **candidates discovered**, not fetched — do not read it as crawl progress.
+- `foundations_with_sitemap` counts **distinct foundations** that have a discovered sitemap (≈ one per sitemap-bearing site), not sitemap pages — the queue holds millions of candidate page urls, so a raw row count is page-level noise. It is not itself crawl progress.
+- `websites_crawled` counts **distinct crawled sites** (foundations' domains with a captured markdown snapshot), the durable crawl signal — not the transient `fetched`/`parsed` page status, which pages leave after processing.
 - The enrichment stages (`enrichments_active`, `missions_present`, `deadlines_present`) are fed by a currently kill-switched stage; their `newest_at` is what reveals OFF. An old stamp ⇒ STOPPED, not healthy.
 - `display_name_present` is a deliberate field-health signal (currently ~0% populated).
 

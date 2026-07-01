@@ -168,9 +168,25 @@ FROM (
 --     Stages with no meaningful freshness column report newest_at = NULL.
 --     Aggregate counts only — no row-level data leaves the cellar.
 --
---     Notes baked from the scout (2026-06-30):
---       * sitemaps_discovered counts CANDIDATES discovered (sitemap_candidate_queue),
---         NOT fetched pages — do not conflate with websites_crawled (mine_urls).
+--     Notes baked from the scout (2026-06-30) + the live-read correction (issue #149, 2026-07-01):
+--       * foundations_with_sitemap = count(DISTINCT foundation_id) in
+--         sitemap_candidate_queue. Each row there is a candidate PAGE url
+--         discovered from a sitemap (e.g. /moodboard), NOT a sitemap — a raw
+--         count(*) reports 11.6M page-level rows. DISTINCT foundation_id (~one
+--         per sitemap-bearing site) is the site-level signal. sitemap_fingerprint
+--         is largely NULL, so it is not used as the key.
+--       * websites_crawled = count(DISTINCT domain) WHERE markdown_snapshot_at
+--         IS NOT NULL in mine_urls. The prior status IN ('fetched','parsed')
+--         predicate reported 42 (crawled pages transition back to
+--         status='discovered' after processing, and last_fetched_at is set on
+--         only 42 rows). A captured markdown snapshot is the durable crawl
+--         signal; DISTINCT domain (~42k sites) is true per-site crawl coverage.
+--         mine_urls has no foundation_id, so domain is the site key.
+--       * gov_opps_open_or_rolling excludes 'closed' rows and past-deadline
+--         rows: status IN ('posted','preview','forecasted') AND (close_date IS
+--         NULL OR close_date >= now()). The prior OR close_date IS NULL clause
+--         was a no-op — every 'closed' row also has close_date IS NULL, so it
+--         matched all rows and equalled gov_opps_total.
 --       * The enrichment stages (enrichments_active, missions_present,
 --         deadlines_present) are fed by a stage that is currently kill-switched
 --         OFF; the newest_at stamp is what reveals that. The view only reports
@@ -196,24 +212,24 @@ FROM public.gov_opportunities
 UNION ALL
 SELECT 4, 'gov_opps_open_or_rolling',
        count(*) FILTER (WHERE status IN ('posted', 'preview', 'forecasted')
-                        OR close_date IS NULL),
+                        AND (close_date IS NULL OR close_date >= now())),
        max(updated_at) FILTER (WHERE status IN ('posted', 'preview', 'forecasted')
-                        OR close_date IS NULL)
+                        AND (close_date IS NULL OR close_date >= now()))
 FROM public.gov_opportunities
 UNION ALL
-SELECT 5, 'sitemaps_discovered',
-       count(*),
-       max(enumerated_at)
-FROM public.sitemap_candidate_queue
-UNION ALL
-SELECT 6, 'foundations_with_website',
+SELECT 5, 'foundations_with_website',
        count(*) FILTER (WHERE website <> ''),
        max(website_resolved_at) FILTER (WHERE website <> '')
 FROM public.foundations
 UNION ALL
+SELECT 6, 'foundations_with_sitemap',
+       count(DISTINCT foundation_id),
+       max(enumerated_at)
+FROM public.sitemap_candidate_queue
+UNION ALL
 SELECT 7, 'websites_crawled',
-       count(*) FILTER (WHERE status IN ('fetched', 'parsed')),
-       max(last_fetched_at) FILTER (WHERE status IN ('fetched', 'parsed'))
+       count(DISTINCT domain) FILTER (WHERE markdown_snapshot_at IS NOT NULL),
+       max(markdown_snapshot_at)
 FROM public.mine_urls
 UNION ALL
 SELECT 8, 'enrichments_active',
