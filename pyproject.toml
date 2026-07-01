@@ -17,6 +17,11 @@ dev = [
     "pre-commit>=3.0",
     "pytest>=8.0",
 ]
+# Live read for the Vintner /pipeline-status skill. Kept optional so the
+# pure-logic spine and its tests need no DB driver (and CI has no DB).
+vintner = [
+    "psycopg[binary]>=3.1",
+]
 
 [build-system]
 requires = ["hatchling"]
