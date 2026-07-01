@@ -17,6 +17,7 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
 - **Never** commit files matching `.env*`, `*.pem`, `*.key`, `credentials*`, `secrets*`, `local_settings*`
 - **Never** run migrations, drop tables, delete external data, or modify CI config of other repos
 - **Never** silently fix unrelated pre-existing failures — report them, don't mask them
+- **Never** retry a failing command in a loop hoping the environment will change. If a step fails for an **environmental** reason — test DB / docker container unreachable, `make verify`'s marker can't be generated, repeated `OperationalError` / `connection refused` / `ReadTimeout` against a live dependency — STOP after at most **2** attempts and emit `STOPPED_FOR_INPUT` (or `REFUSED_PREFLIGHT` if it's still pre-work) naming the blocker. The fix for an environmental blocker is the operator's, not yours; churning on it burns Max quota and trips the operator's dispatch watchdog. (Postmortem: aigranthelper #947, 2026-06-21 — an agent looped ~2.5h / 397 turns retrying a live-DB seam read it could not satisfy in the sandbox. The correct move was a clean stop, as grantspider #1053 did the same day.)
 - **Never** expand scope beyond the issue's acceptance criteria
 - **Never** use `git add -A` or `git add .` — stage specific files only
 - **Never** guess when ambiguous — use the intent-capture protocol
@@ -118,7 +119,7 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
     - Continuing draft: mark ready + update title/body if needed: `gh pr ready <existing-pr>` + `gh pr edit <existing-pr> --body "..."`.
 16. **Enable auto-merge immediately, then verify.** Run `gh pr merge <PR#> --auto --merge --delete-branch --repo <owner>/<repo>`. Then immediately `gh pr view <PR#> --json autoMergeRequest --jq .autoMergeRequest` — if the output is `null`, auto-merge silently dropped (can happen on branch-protection edge cases); re-run the merge command until it sticks. Do NOT proceed to step 17 until `autoMergeRequest` is non-null. If auto-merge remains unreachable ("auto-merge not allowed" or similar), report it in the final YAML and flip to manual-merge fallback: wait for all checks green, then run `gh pr merge <PR#> --merge --delete-branch --repo <owner>/<repo>` (no `--auto`).
 
-    **Merge method — estate policy: never `--squash`.** Use `--merge` (plain merge commit) by default. The one exception is a PR targeting **grantspider's `staging`** branch, which has `required_linear_history` and rejects merge commits — those use `--rebase`. Confirm the repo's allowed methods if uncertain (`gh api repos/<owner>/<repo> --jq '{merge:.allow_merge_commit,squash:.allow_squash_merge,rebase:.allow_rebase_merge}'`).
+    **Merge method — estate policy: always `--merge` (plain merge commit). Never `--squash` or `--rebase`.** Every repo — including grantspider's `staging` — is locked merge-commit-only; squash and rebase are disabled, so both flatten to a single parent and are rejected. Confirm the repo's allowed methods if uncertain (`gh api repos/<owner>/<repo> --jq '{merge:.allow_merge_commit,squash:.allow_squash_merge,rebase:.allow_rebase_merge}'`).
 
 ### Close the loop
 
@@ -140,6 +141,34 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
 ## Intent-Capture Protocol (when ambiguity hits mid-work)
 
 When the issue is unclear — not obvious from code, not in the issue body, not in comments:
+
+### Auto-decide gate (run FIRST — mechanical vs taste)
+
+Full rule: `~/.claude/shared/references/auto-decide.md`. Before the self-critique
+gate, classify the fork:
+
+- **Mechanical** — one clearly-right, clearly-reversible answer (a competent
+  engineer would pick the same, and it can be undone). **Auto-decide silently.**
+  Pick the defensible default and note it in the PR body (`auto-decided: <fork> →
+  <choice>, mechanical/reversible`). Do not stop.
+- **Taste** — reasonable people could disagree (close approaches, borderline
+  scope of several files, a contested linter/memory default). Form a
+  recommendation, then continue to the self-critique gate; if the blocker
+  survives it, surface a decision brief.
+- **Blast-radius — ALWAYS surface, never auto-decide.** Anything touching
+  **production** (live/shared DB, live behavior), **security** (auth, secrets,
+  permissions, tokens, access control), or **data shape** (schema, wire/contract,
+  a type/dict-shape refactor that ripples through consumers). This override wins
+  even when a default looks obvious; a reversible-looking default over an
+  irreversible surface is still surfaced. When unsure which side of the line a
+  fork sits on, treat it as blast-radius.
+
+**Per-issue preference labels** (honor them here): `always-ask` on the issue →
+surface every non-trivial fork, even mechanical ones (but not genuinely trivial
+formatting/renames, and it cannot promote blast-radius to auto). `auto-ok` on the
+issue → you MAY auto-resolve borderline *taste* forks (record the choice in the PR
+body) instead of stopping. Neither label overrides the blast-radius rule — a prod
+/ security / data-shape fork is surfaced under both.
 
 ### Self-critique gate (MANDATORY before asking)
 

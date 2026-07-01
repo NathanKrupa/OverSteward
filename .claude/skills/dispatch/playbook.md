@@ -142,6 +142,34 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
 
 When the issue is unclear — not obvious from code, not in the issue body, not in comments:
 
+### Auto-decide gate (run FIRST — mechanical vs taste)
+
+Full rule: `~/.claude/shared/references/auto-decide.md`. Before the self-critique
+gate, classify the fork:
+
+- **Mechanical** — one clearly-right, clearly-reversible answer (a competent
+  engineer would pick the same, and it can be undone). **Auto-decide silently.**
+  Pick the defensible default and note it in the PR body (`auto-decided: <fork> →
+  <choice>, mechanical/reversible`). Do not stop.
+- **Taste** — reasonable people could disagree (close approaches, borderline
+  scope of several files, a contested linter/memory default). Form a
+  recommendation, then continue to the self-critique gate; if the blocker
+  survives it, surface a decision brief.
+- **Blast-radius — ALWAYS surface, never auto-decide.** Anything touching
+  **production** (live/shared DB, live behavior), **security** (auth, secrets,
+  permissions, tokens, access control), or **data shape** (schema, wire/contract,
+  a type/dict-shape refactor that ripples through consumers). This override wins
+  even when a default looks obvious; a reversible-looking default over an
+  irreversible surface is still surfaced. When unsure which side of the line a
+  fork sits on, treat it as blast-radius.
+
+**Per-issue preference labels** (honor them here): `always-ask` on the issue →
+surface every non-trivial fork, even mechanical ones (but not genuinely trivial
+formatting/renames, and it cannot promote blast-radius to auto). `auto-ok` on the
+issue → you MAY auto-resolve borderline *taste* forks (record the choice in the PR
+body) instead of stopping. Neither label overrides the blast-radius rule — a prod
+/ security / data-shape fork is surfaced under both.
+
 ### Self-critique gate (MANDATORY before asking)
 
 Nathan's time is expensive. Most "I need to ask" moments dissolve under a moment's thought. Before filing a question:
