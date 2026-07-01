@@ -4,8 +4,13 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 from .models import StageRow
+
+# Repo root: src/oversteward/vintner/reader.py -> up three parents.
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_DEFAULT_DOTENV_PATH = _REPO_ROOT / ".env"
 
 FUNNEL_QUERY = (
     "SELECT stage_order, stage, count, newest_at "
@@ -43,17 +48,42 @@ def read_corpus_funnel(dsn: str) -> list[StageRow]:
     ]
 
 
-def research_dsn(env: dict[str, str] | None = None) -> str:
+def research_dsn(
+    env: dict[str, str] | None = None,
+    dotenv_path: Path | None = None,
+) -> str:
     """Factory: read the vintner_reader research DSN from the environment.
 
-    This is the only place that touches os.environ (ARCH-020). Raises a clear
-    error when unset so the operator gets a useful message, not a stack trace.
+    This is the only place that touches os.environ (ARCH-020). If the DSN is not
+    already exported, fall back to the OverSteward repo-root ``.env`` so an
+    operator who keeps the DSN there can run ``/pipeline-status`` without manually
+    exporting it. An already-exported value always wins over ``.env`` (matching
+    ``load_dotenv``'s ``override=False`` default). Raises a clear error when the
+    DSN is found in neither place.
     """
     source = env if env is not None else os.environ
     dsn = source.get(RESEARCH_DSN_ENV)
     if not dsn:
+        dsn = _dsn_from_dotenv(dotenv_path)
+    if not dsn:
         raise VintnerConfigError(
             f"{RESEARCH_DSN_ENV} is not set — the /pipeline-status read needs the "
-            "vintner_reader connection string (view-only, GS neondb)."
+            "vintner_reader connection string (view-only, GS neondb). Export it or "
+            "add it to the OverSteward repo-root .env."
         )
     return dsn
+
+
+def _dsn_from_dotenv(dotenv_path: Path | None) -> str | None:
+    """Return the research DSN from a ``.env`` file, or None if unavailable.
+
+    Uses ``dotenv_values`` so the file is parsed without mutating the process
+    environment; the exported-wins ordering is enforced by the caller.
+    """
+    path = dotenv_path if dotenv_path is not None else _DEFAULT_DOTENV_PATH
+    if not path.is_file():
+        return None
+    from dotenv import dotenv_values  # noqa: PLC0415 — optional dep, imported lazily
+
+    values = dotenv_values(path)
+    return values.get(RESEARCH_DSN_ENV) or None
