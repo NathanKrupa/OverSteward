@@ -127,6 +127,12 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
 ### Ship
 
 13. **Commit.** Specific files only (`git add <path>` per file). Message format: `<type>: <short description> (#<issue>)` + optional body.
+
+    **pre-commit PATH (worktree, no activated venv).** In a dispatch worktree you run tools as `.venv/bin/<tool>` rather than activating the venv, so the `.venv/bin` directory is NOT on `PATH`. A `pre-commit` hook whose entry shells out to a venv tool (e.g. OverSteward's `uv run gaudi check ...`, or any repo whose hook resolves `gaudi`/`ruff` from the environment) then fails with a "command not found"-class error on commit — not a real finding, just a broken lookup. Put the worktree venv on `PATH` for the commit so the hook resolves its tools:
+    ```bash
+    PATH="$PWD/.venv/bin:$PATH" git commit -m "<type>: <desc> (#<issue>)"
+    ```
+    This is a `PATH` prefix on the commit only — NOT `--no-verify`, NOT `core.hooksPath` tampering. The hook still runs in full; you are only making its interpreter findable. Never disable or skip the hook (see Non-negotiables).
 14. **Push.** `git push -u origin <target-branch>`.
 15. **Open or update PR.**
     - New: `gh pr create --base <default-branch> --title "..." --body "Closes #<n>\n..."` (use repo PR template).

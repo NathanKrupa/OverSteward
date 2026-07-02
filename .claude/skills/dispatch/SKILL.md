@@ -84,6 +84,11 @@ Run these checks. Any failure → refuse to dispatch, report the reason to the u
 - `git ls-remote https://github.com/<owner>/<repo>.git refs/heads/<branch>`
 - If exists → refuse ("branch exists, prior failed attempt — clean up first")
 
+**Clean working tree (primary checkout):**
+- `git -C <primary-checkout> status --porcelain`
+- A stray **untracked** file left in the primary checkout (e.g. a `db_scratch.py`, a debug script, a scratch `.txt`) rides along into the agent's baseline-comparison worktree and trips the agent's first gate — SMELL-003 / ruff-format / gaudi fire on a file the PR never touched. Surface any untracked entry (`??`) to the operator before firing the agent: **warn and park it** (move it out of the tree or add it to `.gitignore`) so the agent starts from a clean baseline. Uncommitted *tracked* edits are Nathan's live work — leave them (the agent's worktree is isolated), just note them.
+- Do NOT auto-delete or `git clean` anything — warn only; the operator decides.
+
 **Environment — docker (DB-touching issues):**
 - The agent's local `make verify` / full test suite needs the repo's `compose.test.yml` Postgres(+pgvector) container, which needs a docker runtime. Without it the verify marker can never be generated and a misbehaving agent may **loop** on the failing step (postmortem: AG#947, 2026-06-21). See `reference_gs_dispatch_needs_docker_verify` memory.
 - If the issue plausibly touches DB code (models, migrations, an ingest/seam service, anything that hits the test DB), run `docker info >/dev/null 2>&1`. If docker is **down**, refuse and tell the operator to start it first. Pure-doc / non-DB issues don't need this gate.

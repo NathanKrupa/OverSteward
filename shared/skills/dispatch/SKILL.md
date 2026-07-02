@@ -84,6 +84,11 @@ Run these checks. Any failure → refuse to dispatch, report the reason to the u
 - `git ls-remote https://github.com/<owner>/<repo>.git refs/heads/<branch>`
 - If exists → refuse ("branch exists, prior failed attempt — clean up first")
 
+**Clean working tree (primary checkout):**
+- `git -C <primary-checkout> status --porcelain`
+- A stray **untracked** file left in the primary checkout (e.g. a `db_scratch.py`, a debug script, a scratch `.txt`) rides along into the agent's baseline-comparison worktree and trips the agent's first gate — SMELL-003 / ruff-format / gaudi fire on a file the PR never touched. Surface any untracked entry (`??`) to the operator before firing the agent: **warn and park it** (move it out of the tree or add it to `.gitignore`) so the agent starts from a clean baseline. Uncommitted *tracked* edits are Nathan's live work — leave them (the agent's worktree is isolated), just note them.
+- Do NOT auto-delete or `git clean` anything — warn only; the operator decides.
+
 If all preflights pass: proceed.
 
 ### 3. Run the agent (foreground)
