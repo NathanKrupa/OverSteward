@@ -37,6 +37,7 @@ without requiring ``python-dotenv``.
 from __future__ import annotations
 
 import os
+import re
 import sys
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
@@ -47,20 +48,81 @@ USAGE = "usage: with_test_env.py [--env-file PATH] [--] COMMAND [ARG ...]"
 # can be observed without actually handing off control.
 Executor = Callable[[str, "Sequence[str]", "Mapping[str, str]"], object]
 
+# python-dotenv value grammar, replicated in stdlib (no third-party import — this
+# runner is a canonical byte-copy that must deploy to every repo dependency-free).
+# A double-quoted body is a run of ``\<x>`` escape pairs or non-quote chars up to
+# the matching ``"``; single-quoted is the same up to the matching ``'``. Both are
+# anchored so the opening quote must start the value, and both are unicode-escape
+# decoded (``\n`` → newline, ``\'`` → ``'``, etc.) exactly as python-dotenv does.
+_DOUBLE_QUOTED = re.compile(r'"((?:\\"|[^"])*)"')
+_SINGLE_QUOTED = re.compile(r"'((?:\\'|[^'])*)'")
+_DOUBLE_QUOTE_ESCAPES = re.compile(r"\\[\\'\"abfnrtv]")
+_SINGLE_QUOTE_ESCAPES = re.compile(r"\\[\\']")
+# After a closing quote, only whitespace + an optional ``#`` comment may follow;
+# anything else (``"abc"def"``) is malformed and drops the line, as python-dotenv.
+_TRAILING_COMMENT = re.compile(r"\s*(?:#.*)?$")
+# An unquoted inline comment: a ``#`` preceded by whitespace, to end of value.
+# A leading ``#`` (no preceding whitespace) is kept — it is part of the value.
+_INLINE_COMMENT = re.compile(r"\s+#.*")
 
-def _strip_quotes(value: str) -> str:
-    """Drop one layer of matching surrounding quotes; leave the value otherwise verbatim."""
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
-        return value[1:-1]
-    return value
+
+def _decode_escapes(pattern: re.Pattern[str], body: str) -> str:
+    """Decode the escape sequences python-dotenv recognises within a quoted body."""
+    return pattern.sub(lambda m: m.group(0).encode().decode("unicode-escape"), body)
+
+
+def _parse_quoted(
+    value: str, quoted: re.Pattern[str], escapes: re.Pattern[str]
+) -> str | None:
+    """Return the decoded body of a matched quoted value, or ``None`` if malformed.
+
+    A value is well-formed only when the closing quote is followed by nothing but
+    optional whitespace and an optional ``#`` comment; a stray ``"abc"def"`` drops
+    the line rather than silently truncating to ``abc``.
+    """
+    match = quoted.match(value)
+    if not match or not _TRAILING_COMMENT.match(value, match.end()):
+        return None
+    return _decode_escapes(escapes, match.group(1))
+
+
+def _parse_value(raw_value: str) -> str | None:
+    """Resolve one ``.env`` value the way python-dotenv does; ``None`` = drop the line.
+
+    ``raw_value`` is everything after the first ``=`` on the line, before any
+    whitespace normalisation.
+
+    - A value opening with ``"`` up to a matching ``"`` is a double-quoted string:
+      escape sequences are decoded and anything after the closing quote (typically
+      a trailing comment) is discarded. A ``#`` inside the quotes is preserved.
+    - A value opening with ``'`` up to a matching ``'`` is a single-quoted string:
+      ``\\'`` / ``\\\\`` are decoded, trailing content is discarded, in-quote ``#``
+      is preserved.
+    - An opening quote with no matching close (``"abc"def"``, ``"unterminated``)
+      is malformed — python-dotenv drops the whole binding; return ``None`` so the
+      value is never mangled into a wrong (possibly shorter, still-plausible) one.
+    - Otherwise the value is unquoted: an inline comment is stripped only when the
+      ``#`` is preceded by whitespace, then trailing whitespace is trimmed. A value
+      that merely begins or ends with a quote is left verbatim.
+    """
+    value = raw_value.lstrip()
+    first = value[:1]
+    if first == '"':
+        return _parse_quoted(value, _DOUBLE_QUOTED, _DOUBLE_QUOTE_ESCAPES)
+    if first == "'":
+        return _parse_quoted(value, _SINGLE_QUOTED, _SINGLE_QUOTE_ESCAPES)
+    return _INLINE_COMMENT.sub("", value).rstrip()
 
 
 def parse_env_file(text: str) -> dict[str, str]:
     """Parse ``.env`` content into a mapping. Pure string work — no shell, no echo.
 
     Handles ``KEY=VALUE``, an optional ``export`` prefix, blank lines, and ``#``
-    comment lines. Values are kept verbatim apart from one layer of surrounding
-    quotes, so connection strings with ``=`` or ``&`` survive intact.
+    comment lines. Values follow python-dotenv semantics (see ``_parse_value``):
+    matched surrounding quotes are stripped and decoded, out-of-quote trailing
+    comments are dropped, in-quote ``#`` and connection strings with ``=`` or
+    ``&`` survive intact, and a malformed quoted value drops its line rather than
+    being mangled.
     """
     env: dict[str, str] = {}
     for raw in text.splitlines():
@@ -73,7 +135,9 @@ def parse_env_file(text: str) -> dict[str, str]:
         key = key.strip()
         if not sep or not key:
             continue
-        env[key] = _strip_quotes(value.strip())
+        parsed = _parse_value(value)
+        if parsed is not None:
+            env[key] = parsed
     return env
 
 

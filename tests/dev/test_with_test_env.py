@@ -75,6 +75,70 @@ def test_parse_skips_lines_without_equals_or_key(runner):
 
 
 # ---------------------------------------------------------------------------
+# parse_env_file — python-dotenv quote/comment semantics (issue #175)
+# ---------------------------------------------------------------------------
+
+
+def test_parse_strips_unquoted_inline_comment(runner):
+    # KEY=val # note -> val (python-dotenv drops a whitespace-preceded # comment)
+    assert runner.parse_env_file("KEY=val # note\n") == {"KEY": "val"}
+
+
+def test_parse_keeps_hash_inside_double_quotes(runner):
+    # A # inside quotes is part of the value, not a comment.
+    assert runner.parse_env_file('KEY="val # keep"\n') == {"KEY": "val # keep"}
+
+
+def test_parse_keeps_hash_inside_single_quotes(runner):
+    assert runner.parse_env_file("KEY='val # keep'\n") == {"KEY": "val # keep"}
+
+
+def test_parse_keeps_unquoted_hash_without_preceding_space(runner):
+    # No whitespace before the # means it is not an inline comment.
+    assert runner.parse_env_file("URL=http://x#frag\n") == {"URL": "http://x#frag"}
+
+
+def test_parse_keeps_leading_hash_value(runner):
+    # A value that is only a #token (no whitespace before it) is kept verbatim.
+    assert runner.parse_env_file("A=#allcomment\n") == {"A": "#allcomment"}
+
+
+def test_parse_embedded_quote_value_dropped_not_mangled(runner):
+    # "abc"def" is malformed for python-dotenv; the line is dropped, never
+    # silently truncated to "abc". The key must not carry a mangled value.
+    assert runner.parse_env_file('PW="abc"def"\n') == {}
+
+
+def test_parse_unterminated_quote_dropped_not_mangled(runner):
+    assert runner.parse_env_file('A="starts_quote\n') == {}
+
+
+def test_parse_value_ending_with_quote_preserved(runner):
+    # A bare value that merely ends with a quote char is not a quoted string.
+    assert runner.parse_env_file('A=ends_quote"\n') == {"A": 'ends_quote"'}
+
+
+def test_parse_double_quote_decodes_escapes(runner):
+    assert runner.parse_env_file('A="line\\nbreak"\n') == {"A": "line\nbreak"}
+
+
+def test_parse_single_quote_decodes_apostrophe_escape(runner):
+    assert runner.parse_env_file("A='it\\'s'\n") == {"A": "it's"}
+
+
+def test_parse_trailing_comment_after_closing_quote(runner):
+    assert runner.parse_env_file('A="closed" # trailing comment\n') == {"A": "closed"}
+
+
+def test_parse_normal_value_unaffected(runner):
+    assert runner.parse_env_file("A=value\n") == {"A": "value"}
+
+
+def test_parse_secret_with_ampersand_unaffected(runner):
+    assert runner.parse_env_file(f"CONN={SECRET}\n") == {"CONN": SECRET}
+
+
+# ---------------------------------------------------------------------------
 # build_environment — merge precedence (existing env wins)
 # ---------------------------------------------------------------------------
 
