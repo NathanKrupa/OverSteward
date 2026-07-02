@@ -11,10 +11,17 @@ work. This hook refuses those commands when the session is anchored in the
 worktrees (``.git/worktrees/<name>``) are exempt — that is where work belongs.
 
 Allowed even in the main tree: file restores (``git checkout -- <path>`` /
-``git restore``), ``git worktree add``, and anything prefixed with
-``CLAUDE_ALLOW_MAIN_GIT=1`` — the conscious-override escape hatch (promotes,
-one-off rebases). ``GS_ALLOW_MAIN_GIT=1`` is also honored as a back-compat
-alias for grantspider, which shipped this guard first.
+``git restore``), ``git worktree add``, and the conscious-override escape
+hatch (promotes, one-off rebases). The override is honored two ways: exported
+in the session environment (``export CLAUDE_ALLOW_MAIN_GIT=1``) so
+``os.environ`` carries it, or as a bare leading assignment prefix on the
+guarded command itself (``CLAUDE_ALLOW_MAIN_GIT=1 git checkout main``). Only a
+genuine leading assignment counts — the token must sit at a command position
+directly in front of the guarded ``git``, so a quoted mention or a token
+before some *other* command (``echo "CLAUDE_ALLOW_MAIN_GIT=1" && git
+checkout``) does NOT wave the guard through. ``GS_ALLOW_MAIN_GIT=1`` is also
+honored as a back-compat alias for grantspider, which shipped this guard
+first.
 
 Decision logic is split into pure functions so it is unit-tested without git.
 """
@@ -29,16 +36,33 @@ import sys
 # GS_ALLOW_MAIN_GIT is grantspider's original name, kept as an alias.
 _OVERRIDE_VARS = ("CLAUDE_ALLOW_MAIN_GIT", "GS_ALLOW_MAIN_GIT")
 
-# ``git`` only at a command position — start of line, or after a shell
-# separator (``; & | && ||``). This skips string mentions (echo / printf /
-# test data) that merely contain "git checkout", which would otherwise
-# false-positive constantly. It can miss git buried behind an unusual prefix
-# (e.g. ``VAR=x git checkout``), but the launcher + discipline are the primary
-# mechanism; this hook is the backstop.
-_AT_CMD = r"(?:^|[\n;&|])\s*"
+# ``git`` only at a command position — start of line or after a shell
+# separator (``; & | && ||``), with an optional leading run of environment
+# assignments (``VAR=x``) so an ordinary ``FOO=bar git checkout`` prefix is
+# still caught (it used to slip past). This still skips string mentions (echo /
+# printf / test data) that merely contain "git checkout", which would otherwise
+# false-positive constantly.
+_SEP = r"(?:^|[\n;&|])\s*"  # start-of-line or after a shell separator
+_ASSIGN = r"(?:\w+=\S+\s+)*"  # a run of ``VAR=value`` env assignments
+_AT_CMD = _SEP + _ASSIGN
 _BRANCH_OP = re.compile(_AT_CMD + r"git\s+(?:checkout|switch)\b")
 _FILE_RESTORE = re.compile(_AT_CMD + r"git\s+checkout\b[^\n|;&]*\s--(\s|$)")
 _RESTORE = re.compile(_AT_CMD + r"git\s+restore\b")
+
+# The inline escape hatch: an override var set to 1 as a real leading
+# assignment on the guarded git command (start-of-line or after a separator,
+# possibly among other assignments). Matching the assignment as a command-
+# position prefix — not a bare substring — is what closes the bypass where
+# ``CLAUDE_ALLOW_MAIN_GIT=1`` appears only inside a quoted string or in front
+# of an unrelated command.
+_OVERRIDE_NAMES = "|".join(_OVERRIDE_VARS)
+_OVERRIDE_PREFIX = re.compile(
+    _SEP
+    + _ASSIGN
+    + rf"(?:{_OVERRIDE_NAMES})=1\s+"
+    + _ASSIGN
+    + r"git\s+(?:checkout|switch|restore)\b"
+)
 
 _MESSAGE = (
     "BLOCKED — branch checkout/switch in the shared main worktree.\n\n"
@@ -68,8 +92,17 @@ def in_main_worktree(git_dir: str) -> bool:
 
 
 def has_override(command: str) -> bool:
-    """True if an override env var is set in the environment or inline."""
-    return any(os.environ.get(var) == "1" or f"{var}=1" in command for var in _OVERRIDE_VARS)
+    """True if an override var is set — in the real environment or as a
+    genuine leading assignment on the guarded git command.
+
+    Environment detection uses ``os.environ`` only (an exported override).
+    Inline detection requires the assignment to sit at a command position
+    directly in front of the guarded ``git`` — a bare substring such as
+    ``echo "CLAUDE_ALLOW_MAIN_GIT=1"`` does not count.
+    """
+    if any(os.environ.get(var) == "1" for var in _OVERRIDE_VARS):
+        return True
+    return bool(_OVERRIDE_PREFIX.search(command))
 
 
 def _git_dir(cwd: str) -> str:
