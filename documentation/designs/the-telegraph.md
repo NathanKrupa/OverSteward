@@ -3,6 +3,13 @@ ABOUTME: Draft for review 2026-06-17; no code yet — design gate first, per est
 
 # The Telegraph — One Wire for the Whole Estate
 
+> **HISTORICAL (2026-07-02):** The Telegram transport and its operator/supervisor
+> machinery were removed (OS#180); Happy was adopted as the connection. This
+> document is preserved as the design record. The transport-agnostic membrane
+> primitives it describes — the Epic Conductor (`src/oversteward/telegraph/conductor.py`)
+> and the cross-repo issue filer (`shared/scripts/telegraph/file_cross_repo_issue.py`) —
+> survive; the Telegram-specific wiring described below does not.
+
 **Status:** **Scope approved 2026-06-17.** No implementation yet — Phase 0 (design gate) clears to Phase 1 on Nathan's sign-off of the three proposed decisions in §9. A future **email ingestion channel** is captured as deferred intent (§3.4, §9 item 10).
 
 **Name:** **The Telegraph** — a telegraph network has many *stations* (the repos), one *operator key* from which the steward can send to any station (Nathan's single chat), *station-to-station relay* that needs no operator at the desk (repos filing work to each other), and a *bell that sounds on receipt* (a push when Nathan is actually needed). The central *telegraph office* routes traffic and, for a coordinated operation across several stations, runs the line under a single hand. It also puns gently on **Telegram**, the chosen front-door channel.
