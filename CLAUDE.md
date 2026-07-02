@@ -96,7 +96,7 @@ Oversteward is currently a config-management project in Phase 1 (manual sync). W
 
 ## Key Files
 
-- **Architecture state:** `architecture.md` — machine-readable snapshot of repos, cross-repo seams, load-bearing invariants, known liabilities, recent moves. **Read at scope/plan time** when a task may touch more than one repo or any §3 invariant. If a row is wrong, fix it before continuing. Dispatch agents do NOT read this — it's a scoping-time tool.
+- **Architecture state:** `architecture.md` — machine-readable snapshot of repos, cross-repo seams, load-bearing invariants, known liabilities, recent moves. **Read at scope/plan time** when a task may touch more than one repo or any §3 invariant. If a row is wrong, fix it before continuing. Dispatch agents do NOT read this — it's a scoping-time tool. **Before scoping "edit X and propagate through Y" work, verify the propagation surface Y actually exists** — `git grep` for the managed-block markers / §2 seam and confirm the consumer reads it; if it's absent, building it is in-scope, not a follow-up (see architecture.md §6).
 - **Spec:** `OVERSTEWARD.md` (architecture and all design decisions)
 - **Ledger:** `Stewards_Ledger.md` (project status and session log)
 - **Todo:** `MASTER_TODO.md` (active) + `TODO_BACKLOG.md` (queued) + `TODO_COMPLETED.md` (archive)
