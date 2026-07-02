@@ -37,8 +37,12 @@ uv run pyright
 # Gaudi (architecture lint)
 uv run gaudi check .
 
-# Boy-scout (per-file gaudi monotonic-down vs main)
-uv run python scripts/boy_scout_check.py --base main
+# Boy-scout (per-file gaudi monotonic-down vs the PR's base branch).
+# CI baselines against `origin/${{ github.base_ref }}` — the PR's ACTUAL base,
+# which is `staging` for staging-targeted PRs, not always `main`. Locally,
+# auto-detect the base and mirror CI so a green local run can't fail CI on push:
+BASE="$(gh pr view --json baseRefName -q .baseRefName 2>/dev/null || echo main)"
+uv run python scripts/boy_scout_check.py --base "origin/$BASE"
 
 # Promotion-lesson (only fires when prompts/, subjects/, or shared/decisions/ touched)
 uv run python scripts/promotion_lesson_check.py
@@ -76,12 +80,51 @@ All required-and-firing checks must pass for auto-merge.
 ## Repo-Specific Gotchas
 
 - **`make test` is the documented entry point.** If it ever errors `ModuleNotFoundError: No module named 'fiscus'`, the env wasn't synced — run `uv sync --extra dev` and retry.
-- **Boy-scout rule is enforced**, not aspirational. Touching `src/fiscus/foo.py` requires its gaudi violation count to be ≤ `main`'s. The CI job fails loudly with a per-file diff.
+- **Boy-scout rule is enforced**, not aspirational. Touching `src/fiscus/foo.py` requires its gaudi violation count to be ≤ the PR's base branch. CI baselines against `origin/${{ github.base_ref }}`, so a `staging`-targeted PR is compared to `staging`, not `main` — run the local check against the same base (see § Dev-loop runbook). The CI job fails loudly with a per-file diff.
 - **Promotion-lesson check fires only on specific paths.** Touching `src/fiscus/`, `tests/`, `documentation/`, `Makefile`, `.github/`, `pyproject.toml`, `shared/postmortems/`, `shared/experiments/`, or `shared/andon.jsonl` does NOT trigger it. Only `prompts/`, `subjects/`, or `shared/decisions/` do.
 - **Fiscus observes Fiscus** — `subjects/fiscus-meta/` is a real subject with quarterly cadence. CI runs, lesson-corpus growth, andon usage, and subject coverage all feed back into Fiscus's own meta-loop. Don't treat fiscus-meta as a placeholder.
 - **PII discipline §4** (per `oversteward/documentation/captures/matchmaker-instrumentation.md` §4 + `run-shapes-ghp-general.md` §3) — no raw user inputs, no raw form payloads, no raw prompt/completion text in any committed code or fixture. Bucketed values only.
 - **The `EventPayload` base class is public** — used by both `MatchmakerEvent` (discriminator: `step`) and `GHPGeneralEvent` (discriminator: `event_type`). Any new subject's typed payloads reuse it; do not introduce a parallel base class.
 - **Default workflow is in-session, not dispatch.** Most Fiscus work is design-led and worked in-session by Nathan with Chestertron, not handed off via `/dispatch`. The dispatch path exists for mechanical changes (deps bumps, generated-code regenerations, documented-fix patterns) where the playbook applies cleanly.
+
+## Dev-loop runbook
+
+Run the checks in this order. The **boy-scout check runs BEFORE the heavy full
+gate** (`make test` + `make lint` + `make typecheck` + `make gaudi`) — it is
+cheap, fails fast on the exact per-file regression CI would catch, and saves you
+the multi-minute full-gate run when the real blocker is a single touched file.
+
+1. **Detect the PR's base branch.** The boy-scout ratchet is per-file vs the
+   base, and CI uses the PR's ACTUAL base (`origin/${{ github.base_ref }}`) — not
+   a hardcoded `main`. Auto-detect it so local and CI agree:
+   ```bash
+   BASE="$(gh pr view --json baseRefName -q .baseRefName 2>/dev/null || echo main)"
+   ```
+   Before the PR exists, `BASE` falls back to `main`; pass `--base origin/staging`
+   by hand if this branch targets `staging`.
+2. **Boy-scout check (fast, base-aware) — run this first:**
+   ```bash
+   uv run python scripts/boy_scout_check.py --base "origin/$BASE"
+   ```
+3. **Full gate (heavy):** `make test`, `make lint`, `make typecheck`, `make gaudi`.
+
+### Clearing a boy-scout regression
+
+The check is strict monotonic-down per touched file (count must be `≤` base). Two
+sanctioned tactics when a touched file's count would otherwise tick up:
+
+- **Offset tactic (strict `N → N` reduction).** If an edit unavoidably adds one
+  finding to a file, clear a cheap, genuine finding elsewhere in the SAME file to
+  hold the count flat — e.g. drop a trivially-fixable `STRUCT-020` (import
+  placement / ordering). This must be a real improvement, never a `# noqa`
+  dodge of a live finding (see the Boy-Scout Rule in
+  `shared/references/architecture-principles.md` — suppress only tool
+  false-positives, and fix those upstream at the tool).
+- **New-file escape hatch.** The ratchet only compares files that exist on the
+  base branch. A brand-new file has no base count to regress against, so its
+  findings don't trip the boy-scout gate (the whole-repo `make gaudi` still
+  applies). Prefer adding new code in a new file over piling onto a
+  gaudi-dirty existing one you can't fully clean.
 
 ## Repo-Specific PR Body Template
 
@@ -101,7 +144,7 @@ Closes #<issue>
 - `uv run ruff format --check .` → <result>
 - `uv run pyright` → <result>
 - `uv run gaudi check .` → <result>
-- `uv run python scripts/boy_scout_check.py --base main` → <result>
+- `uv run python scripts/boy_scout_check.py --base origin/<base-branch>` → <result>
 - (if applicable) `uv run python scripts/promotion_lesson_check.py` → <result>
 
 ## Scope
