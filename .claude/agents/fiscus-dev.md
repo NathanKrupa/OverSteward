@@ -126,6 +126,36 @@ sanctioned tactics when a touched file's count would otherwise tick up:
   applies). Prefer adding new code in a new file over piling onto a
   gaudi-dirty existing one you can't fully clean.
 
+### Structurally-false-positive codes (suppressed in the per-file ratchet)
+
+A handful of gaudi codes are structural heuristics that misfire on module
+*shape* rather than a real defect. These are suppressed in the ratchet's
+per-file count so a genuine edit isn't forced to "clear" a finding that was
+never fixable in the first place — the same treatment `STAB-011`
+(`MissingHealthEndpoint`, which fires on any module that isn't an HTTP service)
+already gets:
+
+- **`SVC-006` (`MissingContractTests`, `[requests]`).** Fires on any module that
+  imports/uses `requests` (or another HTTP client), asking for a contract test.
+  It is a false positive when the request surface is already covered by a
+  mock-based test living in another file, or when the module merely re-exports /
+  passes through an HTTP client it does not itself own — the boy-scout ratchet
+  keys on the touched file, so the finding lands on the wrong file and can never
+  be cleared there. Suppress it in the **ratchet** count (mirror the existing
+  `STAB-011` entry in the repo's `boy_scout_check.py` suppression set).
+
+The **advisory whole-repo `make gaudi`** report is NOT suppressed — it still
+lists `SVC-006`/`STAB-011` so a genuinely-missing contract test or health
+endpoint is visible at review time. Suppression is scoped to the monotonic
+ratchet only, never a blanket `# noqa` on a live finding.
+
+> **Per-repo follow-on (config lives in the repo, not here):** the actual
+> suppression set is repo-local — `boy_scout_check.py` in fiscus, the gaudi
+> ratchet config in aigranthelper/grantspider. This runbook records the
+> doctrine; adding `SVC-006` to each repo's suppression set is a one-line
+> per-repo PR filed against that repo (fiscus first, since it owns the
+> `boy_scout_check.py` pattern the others copy).
+
 ## Repo-Specific PR Body Template
 
 ```markdown
