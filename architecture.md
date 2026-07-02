@@ -124,6 +124,7 @@ Rolling, capped at ~10 entries. Older moves drop off; this is the "what changed 
 ## §6 Maintenance protocol
 
 - **Read at:** scope/plan time. Skim §1-2 for orientation, grep §3-4 for the surface you're touching.
+- **Verify the propagation surface exists before scoping cross-repo / "propagate through Y" work.** A brief like "edit X and propagate through Y" assumes the propagation surface Y (managed-block markers, a sync seam, a byte-copy twin, a shared consumer) already exists — and that assumption goes stale within a session. Before committing scope, `git grep` for the managed-block markers or the seam named in §2, and confirm the consumer actually reads it. If the surface is absent, **building it is part of this work, not a follow-up** — fold it into the scope or split it into an explicit prerequisite issue. Do not scope a propagation step against a surface you have not confirmed exists. (Process-debt B5, 2026-06-27 trajectory review — OS#129.)
 - **Update at:** any session that learns a row is wrong, lands a §7-surface PR, or discovers a new invariant or liability.
 - **Cite or omit:** every row carries a source. If you can't cite it, it doesn't belong here — it belongs in your own session notes until it has one.
 - **Token cap:** ~2k. If §3 or §4 grows past that, the architecture has outgrown the single-file format and we restructure (probably by splitting per-repo). Do not just keep appending.
