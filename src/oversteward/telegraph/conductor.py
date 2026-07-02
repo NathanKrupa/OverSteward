@@ -10,7 +10,7 @@ spec is a ``telegraph-epic`` YAML block embedded in that issue body.
 This module is the **middle-layer service**: given the parsed epic, the live
 status of each leg, and how many correction rounds have been spent, it returns
 the single next :class:`Decision`. It performs **no** I/O — querying child-issue
-state, running ``/dispatch``, and posting to the tracking issue / Telegram are
+state, running ``/dispatch``, and posting to the tracking issue are
 the **inner edges**, supplied by the orchestrator that drives this engine. That
 split is what keeps the sequencing logic exhaustively testable without GitHub.
 
