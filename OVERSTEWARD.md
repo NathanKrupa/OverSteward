@@ -140,6 +140,7 @@ oversteward/
         ├── answer/            # /answer — post one answer, swap labels
         ├── questions/         # /questions — ad-hoc needs-input view
         ├── project-status/    # /project-status — pipeline dashboard
+        ├── refresh-docs/      # /refresh-docs — monthly dated-status-doc sweep
         └── create-persona.md  # Scaffold + deploy a new persona
 ```
 
@@ -414,6 +415,7 @@ The previous Chestertron Inbox round-trip (`/morning-digest` → Obsidian file �
 | `/project-status` | Ad-hoc | Pipeline dashboard — open issues, open PRs, recent merges, agents in flight, scoping candidates, 30d metrics, stale `needs-input` counter |
 | `/questions` | Ad-hoc | Compact list of `needs-input` items, flags stale (>=48h) |
 | `/answer` | Ad-hoc (per issue) | Post one answer on a `needs-input` issue and swap labels to `ready-for-agent` |
+| `/refresh-docs` | Monthly | Reconcile the dated status docs (Ledger, MASTER_TODO, TODO_BACKLOG, TODO_COMPLETED) against live issue/PR/git state; proposes edits, waits for approval |
 
 ### Self-critique gate
 
