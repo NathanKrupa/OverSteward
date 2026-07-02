@@ -19,6 +19,13 @@ case "$git_dir" in
 esac
 
 root="$(git rev-parse --show-toplevel)"
+
+# A shallow clone causes "refusing to merge unrelated histories" on back-merge
+# and grafted/orphan branches that aren't worth repairing. Unshallow first.
+if [ "$(git -C "$root" rev-parse --is-shallow-repository)" = "true" ]; then
+    echo "Shallow checkout detected — unshallowing (git fetch --unshallow)..." >&2
+    git -C "$root" fetch --unshallow --quiet
+fi
 git -C "$root" fetch origin --quiet
 
 # Base ref: explicit arg wins; else origin/staging if it exists (GS/AG model);

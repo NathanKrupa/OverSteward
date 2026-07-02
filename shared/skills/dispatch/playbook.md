@@ -40,7 +40,7 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
 
 ### Worktree setup (isolation — keeps Nathan's live working tree untouched)
 
-4. **Fetch.** `cd` into the repo. Run `git worktree prune 2>/dev/null || true` to drain any stale worktree metadata left by a prior run. Then run `git fetch origin <default-branch>`. Do NOT run `git checkout` or `git pull` on the main working tree — Nathan may be editing there.
+4. **Fetch.** `cd` into the repo. Run `git worktree prune 2>/dev/null || true` to drain any stale worktree metadata left by a prior run. **Unshallow pre-check:** if `git rev-parse --is-shallow-repository` prints `true`, run `git fetch --unshallow` first — a shallow clone triggers "refusing to merge unrelated histories" on back-merge and grafted/orphan branches that aren't worth repairing. Then run `git fetch origin <default-branch>`. Do NOT run `git checkout` or `git pull` on the main working tree — Nathan may be editing there.
 5. **Create worktree.** Generate a temp path: `WORKTREE_PATH=$(mktemp -d -t dispatch-<repo>-<n>-XXXX)`. All five pickup repos run on WSL2, so the worktree lands in `/tmp` on ext4 — no OneDrive lock contention, no husk fragility. Then:
    - **Continuing existing draft PR** (from step 1): `git worktree add "$WORKTREE_PATH" <existing-branch>`
    - **Fresh start:** `git worktree add -B <target-branch> "$WORKTREE_PATH" origin/<default-branch>`
@@ -52,6 +52,17 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
    **If any check fails, STOP.** Emit `final_state: REFUSED_PREFLIGHT` with `notes` describing which check failed, and `question: "worktree viability probe failed at step 6 — retry when the system is quiet."`. Release the `agent-in-progress` label (step 18) and the worktree metadata (step 19). Do NOT attempt to work around the failure by `cd`ing back into the main repo or by running `git checkout` on Nathan's live tree — that is the non-negotiable documented above, driven by the grantspider #426 postmortem.
 
    ALL subsequent git, test, lint, edit operations happen in `$WORKTREE_PATH`. Nathan's live working tree is never touched.
+
+   **Dedicated worktree venv (isolated verify).** A worktree's `.venv` is normally a symlink to the shared parent venv (see `new-session.sh`), and PYTHONPATH points imports at the worktree's own `src/`. That is fine for read-only work, but if your verify **installs or mutates packages** (e.g. `uv sync`, `pip install -e .`, an editable re-point), a concurrent session using the same shared venv gets corrupted mid-run. When your verify installs anything, build a dedicated venv **inside** the worktree instead of sharing the parent:
+
+   ```bash
+   # Inside $WORKTREE_PATH — replace the shared-venv symlink with a real, isolated venv
+   rm -f "$WORKTREE_PATH/.venv"          # drop the symlink to the parent venv
+   uv venv "$WORKTREE_PATH/.venv"        # (or python -m venv) — a private venv for this worktree
+   ( cd "$WORKTREE_PATH" && uv sync --extra dev )   # install into the private venv, not the shared one
+   ```
+
+   Then run the isolated gates against that venv (`.venv/bin/python -m pytest`, `.venv/bin/gaudi ...`). Because the venv is a real directory under `$WORKTREE_PATH`, it is removed with the worktree at step 19 and never touches the parent. If your verify is install-free (imports resolve via PYTHONPATH against the shared venv's already-present deps), keep the default symlink — no dedicated venv needed.
 
    **Mid-run vanishing worktree.** If a `git` command later in the workflow fails with "fatal: not a git repository" or similar, the temp tree has disappeared mid-flight. Same rule: STOP, do not migrate work to the main checkout. Emit `final_state: STOPPED_FOR_INPUT` with the failure context; any unpushed commits are lost.
 
