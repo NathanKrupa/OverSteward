@@ -46,6 +46,10 @@ def hook():
 # so the expected-value column has a single source of truth.
 _RM_RF = "rm -rf"
 _DROP = "DROP/TRUNCATE"
+# Hook-evasion category labels (class 1).
+_HOOKSPATH = "core.hooksPath disabled"
+_ADD_ALL = "git add -A / ."
+_ADD_SECRET = "git add of a secret file"
 
 
 @pytest.mark.parametrize(
@@ -180,13 +184,80 @@ def test_delete_with_where_passes(hook):
 
 
 # ---------------------------------------------------------------------------
-# Extension point for #173 — present but inert in this pass.
+# Class 1 — hook-evasion / secret-staging (hard ``deny``).
 # ---------------------------------------------------------------------------
 
 
-def test_hook_evasion_extension_point_is_inert(hook):
-    assert hook._match_hook_evasion("git commit --no-verify") is None
-    assert hook._match_hook_evasion("git add -A") is None
+@pytest.mark.parametrize(
+    ("cmd", "expected_category"),
+    [
+        # Hook / signing / protection bypass
+        ("git commit --no-verify -m x", "git --no-verify"),
+        ("git commit -m x --no-verify", "git --no-verify"),
+        ("git commit --no-gpg-sign -m x", "git --no-gpg-sign"),
+        ("gh pr merge 12 --admin --merge", "--admin bypass"),
+        ("git merge --admin", "--admin bypass"),
+        ("git -c core.hooksPath=/dev/null commit -m x", _HOOKSPATH),
+        ("git config core.hooksPath ''", _HOOKSPATH),
+        ('git -c core.hooksPath="" commit', _HOOKSPATH),
+        # Blind whole-tree staging
+        ("git add -A", _ADD_ALL),
+        ("git add --all", _ADD_ALL),
+        ("git add .", _ADD_ALL),
+        ("git add -A .", _ADD_ALL),
+        # Secret-file staging
+        ("git add .env", _ADD_SECRET),
+        ("git add .env.local", _ADD_SECRET),
+        ("git add config/.env.production", _ADD_SECRET),
+        ("git add server.pem", _ADD_SECRET),
+        ("git add id_rsa.key", _ADD_SECRET),
+        ("git add credentials.json", _ADD_SECRET),
+        ("git add secrets/credentials", _ADD_SECRET),
+    ],
+)
+def test_hook_evasion_matched(hook, cmd, expected_category):
+    result = hook._match_hook_evasion(cmd)
+    assert result is not None, f"expected an evasion match for {cmd!r}"
+    category, reason = result
+    assert category == expected_category
+    assert reason  # non-empty reason phrase
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        # Legitimate explicit-path staging
+        "git add src/foo.py",
+        "git add tests/",
+        "git add tests/dev/test_x.py",
+        "git add README.md pyproject.toml",
+        # Commit / other git without a bypass flag
+        "git commit -m x",
+        "git commit -am 'msg'",
+        "git config core.hooksPath .githooks",
+        # Placeholder dotenv files carry no real values — legitimately committed
+        "git add .env.example",
+        "git add .env.sample",
+        "git add .env.template",
+        "git add .env.dist",
+        "git add config/.env.example",
+    ],
+)
+def test_hook_evasion_pass_through(hook, cmd):
+    assert hook._match_hook_evasion(cmd) is None, f"expected pass-through for {cmd!r}"
+
+
+def test_placeholder_dotenv_not_staged_as_secret(hook):
+    # The carve-out lives in the secret-staging predicate specifically.
+    assert hook._stages_secret_file("git add .env.example") is False
+    assert hook._stages_secret_file("git add .env") is True
+
+
+def test_evasion_wins_over_destructive(hook):
+    # A command that is BOTH evasion-class and destructive-class must deny
+    # (evasion), never soften to ask. `git add .` leads, a destructive rm
+    # follows; evasion must win.
+    assert hook._match_hook_evasion("git add . && rm -rf /data") is not None
 
 
 # ---------------------------------------------------------------------------
@@ -198,10 +269,18 @@ _TOOL = "tool_name"
 _INPUT = "tool_input"
 _CMD = "command"
 _BASH = "Bash"
+_HSO = "hookSpecificOutput"
+_DECISION = "permissionDecision"
+_REASON = "permissionDecisionReason"
 
 
 def _payload(tool: str, cmd: str) -> dict:
     return {_TOOL: tool, _INPUT: {_CMD: cmd}}
+
+
+def _hso(proc: subprocess.CompletedProcess) -> dict:
+    """The hookSpecificOutput block from a hook's stdout."""
+    return json.loads(proc.stdout)[_HSO]
 
 
 def _run_stdin(raw: str) -> subprocess.CompletedProcess:
@@ -222,11 +301,27 @@ def _run_hook(payload: dict) -> subprocess.CompletedProcess:
 def test_ask_decision_emitted_on_match():
     proc = _run_hook(_payload(_BASH, "rm -rf /home/natha/x"))
     assert proc.returncode == 0
-    out = json.loads(proc.stdout)
-    hso = out["hookSpecificOutput"]
+    hso = _hso(proc)
     assert hso["hookEventName"] == "PreToolUse"
-    assert hso["permissionDecision"] == "ask"
-    assert "rm -rf" in hso["permissionDecisionReason"]
+    assert hso[_DECISION] == "ask"
+    assert "rm -rf" in hso[_REASON]
+
+
+def test_deny_decision_emitted_on_evasion():
+    proc = _run_hook(_payload(_BASH, "git commit --no-verify -m x"))
+    assert proc.returncode == 0
+    hso = _hso(proc)
+    assert hso["hookEventName"] == "PreToolUse"
+    assert hso[_DECISION] == "deny"
+    assert "I-3" in hso[_REASON]
+
+
+def test_evasion_denies_even_when_destructive_present():
+    # `git add .` (evasion) precedes `rm -rf` (destructive/ask). The decision
+    # must be deny, proving class-1 is checked first end-to-end.
+    proc = _run_hook(_payload(_BASH, "git add . && rm -rf /data"))
+    assert proc.returncode == 0
+    assert _hso(proc)[_DECISION] == "deny"
 
 
 def test_safe_command_no_output(hook):

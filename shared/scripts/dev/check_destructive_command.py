@@ -1,7 +1,24 @@
 #!/usr/bin/env python3
-# ABOUTME: PreToolUse(Bash) guard — ask for confirmation before destructive shell commands.
+# ABOUTME: PreToolUse(Bash) guard — hard-deny hook evasion; ask before destructive commands.
 # ABOUTME: Canonical in OverSteward shared/scripts/dev/; deployed to <repo>/.claude/hooks/.
-"""Confirm-gate PreToolUse(Bash) hook for destructive shell commands.
+"""Two-tier PreToolUse(Bash) guard for destructive and hook-evasion commands.
+
+Two decision classes, checked in this priority order:
+
+1. **Hook-evasion / secret-staging (``deny`` — hard block).** Estate invariant
+   I-3: an agent NEVER bypasses git hooks and NEVER blind-stages the tree.
+   ``git ... --no-verify``, ``git ... --no-gpg-sign``, ``--admin`` (gh/git),
+   ``core.hooksPath`` pointed at ``/dev/null`` or emptied, ``git add -A`` /
+   ``git add .``, and staging a real secret file (``git add`` of
+   ``.env*`` / ``*.pem`` / ``*.key`` / ``credentials*``). These are never
+   legitimate for a dispatch agent, so they are hard-denied — NOT downgradable
+   to an ask. This class is checked FIRST so a destructive-pattern match can
+   never soften the decision to ``ask``. Placeholder dotenv files
+   (``.env.example`` / ``.env.sample`` / ``.env.template`` / ``.env.dist``)
+   carry no real values and are legitimately committed — they are carved out.
+
+2. **Destructive-but-sometimes-legitimate (``ask`` — confirm gate).**
+   Encodes the pattern table of ``shared/skills/careful.md``: file-system
 
 Encodes the pattern table of ``shared/skills/careful.md``: file-system
 destruction (``rm -rf`` on non-artifacts, ``shred``/``wipe``), hard-to-reverse
@@ -12,10 +29,10 @@ without ``WHERE``, ``manage.py flush``), container/infra teardown
 package-management footguns (``pip install`` outside a venv, ``npm install
 -g``).
 
-On a match the hook does NOT hard-deny — ``careful.md`` is a confirm gate, not a
-wall. It emits an ``ask`` permission decision on stdout with a structured risk
-explanation. Claude Code surfaces that as a confirmation prompt: in an
-interactive session Nathan approves or rejects; in an autonomous/operator
+On a class-2 match the hook does NOT hard-deny — ``careful.md`` is a confirm
+gate, not a wall. It emits an ``ask`` permission decision on stdout with a
+structured risk explanation. Claude Code surfaces that as a confirmation prompt:
+in an interactive session Nathan approves or rejects; in an autonomous/operator
 context an unanswered ``ask`` blocks the command. Both match the intent.
 
 ``careful.md``'s Safe Exceptions (``rm -rf node_modules|dist|build|...``,
@@ -27,10 +44,6 @@ after a ``; & |`` separator, allowing a leading run of ``VAR=value`` env
 assignments) so quoted mentions in ``echo``/``printf``/test data do not
 false-positive. This mirrors ``guard_main_worktree.py``'s anchoring after the
 #172 bypass fix.
-
-Git-hook-evasion verbs (``--no-verify``, ``core.hooksPath``, ``--admin``,
-``git add -A``) are deliberately OUT of scope here; they extend this same hook
-in follow-up #173. See ``_EVASION_EXTENSION_POINT`` below.
 
 Decision logic is split into pure functions so it is unit-tested without a
 shell. This is an estate-canonical byte-copy (ratchet treaty): improve here and
@@ -278,17 +291,114 @@ def _match(command: str) -> tuple[str, str] | None:
 
 
 # ---------------------------------------------------------------------------
-# Extension point for follow-up #173 (git-hook-evasion guard). That work adds
-# detectors for ``--no-verify``, ``core.hooksPath=/dev/null``, ``--admin``, and
-# ``git add -A``/``git add .`` and appends their (category, risk) results here.
-# Left deliberately empty in this pass — do NOT implement those patterns yet.
+# Class 1 — git-hook-evasion / secret-staging detectors (hard ``deny``).
+#
+# Estate invariant I-3: a dispatch agent NEVER bypasses git hooks and NEVER
+# blind-stages the working tree. Every shape below is unambiguously an evasion
+# — there is no legitimate agent use — so it is hard-denied rather than gated
+# with an ``ask``. These are checked BEFORE the class-2 destructive rules so a
+# destructive-pattern match can never downgrade the decision to ``ask``.
 # ---------------------------------------------------------------------------
-def _match_hook_evasion(command: str) -> tuple[str, str] | None:  # noqa: ARG001
-    """Placeholder for #173 git-hook-evasion detectors. Always None for now."""
+
+# ``--no-verify`` / ``-n`` on commit skips the pre-commit/commit-msg hooks;
+# ``--no-gpg-sign`` skips signing. Anchored to a leading ``git``.
+_GIT_NO_VERIFY = re.compile(_AT_CMD + r"git\b[^\n;&|]*\s--no-verify\b")
+_GIT_NO_GPG_SIGN = re.compile(_AT_CMD + r"git\b[^\n;&|]*\s--no-gpg-sign\b")
+# ``--admin`` on ``gh pr merge`` (or git) bypasses branch-protection/CI gates.
+_ADMIN_FLAG = re.compile(_AT_CMD + r"(?:gh|git)\b[^\n;&|]*\s--admin\b")
+# ``core.hooksPath`` redirected to /dev/null or emptied disables all hooks.
+# Matches ``git ... -c core.hooksPath=/dev/null`` and ``git config
+# core.hooksPath ''`` (value = /dev/null, empty string, or nothing).
+_HOOKSPATH_NEUTERED = re.compile(
+    r"core\.hooksPath\s*(?:=|\s)\s*(?P<val>/dev/null\b|''|\"\"|(?=[\s;&|]|$))",
+    re.IGNORECASE,
+)
+# ``git add -A`` / ``git add --all`` / ``git add .`` — blind whole-tree staging.
+_GIT_ADD_ALL = re.compile(
+    _AT_CMD + r"git\s+add\b[^\n;&|]*(?:(?<!\w)-A\b|--all\b|(?<!\S)\.(?=\s|$|[;&|]))"
+)
+
+# Secret files that must never be staged. A placeholder dotenv (``.env.example``
+# and friends) carries no real values and is legitimately committed — carved
+# out below so only real secret files trip the guard.
+_SECRET_PLACEHOLDER_SUFFIXES = (".example", ".sample", ".template", ".dist")
+# A single ``git add`` argument that names a secret file. ``.env`` and any
+# ``.env.<x>`` variant, plus ``*.pem`` / ``*.key`` / ``credentials*``.
+_SECRET_ARG = re.compile(
+    r"(?:^|/)(?:\.env(?:\.[\w.-]+)?|[\w.-]*\.pem|[\w.-]*\.key|credentials[\w.-]*)$"
+)
+_GIT_ADD_LEAD = re.compile(_AT_CMD + r"git\s+add\b(?P<args>[^\n;&|]*)")
+
+
+def _is_placeholder_dotenv(arg: str) -> bool:
+    """True for ``.env.example`` / ``.sample`` / ``.template`` / ``.dist``."""
+    base = arg.rsplit("/", 1)[-1]
+    return any(base.endswith(sfx) for sfx in _SECRET_PLACEHOLDER_SUFFIXES)
+
+
+def _stages_secret_file(command: str) -> bool:
+    """True if a ``git add`` names a real secret file (placeholders exempt)."""
+    m = _GIT_ADD_LEAD.search(command)
+    if not m:
+        return False
+    for arg in m.group("args").split():
+        if arg.startswith("-"):
+            continue
+        if _SECRET_ARG.search(arg) and not _is_placeholder_dotenv(arg):
+            return True
+    return False
+
+
+# Evasion rule table, in priority order. Each row is ``(category, predicate,
+# reason)`` where ``reason`` completes "This ..." in the deny message.
+_EVASION_RULES: tuple[tuple[str, object, str], ...] = (
+    ("git --no-verify", _matches(_GIT_NO_VERIFY),
+     "bypasses the pre-commit / commit-msg hooks that guard every commit"),
+    ("git --no-gpg-sign", _matches(_GIT_NO_GPG_SIGN),
+     "skips commit signing, defeating provenance verification"),
+    ("--admin bypass", _matches(_ADMIN_FLAG),
+     "bypasses branch-protection and required-check gates"),
+    ("core.hooksPath disabled", _matches(_HOOKSPATH_NEUTERED),
+     "redirects git's hooks path to nothing, disabling all repository hooks"),
+    ("git add -A / .", _matches(_GIT_ADD_ALL),
+     "blind-stages the entire working tree instead of explicit paths"),
+    ("git add of a secret file", _stages_secret_file,
+     "stages a secret file (.env / *.pem / *.key / credentials*) into a commit"),
+)
+
+
+def _match_hook_evasion(command: str) -> tuple[str, str] | None:
+    """Return (category, reason) for the first hook-evasion pattern matched."""
+    for category, predicate, reason in _EVASION_RULES:
+        if predicate(command):  # type: ignore[operator]
+            return (category, reason)
     return None
 
 
-_EVASION_EXTENSION_POINT = _match_hook_evasion
+def _deny_message(category: str, reason: str, command: str) -> str:
+    """Human-readable hard-block explanation surfaced with the deny decision."""
+    return (
+        "HOOK-EVASION / SECRET-STAGING — hard blocked (estate invariant I-3)\n\n"
+        f"Command: {command.strip()}\n"
+        f"Pattern: {category}\n"
+        f"Reason: This {reason}.\n\n"
+        "I-3: a dispatch agent never bypasses git hooks and never blind-stages "
+        "the tree. This is not an ask you can approve — remove the bypass flag "
+        "and stage explicit, non-secret paths instead."
+    )
+
+
+def _emit_deny(reason: str) -> None:
+    """Emit a ``deny`` PreToolUse permission decision on stdout and exit 0."""
+    output = {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": reason,
+        }
+    }
+    sys.stdout.write(json.dumps(output))
+    sys.exit(0)
 
 
 def _ask_message(category: str, risk: str, command: str) -> str:
@@ -330,7 +440,15 @@ def main() -> int:
     if not command:
         return 0
 
-    hit = _match(command) or _EVASION_EXTENSION_POINT(command)
+    # Class 1 first — hook evasion is a hard ``deny`` and must never be
+    # downgradable to a class-2 ``ask``.
+    evasion = _match_hook_evasion(command)
+    if evasion is not None:
+        category, reason = evasion
+        _emit_deny(_deny_message(category, reason, command))
+        return 0  # _emit_deny exits; unreachable, kept for type clarity
+
+    hit = _match(command)
     if hit is None:
         return 0
     category, risk = hit
