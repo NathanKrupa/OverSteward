@@ -17,14 +17,14 @@ def test_research_dsn_reads_injected_env():
     assert dsn == "postgresql://x"
 
 
-def test_research_dsn_raises_when_unset():
+def test_research_dsn_raises_when_unset(tmp_path):
     with pytest.raises(VintnerConfigError):
-        research_dsn({})
+        research_dsn({}, dotenv_path=tmp_path / "absent.env")
 
 
-def test_research_dsn_raises_when_empty():
+def test_research_dsn_raises_when_empty(tmp_path):
     with pytest.raises(VintnerConfigError):
-        research_dsn({RESEARCH_DSN_ENV: ""})
+        research_dsn({RESEARCH_DSN_ENV: ""}, dotenv_path=tmp_path / "absent.env")
 
 
 def _write_dotenv(tmp_path, value):
