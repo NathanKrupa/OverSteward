@@ -1,3 +1,6 @@
+---
+benefits-from: [security-audit]
+---
 ABOUTME: Pre-landing code review skill with two-pass system and scope drift detection.
 ABOUTME: Adapted from garrytan/gstack's /review pattern for House of Krupa contexts.
 
@@ -30,6 +33,27 @@ Compare the stated intent against the actual diff:
 - Should this be split into multiple commits or PRs?
 
 Flag drift but don't block on it — Nathan decides whether to split.
+
+## Phase 2.5: Security-Pass Offer (web-surface repos only)
+
+This skill declares `benefits-from: [security-audit]` (see frontmatter). On a
+web-surface repo, a review is stronger when the security pass has already run.
+
+**Gate — only offer when both hold:**
+- The repo under review is a web-surface repo: **aigranthelper** or
+  **ai-assistants** (the contexts tagged `web` in `registry.yaml` that expose a
+  browser/API attack surface).
+- `/security-audit` has NOT already run this session.
+
+When both hold, offer — do not force:
+
+> This is a web-surface repo and the security pass hasn't run this session.
+> Want me to run `/security-audit` on this diff first, before the critical pass?
+
+If Nathan accepts, run `/security-audit` inline and fold its findings into the
+Phase 3 Critical Pass under **Security**. If he declines (or the gate doesn't
+hold), continue straight to Phase 3. This is a lightweight offer, not a chain —
+skip it entirely for non-web repos and never block the review on it.
 
 ## Phase 3: Critical Pass
 
