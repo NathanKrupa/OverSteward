@@ -1,4 +1,13 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(systemctl --user is-active *)",
+      "Bash(systemctl --user is-enabled *)",
+      "Bash(systemctl --user list-timers *)",
+      "mcp__railway__list_projects",
+      "mcp__railway__get_service_config"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {
