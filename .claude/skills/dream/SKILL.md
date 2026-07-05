@@ -38,7 +38,7 @@ For each entry, render the transcript and extract candidate facts yourself, in-s
 python scripts/dream.py transcripts show <session_id> > /tmp/dream/transcript.txt
 ```
 
-Read it and produce a JSON list of candidate facts following `oversteward.dream.extract.EXTRACTION_PROMPT` (the schema and the strict "when in doubt, omit" rules live there). Write that raw JSON to `/tmp/dream/extract_<i>.json`. Then gate + privacy-filter + prefilter it deterministically:
+Read it and produce a JSON list of candidate facts following `oversteward.dream.extract.EXTRACTION_PROMPT` (the schema and the strict "when in doubt, omit" rules live there). Each candidate MAY carry the optional two-axis fields `tier` (`standing`|`model`|`cookbook`), `scope` (list), and `digest` (one-line) — leave them out unless confident; a strict deterministic classifier derives `tier` for the always-loaded standing-orders layer when you omit it (and never promotes to a `standing` law on keyword presence). Write that raw JSON to `/tmp/dream/extract_<i>.json`. Then gate + privacy-filter + prefilter it deterministically:
 
 ```bash
 $DREAM worksheet --extract /tmp/dream/extract_<i>.json > /tmp/dream/worksheet_<i>.json
@@ -52,7 +52,8 @@ For each worksheet candidate, judge it against its `prefiltered` memories yourse
 
 - score `similarity` (0–1) vs the nearest existing memory;
 - name the matched memory's `filename` (or null if nothing is close);
-- propose `merged_body` for an auto-merge; set `is_contradiction` when the candidate contradicts the match (a contradiction vs a `nathan-stated` memory is **surfaced, never auto-written**).
+- propose `merged_body` for an auto-merge; set `is_contradiction` when the candidate contradicts the match (a contradiction vs a `nathan-stated` memory is **surfaced, never auto-written**);
+- confirm or set the candidate's two-axis `tier`/`scope`/`digest` for a NEW fact (append band) — only set `tier: standing` for a durable law/habit that belongs in every session's lean loaded layer, never for an ordinary ops lesson just because it says never/always/must. Leave `tier` blank to let the strict classifier derive it. `MEMORY.md` is now the grouped **Standing Orders** layer (Laws / Habits / Graveyard / Living-doc pointers); the full flat index lives on-demand in `MEMORY_FULL.md`.
 
 Write a verdicts JSON list **aligned by index** to the worksheet (`[{"similarity":…, "match_filename":…, "merged_body":…, "is_contradiction":…}, …]`), then apply:
 

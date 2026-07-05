@@ -102,6 +102,57 @@ def test_from_dict_rejects_wrong_typed_is_procedural() -> None:
         CandidateFact.from_dict(data)
 
 
+# ---- optional two-axis fields (OS#203) --------------------------------------
+
+
+def test_optional_fields_absent_by_default() -> None:
+    fact = _fact()
+    assert fact.tier is None
+    assert fact.scope == []
+    assert fact.digest is None
+    # An un-tiered fact serializes lean — no optional keys leak into the dict.
+    as_dict = fact.to_dict()
+    assert "tier" not in as_dict and "scope" not in as_dict and "digest" not in as_dict
+
+
+def test_optional_fields_round_trip() -> None:
+    fact = _fact(tier="standing", scope=["grantspider"], digest="short imperative")
+    as_dict = fact.to_dict()
+    assert as_dict["tier"] == "standing"
+    assert as_dict["scope"] == ["grantspider"]
+    assert as_dict["digest"] == "short imperative"
+    assert CandidateFact.from_dict(as_dict) == fact
+    assert CandidateFact.from_dict(json.loads(fact.to_json())) == fact
+
+
+def test_from_dict_accepts_missing_optional_fields() -> None:
+    # An existing serialized fact without the new keys still parses.
+    data = {
+        "type": "reference",
+        "description": "a fact",
+        "body": "body",
+        "provenance": "claude-inferred",
+        "confidence": "high",
+        "is_procedural": False,
+    }
+    fact = CandidateFact.from_dict(data)
+    assert fact.tier is None
+
+
+def test_from_dict_rejects_unknown_tier() -> None:
+    data = _fact(tier="standing").to_dict()
+    data["tier"] = "gospel"
+    with pytest.raises(CandidateValidationError, match="tier"):
+        CandidateFact.from_dict(data)
+
+
+def test_from_dict_rejects_non_list_scope() -> None:
+    data = _fact().to_dict()
+    data["scope"] = "grantspider"
+    with pytest.raises(CandidateValidationError, match="scope"):
+        CandidateFact.from_dict(data)
+
+
 def test_parse_candidates_rejects_non_json() -> None:
     with pytest.raises(CandidateValidationError, match="not valid JSON"):
         parse_candidates("{not json")

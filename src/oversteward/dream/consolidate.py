@@ -56,10 +56,13 @@ FLAG_THRESHOLD = 0.55
 # The index + review-surface filenames at the store root.
 INDEX_FILENAME = "MEMORY.md"
 REVIEW_FILENAME = "MEMORY_REVIEW.md"
+# The full flat index — every fact's recall hook, kept on-demand (OS#203) so the
+# always-loaded MEMORY.md can be the lean standing-orders layer instead.
+FULL_INDEX_FILENAME = "MEMORY_FULL.md"
 
 # Root-level files that are NOT facts (the index + the flag surface) — excluded
 # from the fact set when the store enumerates ``*.md``.
-_NON_FACT_FILES = frozenset({INDEX_FILENAME, REVIEW_FILENAME})
+_NON_FACT_FILES = frozenset({INDEX_FILENAME, REVIEW_FILENAME, FULL_INDEX_FILENAME})
 
 # §3 frontmatter key names + git invocation tokens, named once each.
 _SOURCE_SESSIONS = "source_sessions"
@@ -151,12 +154,18 @@ class MemoryStore:
         return self._root
 
     def memories(self) -> list[MemoryFile]:
-        """Parse every fact file in the store (index + review surface excluded)."""
+        """Parse every fact file in the store (index, review surface, sidecars excluded).
+
+        ``*.steward-variant.md`` sidecars (OS#195 reconciler backups) are NOT live
+        facts, so they are skipped from enumeration entirely.
+        """
+        from .standing import is_steward_variant
+
         if not self._root.is_dir():
             return []
         out: list[MemoryFile] = []
         for path in sorted(self._root.glob("*.md")):
-            if path.name in _NON_FACT_FILES:
+            if path.name in _NON_FACT_FILES or is_steward_variant(path.name):
                 continue
             out.append(MemoryFile.parse(path.read_text(encoding="utf-8"), path.name))
         return out
@@ -169,19 +178,32 @@ class MemoryStore:
         return path
 
     def regenerate_index(self) -> Path:
-        """Rewrite ``MEMORY.md`` as one short line per memory — kept lean (§3).
+        """Rewrite the always-loaded ``MEMORY.md`` as grouped Standing Orders (OS#203).
 
-        The index is auto-loaded every session, so each entry is a single
-        ``- [filename](filename) — description`` line. Sorted by filename for a
-        stable, diff-friendly index.
+        ``MEMORY.md`` becomes the lean standing layer — Laws / Habits / Graveyard
+        / Living-doc pointers, derived by the strict classifier in
+        :mod:`oversteward.dream.standing` (a keyword hit NEVER promotes to law).
+        The full flat ``- [file] — desc`` index is preserved in
+        :data:`FULL_INDEX_FILENAME` so every fact keeps its recall hook. Sidecar
+        variants are already excluded from :meth:`memories`. Returns the
+        ``MEMORY.md`` path (the always-loaded layer).
         """
-        lines = ["# Memory Index", ""]
-        for mem in self.memories():
-            lines.append(f"- [{mem.filename}]({mem.filename}) — {mem.description}")
-        text = "\n".join(lines) + "\n"
+        from .standing import render_standing_orders
+
+        memories = self.memories()
         self._root.mkdir(parents=True, exist_ok=True)
+        self._write_full_index(memories)
         path = self._root / INDEX_FILENAME
-        path.write_text(text, encoding="utf-8")
+        path.write_text(render_standing_orders(memories), encoding="utf-8")
+        return path
+
+    def _write_full_index(self, memories: list[MemoryFile]) -> Path:
+        """Write the on-demand full flat index — one line per fact (OS#203)."""
+        lines = ["# Memory Index (full)", ""]
+        for mem in memories:
+            lines.append(f"- [{mem.filename}]({mem.filename}) — {mem.description}")
+        path = self._root / FULL_INDEX_FILENAME
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return path
 
     def write_review_surface(self, flagged: list[FlaggedItem]) -> Path:
@@ -521,6 +543,7 @@ def _new_memory(
         "decay_status": "active",
         _SOURCE_SESSIONS: [ctx.session_id] if ctx.session_id else [],
     }
+    _apply_two_axis(metadata, candidate)
     return MemoryFile(
         name=slug,
         description=candidate.description,
@@ -544,6 +567,22 @@ def _unique_slug(candidate: CandidateFact, taken: set[str]) -> str:
         slug = f"{base}_{suffix}"
         suffix += 1
     return slug
+
+
+def _apply_two_axis(metadata: dict[str, Any], candidate: CandidateFact) -> None:
+    """Persist the optional two-axis fields the dream cycle wrote (OS#203).
+
+    ``tier`` / ``scope`` / ``digest`` are stamped into frontmatter only when the
+    candidate carries them, so an un-tiered fact keeps a lean metadata block and
+    the standing generator derives its tier. An explicit ``tier`` on disk later
+    overrides that derivation.
+    """
+    if candidate.tier is not None:
+        metadata["tier"] = candidate.tier
+    if candidate.scope:
+        metadata["scope"] = list(candidate.scope)
+    if candidate.digest is not None:
+        metadata["digest"] = candidate.digest
 
 
 def _append_session(metadata: dict[str, Any], session_id: str | None) -> None:

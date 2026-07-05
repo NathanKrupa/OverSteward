@@ -28,7 +28,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
 log = logging.getLogger(__name__)
@@ -51,12 +51,24 @@ _PROVENANCE = "provenance"
 _CONFIDENCE = "confidence"
 _IS_PROCEDURAL = "is_procedural"
 
+# Optional two-axis fields (OS#201/#203) the dream cycle MAY write at
+# consolidation. Absent on today's un-tiered store; the standing-orders generator
+# derives ``tier`` via its strict classifier when a fact omits it.
+_TIER = "tier"
+_SCOPE = "scope"
+_DIGEST = "digest"
+
 VALID_TYPES = ("user", "feedback", "project", "reference")
 VALID_PROVENANCE = ("nathan-stated", "claude-inferred")
 VALID_CONFIDENCE = ("high", "medium", "low")
+VALID_TIERS = ("standing", "model", "cookbook")
 
 _STRING_FIELDS = (_TYPE, _DESCRIPTION, _BODY, _PROVENANCE, _CONFIDENCE)
-_FIELD_NAMES = (*_STRING_FIELDS, _IS_PROCEDURAL)
+_REQUIRED_FIELDS = (*_STRING_FIELDS, _IS_PROCEDURAL)
+# Known-but-optional keys: accepted when present, defaulted when absent, and
+# never *required* — existing candidates without them still validate.
+_OPTIONAL_FIELDS = (_TIER, _SCOPE, _DIGEST)
+_FIELD_NAMES = (*_REQUIRED_FIELDS, *_OPTIONAL_FIELDS)
 _ENUM_FIELDS = (
     (_TYPE, VALID_TYPES),
     (_PROVENANCE, VALID_PROVENANCE),
@@ -71,6 +83,11 @@ class CandidateFact:
     Validated at construction via :meth:`from_dict`; the dataclass itself stays a
     plain value object. ``is_procedural`` marks operational lessons (trigger +
     failure + fix) that get first-class capture per §5.
+
+    ``tier`` / ``scope`` / ``digest`` are the optional two-axis fields (OS#201/
+    #203) the in-session judge MAY set at consolidation. They are absent on the
+    un-tiered store, so the standing-orders generator derives ``tier`` from the
+    strict classifier when a fact omits it; an explicit ``tier`` overrides.
     """
 
     type: str
@@ -79,10 +96,25 @@ class CandidateFact:
     provenance: str
     confidence: str
     is_procedural: bool
+    tier: str | None = None
+    scope: list[str] = field(default_factory=list)
+    digest: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize to a plain dict (JSON-ready)."""
-        return asdict(self)
+        """Serialize to a plain dict (JSON-ready), omitting unset optional fields.
+
+        The optional two-axis fields (``tier``/``scope``/``digest``) are emitted
+        only when set, so a candidate without them round-trips to the same lean
+        object it started from and existing serialized facts stay byte-stable.
+        """
+        out: dict[str, Any] = {name: getattr(self, name) for name in _REQUIRED_FIELDS}
+        if self.tier is not None:
+            out[_TIER] = self.tier
+        if self.scope:
+            out[_SCOPE] = list(self.scope)
+        if self.digest is not None:
+            out[_DIGEST] = self.digest
+        return out
 
     def to_json(self) -> str:
         """Serialize this fact to a JSON object string."""
@@ -104,7 +136,14 @@ class CandidateFact:
         _validate_keys(data)
         _validate_types(data)
         _validate_enums(data)
-        return cls(**{name: data[name] for name in _FIELD_NAMES})
+        kwargs = {name: data[name] for name in _REQUIRED_FIELDS}
+        if _TIER in data:
+            kwargs[_TIER] = data[_TIER]
+        if _SCOPE in data:
+            kwargs[_SCOPE] = list(data[_SCOPE])
+        if _DIGEST in data:
+            kwargs[_DIGEST] = data[_DIGEST]
+        return cls(**kwargs)
 
 
 class CandidateValidationError(ValueError):
@@ -113,7 +152,7 @@ class CandidateValidationError(ValueError):
 
 def _validate_keys(data: dict[str, Any]) -> None:
     keys = set(data)
-    missing = [name for name in _FIELD_NAMES if name not in keys]
+    missing = [name for name in _REQUIRED_FIELDS if name not in keys]
     if missing:
         raise CandidateValidationError(f"missing field(s): {_join(missing)}")
     unknown = keys - set(_FIELD_NAMES)
@@ -121,15 +160,34 @@ def _validate_keys(data: dict[str, Any]) -> None:
         raise CandidateValidationError(f"unknown field(s): {_join(sorted(unknown))}")
 
 
+_MUST_BE_STRING = "must be a string"
+
+
 def _validate_types(data: dict[str, Any]) -> None:
     for name in _STRING_FIELDS:
         if not isinstance(data[name], str):
-            raise CandidateValidationError(_field_error(name, "must be a string"))
+            raise CandidateValidationError(_field_error(name, _MUST_BE_STRING))
     if not isinstance(data[_IS_PROCEDURAL], bool):
         raise CandidateValidationError(_field_error(_IS_PROCEDURAL, "must be a bool"))
+    _validate_optional_types(data)
+
+
+def _validate_optional_types(data: dict[str, Any]) -> None:
+    """Type-check the optional two-axis fields when present (absent = valid)."""
+    if _TIER in data and not isinstance(data[_TIER], str):
+        raise CandidateValidationError(_field_error(_TIER, _MUST_BE_STRING))
+    if _DIGEST in data and not isinstance(data[_DIGEST], str):
+        raise CandidateValidationError(_field_error(_DIGEST, _MUST_BE_STRING))
+    if _SCOPE in data:
+        scope = data[_SCOPE]
+        if not isinstance(scope, list) or not all(isinstance(item, str) for item in scope):
+            raise CandidateValidationError(_field_error(_SCOPE, "must be a list of strings"))
 
 
 def _validate_enums(data: dict[str, Any]) -> None:
+    if _TIER in data and data[_TIER] not in VALID_TIERS:
+        detail = f"has unknown value {data[_TIER]!r}; allowed: {_join(VALID_TIERS)}"
+        raise CandidateValidationError(_field_error(_TIER, detail))
     for name, allowed in _ENUM_FIELDS:
         if data[name] not in allowed:
             detail = f"has unknown value {data[name]!r}; allowed: {_join(allowed)}"
@@ -165,7 +223,7 @@ def parse_candidates(raw: str) -> list[CandidateFact]:
 
 # ---- Extraction prompt asset (§5) -------------------------------------------
 
-EXTRACTION_PROMPT_VERSION = "1"
+EXTRACTION_PROMPT_VERSION = "2"
 
 EXTRACTION_PROMPT = """\
 You are reading a development-session transcript to extract DURABLE memory for a
@@ -178,7 +236,10 @@ markdown fence. Each item must be an object with exactly these fields:
     "body": "<the fact in full>",
     "provenance": "nathan-stated" | "claude-inferred",
     "confidence": "high" | "medium" | "low",
-    "is_procedural": true | false
+    "is_procedural": true | false,
+    "tier": "standing" | "model" | "cookbook"   (OPTIONAL),
+    "scope": ["<repo-or-domain>", ...]           (OPTIONAL),
+    "digest": "<one-line standing-order phrasing>" (OPTIONAL)
   }
 
 Extract ONLY facts that will matter in a FUTURE session:
@@ -203,6 +264,17 @@ privacy filter hard-blocks any secret, so do not emit credentials or tokens.
 Set "provenance" to "nathan-stated" only for facts Nathan asserted directly;
 everything you concluded yourself is "claude-inferred". Set "confidence" to
 "low" for single-mention claims you could not corroborate in the transcript.
+
+The three "tier" fields are OPTIONAL and drive the always-loaded standing-orders
+layer. Omit them unless you are confident — a strict deterministic classifier
+derives the tier when you leave it blank. Set them ONLY as follows:
+  - "tier": "standing" for a durable law/habit that belongs in every session's
+    lean loaded layer; "model" for a fact that shapes judgment; "cookbook" for a
+    step-by-step recipe recalled on demand. NEVER mark an ordinary ops lesson
+    "standing" just because it says never/always/must — keyword presence is NOT
+    a standing signal.
+  - "scope": the repos or domains the fact applies to (e.g. ["grantspider"]).
+  - "digest": a one-line imperative phrasing for the standing-orders layer.
 
 Transcript follows:
 ---
