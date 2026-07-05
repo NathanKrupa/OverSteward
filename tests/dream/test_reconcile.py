@@ -126,15 +126,17 @@ def test_apply_creates_timestamped_backup(stores: tuple[Path, Path], tmp_path: P
 def test_apply_regenerates_memory_index(stores: tuple[Path, Path], tmp_path: Path) -> None:
     harness, steward = stores
     reconcile(harness, steward, backup_root=tmp_path / "bk", apply=True)
-    index = steward / "MEMORY.md"
-    assert index.exists()
-    text = index.read_text(encoding="utf-8")
+    # MEMORY.md is now the lean standing-orders layer (OS#203); every fact's recall
+    # hook is preserved in the full on-demand index alongside it.
+    assert (steward / "MEMORY.md").exists()
+    text = (steward / "MEMORY_FULL.md").read_text(encoding="utf-8")
     # every unified fact indexed, including the carried-in harness-only fact
     assert "manual.md" in text
     assert "dreamt.md" in text
     assert "drift.md" in text
-    # the variant sidecar is itself a fact file and gets indexed too (nothing lost)
-    assert f"drift{STEWARD_VARIANT_SUFFIX}" in text
+    # the variant sidecar is a reconciler backup, NOT a live fact (OS#203): it is
+    # excluded from enumeration, so it never appears in the index.
+    assert f"drift{STEWARD_VARIANT_SUFFIX}" not in text
 
 
 def test_apply_establishes_symlink(stores: tuple[Path, Path], tmp_path: Path) -> None:

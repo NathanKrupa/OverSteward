@@ -12,6 +12,7 @@ import pytest
 from oversteward.dream.consolidate import (
     AUTO_MERGE_THRESHOLD,
     FLAG_THRESHOLD,
+    FULL_INDEX_FILENAME,
     INDEX_FILENAME,
     REVIEW_FILENAME,
     Band,
@@ -333,7 +334,7 @@ def test_contradiction_vs_claude_inferred_high_still_merges(tmp_path: Path) -> N
 # ---- index regen -------------------------------------------------------------
 
 
-def test_index_regen_one_line_per_memory(tmp_path: Path) -> None:
+def test_full_index_has_one_line_per_memory(tmp_path: Path) -> None:
     store = _store_with(
         tmp_path,
         _memory("a_mem", "first hook"),
@@ -341,11 +342,29 @@ def test_index_regen_one_line_per_memory(tmp_path: Path) -> None:
     )
     path = store.regenerate_index()
     assert path.name == INDEX_FILENAME
-    lines = path.read_text(encoding="utf-8").splitlines()
-    entries = [ln for ln in lines if ln.startswith("- [")]
+    # The full flat index (every recall hook) lives on-demand alongside MEMORY.md.
+    full = (store.root / FULL_INDEX_FILENAME).read_text(encoding="utf-8")
+    entries = [ln for ln in full.splitlines() if ln.startswith("- [")]
     assert len(entries) == 2
     assert "- [a_mem.md](a_mem.md) — first hook" in entries
     assert "- [b_mem.md](b_mem.md) — second hook" in entries
+
+
+def test_regenerate_index_emits_standing_orders(tmp_path: Path) -> None:
+    # A nathan-stated law surfaces under ## Laws; a plain claude-inferred
+    # reference stays non-standing (full index only), not promoted.
+    store = _store_with(
+        tmp_path,
+        _memory("user_law", "always ship migrations in their own PR", provenance="nathan-stated"),
+        _memory("ref_plain", "a plain reference fact", provenance="claude-inferred"),
+    )
+    store.regenerate_index()
+    standing = (store.root / INDEX_FILENAME).read_text(encoding="utf-8")
+    assert "# Standing Orders" in standing
+    assert "## Laws" in standing
+    assert "user_law.md" in standing
+    # The keyword-laden-but-inferred reference is NOT a law and NOT standing.
+    assert "ref_plain.md" not in standing
 
 
 # ---- flag surface ------------------------------------------------------------
