@@ -160,6 +160,21 @@ Deployed working copy — not tracked in git. Sync from `oversteward/shared/` on
 └── inbox.md
 ```
 
+### Connection standard: CLI over MCP
+
+For **GA4, GSC, Railway, Sentry, and Neon**, the CLI is the standard connection
+procedure — **not** an MCP server. MCP servers are a live transport that can wedge
+a whole session when they churn (the 2026-07-04 disconnect traced to the `sentry`
+HTTP MCP; PR #198 emptied that `.mcp.json`). CLIs are stable subprocesses,
+appear in the transcript, and pass through the harness credential/read-only
+guards that MCP calls bypass. The per-service commands, auth, and read-only
+posture live in the canonical reference `shared/references/cli-connection-standard.md`
+(deployed to `~/.claude/shared/references/`, sourced into `~/.claude/CLAUDE.md`,
+inherited by every repo). A managed context's `.mcp.json` is `{"mcpServers": {}}`
+unless a CLI genuinely cannot meet a need. The account-level claude.ai connectors
+(Google Drive/Calendar, Canva, Gmail) are operator-disabled in claude.ai settings
+— not CLI-touchable.
+
 ### Canonical shared scripts (in-repo, not ~/.claude/shared/)
 
 A second class of shared artifact lives at `oversteward/shared/scripts/` — Python tools that need to ship **inside each pickup repo** (so they can `Path(__file__).resolve().parent.parent.parent` to that repo's root), not at user level. Currently:
