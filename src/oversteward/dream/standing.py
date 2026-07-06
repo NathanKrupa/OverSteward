@@ -87,15 +87,15 @@ _SCOPE = "scope"
 _DIGEST = "digest"
 TIER_STANDING = "standing"
 
-# Retirement / supersession vocabulary → the graveyard ("reach for the
-# replacement, not the corpse"). Word-boundary matched over description + body.
-_GRAVEYARD_RE = re.compile(
-    r"\b("
-    r"removed|dropped|deprecat\w*|superseded|supersedes|retired|"
-    r"obsolete|no longer|use \w+ instead|replaced by|shelved"
-    r")\b",
-    re.IGNORECASE,
-)
+# The explicit graveyard marker. A memory carrying a truthy ``superseded_by`` is
+# the corpse — its subject is a retired approach and ``superseded_by`` names the
+# live replacement ("reach for the replacement, not the corpse"). This is set by
+# the dream supersession path or seeded by hand; it is NEVER derived from keyword
+# vocabulary. Retirement words ("removed", "obsolete", "retired") appear
+# incidentally in ordinary facts ("when load is removed", "the dead url_type
+# column"), so a keyword scan inflated the always-loaded Graveyard the same way it
+# inflated Laws — the fix is symmetric: explicit provenance, never keywords.
+_SUPERSEDED_BY = "superseded_by"
 
 # Living-doc subjects → a pointer. These are the canonical docs a session should
 # reach for directly, not carry as a fact. Matched over description + body.
@@ -145,6 +145,16 @@ def _scope_of(memory: MemoryLike) -> list[str]:
     return []
 
 
+def _superseded_target(memory: MemoryLike) -> str | None:
+    """The live replacement a memory was superseded by, or None.
+
+    A truthy value IS the explicit graveyard marker — the memory's subject is a
+    retired approach and this names what to reach for instead. NEVER keyword-derived.
+    """
+    value = memory.metadata.get(_SUPERSEDED_BY)
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
 def _is_law(memory: MemoryLike) -> bool:
     """A law ← type ``user``, OR type ``feedback`` AND provenance ``nathan-stated``.
 
@@ -160,18 +170,18 @@ def _is_law(memory: MemoryLike) -> bool:
 
 
 def _derive_kind(memory: MemoryLike) -> str:
-    """The strict derivation (no explicit tier): law → graveyard → pointer → habit → non-standing.
+    """The strict derivation (no explicit tier): law → pointer → habit → non-standing.
 
-    Order matters: a law is a law even if its text mentions a retired tool; the
-    provenance gate wins first. Graveyard and pointer are next (retirement and
-    living-doc subjects are unambiguous). Habit is last and tightest — only a
-    recurring tool/process pattern, and only when nothing above claimed it.
+    Graveyard is NOT derived here — it is an explicit ``superseded_by`` marker
+    handled ahead of everything in :func:`classify`. A law is a law even if its
+    text mentions a retired tool; the provenance gate wins first. Pointer is next
+    (living-doc subjects are unambiguous proper-noun matches). Habit is last and
+    tightest — only a recurring tool/process pattern, and only when nothing above
+    claimed it.
     """
     if _is_law(memory):
         return LAW
     text = _haystack(memory)
-    if _GRAVEYARD_RE.search(text):
-        return GRAVEYARD
     if _POINTER_RE.search(text):
         return POINTER
     if _HABIT_RE.search(text):
@@ -182,12 +192,17 @@ def _derive_kind(memory: MemoryLike) -> str:
 def classify(memory: MemoryLike) -> Classification:
     """Classify one memory into a standing group or non-standing (strict).
 
-    An explicit dream-written ``tier`` overrides the derivation: ``model`` /
-    ``cookbook`` force non-standing; ``standing`` keeps the fact in the loaded
-    layer (as a law when it qualifies on provenance, else a habit). With no
-    explicit tier — the whole store today — the strict derivation runs.
+    An explicit ``superseded_by`` marker wins outright: a retirement warning is
+    actively harmful to miss, so it surfaces in the always-loaded Graveyard even
+    against a demoting tier. Otherwise an explicit dream-written ``tier`` overrides
+    the derivation: ``model`` / ``cookbook`` force non-standing; ``standing`` keeps
+    the fact in the loaded layer (as a law when it qualifies on provenance, else a
+    habit). With neither marker nor tier — the whole store today — the strict
+    derivation runs.
     """
     scope = _scope_of(memory)
+    if _superseded_target(memory) is not None:
+        return Classification(GRAVEYARD, scope)
     tier = _explicit_tier(memory)
     if tier is not None:
         if tier == TIER_STANDING:
@@ -221,8 +236,16 @@ def _entry_text(memory: MemoryLike) -> str:
 
 def _render_entry(memory: MemoryLike, classification: Classification) -> str:
     scope = classification.scope
-    suffix = f" _(scope: {', '.join(scope)})_" if scope else ""
-    return f"- [{memory.filename}]({memory.filename}) — {_entry_text(memory)}{suffix}"
+    scope_suffix = f" _(scope: {', '.join(scope)})_" if scope else ""
+    replacement = ""
+    if classification.kind == GRAVEYARD:
+        target = _superseded_target(memory)
+        if target:
+            replacement = f" → {target}"
+    return (
+        f"- [{memory.filename}]({memory.filename}) — "
+        f"{_entry_text(memory)}{replacement}{scope_suffix}"
+    )
 
 
 _HEADER_LINES = (

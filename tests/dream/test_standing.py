@@ -26,6 +26,7 @@ def _mem(
     tier: str | None = None,
     scope: list[str] | None = None,
     digest: str | None = None,
+    superseded_by: str | None = None,
 ) -> MemoryFile:
     metadata: dict[str, object] = {
         "type": type_,
@@ -42,6 +43,8 @@ def _mem(
         metadata["scope"] = scope
     if digest is not None:
         metadata["digest"] = digest
+    if superseded_by is not None:
+        metadata["superseded_by"] = superseded_by
     return MemoryFile(
         name=name,
         description=description,
@@ -127,11 +130,39 @@ def test_keyword_laden_non_law_is_not_promoted() -> None:
     assert classify(mem).kind != LAW
 
 
-def test_retirement_signal_is_graveyard() -> None:
+def test_explicit_superseded_by_is_graveyard() -> None:
+    # Graveyard is now EXPLICIT-marker only (OS#206 follow-up): a memory carrying
+    # metadata.superseded_by is the corpse — "reach for the replacement".
     mem = _mem(
         "gy_x",
         "Telegram removed; Happy adopted as live transport",
-        body="Telegram was dropped and superseded by Happy — use Happy instead.\n",
+        superseded_by="Happy",
+    )
+    assert classify(mem).kind == GRAVEYARD
+
+
+def test_retirement_vocabulary_alone_is_not_graveyard() -> None:
+    # THE load-bearing change: retirement words appear incidentally in ordinary
+    # facts ("when load is removed", "the dead url_type column", "renders an
+    # obsolete vocabulary"). Without an explicit marker, keyword presence must NOT
+    # drag a fact into the always-loaded Graveyard.
+    mem = _mem(
+        "not_gy",
+        "AG renders an obsolete enrichment vocabulary; producer types render blank",
+        body="A stale column was dropped upstream; the endpoint was retired and "
+        "superseded by a new one — but this fact is project state, not a redirect.\n",
+    )
+    assert classify(mem).kind != GRAVEYARD
+
+
+def test_superseded_by_outranks_explicit_tier() -> None:
+    # A retirement warning is actively harmful to ignore, so the graveyard marker
+    # surfaces in the always-loaded layer even against an explicit demoting tier.
+    mem = _mem(
+        "gy_tier",
+        "the old two-stage verify path",
+        tier="cookbook",
+        superseded_by="single-pass self-verifying drain",
     )
     assert classify(mem).kind == GRAVEYARD
 
@@ -233,3 +264,12 @@ def test_render_shows_scope() -> None:
     law = _mem("law_x", "a law", provenance="nathan-stated", scope=["grantspider"])
     out = render_standing_orders([law])
     assert "scope: grantspider" in out
+
+
+def test_render_graveyard_shows_replacement() -> None:
+    grave = _mem("gy_x", "Telegram interface removed", superseded_by="Happy")
+    out = render_standing_orders([grave])
+    assert "## Graveyard" in out
+    assert "gy_x.md" in out
+    # The always-loaded line points at the live replacement, not just the corpse.
+    assert "Happy" in out

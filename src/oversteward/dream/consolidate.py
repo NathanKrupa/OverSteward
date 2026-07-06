@@ -570,12 +570,14 @@ def _unique_slug(candidate: CandidateFact, taken: set[str]) -> str:
 
 
 def _apply_two_axis(metadata: dict[str, Any], candidate: CandidateFact) -> None:
-    """Persist the optional two-axis fields the dream cycle wrote (OS#203).
+    """Persist the optional dream-written fields (OS#203 two-axis + the graveyard marker).
 
     ``tier`` / ``scope`` / ``digest`` are stamped into frontmatter only when the
     candidate carries them, so an un-tiered fact keeps a lean metadata block and
     the standing generator derives its tier. An explicit ``tier`` on disk later
-    overrides that derivation.
+    overrides that derivation. ``superseded_by`` (OS#206 follow-up) is the explicit
+    graveyard marker — when the supersession path sets it, the standing classifier
+    files the retired fact under Graveyard.
     """
     if candidate.tier is not None:
         metadata["tier"] = candidate.tier
@@ -583,6 +585,8 @@ def _apply_two_axis(metadata: dict[str, Any], candidate: CandidateFact) -> None:
         metadata["scope"] = list(candidate.scope)
     if candidate.digest is not None:
         metadata["digest"] = candidate.digest
+    if candidate.superseded_by is not None:
+        metadata["superseded_by"] = candidate.superseded_by
 
 
 def _append_session(metadata: dict[str, Any], session_id: str | None) -> None:
