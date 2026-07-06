@@ -59,9 +59,58 @@ def test_type_user_is_a_law() -> None:
     assert classify(mem).kind == LAW
 
 
-def test_nathan_stated_provenance_is_a_law() -> None:
-    mem = _mem("law_x", "agents are read-only on Neon", provenance="nathan-stated")
+def test_feedback_nathan_stated_is_a_law() -> None:
+    # A nathan-stated feedback fact is a durable law.
+    mem = _mem("law_x", "agents are read-only on Neon", type_="feedback", provenance="nathan-stated")
     assert classify(mem).kind == LAW
+
+
+def test_feedback_claude_inferred_is_not_a_law() -> None:
+    # A claude-inferred feedback lesson is NOT constitutional.
+    mem = _mem("fb_x", "a derived ops lesson", type_="feedback", provenance="claude-inferred")
+    assert classify(mem).kind != LAW
+
+
+def test_nathan_stated_project_datum_is_non_standing() -> None:
+    # THE crux (OS#206): a durable nathan-stated project *datum* (an application
+    # limit, a comp coupon) is recallable but NOT constitutional — it must NOT
+    # derive to a law. It stays non-standing (recallable via the full index).
+    mem = _mem(
+        "proj_limits",
+        "AG application limits: 20 pro / 50 consultant",
+        type_="project",
+        provenance="nathan-stated",
+        body="Durable data, but not a law.\n",
+    )
+    assert classify(mem).kind == NON_STANDING
+
+
+def test_nathan_stated_reference_datum_is_non_standing() -> None:
+    # A nathan-stated reference datum (endpoint topology) is likewise not a law.
+    mem = _mem(
+        "ref_topology",
+        "Neon endpoint topology for the research DB",
+        type_="reference",
+        provenance="nathan-stated",
+        body="Durable connection facts, not constitutional.\n",
+    )
+    assert classify(mem).kind == NON_STANDING
+
+
+def test_explicit_standing_tier_on_project_surfaces_in_layer() -> None:
+    # The deliberate escape hatch: an explicit dream-written tier:standing forces
+    # even a project fact into the always-loaded layer. It does not qualify as a
+    # law on the tightened gate, so it surfaces as a habit — but it IS in the layer.
+    mem = _mem(
+        "proj_guardrail",
+        "merging to GS master kills the in-flight Dagster run",
+        type_="project",
+        provenance="nathan-stated",
+        tier="standing",
+    )
+    kind = classify(mem).kind
+    assert kind != NON_STANDING
+    assert kind == HABIT
 
 
 def test_keyword_laden_non_law_is_not_promoted() -> None:

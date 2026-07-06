@@ -13,9 +13,16 @@ no fact loses its recall hook.
 THE LOAD-BEARING CONSTRAINT (why this issue exists): a naive keyword gate over the
 ``never/always/must`` vocabulary inflated the standing tier from a true ~50 to
 112 (67 false "laws"). :func:`classify` therefore promotes to ``law`` ONLY on
-:data:`LAW_TYPE` / :data:`LAW_PROVENANCE` provenance — **never** on keyword
-presence. Everything the classifier is unsure about stays non-standing (a
-per-file fact, still reachable via the full index).
+type/provenance — **never** on keyword presence. And even ``nathan-stated``
+provenance is not enough on its own: a durable ``project``/``reference`` *datum*
+(an application limit, an endpoint topology, a comp coupon) is not
+constitutional. Derivation promotes to ``law`` ONLY when the type is
+:data:`LAW_TYPE` (``user``), or the type is :data:`FEEDBACK_TYPE` (``feedback``)
+AND provenance is :data:`LAW_PROVENANCE` (``nathan-stated``). A ``nathan-stated``
+``project``/``reference`` fact derives to ``NON_STANDING`` — it stays in
+``MEMORY_FULL.md``, remains recallable, but is not always-loaded. Everything else
+the classifier is unsure about likewise stays non-standing (a per-file fact,
+still reachable via the full index).
 
 An explicit dream-written ``tier`` (:data:`~oversteward.dream.extract.VALID_TIERS`)
 on a memory's metadata OVERRIDES the derivation: ``model`` / ``cookbook`` demote a
@@ -60,8 +67,12 @@ NON_STANDING = "non-standing"
 
 STANDING_KINDS = (LAW, HABIT, GRAVEYARD, POINTER)
 
-# The ONLY two law signals — provenance, never keywords (the load-bearing rule).
+# The law signals — type/provenance, never keywords (the load-bearing rule).
+# A ``user`` fact is a law outright. A ``feedback`` fact is a law only when it is
+# ``nathan-stated`` (Nathan-stated law vs a Claude-inferred lesson). A
+# ``nathan-stated`` ``project``/``reference`` datum is durable but NOT a law.
 LAW_TYPE = "user"
+FEEDBACK_TYPE = "feedback"
 LAW_PROVENANCE = "nathan-stated"
 
 # The OS#195 reconciler's backup-variant sidecar suffix (mirrors
@@ -135,8 +146,17 @@ def _scope_of(memory: MemoryLike) -> list[str]:
 
 
 def _is_law(memory: MemoryLike) -> bool:
-    """A law ← type ``user`` OR provenance ``nathan-stated`` — NEVER by keyword."""
-    return memory.metadata.get("type") == LAW_TYPE or memory.provenance() == LAW_PROVENANCE
+    """A law ← type ``user``, OR type ``feedback`` AND provenance ``nathan-stated``.
+
+    NEVER by keyword. And ``nathan-stated`` alone is insufficient: a durable
+    ``project``/``reference`` datum is recallable but not constitutional, so it
+    does NOT derive to a law (it stays non-standing). Only ``user`` facts and
+    ``nathan-stated`` ``feedback`` facts qualify.
+    """
+    type_ = memory.metadata.get("type")
+    if type_ == LAW_TYPE:
+        return True
+    return type_ == FEEDBACK_TYPE and memory.provenance() == LAW_PROVENANCE
 
 
 def _derive_kind(memory: MemoryLike) -> str:
