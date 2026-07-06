@@ -153,6 +153,30 @@ def test_from_dict_rejects_non_list_scope() -> None:
         CandidateFact.from_dict(data)
 
 
+# ---- graveyard marker (OS#206 follow-up) ------------------------------------
+
+
+def test_superseded_by_absent_by_default() -> None:
+    fact = _fact()
+    assert fact.superseded_by is None
+    assert "superseded_by" not in fact.to_dict()
+
+
+def test_superseded_by_round_trip() -> None:
+    fact = _fact(superseded_by="Happy")
+    as_dict = fact.to_dict()
+    assert as_dict["superseded_by"] == "Happy"
+    assert CandidateFact.from_dict(as_dict) == fact
+    assert CandidateFact.from_dict(json.loads(fact.to_json())) == fact
+
+
+def test_from_dict_rejects_non_string_superseded_by() -> None:
+    data = _fact().to_dict()
+    data["superseded_by"] = ["Happy"]
+    with pytest.raises(CandidateValidationError, match="superseded_by"):
+        CandidateFact.from_dict(data)
+
+
 def test_parse_candidates_rejects_non_json() -> None:
     with pytest.raises(CandidateValidationError, match="not valid JSON"):
         parse_candidates("{not json")

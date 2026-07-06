@@ -58,6 +58,12 @@ _TIER = "tier"
 _SCOPE = "scope"
 _DIGEST = "digest"
 
+# The explicit graveyard marker (OS#206 follow-up). When the dream supersession
+# path judges a candidate to retire an existing approach, it names the live
+# replacement here; the standing classifier then files the retired memory under
+# Graveyard. Never keyword-derived — an explicit assertion only.
+_SUPERSEDED_BY = "superseded_by"
+
 VALID_TYPES = ("user", "feedback", "project", "reference")
 VALID_PROVENANCE = ("nathan-stated", "claude-inferred")
 VALID_CONFIDENCE = ("high", "medium", "low")
@@ -67,7 +73,7 @@ _STRING_FIELDS = (_TYPE, _DESCRIPTION, _BODY, _PROVENANCE, _CONFIDENCE)
 _REQUIRED_FIELDS = (*_STRING_FIELDS, _IS_PROCEDURAL)
 # Known-but-optional keys: accepted when present, defaulted when absent, and
 # never *required* — existing candidates without them still validate.
-_OPTIONAL_FIELDS = (_TIER, _SCOPE, _DIGEST)
+_OPTIONAL_FIELDS = (_TIER, _SCOPE, _DIGEST, _SUPERSEDED_BY)
 _FIELD_NAMES = (*_REQUIRED_FIELDS, *_OPTIONAL_FIELDS)
 _ENUM_FIELDS = (
     (_TYPE, VALID_TYPES),
@@ -88,6 +94,9 @@ class CandidateFact:
     #203) the in-session judge MAY set at consolidation. They are absent on the
     un-tiered store, so the standing-orders generator derives ``tier`` from the
     strict classifier when a fact omits it; an explicit ``tier`` overrides.
+    ``superseded_by`` (OS#206 follow-up) is the explicit graveyard marker naming
+    the live replacement — set only for a genuine retirement redirect, never on
+    incidental retirement vocabulary.
     """
 
     type: str
@@ -99,6 +108,7 @@ class CandidateFact:
     tier: str | None = None
     scope: list[str] = field(default_factory=list)
     digest: str | None = None
+    superseded_by: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain dict (JSON-ready), omitting unset optional fields.
@@ -114,6 +124,8 @@ class CandidateFact:
             out[_SCOPE] = list(self.scope)
         if self.digest is not None:
             out[_DIGEST] = self.digest
+        if self.superseded_by is not None:
+            out[_SUPERSEDED_BY] = self.superseded_by
         return out
 
     def to_json(self) -> str:
@@ -143,6 +155,8 @@ class CandidateFact:
             kwargs[_SCOPE] = list(data[_SCOPE])
         if _DIGEST in data:
             kwargs[_DIGEST] = data[_DIGEST]
+        if _SUPERSEDED_BY in data:
+            kwargs[_SUPERSEDED_BY] = data[_SUPERSEDED_BY]
         return cls(**kwargs)
 
 
@@ -178,6 +192,8 @@ def _validate_optional_types(data: dict[str, Any]) -> None:
         raise CandidateValidationError(_field_error(_TIER, _MUST_BE_STRING))
     if _DIGEST in data and not isinstance(data[_DIGEST], str):
         raise CandidateValidationError(_field_error(_DIGEST, _MUST_BE_STRING))
+    if _SUPERSEDED_BY in data and not isinstance(data[_SUPERSEDED_BY], str):
+        raise CandidateValidationError(_field_error(_SUPERSEDED_BY, _MUST_BE_STRING))
     if _SCOPE in data:
         scope = data[_SCOPE]
         if not isinstance(scope, list) or not all(isinstance(item, str) for item in scope):
@@ -223,7 +239,7 @@ def parse_candidates(raw: str) -> list[CandidateFact]:
 
 # ---- Extraction prompt asset (§5) -------------------------------------------
 
-EXTRACTION_PROMPT_VERSION = "2"
+EXTRACTION_PROMPT_VERSION = "3"
 
 EXTRACTION_PROMPT = """\
 You are reading a development-session transcript to extract DURABLE memory for a
@@ -239,7 +255,8 @@ markdown fence. Each item must be an object with exactly these fields:
     "is_procedural": true | false,
     "tier": "standing" | "model" | "cookbook"   (OPTIONAL),
     "scope": ["<repo-or-domain>", ...]           (OPTIONAL),
-    "digest": "<one-line standing-order phrasing>" (OPTIONAL)
+    "digest": "<one-line standing-order phrasing>" (OPTIONAL),
+    "superseded_by": "<the live replacement>"    (OPTIONAL)
   }
 
 Extract ONLY facts that will matter in a FUTURE session:
@@ -275,6 +292,12 @@ derives the tier when you leave it blank. Set them ONLY as follows:
     a standing signal.
   - "scope": the repos or domains the fact applies to (e.g. ["grantspider"]).
   - "digest": a one-line imperative phrasing for the standing-orders layer.
+
+Set "superseded_by" ONLY when this fact records that a tool/approach was RETIRED
+and names the live replacement to reach for instead (e.g. "the `railway` CLI").
+It files the fact under the always-loaded Graveyard. Do NOT set it just because
+the text contains "removed"/"deprecated"/"retired" — those words appear
+incidentally; set it only for a genuine "use X now, not Y" redirect.
 
 Transcript follows:
 ---
