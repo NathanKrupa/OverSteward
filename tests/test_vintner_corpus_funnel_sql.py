@@ -119,6 +119,21 @@ def test_corrected_predicates_issue_149(sql_text: str) -> None:
     assert "status IN ('fetched', 'parsed')" not in view_body
 
 
+def test_deadlines_stage_freshness_is_created_at_issue_216(sql_text: str) -> None:
+    # Issue #216: stage 10 (deadlines_present) freshness must key on
+    # max(created_at) — the deadline row-write / producer-run time — not
+    # max(source_captured_at), the source-page crawl age that read a healthy
+    # weekly producer as STOPPED.
+    view_start = sql_text.index("CREATE OR REPLACE VIEW vintner.corpus_funnel_v AS")
+    view_end = sql_text.index("ORDER BY stage_order;", view_start)
+    view_body = sql_text[view_start:view_end]
+    stage_start = view_body.index("'deadlines_present'")
+    stage_end = view_body.index("FROM public.foundation_deadlines", stage_start)
+    stage_block = view_body[stage_start:stage_end]
+    assert "max(created_at)" in stage_block
+    assert "source_captured_at" not in stage_block
+
+
 def test_balanced_parentheses_in_view_block(sql_text: str) -> None:
     marker = "CREATE OR REPLACE VIEW vintner.corpus_funnel_v AS"
     start = sql_text.index(marker)
