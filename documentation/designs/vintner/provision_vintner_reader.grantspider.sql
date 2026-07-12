@@ -207,6 +207,12 @@ FROM (
 --         deadlines_present) are fed by a stage that is currently kill-switched
 --         OFF; the newest_at stamp is what reveals that. The view only reports
 --         count + freshness; the spine interprets on/off.
+--       * deadlines_present freshness keys on max(created_at) — the deadline
+--         row-write time, i.e. when the producer last ran (issue #216). It does
+--         NOT use source_captured_at (the source-page crawl age), which reads a
+--         healthy weekly producer re-deriving from an older corpus as STOPPED.
+--         Every other stage's newest_at likewise reflects when that stage last
+--         PRODUCED, not source provenance.
 --       * display_name_present is a deliberate "field exists / ~0% populated"
 --         health signal.
 --     website is NOT NULL DEFAULT '' — "has website"/"present" = <> '' (see 3b).
@@ -258,7 +264,7 @@ FROM public.foundations
 UNION ALL
 SELECT 10, 'deadlines_present',
        count(*),
-       max(source_captured_at)
+       max(created_at)
 FROM public.foundation_deadlines
 UNION ALL
 SELECT 11, 'display_name_present',
