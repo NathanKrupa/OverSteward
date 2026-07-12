@@ -43,7 +43,7 @@ The script is read-only against the database (the `vintner_reader` role cannot w
 
 ## Reading the output
 
-- **Verdict** (top line): worst structural signal across the funnel — STOPPED (a stage has gone cold), GAPS (a stage has 0 rows), SLOWING (a stage is stale), or HEALTHY.
+- **Verdict** (top line): worst structural signal across the funnel — SCHEMA DRIFT (the deployed view's stage set diverges from the spine's contract; every number below is untrustworthy — redeploy section 3f of `documentation/designs/vintner/provision_vintner_reader.grantspider.sql` as the neondb owner), STOPPED (a stage has gone cold), GAPS (a stage has 0 rows), SLOWING (a stage is stale), or HEALTHY.
 - **Count**: rows that have reached the stage.
 - **Coverage**: the stage's count as a % of its logical parent (e.g. `websites_crawled` / `foundations_with_website`). A low coverage % is where the corpus leaks.
 - **Δ since last run**: velocity — `+N` per stage vs the previous run. Appears from the **second run onward** (first run persists the baseline). This is the "moving vs stalled" signal.

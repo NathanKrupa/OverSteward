@@ -51,6 +51,15 @@ AG_VISIBLE_STAGES: frozenset[str] = frozenset(
     }
 )
 
+# The full stage vocabulary the spine is written against — the contract with
+# vintner.corpus_funnel_v. The deployed view can drift from the canonical SQL
+# in documentation/designs/vintner/ (a CREATE OR REPLACE that was never re-run
+# against prod), and every downstream number silently lies when it does: the
+# 2026-07-11 incident reported websites_crawled=49 (a stale status predicate)
+# against a ground truth of 46k. Stage-name divergence is the cheap, reliable
+# tell, so build_report checks it and shouts before anything else.
+EXPECTED_STAGES: frozenset[str] = frozenset(STAGE_PARENT)
+
 # Freshness thresholds (hours). The enrichment stages are fed by a kill-switched
 # stage: an old newest_at is the tell that the stage is OFF, not healthy.
 RUNNING_MAX_AGE_HOURS = 48.0
@@ -129,7 +138,32 @@ def build_report(
         generated_at=now,
         stages=reports,
         has_velocity=bool(previous),
-        verdict=_verdict(list(reports)),
+        verdict=_schema_drift(set(counts)) or _verdict(list(reports)),
+    )
+
+
+def _schema_drift(seen: set[str]) -> str | None:
+    """SCHEMA DRIFT verdict when the view's stage set diverges, else None.
+
+    A mismatch means the deployed view is not the version this spine was
+    written against — every count, coverage %, and state on the report is
+    then computed off the wrong signals, so drift outranks every verdict.
+    """
+    sep = ", "
+    missing = sorted(EXPECTED_STAGES - seen)
+    unexpected = sorted(seen - EXPECTED_STAGES)
+    if not missing and not unexpected:
+        return None
+    parts = []
+    if missing:
+        parts.append(f"missing: {sep.join(missing)}")
+    if unexpected:
+        parts.append(f"unexpected: {sep.join(unexpected)}")
+    return (
+        "SCHEMA DRIFT — deployed vintner.corpus_funnel_v does not match the "
+        f"spine's stage contract ({'; '.join(parts)}). Counts below are "
+        "untrustworthy. Redeploy section 3f of documentation/designs/vintner/"
+        "provision_vintner_reader.grantspider.sql as the neondb owner."
     )
 
 

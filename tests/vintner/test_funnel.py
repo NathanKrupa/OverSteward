@@ -5,7 +5,12 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from oversteward.vintner.funnel import build_report, snapshot_counts
+from oversteward.vintner.funnel import (
+    FOUNDATIONS_WITH_SITEMAP,
+    GOV_OPPS_GRANT_RELEVANT,
+    build_report,
+    snapshot_counts,
+)
 from oversteward.vintner.models import StageRow, StageState
 
 NOW = datetime(2026, 7, 1, 12, 0, 0, tzinfo=timezone.utc)
@@ -67,6 +72,28 @@ def test_second_run_shows_delta():
     assert stages["gov_opps_total"].delta is None
 
 
+def test_schema_drift_verdict_when_view_stages_diverge():
+    # The 2026-07-11 incident: the deployed view still carried the pre-#149/#154
+    # stage set (sitemaps_discovered, gov_opps_open_or_rolling, and a
+    # status-predicate websites_crawled reporting 49) while the spine expected
+    # the corrected vocabulary. The spine rendered it without complaint.
+    # Divergent stage names must outrank every other verdict.
+    rows = _rows()
+    rows[3] = StageRow(4, "gov_opps_open_or_rolling", 455_000, _fresh(1))
+    rows[5] = StageRow(6, "sitemaps_discovered", 13_000_000, _fresh(3))
+    report = build_report(rows, now=NOW)
+    assert report.verdict.startswith("SCHEMA DRIFT")
+    assert "gov_opps_open_or_rolling" in report.verdict  # unexpected
+    assert "sitemaps_discovered" in report.verdict  # unexpected
+    assert GOV_OPPS_GRANT_RELEVANT in report.verdict  # missing
+    assert FOUNDATIONS_WITH_SITEMAP in report.verdict  # missing
+
+
+def test_matching_stage_set_reports_no_drift():
+    report = build_report(_rows(), now=NOW)
+    assert "SCHEMA DRIFT" not in report.verdict
+
+
 def test_freshness_states():
     stages = _by_stage(build_report(_rows(), now=NOW))
     assert stages["grantmakers_active"].state is StageState.RUNNING  # 2h
@@ -109,27 +136,31 @@ def test_verdict_stopped_dominates():
     assert report.verdict.startswith("STOPPED")
 
 
-def test_verdict_healthy_when_all_fresh_and_populated():
-    rows = [
-        StageRow(1, "foundations_total", 100, _fresh(1)),
-        StageRow(2, "grantmakers_active", 50, _fresh(1)),
+def _all_fresh_rows() -> list[StageRow]:
+    """A full valid stage set, every stage fresh and populated.
+
+    Verdict fixtures need the complete vocabulary — a partial stage list now
+    (correctly) reports SCHEMA DRIFT before any freshness verdict.
+    """
+    ordered = sorted(_rows(), key=lambda r: r.stage_order)
+    return [
+        StageRow(row.stage_order, row.stage, 1_000, _fresh(1)) for row in ordered
     ]
-    assert build_report(rows, now=NOW).verdict.startswith("HEALTHY")
+
+
+def test_verdict_healthy_when_all_fresh_and_populated():
+    assert build_report(_all_fresh_rows(), now=NOW).verdict.startswith("HEALTHY")
 
 
 def test_verdict_gaps_when_empty_but_no_stopped():
-    rows = [
-        StageRow(1, "foundations_total", 100, _fresh(1)),
-        StageRow(2, "grantmakers_active", 0, None),
-    ]
+    rows = _all_fresh_rows()
+    rows[1] = StageRow(2, "grantmakers_active", 0, None)
     assert build_report(rows, now=NOW).verdict.startswith("GAPS")
 
 
 def test_verdict_slowing_when_stale_but_no_stopped_or_empty():
-    rows = [
-        StageRow(1, "foundations_total", 100, _fresh(1)),
-        StageRow(2, "grantmakers_active", 50, _fresh(72)),
-    ]
+    rows = _all_fresh_rows()
+    rows[1] = StageRow(2, "grantmakers_active", 50, _fresh(72))
     assert build_report(rows, now=NOW).verdict.startswith("SLOWING")
 
 
