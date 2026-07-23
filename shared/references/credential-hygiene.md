@@ -38,4 +38,17 @@ The temptation is loudest when the task feels too small for the full process. "S
 
 The rule extends past database queries: any shell command that consumes secrets via `source` of an unquoted `.env` is fragile by construction, regardless of whether the values look "safe." Use `load_dotenv()` from inside Python, or invoke a CLI that does.
 
+## The Estate Secrets Registry
+
+Every secret in the estate — name, storage location, consumer, regeneration and
+apply procedure — is inventoried in OverSteward
+`documentation/secrets-registry.md` (never values). Two standing duties:
+
+- **Rotating or rebuilding a credential?** Start from its registry row, not from
+  code archaeology. If the row is wrong or missing, fix it in the same session.
+- **Minting a NEW secret?** Follow the registry's "New-secret standard process"
+  — the registry row lands in the same PR that introduces the secret, the value
+  is never committed, scope is minimal, and generation of sensitive output is
+  operator-side (never printed into a session transcript).
+
 See related: [pr-workflow](pr-workflow.md), [architecture-principles](architecture-principles.md).
