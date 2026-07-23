@@ -22,8 +22,16 @@ MUTABLE_SHARED_FILES = {"inbox.md"}
 HOOK_RELPATH = ".claude/hooks/guard_main_worktree.py"
 NEW_SESSION_RELPATH = "scripts/dev/new-session.sh"
 WITH_TEST_ENV_RELPATH = "scripts/dev/with_test_env.py"
+# The Tier-1 secret-scan gate script (scripts/dev/secret_scan.py).
+SCAN_SCRIPT_RELPATH = "scripts/dev/secret_scan.py"
+GITLEAKSIGNORE_RELPATH = ".gitleaksignore"
 SETTINGS_RELPATH = ".claude/settings.json"
-CANONICAL_DEV_FILES = ("guard_main_worktree.py", "new-session.sh", "with_test_env.py")
+CANONICAL_DEV_FILES = (
+    "guard_main_worktree.py",
+    "new-session.sh",
+    "with_test_env.py",
+    "secret_scan.py",
+)
 
 
 def _sha256(path: Path) -> str:
@@ -75,6 +83,8 @@ def gather_context(ctx: dict[str, Any]) -> dict[str, Any]:
         "hook_sha256": _sha256_or_none(root / HOOK_RELPATH),
         "new_session_sha256": _sha256_or_none(root / NEW_SESSION_RELPATH),
         "with_test_env_sha256": _sha256_or_none(root / WITH_TEST_ENV_RELPATH),
+        "secret_scan_sha256": _sha256_or_none(root / SCAN_SCRIPT_RELPATH),
+        "gitleaksignore_present": (root / GITLEAKSIGNORE_RELPATH).is_file(),
     }
 
 
