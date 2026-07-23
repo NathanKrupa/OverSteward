@@ -67,6 +67,38 @@ def _diff_worktree_discipline(ctx: dict[str, Any], canonical_dev: dict[str, Any]
     return findings
 
 
+def _diff_security_gate(ctx: dict[str, Any], canonical_dev: dict[str, Any]) -> list[Finding]:
+    """Tier-1 secret-scan gate parity: canonical byte-copy + a baseline file.
+
+    ``secret_scan.py`` is a byte-copy canonical family member (like
+    ``with_test_env.py``); ``.gitleaksignore`` is a per-repo baseline whose
+    *contents* legitimately differ, so only its presence is checked.
+    """
+    findings: list[Finding] = []
+    cid = ctx["id"]
+    expected = canonical_dev.get("secret_scan.py")
+    if expected is not None:
+        actual = ctx.get("secret_scan_sha256")
+        if actual is None:
+            findings.append(
+                _finding("missing", "security-gate", "scripts/dev/secret_scan.py absent", cid)
+            )
+        elif actual != expected:
+            findings.append(
+                _finding(
+                    "drift",
+                    "security-gate",
+                    "scripts/dev/secret_scan.py differs from canonical shared/scripts/dev/",
+                    cid,
+                )
+            )
+    if not ctx.get("gitleaksignore_present"):
+        findings.append(
+            _finding("missing", "security-gate", ".gitleaksignore baseline absent", cid)
+        )
+    return findings
+
+
 def _diff_deploy_target(
     name: str, target: dict[str, str] | None, canonical: dict[str, str]
 ) -> list[Finding]:
@@ -138,6 +170,7 @@ def diff_state(
             continue
         findings.extend(_diff_managed_block(ctx))
         findings.extend(_diff_worktree_discipline(ctx, canonical_dev))
+        findings.extend(_diff_security_gate(ctx, canonical_dev))
     canonical = snapshot.get("canonical_shared", {})
     for name, target in snapshot.get("deploy_targets", {}).items():
         findings.extend(_diff_deploy_target(name, target, canonical))

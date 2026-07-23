@@ -28,6 +28,8 @@ def _context(**overrides):
         "hook_sha256": "hook-ok",
         "new_session_sha256": "dev-ok",
         "with_test_env_sha256": "runner-ok",
+        "secret_scan_sha256": "scan-ok",
+        "gitleaksignore_present": True,
     }
     ctx.update(overrides)
     return ctx
@@ -41,6 +43,7 @@ def _snapshot(contexts=None, **overrides):
             "guard_main_worktree.py": "hook-ok",
             "new-session.sh": "dev-ok",
             "with_test_env.py": "runner-ok",
+            "secret_scan.py": "scan-ok",
         },
         "deploy_targets": {"wsl": {"souls/chestertron.md": "soul-sha"}},
     }
@@ -120,6 +123,42 @@ class TestWorktreeDiscipline:
             diff_state(_snapshot([_context(with_test_env_sha256=None)])), "worktree-discipline"
         )
         assert [f["severity"] for f in surface] == ["missing"]
+
+
+class TestSecurityGate:
+    def test_clean_context_has_no_security_findings(self):
+        assert _by_surface(diff_state(_snapshot()), "security-gate") == []
+
+    def test_secret_scan_drift_flagged(self):
+        findings = diff_state(_snapshot([_context(secret_scan_sha256="stale")]))
+        surface = _by_surface(findings, "security-gate")
+        assert [f["severity"] for f in surface] == ["drift"]
+
+    def test_missing_secret_scan_flagged(self):
+        surface = _by_surface(
+            diff_state(_snapshot([_context(secret_scan_sha256=None)])), "security-gate"
+        )
+        assert [f["severity"] for f in surface] == ["missing"]
+
+    def test_missing_gitleaksignore_flagged(self):
+        surface = _by_surface(
+            diff_state(_snapshot([_context(gitleaksignore_present=False)])), "security-gate"
+        )
+        assert [f["severity"] for f in surface] == ["missing"]
+        assert ".gitleaksignore" in surface[0]["message"]
+
+    def test_absent_canonical_suppresses_byte_copy_finding(self):
+        # A registry without the canonical secret_scan yet: no byte-copy finding,
+        # but the baseline-presence check still applies.
+        snap = _snapshot(
+            [_context(secret_scan_sha256=None, gitleaksignore_present=True)],
+            canonical_dev={
+                "guard_main_worktree.py": "hook-ok",
+                "new-session.sh": "dev-ok",
+                "with_test_env.py": "runner-ok",
+            },
+        )
+        assert _by_surface(diff_state(snap), "security-gate") == []
 
 
 class TestSharedDeploy:
