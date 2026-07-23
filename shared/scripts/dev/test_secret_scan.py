@@ -89,6 +89,54 @@ def test_range_command_is_detect_with_log_opts(scan):
     assert "--staged" not in cmd
 
 
+def _git(*args, cwd):
+    import subprocess
+
+    subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def test_normal_repo_mounts_itself_at_host_path(scan, tmp_path):
+    """A plain repo mounts once, at its own absolute path, and --source points there."""
+    repo = tmp_path / "main"
+    repo.mkdir()
+    _git("init", cwd=repo)
+    cmd = scan.build_gitleaks_cmd(
+        repo, Path("/out/report.json"), scan.DEFAULT_IMAGE, staged=True, rev_range=None
+    )
+    assert f"{repo}:{repo}:ro" in cmd
+    assert f"--source={repo}" in cmd
+    assert sum(1 for a in cmd if a.endswith(":ro")) == 1
+
+
+def test_worktree_mounts_common_git_dir(scan, tmp_path):
+    """A linked worktree must also mount the main .git dir, else gitleaks sees no repo.
+
+    Regression: the estate's worktree-per-session discipline means commits happen
+    in linked worktrees, where `.git` is a pointer file — with only the worktree
+    mounted, gitleaks logged `fatal: not a git repository`, wrote an empty
+    report, and the gate passed green on a staged secret.
+    """
+    repo = tmp_path / "main"
+    repo.mkdir()
+    _git("init", cwd=repo)
+    _git("commit", "--allow-empty", "-m", "init", cwd=repo)
+    wt = tmp_path / "wt"
+    _git("worktree", "add", str(wt), cwd=repo)
+    cmd = scan.build_gitleaks_cmd(
+        wt, Path("/out/report.json"), scan.DEFAULT_IMAGE, staged=True, rev_range=None
+    )
+    common = (repo / ".git").resolve()
+    assert f"{wt}:{wt}:ro" in cmd
+    assert f"{common}:{common}:ro" in cmd
+    assert f"--source={wt}" in cmd
+
+
 # --- exit-code / fail-open-vs-closed logic ----------------------------------
 
 
@@ -116,6 +164,25 @@ def test_clean_scan_passes(scan, monkeypatch):
     monkeypatch.setattr(scan, "docker_available", lambda: True)
     monkeypatch.setattr(scan, "run_scan", lambda *a, **k: [])
     assert scan.main(["--staged"]) == 0
+
+
+def test_partial_scan_markers_detected(scan):
+    assert scan.scan_incomplete("8:31PM WRN partial scan completed in 2.82ms")
+    assert scan.scan_incomplete("ERR [git] fatal: not a git repository: /x/.git/worktrees/y")
+    assert not scan.scan_incomplete("8:31PM INF no leaks found")
+    assert not scan.scan_incomplete("")
+
+
+def test_partial_scan_always_fails_closed(scan, monkeypatch):
+    """A scan that ran but could not see the diff must never read as clean."""
+
+    def _partial(*a, **k):
+        raise scan.PartialScanError("gitleaks partial scan: git dir not visible")
+
+    monkeypatch.setattr(scan, "docker_available", lambda: True)
+    monkeypatch.setattr(scan, "run_scan", _partial)
+    monkeypatch.delenv("SECRET_SCAN_REQUIRED", raising=False)
+    assert scan.main(["--staged"]) == 2
 
 
 def test_scan_error_skips_unless_required(scan, monkeypatch):
