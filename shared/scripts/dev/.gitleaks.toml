@@ -1,0 +1,31 @@
+# ABOUTME: Repo-local gitleaks config for the estate secret-scan gate — extends the
+# ABOUTME: default ruleset with the WordPress application-password rule (OS#225).
+#
+# gitleaks reads this automatically as (--source)/.gitleaks.toml (precedence #3),
+# which is exactly how scripts/dev/secret_scan.py invokes it (--source, no --config).
+# `useDefault = true` keeps every built-in rule (AWS keys, etc.) active; the
+# [[rules]] block below is purely additive.
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "wordpress-application-password"
+description = "WordPress application password (four space-separated 4-char groups) under an app-password assignment"
+# Keyword-anchored: gitleaks only evaluates the regex on lines containing one of
+# these keywords, so prose that happens to hold "four short words in a row" is
+# never even tested. Keeps the false-positive rate near zero.
+keywords = [
+    "wp_app_password",
+    "wordpress_password",
+    "application_password",
+    "application-password",
+    "app_password",
+    "app-password",
+]
+# Requires a WP-app-password-ish key, then the exact 4x4 alphanumeric shape:
+# four groups of exactly four [A-Za-z0-9] chars joined by single spaces, e.g.
+# `abcd 1234 wxyz 7890`. The (?i) covers WP_APP_PASSWORD / application-password /
+# app_password styles; the optional quotes cover .env, YAML and TOML forms.
+regex = '''(?i)(?:wp[_-]?app[_-]?password|wordpress[_-]?(?:app(?:lication)?[_-]?)?password|application[_-]?password|app[_-]?password)\s*[:=]\s*["']?([A-Za-z0-9]{4}(?: [A-Za-z0-9]{4}){3})["']?'''
+secretGroup = 1

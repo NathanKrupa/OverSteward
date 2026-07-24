@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -183,6 +185,61 @@ def test_partial_scan_always_fails_closed(scan, monkeypatch):
     monkeypatch.setattr(scan, "run_scan", _partial)
     monkeypatch.delenv("SECRET_SCAN_REQUIRED", raising=False)
     assert scan.main(["--staged"]) == 2
+
+
+# --- gitleaks config (.gitleaks.toml) — WP application-password rule ---------
+#
+# The rule's behavioural proof is the end-to-end docker run (a config-only change
+# is exercised by gitleaks, not by importable Python). These tests guard the two
+# invariants that a docker run does NOT catch: the canonical source and its
+# byte-copied root deployment stay identical, and the rule stays keyword-anchored
+# (so it never degrades into a bare 4x4 matcher that fires on prose).
+
+
+_GITLEAKS_TOML = ".gitleaks.toml"
+_CANONICAL_DIR = ("shared", "scripts", "dev")
+_WP_RULE_ID = "wordpress-application-password"
+
+
+def _repo_root() -> Path:
+    for parent in Path(__file__).resolve().parents:
+        if parent.joinpath(*_CANONICAL_DIR).is_dir():
+            return parent
+    raise FileNotFoundError("could not locate repo root above test file")
+
+
+def _canonical_config_path() -> Path:
+    return _repo_root().joinpath(*_CANONICAL_DIR, _GITLEAKS_TOML)
+
+
+def test_gitleaks_config_canonical_and_root_are_byte_identical():
+    canonical = _canonical_config_path().read_bytes()
+    deployed = (_repo_root() / _GITLEAKS_TOML).read_bytes()
+    assert canonical == deployed, "root .gitleaks.toml must be a byte-copy of the canonical source"
+
+
+def test_gitleaks_config_extends_default_and_defines_wp_rule():
+    conf = tomllib.loads(_canonical_config_path().read_text())
+    assert conf["extend"]["useDefault"] is True, "must keep built-in rules (AWS, etc.)"
+    ids = [r["id"] for r in conf.get("rules", [])]
+    assert _WP_RULE_ID in ids
+
+
+def test_wp_rule_is_keyword_anchored():
+    """The rule matches a WP-app-password assignment but NOT a bare 4x4 shape.
+
+    A four-group synthetic value is fake by construction; the point is that the
+    regex requires an app-password key in context, so prose containing four short
+    tokens can never trip it.
+    """
+    conf = tomllib.loads(_canonical_config_path().read_text())
+    rule = next(r for r in conf["rules"] if r["id"] == _WP_RULE_ID)
+    pattern = re.compile(rule["regex"])
+    assert pattern.search('WP_APP_PASSWORD="abcd 1234 wxyz 7890"')
+    assert pattern.search("application_password: wxyz 7890 abcd 1234")
+    # bare shape with no app-password key → must NOT match (no false positive)
+    assert not pattern.search("code abcd 1234 wxyz 7890 four groups but no key")
+    assert not pattern.search("The quick brown fox jumps over lazy dogs today.")
 
 
 def test_scan_error_skips_unless_required(scan, monkeypatch):
