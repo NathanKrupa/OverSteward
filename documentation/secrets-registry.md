@@ -58,6 +58,8 @@ vars — known gap). GitHub Actions secrets are a separate store for CI/smoke.
 | `SMOKE_TEST_TOKEN` | Playwright login bypass | `secrets.token_urlsafe(32)` (staging-deploy.md Phase 3) | staging value must differ from prod; also GH Actions secret (workflow uses singular `SMOKE_TEST_EMAIL` vs settings' plural — known trap) |
 | `TYPESENSE_SEARCH_API_KEY` (+ `TYPESENSE_URL`) | foundation/gov search connectors | Typesense API-key endpoint on the AG `typesense` service (search-only key) | prod URL is the **private domain `typesense.railway.internal:8108`** — typo'd hostname broke prod search until 2026-07-23 |
 | `PERPLEXITY_API_KEY` | `apps/ops/geo_monitoring.py` (direct `os.environ` read) | perplexity.ai dashboard | ⚠ undocumented anywhere in AG — highest-priority doc gap |
+| `CLOUDFLARE_API_TOKEN` | operator/local-dev zone config (cache rules, tiered cache — AG#1255) | Cloudflare dashboard → My Profile → API Tokens | local `.env` only, NOT in Railway; zone-scoped to aigranthelper.com; lacks Cache Purge permission by design (purge uses the separate token below) |
+| `CLOUDFLARE_PURGE_API_TOKEN` | purge-on-update hook (`apps/seo` purge reconciliation — AG#1256) | Cloudflare dashboard → API Tokens → custom token, **Zone → Cache Purge → Purge** on aigranthelper.com only | Railway production (staging optional); unset ⇒ hook no-ops; pairs with non-secret `CLOUDFLARE_ZONE_ID` |
 | `FISCUS_JWT_PUBLIC_KEY_PATH` (+ alg/issuer/audience vars) | telemetry endpoint verifies bearer JWTs | public key material — not a secret; the **signing** key's home is an open gap (see § fiscus) | — |
 
 GitHub-Actions-only: `CF_ACCESS_CLIENT_ID`/`CF_ACCESS_CLIENT_SECRET` (Cloudflare
