@@ -9,7 +9,7 @@ import sys
 from datetime import date, datetime
 from pathlib import Path
 
-from oversteward.dream import cycle
+from oversteward.dream import cycle, roadmap
 from oversteward.dream.consolidate import MemoryStore, commit_store
 from oversteward.dream.extract import CandidateFact
 from oversteward.dream.ledger import ProcessedLedger
@@ -148,6 +148,40 @@ def _cmd_drain(args: argparse.Namespace) -> int:
     )
 
 
+def _cmd_roadmap_probe(args: argparse.Namespace) -> int:
+    today = date.fromisoformat(args.today) if args.today else date.today()
+    report = roadmap.probe_repo(Path(args.roadmap), Path(args.repo_root), now=today)
+    return _emit(report.to_dict())
+
+
+def _cmd_roadmap_packet(args: argparse.Namespace) -> int:
+    issues = _read_json(args.issues) if args.issues else []
+    prs = _read_json(args.prs) if args.prs else []
+    packet = roadmap.packet_for_repo(
+        Path(args.roadmap), Path(args.repo_root), issues=issues, prs=prs
+    )
+    sys.stdout.write(packet)
+    return 0
+
+
+def _add_roadmap_subparser(sub: argparse._SubParsersAction) -> None:
+    grp = sub.add_parser("roadmap", help="intent-reconciliation pass over ROADMAP.md (§13.4)")
+    actions = grp.add_subparsers(dest="action", required=True)
+
+    prb = actions.add_parser("probe", help="is the roadmap due for reconciliation? (JSON)")
+    prb.add_argument("--roadmap", default=str(cycle.OVERSTEWARD_ROOT / "documentation/ROADMAP.md"))
+    prb.add_argument("--repo-root", default=str(cycle.OVERSTEWARD_ROOT))
+    prb.add_argument("--today", default=None, help="YYYY-MM-DD stamp (default: today)")
+    prb.set_defaults(func=_cmd_roadmap_probe)
+
+    pkt = actions.add_parser("packet", help="reconciliation context packet (markdown)")
+    pkt.add_argument("--roadmap", default=str(cycle.OVERSTEWARD_ROOT / "documentation/ROADMAP.md"))
+    pkt.add_argument("--repo-root", default=str(cycle.OVERSTEWARD_ROOT))
+    pkt.add_argument("--issues", default=None, help="gh issue snapshot JSON file, or - for stdin")
+    pkt.add_argument("--prs", default=None, help="gh pr snapshot JSON file")
+    pkt.set_defaults(func=_cmd_roadmap_packet)
+
+
 def _add_transcripts_subparser(sub: argparse._SubParsersAction) -> None:
     transcripts = sub.add_parser("transcripts", help="inspect session transcripts")
     actions = transcripts.add_subparsers(dest="action", required=True)
@@ -211,6 +245,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="group", required=True)
     _add_transcripts_subparser(sub)
     _add_cycle_subparser(sub)
+    _add_roadmap_subparser(sub)
     return parser
 
 
