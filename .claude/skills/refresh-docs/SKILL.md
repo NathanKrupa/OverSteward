@@ -1,6 +1,6 @@
 ---
 name: refresh-docs
-description: "Monthly cadence sweep that reconciles OverSteward's dated status docs (Stewards_Ledger.md, MASTER_TODO.md, TODO_BACKLOG.md, TODO_COMPLETED.md) against current issue/PR/git state. Status docs encode dated state and drift unprompted within ~5 weeks, unlike the spec docs (OVERSTEWARD.md) which stay accurate. Read-only reconciliation — proposes edits, waits for Nathan's approval, never auto-writes the docs. Use when a month has passed since the last refresh, when the ledger's `Last Updated` is stale, or when Nathan asks to \"refresh docs\", \"reconcile the ledger\", \"sweep the TODOs\", or runs /refresh-docs."
+description: "Monthly cadence sweep that reconciles OverSteward's dated status docs (Stewards_Ledger.md, MASTER_TODO.md, TODO_BACKLOG.md, TODO_COMPLETED.md, documentation/ROADMAP.md) against current issue/PR/git state. Status docs encode dated state and drift unprompted within ~5 weeks, unlike the spec docs (OVERSTEWARD.md) which stay accurate. Read-only reconciliation — proposes edits, waits for Nathan's approval, never auto-writes the docs. Use when a month has passed since the last refresh, when the ledger's `Last Updated` is stale, or when Nathan asks to \"refresh docs\", \"reconcile the ledger\", \"sweep the TODOs\", or runs /refresh-docs."
 ---
 
 # /refresh-docs — dated-status-doc cadence sweep
@@ -44,6 +44,7 @@ the doc edits Nathan approves at the end.
 | `MASTER_TODO.md` | `## Active` items whose issue/PR has since closed or merged |
 | `TODO_BACKLOG.md` | queued items already picked up, closed, or superseded |
 | `TODO_COMPLETED.md` | should gain rows for work merged since the last refresh |
+| `documentation/ROADMAP.md` | `*Last updated:*` stamp; §4 in-flight rows landed; §5 next-up items shipped/closed; started-not-landed gap tables gone stale |
 
 `OVERSTEWARD.md` is **not** swept — it is a spec, not a status doc. If a genuine
 spec inaccuracy surfaces incidentally, note it for a separate PR rather than
@@ -81,6 +82,12 @@ For each doc, find the drift:
 - **Stewards_Ledger** — propose bumping `**Last Updated:**` to today and adding
   a short "Current State" reconciliation note only if the narrative is now
   materially wrong. Do not rewrite prose that is still accurate.
+- **ROADMAP** — check the `*Last updated:*` stamp against merges since; propose
+  a dated reconciliation section (§3.5/§3.6 pattern: shipped / corrections /
+  started-not-landed) rather than rewriting historical sections. The dream
+  cycle's intent pass (OS#231) is the primary maintainer of this file — this
+  sweep is the monthly backstop; skip the proposal if the dream has already
+  reconciled it this month.
 
 ### 4. Present the proposal and wait for approval
 
