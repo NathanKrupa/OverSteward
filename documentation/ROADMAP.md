@@ -3,7 +3,7 @@ ABOUTME: Pulls from registry.yaml, OVERSTEWARD.md horizons, MASTER_TODO/TODO_BAC
 
 # OverSteward Roadmap
 
-**As of 2026-06-24** (reconciled by the first dream cycle; §2–§4 were last hand-updated 2026-05-07). Authoritative for "what we're trying to do, what's been done, and what's next." Pull-based — refresh whenever a horizon item lands or a new one promotes from backlog. **Read §3.5 first** for current state — the June 2026 program lives there; §2–§4 cover through early May and some of their "next up" items have since shipped (corrections in §3.5).
+**As of 2026-07-26** (July reconciliation, hand-run while the dream cycle's intent pass is built — epic OS#230). Authoritative for "what we're trying to do, what's been done, and what's next." Pull-based — refresh whenever a horizon item lands or a new one promotes from backlog. **Read §3.6 then §3.5 first** for current state — the June–July 2026 program lives there; §2–§4 cover through early May and some of their "next up" items have since shipped (corrections in §3.5/§3.6). Maintenance of this file is becoming a dream-cycle responsibility (§13.4 intent pass, OS#231); `/refresh-docs` sweeps it monthly as the backstop.
 
 Source files this roadmap consolidates:
 - `OVERSTEWARD.md` (vision, two pillars, phase plan)
@@ -131,6 +131,81 @@ Heavy delivery between 2026-04-15 and 2026-05-07. Center of gravity moved here.
 
 ---
 
+## §3.6 July 2026 — hardening + the dream grows hands (reconciled 2026-07-26)
+
+> Second reconciliation pass, hand-run. The June §3.5 wave built Sphere-II
+> capability; July's center of gravity was **hardening** (security, credential
+> hygiene, budget discipline) and **completing the dream cycle's Phase 1**.
+> The trigger for this pass: Nathan caught the roadmap a month stale — the
+> §13 reconciliation passes were designed but never built (epic OS#230 now
+> tracks building them; OS#231 intent/roadmap pass, OS#232 ought-vs-actual).
+
+### Shipped (late June–July)
+
+- **Happy adopted as the phone connection; Telegram removed entirely**
+  (Nathan-law 2026-07-02, reversing the pilot-don't-replace verdict). Transport
+  + machinery out (#180), `telegraph-operator` slimmed to a transport-agnostic
+  skill (#184). The Telegraph *membrane* survives; the bot does not. Open:
+  OS#193 (self-host the relay — currently on Happy's public relay).
+- **Dream cycle Phase 1 complete and running.** Trigger component (e) shipped
+  (OS#114 closed: sign-off primary + Stop-hook + cron backstop). Split-brain
+  memory store reconciled onto git-backed `steward-memory` with the harness
+  path symlinked in (OS#195) — this also closes §3.5's "memory SoT write-back"
+  gap row. Standing-Orders memory architecture per Nathan-law: dream-generated
+  two-axis tiers + strict classifier (OS#203), laws gate (OS#206), graveyard
+  gate (OS#208), durable FlaggedStore open set (OS#134). Cycles run routinely
+  (last: 2026-07-25).
+- **Security wave — estate red-team process** (epic OS#219): Tier-1 secret-scan
+  gate (gitleaks) wired estate-wide with `/sync-status` drift check (OS#221);
+  linked-worktree scans fail closed (#225-fix); estate **secrets registry** +
+  new-secret process (`documentation/secrets-registry.md`, OS#224); custom
+  gitleaks rules (WP app-passwords); Cloudflare API/purge tokens registered.
+  Guard-hook family: read-only Neon deny-by-default (#196), destructive-command
+  guard (#176), hook-evasion hard-deny + untrusted-issue boundary (#173).
+  Open: red-team Phase 0.5 excavation (OS#220), Phase 2 `/red-team` harness
+  (OS#222), estate-wide hook registration (OS#192, OS#182).
+- **The Vintner is live** — Phase-1 spine shipped: read-only `vintner_reader`
+  role, `corpus_funnel_v` view, `/pipeline-status` skill (counts, coverage,
+  velocity, AG-visible gap). Post-ship fixes: schema-drift verdict (#215 PR),
+  stage-10 freshness keying (#216). Open: alerting layer (OS#229), batch-cadence
+  freshness mis-flags (OS#218).
+- **CLI connection standard** (OS#200) — GA4/GSC/Railway/Sentry/Neon connect
+  via CLIs, not MCP servers (transport churn); canonical reference in
+  `shared/references/cli-connection-standard.md`.
+- **Dispatch surface now seven targets** — exchequer (private counting-house,
+  created 2026-06-08) and OverSteward itself both dispatchable; registry list:
+  aigranthelper, grantspider, wphelper, ai-assistants, fiscus, exchequer (+
+  oversteward-dev for this repo).
+- **Sphere I context (GS/AG, for the gap table):** GS Part XV backfill complete
+  (~89k accepts-unsolicited signals); `funding_profile` mass-run producer merged
+  (GS#1936/#1938), run paused at ~72.7k of ~136k by the **Neon budget freeze**
+  (serve-only through 2026-07-31; resume + Dagster un-pause 2026-08-01). AG SEO
+  epic (AG#1254) Phase 0 staged; edge-cache rollout (AG#1255) queued behind the
+  enrichment full run per Nathan's no-cache-fill ruling.
+
+### Corrections to §3.5's gap table
+
+| §3.5 row | Now |
+|---|---|
+| Dream-cycle trigger (component e) | **shipped** — OS#114 closed |
+| The Vintner Phase-1 spine | **shipped** — `/pipeline-status` live; alerting is the open half (OS#229) |
+| Memory SoT write-back | **resolved** — OS#195 symlink cutover; one physical store |
+| Telegraph Epic Conductor (Phase 3) | **parked** — Telegram removal + Happy adoption changed the substrate; re-scope only on demand |
+| GS #1525 / #1526 | not re-verified in this pass — check on next sweep |
+
+### Started, not yet landed (July watch-list)
+
+| Item | Where | State |
+|---|---|---|
+| Dream Phase 2 — reconciliation passes | OS#230 (epic), OS#231, OS#232 | intent/roadmap pass in build 2026-07-26; ought-vs-actual queued |
+| Red-team Phase 0.5 + Phase 2 | OS#220, OS#222 | filed, undispatched |
+| Estate-wide guard-hook deploy | OS#192, OS#182 | hooks live in OverSteward only |
+| Vintner alerting layer | OS#229 | report spine exists, alerter unbuilt |
+| Happy relay self-host | OS#193 | on public relay; Tailscale plan filed |
+| Neon unfreeze ritual | memory (2026-08-01) | resume mass-run + re-enable Dagster + merge GS#1941 |
+
+---
+
 ## §4 In flight
 
 Active or partially-shipped items as of 2026-05-07.
@@ -236,4 +311,4 @@ Captured in `IDEA_STORE.md` from gstack research and conversational drift. None 
 - If §2-§3 grow past readable length, extract to a `documentation/changelog.md` and keep this doc thin.
 - This doc is the single answer to "what are we trying to do, what's done, what's next?" If it can't answer that in under 60 seconds of reading, it's grown past its purpose — restructure rather than expand.
 
-*Last updated: 2026-06-24 (first dream cycle — §3.5 June reconciliation added; §2–§4 unchanged from the 2026-05-07 hand-update).*
+*Last updated: 2026-07-26 (July reconciliation, hand-run — §3.6 added; maintenance moving to the dream cycle's intent pass, OS#231).*
