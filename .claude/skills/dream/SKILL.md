@@ -78,6 +78,45 @@ $DREAM finalize --results /tmp/dream/results.json > /tmp/dream/finalize.json
 
 This regenerates `MEMORY.md`, **merges this run's holds into the durable open set** (`data/dream/flagged.jsonl`, de-duped by key) and rebuilds `MEMORY_REVIEW.md` from the **full** open set — a barren run never wipes prior holds (OS#134 Bug 1). It then **commits the store as a doc-only `[skip ci]` change** (HARD CONSTRAINT #2 / acceptance #5 — memory commits never burn a CI run), records every processed transcript in the ledger (even barren ones, so they are not re-processed), and drains the Stop-hook queue.
 
+## Step 5 — roadmap reconciliation (§13.4 intent pass, OS#231)
+
+After finalize, probe whether `documentation/ROADMAP.md` has fallen behind reality:
+
+```bash
+$DREAM roadmap probe > /tmp/dream/roadmap_probe.json
+```
+
+- **`"stale": false`** → report "roadmap current" and move on. Nothing is written.
+- **`"stale": true`** → run the reconciliation:
+
+```bash
+gh issue list -R NathanKrupa/OverSteward --state all --limit 100 \
+  --json number,title,state > /tmp/dream/issues.json
+gh pr list -R NathanKrupa/OverSteward --state all --limit 100 \
+  --json number,title,state > /tmp/dream/prs.json
+$DREAM roadmap packet --issues /tmp/dream/issues.json --prs /tmp/dream/prs.json \
+  > /tmp/dream/roadmap_packet.md
+```
+
+Read the packet plus the transcripts already processed this run, then draft a
+**dated reconciliation section** in the roadmap's established shape (§3.5/§3.6
+pattern: shipped / corrections to prior gap tables / started-not-landed
+watch-list) and bump the `*Last updated:*` stamp. Historical sections are never
+rewritten — reconciliation is additive, corrections ride in the new section.
+
+**Write path (OS#90 — never commit to the primary checkout's master):**
+
+```bash
+scripts/dev/new-session.sh dream-roadmap-$(date +%F)
+# edit documentation/ROADMAP.md in that worktree, commit as
+#   docs(roadmap): <date> reconciliation (dream cycle) [skip ci]
+# push, open the PR, merge it, remove the worktree
+```
+
+Intent found in transcripts that was never filed as an issue is **flagged, not
+filed** (epic OS#230 decision 2): surface it in the run report for the waking
+session; do not open issues from the dream.
+
 ## Draining the review surface (approve held items)
 
 `MEMORY_REVIEW.md` is no longer a blocking queue — it accumulates only the `nathan-stated`-contradiction holds across runs. When Nathan has adjudicated, clear them explicitly (all, or one by its `key` shown in the surface):
@@ -91,7 +130,7 @@ $DREAM drain --key <hold-key>      # clear just one
 
 ## Report
 
-One short summary: sessions processed, facts appended/merged, holds surfaced for review (point Nathan at `MEMORY_REVIEW.md`, drained via `cycle drain`), and whether the commit landed. On a no-op run, just "ledger current."
+One short summary: sessions processed, facts appended/merged, holds surfaced for review (point Nathan at `MEMORY_REVIEW.md`, drained via `cycle drain`), the roadmap verdict ("roadmap current" or the reconciliation PR number + any unfiled-intent flags), and whether the commit landed. On a no-op run, just "ledger current."
 
 ## Invariants (do not violate)
 
