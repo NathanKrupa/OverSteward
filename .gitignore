@@ -59,3 +59,6 @@ data/dream/flagged.jsonl
 # Per-machine session handoff scratchpad — durable handoff lives in memory + GH
 # issues, never committed to master. See CLAUDE.md § Session handoff (OS#90).
 SESSION_STATE.md
+
+# Repo-local scratch working dir (audit drafts, issue scratch) — not durable docs
+scratchpad/
