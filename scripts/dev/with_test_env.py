@@ -150,7 +150,7 @@ def build_environment(env_file: Path, base_env: Mapping[str, str]) -> dict[str, 
 
 
 def _default_executor(file: str, args: Sequence[str], env: Mapping[str, str]) -> object:
-    os.execvpe(file, list(args), dict(env))
+    os.execvpe(file, list(args), dict(env))  # nosec B606 - shell-less exec is the secure form (no shell = no injection); file/args come from the operator's own CLI invocation
 
 
 def _parse_args(argv: Sequence[str]) -> tuple[Path, list[str]]:
