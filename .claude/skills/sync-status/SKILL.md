@@ -1,6 +1,6 @@
 ---
 name: sync-status
-description: "Show governance drift across every registry.yaml context: CLAUDE.md managed-block presence, soul references, worktree-discipline byte-copies (guard hook + new-session.sh vs canonical shared/scripts/dev/), Tier-1 secret-scan gate parity (secret_scan.py byte-copy + .gitleaksignore baseline), dual-target ~/.claude/shared deploy parity (WSL + Windows), .claude/settings.json variance, and tracking-doc freshness (SESSION_STATE vs last merge). Read-only — reports drift, never writes. Use when Nathan asks for \"sync status\", \"sync check\", \"governance drift\", \"are the repos in lockstep\", or runs /sync-status."
+description: "Show governance drift across every registry.yaml context: CLAUDE.md managed-block presence, soul references, worktree-discipline byte-copies (guard hook + new-session.sh + with_test_env.py runner vs canonical shared/scripts/dev/), Tier-1 secret-scan gate parity (secret_scan.py byte-copy + .gitleaksignore baseline), dual-target ~/.claude/shared deploy parity (WSL + Windows), .claude/settings.json variance, and tracking-doc freshness (SESSION_STATE vs last merge). Read-only — reports drift, never writes. Use when Nathan asks for \"sync status\", \"sync check\", \"governance drift\", \"are the repos in lockstep\", or runs /sync-status."
 ---
 
 # /sync-status — governance drift report
@@ -42,7 +42,7 @@ Relay the DRIFT section grouped by surface, worst first:
 - **managed-block / soul** — contexts whose CLAUDE.md lacks the
   `[oversteward:managed]` block or references the wrong soul.
 - **worktree-discipline** — repos whose `guard_main_worktree.py` /
-  `new-session.sh` byte-copies are absent or differ from
+  `new-session.sh` / `with_test_env.py` byte-copies are absent or differ from
   `shared/scripts/dev/` canonical.
 - **security-gate** — repos whose Tier-1 secret-scan gate has drifted: the
   `scripts/dev/secret_scan.py` byte-copy is absent or differs from canonical, or
