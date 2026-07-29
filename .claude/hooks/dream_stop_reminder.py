@@ -23,8 +23,12 @@ import sys
 from pathlib import Path
 
 # This hook lives at <repo>/.claude/hooks/; the package is under <repo>/src.
+# Reason: the sibling scripts under scripts/ dropped this bootstrap because
+# they run through `uv run` and import the installed package. This hook does
+# not — .claude/settings.json invokes it as bare `python3`, outside the venv,
+# so the path insert is the only way it finds oversteward. Keep it.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(_REPO_ROOT / "src"))
+sys.path.insert(0, str(_REPO_ROOT / "src"))  # noqa: STRUCT-010
 
 
 def _queue_path() -> Path:

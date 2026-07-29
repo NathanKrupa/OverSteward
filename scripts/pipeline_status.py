@@ -6,7 +6,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from oversteward.vintner.funnel import build_report, snapshot_counts
 from oversteward.vintner.reader import (
