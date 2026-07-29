@@ -24,7 +24,13 @@ repos:
         exclude: ^\.claude/
       - id: secret-scan
         name: secret-scan gate (gitleaks, redacted)
-        entry: uv run python scripts/dev/secret_scan.py --staged
+        # Bare `python`, not `uv run python`. A worktree's .venv is a symlink
+        # to the primary checkout's, and `uv run` re-syncs it — rebinding the
+        # shared editable install to whichever worktree happened to commit, so
+        # the primary checkout (where the resident operator runs) starts
+        # importing a session branch's source. secret_scan.py is stdlib-only,
+        # so it needs nothing uv provides.
+        entry: python scripts/dev/secret_scan.py --staged
         language: system
         pass_filenames: false
         always_run: true

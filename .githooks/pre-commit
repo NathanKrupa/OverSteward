@@ -21,14 +21,33 @@ set -e
 # activated venv puts `pre-commit` on PATH. OverSteward is uv-managed and its
 # CLAUDE.md tells you to run everything through `uv run`, so a PATH-only lookup
 # means the gate skips itself on the normal workflow — which is precisely how
-# this repo ended up with a declared-but-never-enforced gate. `pre-commit>=3.0`
-# is in the `dev` extra, so fall back to uv before giving up.
-if command -v pre-commit >/dev/null 2>&1; then
+# this repo ended up with a declared-but-never-enforced gate.
+#
+# Nothing here may re-sync the environment. A worktree's .venv is a symlink to
+# the primary checkout's, so a bare `uv run` on the commit path rebinds the
+# shared editable install to whichever worktree committed, leaving the primary
+# checkout — where the resident operator session runs — importing a session
+# branch's source. Hence: prefer the venv binary directly, and pass --no-sync
+# when uv is the only route.
+repo_root="$(git rev-parse --show-toplevel)"
+
+# The hooks are `language: system`, so they resolve `python` from PATH. Putting
+# the venv first is what an activated venv would do — and is required now that
+# this shim no longer goes through `uv run` (which used to supply it as a side
+# effect of the re-sync we are avoiding).
+if [ -d "$repo_root/.venv/bin" ]; then
+    PATH="$repo_root/.venv/bin:$PATH"
+    export PATH
+fi
+
+if [ -x "$repo_root/.venv/bin/pre-commit" ]; then
+    runner=("$repo_root/.venv/bin/pre-commit")
+elif command -v pre-commit >/dev/null 2>&1; then
     runner=(pre-commit)
 elif command -v uv >/dev/null 2>&1; then
-    runner=(uv run --extra dev --quiet pre-commit)
+    runner=(uv run --no-sync --quiet pre-commit)
 else
-    echo "[pre-commit] neither pre-commit nor uv on PATH — skipping. Install with: uv sync --extra dev" >&2
+    echo "[pre-commit] no pre-commit available — skipping. Install with: uv sync --extra dev" >&2
     exit 0
 fi
 
