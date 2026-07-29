@@ -63,7 +63,24 @@ if [ -d "$wt/src" ]; then
 else
     pp='$PWD'
 fi
-printf 'export PYTHONPATH="%s"\n' "$pp" >"$wt/.envrc"
+{
+    printf 'export PYTHONPATH="%s"\n' "$pp"
+    # PYTHONPATH isolates THIS worktree's imports. It does nothing for the
+    # PRIMARY checkout, which is the half that actually breaks: `uv run` and
+    # `uv sync` re-sync the shared venv and rebind its editable install to
+    # whatever project directory they were invoked from. A single `uv run` in a
+    # worktree therefore leaves the primary checkout — and every other worktree
+    # on the same symlinked venv — importing this branch's source. Observed in
+    # the wild: a dispatch agent under /tmp captured a repo's shared venv and
+    # the primary silently imported the agent's tree.
+    #
+    # UV_NO_SYNC makes `uv run` use the environment as-is instead of syncing
+    # it, which removes the rebind from the ordinary command path. Installing a
+    # genuinely new dependency still needs an explicit, deliberate act.
+    if [ -L "$wt/.venv" ]; then
+        printf 'export UV_NO_SYNC=1\n'
+    fi
+} >"$wt/.envrc"
 
 cat <<EOF
 
@@ -74,11 +91,19 @@ cat <<EOF
 
       cd "$wt"
       export PYTHONPATH="$(eval echo "$pp")"
+      export UV_NO_SYNC=1        # keep 'uv run' from rebinding the shared venv
       # launch Claude Code here
 
+  Then CONFIRM the package resolves to this worktree, not the primary tree —
+  without it every gate silently validates the wrong source:
+
+      python scripts/dev/check_worktree_imports.py <your-package>
+
   (direnv users: a .envrc was written — run 'direnv allow'.)
-  (uv repos: run tools as .venv/bin/<tool> in the worktree — not 'uv run',
-   which may re-sync the shared venv.)
+  (uv repos: prefer .venv/bin/<tool> over 'uv run'. UV_NO_SYNC above covers
+   the ordinary case, but anything that installs — 'uv sync',
+   'uv pip install -e .' — still rebinds the SHARED venv's editable install
+   and leaves the primary checkout importing this branch.)
 
   When done: open a PR from '$branch', then  git worktree remove "$wt"
 EOF
