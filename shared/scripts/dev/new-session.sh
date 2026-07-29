@@ -76,6 +76,11 @@ cat <<EOF
       export PYTHONPATH="$(eval echo "$pp")"
       # launch Claude Code here
 
+  Then CONFIRM the package resolves to this worktree, not the primary tree —
+  without it every gate silently validates the wrong source:
+
+      python scripts/dev/check_worktree_imports.py <your-package>
+
   (direnv users: a .envrc was written — run 'direnv allow'.)
   (uv repos: run tools as .venv/bin/<tool> in the worktree — not 'uv run',
    which may re-sync the shared venv.)
