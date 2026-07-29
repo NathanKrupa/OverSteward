@@ -88,7 +88,7 @@ def main() -> int:
         f"  but this tree is\n"
         f"    {root}\n"
         f"  Every gate that imports {args.package} is validating the WRONG source.\n"
-        f"  Fix: export PYTHONPATH=\"{root / 'src' if (root / 'src').is_dir() else root}\"",
+        f'  Fix: export PYTHONPATH="{root / "src" if (root / "src").is_dir() else root}"',
         file=sys.stderr,
     )
     return 1
