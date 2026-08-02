@@ -3,7 +3,7 @@ ABOUTME: Pulls from registry.yaml, OVERSTEWARD.md horizons, MASTER_TODO/TODO_BAC
 
 # OverSteward Roadmap
 
-**As of 2026-07-26** (July reconciliation, hand-run while the dream cycle's intent pass is built — epic OS#230). Authoritative for "what we're trying to do, what's been done, and what's next." Pull-based — refresh whenever a horizon item lands or a new one promotes from backlog. **Read §3.6 then §3.5 first** for current state — the June–July 2026 program lives there; §2–§4 cover through early May and some of their "next up" items have since shipped (corrections in §3.5/§3.6). Maintenance of this file is becoming a dream-cycle responsibility (§13.4 intent pass, OS#231); `/refresh-docs` sweeps it monthly as the backstop.
+**As of 2026-08-02** (August reconciliation — the first pass produced by the dream cycle's own intent machinery, OS#231). Authoritative for "what we're trying to do, what's been done, and what's next." Pull-based — refresh whenever a horizon item lands or a new one promotes from backlog. **Read §3.7 then §3.6 then §3.5 first** for current state — the June–July 2026 program lives there; §2–§4 cover through early May and some of their "next up" items have since shipped (corrections in §3.5/§3.6). Maintenance of this file is becoming a dream-cycle responsibility (§13.4 intent pass, OS#231); `/refresh-docs` sweeps it monthly as the backstop.
 
 Source files this roadmap consolidates:
 - `OVERSTEWARD.md` (vision, two pillars, phase plan)
@@ -206,6 +206,69 @@ Heavy delivery between 2026-04-15 and 2026-05-07. Center of gravity moved here.
 
 ---
 
+## §3.7 Late July–August 2026 — the dream reconciles itself (reconciled 2026-08-02)
+
+> First reconciliation produced BY the dream cycle rather than by hand — OS#231's
+> intent pass, built in the previous wave, running on its own output. The period's
+> center of gravity was **the byte-copy family growing teeth**: `/sync-status`
+> learned to audit the whole canonical `shared/scripts/dev/` set against each
+> repo's origin ref, and the format gates closed the residue gap that had been
+> failing CI on merges nobody had touched.
+
+### Shipped (2026-07-28 → 08-02)
+
+- **The canonical-family audit is real** (#242 → PR #257, #241 decision recorded).
+  `/sync-status` now reports every member of `shared/scripts/dev/` per repo as
+  present-identical / drifted / absent / absent-but-doctrine-referenced, compared
+  against each repo's **origin default branch** rather than the stale local
+  checkouts — which is what let real drift slip past the old check. The
+  formatter-exclusion decision (#241) is recorded in the byte-copy treaty so
+  Python members can finally be byte-identical across repos with differing ruff
+  line-lengths. Skill doc followed in PR #258.
+- **Format gates: the formatted bytes are now the committed bytes** (#78 → PR
+  #259). `format_staged.py` + `require_formatted_commit.py` joined the canonical
+  family, so `verify` can no longer certify unformatted bytes — the exact
+  residue that had been red-lighting CI on unrelated merges.
+- **The worktree wrong-source trap is guarded and deployed** (#249 → PR #254,
+  #240, #255 → PR #260). `new-session.sh` prints the *worktree's* PYTHONPATH
+  rather than the primary checkout's (a `$PWD` expansion-timing bug with two
+  consumers wanting opposite behaviour), `check_worktree_imports.py` is canonical
+  and now byte-deployed into OverSteward itself, and `.envrc`/`.venv` are
+  gitignored so session trees stop carrying strays.
+- **Dream step 5 unblocked** (#250 → PR #256). The roadmap probe expanded to an
+  invalid `cycle roadmap` command; it is a top-level `roadmap` subcommand. This
+  section exists because that one-word fix landed.
+- **The AG+GS audit capture is on master** (#243) — the four-Fable-auditor
+  path-to-1000-customers audit, previously stranded in an unmerged worktree.
+- **Dispatch heartbeat push reinstated** (#239) — foreground agents are not
+  crash-safe, so the heartbeat commit is insurance the foreground move had
+  wrongly retired.
+
+### Corrections to the §3.6 watch-list
+
+| §3.6 row | Correction as of 2026-08-02 |
+|---|---|
+| Dream Phase 2 — reconciliation passes | **Intent/roadmap pass LANDED and self-hosting** (OS#231 closed; this §3.7 is its first output). Ought-vs-actual (OS#232) still queued. |
+| Neon unfreeze ritual | Superseded by the GS#1989 triage: eight of nine failing prod jobs fail **100%** of runs, so the fleet needs repair before any unfreeze reasoning applies (GS#2004–#2009). |
+
+### Started, not yet landed (August watch-list)
+
+| Item | Where | State |
+|---|---|---|
+| Canonical family drifts *upward* from its own home | OS#261 | canonical test members are strict subsets of OverSteward's own copies — every other repo runs the weaker suite |
+| Commit-time gates not actually installed | OS#244, #246, #247 | `core.hooksPath` points at a nonexistent `.githooks`, so `.pre-commit-config.yaml` never runs; three PRs open since 07-29 |
+| Routines + `/goal` harness adoption | OS#252, OS#253 | filed; #252 gated on the Max-vs-metered billing question |
+| Guard hook vs env-mutating uv in a shared-venv worktree | OS#248 | needs-scoping |
+| `/corrections` operator skill | OS#251 | the living-channel keystone (AG#1351) landed; the operator triage skill has not |
+| Estate-wide guard-hook deploy | OS#192 | still OverSteward-only — carried unchanged from §3.6 |
+
+> **Unfiled intent spotted in transcripts** (flagged, not filed, per OS#230
+> decision 2): the B2 backup **drill** failed its first monthly slot, so the
+> restore path is unverified estate-wide — the highest-consequence untracked item
+> seen this period.
+
+---
+
 ## §4 In flight
 
 Active or partially-shipped items as of 2026-05-07.
@@ -311,4 +374,4 @@ Captured in `IDEA_STORE.md` from gstack research and conversational drift. None 
 - If §2-§3 grow past readable length, extract to a `documentation/changelog.md` and keep this doc thin.
 - This doc is the single answer to "what are we trying to do, what's done, what's next?" If it can't answer that in under 60 seconds of reading, it's grown past its purpose — restructure rather than expand.
 
-*Last updated: 2026-07-26 (July reconciliation, hand-run — §3.6 added; maintenance moving to the dream cycle's intent pass, OS#231).*
+*Last updated: 2026-08-02 (August reconciliation — §3.7 added; the first pass produced by the dream cycle's intent machinery rather than hand-run, OS#231).*
