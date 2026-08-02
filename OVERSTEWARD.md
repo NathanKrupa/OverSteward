@@ -189,6 +189,42 @@ A second class of shared artifact lives at `oversteward/shared/scripts/` — Pyt
 
 Phase-1 sync = byte-copy from source to each pickup repo (any dispatch target). Phase-2 sow.py will fold these into the same workflow as souls/personas. Per-repo configuration (e.g. `data/tool_registry.toml` for project-specific category names) lives in the consuming repo and is **not** managed by OverSteward — only the script itself is canonical.
 
+#### Deploy destinations are derived, not enumerated
+
+Every file in `shared/scripts/dev/` is a family member, and its destination inside a pickup repo follows from its name — no per-member table to keep in step:
+
+| Canonical name shape | Deployed to | Examples |
+|---|---|---|
+| leading `.` (dotfile config) | `<repo>/<name>` (repo root) | `.gitleaks.toml` |
+| a registered hook | `<repo>/.claude/hooks/<name>` | `guard_main_worktree.py`, `guard_neon.py`, `check_destructive_command.py` |
+| `test_*.py` | `<repo>/tests/dev/<name>` | `test_worktree_guard.py`, `test_secret_scan.py` |
+| anything else | `<repo>/scripts/dev/<name>` | `new-session.sh`, `with_test_env.py`, `secret_scan.py`, `check_worktree_imports.py` |
+
+`src/oversteward/dev_family.py` encodes exactly this, so a member added to the canonical directory is audited from the next `/sync-status` run with no code change. Before OS#242 each member had to be registered by hand in three places (a gather relpath, a `CANONICAL_DEV_FILES` entry, a diff check), and members that nobody remembered to register — `check_worktree_imports.py`, `guard_neon.py`, `test_secret_scan.py`, `.gitleaks.toml` — were never checked at all.
+
+#### The family is audited against `origin`, never the local checkout
+
+`/sync-status` reads each repo's copies out of `origin/<its registry branch>` (`git fetch` + `git cat-file blob origin/<branch>:<path>`). The resident checkouts run dozens-to-hundreds of commits stale, so hashing their working trees produced **false drift** (local behind origin) *and* **false parity** (an uncommitted local copy that matched canonical while origin did not). Four statuses per member:
+
+| Status | Meaning | Report severity |
+|---|---|---|
+| `present-identical` | byte-identical to canonical | not reported |
+| `drifted` | present but differs from canonical | `drift` |
+| `absent-but-doctrine-referenced` | not deployed, **and** the repo's `CLAUDE.md` (read from origin) names the file | `missing` |
+| `absent` | not deployed, not referenced — not yet adopted here | `info` |
+
+The doctrine split is the point of the check. A file the repo's own instructions tell agents to run, which does not exist on origin, is a broken instruction — that is how grantspider's `CLAUDE.md` came to point at a `scripts/dev/with_test_env.py` that had never been deployed, and how the `new-session.sh` unshallow guard sat canonically "done" while reaching no repo (OS#242).
+
+#### Byte-identity requires formatter exclusion (decision, OS#241)
+
+The estate rule was "author canonical scripts to the strictest linter across all deploy targets." That rule is unfollowable for a **normalizing formatter**. `ruff format` both wraps lines over the limit and re-joins wrapped lines that fit under it, and the targets disagree: aigranthelper `line-length = 120`, grantspider `99`, OverSteward `100`. Any line between 99 and 120 characters therefore has two incompatible correct forms — line-length is not a strictness ordering, it is two targets pulling opposite ways. Byte-identity across those repos is arithmetically impossible while each repo's formatter owns the file.
+
+**Decision: each repo excludes the canonical family from its own formatter/linter** (`ruff`'s `extend-exclude`, or the equivalent), covering `scripts/dev/`, `.claude/hooks/`, and `tests/dev/` family members. Canonical stays formatted once, in OverSteward, and deploys unchanged. The alternatives were rejected: standardising `line-length` estate-wide churns three repos' history for a cosmetic constant, and per-repo formatting of canonical files abandons byte-identity — which is the entire mechanism by which drift is detectable.
+
+The strictest-linter rule survives for everything a formatter does *not* normalize (rule selection, `DTZ`, import banning, type-checker strictness): canonical must still pass the union of those. Formatting is now excluded from it, not ranked within it.
+
+OverSteward itself has no formatter gate to exclude — ruff is not installed here and its `pyproject.toml` block is vestigial config; the pre-commit gates are gaudi and the secret scan. If ruff is ever installed in OverSteward, it takes the same `extend-exclude`.
+
 ### Session-per-worktree discipline
 
 **One git worktree per session — the estate-wide standard.** Parallel Claude/human sessions that share a single checkout collide: a `git checkout`/`switch` in one session yanks another's branch out from under it and strands uncommitted work (it bit GS twice, which is where the guard originated — GS PR #1196). The discipline: each unit of work gets its own worktree under `.claude/worktrees/<name>` on a `session/<name>` branch, cut from the integration branch.
