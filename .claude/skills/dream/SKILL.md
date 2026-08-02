@@ -17,7 +17,8 @@ Run from the **OverSteward** working tree, with the package importable:
 
 ```bash
 export PYTHONPATH="$PWD/src"
-DREAM="python scripts/dream.py cycle"     # use the project venv's python
+DREAM="python scripts/dream.py cycle"       # use the project venv's python
+ROADMAP="python scripts/dream.py roadmap"   # step 5 — a top-level command, not a cycle action
 ```
 
 The store is the private `steward-memory` repo; the ledger is OverSteward's `data/dream/`. The `cycle` subcommands default to the live paths — pass `--store` / `--ledger` / `--store-repo` only when testing.
@@ -83,7 +84,7 @@ This regenerates `MEMORY.md`, **merges this run's holds into the durable open se
 After finalize, probe whether `documentation/ROADMAP.md` has fallen behind reality:
 
 ```bash
-$DREAM roadmap probe > /tmp/dream/roadmap_probe.json
+$ROADMAP probe > /tmp/dream/roadmap_probe.json
 ```
 
 - **`"stale": false`** → report "roadmap current" and move on. Nothing is written.
@@ -94,7 +95,7 @@ gh issue list -R NathanKrupa/OverSteward --state all --limit 100 \
   --json number,title,state > /tmp/dream/issues.json
 gh pr list -R NathanKrupa/OverSteward --state all --limit 100 \
   --json number,title,state > /tmp/dream/prs.json
-$DREAM roadmap packet --issues /tmp/dream/issues.json --prs /tmp/dream/prs.json \
+$ROADMAP packet --issues /tmp/dream/issues.json --prs /tmp/dream/prs.json \
   > /tmp/dream/roadmap_packet.md
 ```
 
