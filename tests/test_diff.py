@@ -1,8 +1,15 @@
 # ABOUTME: Tests for src/oversteward/diff.py — pure snapshot-vs-expectation comparison (H2-4).
-# ABOUTME: Covers managed-block, soul, worktree-discipline byte-copies, shared deploy, freshness.
+# ABOUTME: Covers managed-block, soul, canonical-family statuses, shared deploy, freshness.
 
 from __future__ import annotations
 
+from oversteward.dev_family import (
+    ABSENT,
+    ABSENT_REFERENCED,
+    DRIFTED,
+    PRESENT,
+    RepoFamilyStatus,
+)
 from oversteward.diff import diff_state
 
 
@@ -25,10 +32,6 @@ def _context(**overrides):
             "local_block_present": True,
         },
         "settings_sha256": "s1",
-        "hook_sha256": "hook-ok",
-        "new_session_sha256": "dev-ok",
-        "with_test_env_sha256": "runner-ok",
-        "secret_scan_sha256": "scan-ok",
         "gitleaksignore_present": True,
     }
     ctx.update(overrides)
@@ -39,12 +42,6 @@ def _snapshot(contexts=None, **overrides):
     snap = {
         "contexts": contexts if contexts is not None else [_context()],
         "canonical_shared": {"souls/chestertron.md": "soul-sha"},
-        "canonical_dev": {
-            "guard_main_worktree.py": "hook-ok",
-            "new-session.sh": "dev-ok",
-            "with_test_env.py": "runner-ok",
-            "secret_scan.py": "scan-ok",
-        },
         "deploy_targets": {"wsl": {"souls/chestertron.md": "soul-sha"}},
     }
     snap.update(overrides)
@@ -97,48 +94,9 @@ class TestManagedBlock:
         assert _by_surface(findings, "reachability")[0]["context"] == "remote"
 
 
-class TestWorktreeDiscipline:
-    def test_hook_drift_flagged(self):
-        findings = diff_state(_snapshot([_context(hook_sha256="stale")]))
-        surface = _by_surface(findings, "worktree-discipline")
-        assert [f["severity"] for f in surface] == ["drift"]
-
-    def test_missing_hook_and_script_flagged(self):
-        ctx = _context(hook_sha256=None, new_session_sha256=None)
-        surface = _by_surface(diff_state(_snapshot([ctx])), "worktree-discipline")
-        assert sorted(f["severity"] for f in surface) == ["missing", "missing"]
-
-    def test_dev_script_drift_flagged(self):
-        findings = diff_state(_snapshot([_context(new_session_sha256="stale")]))
-        surface = _by_surface(findings, "worktree-discipline")
-        assert [f["severity"] for f in surface] == ["drift"]
-
-    def test_with_test_env_drift_flagged(self):
-        findings = diff_state(_snapshot([_context(with_test_env_sha256="stale")]))
-        surface = _by_surface(findings, "worktree-discipline")
-        assert [f["severity"] for f in surface] == ["drift"]
-
-    def test_missing_with_test_env_flagged(self):
-        surface = _by_surface(
-            diff_state(_snapshot([_context(with_test_env_sha256=None)])), "worktree-discipline"
-        )
-        assert [f["severity"] for f in surface] == ["missing"]
-
-
 class TestSecurityGate:
     def test_clean_context_has_no_security_findings(self):
         assert _by_surface(diff_state(_snapshot()), "security-gate") == []
-
-    def test_secret_scan_drift_flagged(self):
-        findings = diff_state(_snapshot([_context(secret_scan_sha256="stale")]))
-        surface = _by_surface(findings, "security-gate")
-        assert [f["severity"] for f in surface] == ["drift"]
-
-    def test_missing_secret_scan_flagged(self):
-        surface = _by_surface(
-            diff_state(_snapshot([_context(secret_scan_sha256=None)])), "security-gate"
-        )
-        assert [f["severity"] for f in surface] == ["missing"]
 
     def test_missing_gitleaksignore_flagged(self):
         surface = _by_surface(
@@ -147,18 +105,43 @@ class TestSecurityGate:
         assert [f["severity"] for f in surface] == ["missing"]
         assert ".gitleaksignore" in surface[0]["message"]
 
-    def test_absent_canonical_suppresses_byte_copy_finding(self):
-        # A registry without the canonical secret_scan yet: no byte-copy finding,
-        # but the baseline-presence check still applies.
-        snap = _snapshot(
-            [_context(secret_scan_sha256=None, gitleaksignore_present=True)],
-            canonical_dev={
-                "guard_main_worktree.py": "hook-ok",
-                "new-session.sh": "dev-ok",
-                "with_test_env.py": "runner-ok",
-            },
-        )
-        assert _by_surface(diff_state(snap), "security-gate") == []
+
+class TestCanonicalFamily:
+    def _findings(self, members, available=True):
+        rows = [
+            RepoFamilyStatus(
+                context_id="demo",
+                branch="main",
+                available=available,
+                fetched=True,
+                members=members,
+            )
+        ]
+        return _by_surface(diff_state(_snapshot(), family_rows=rows), "canonical-family")
+
+    def test_identical_members_produce_no_finding(self):
+        assert self._findings({"new-session.sh": PRESENT}) == []
+
+    def test_drifted_member_names_its_deployed_path(self):
+        surface = self._findings({"guard_main_worktree.py": DRIFTED})
+        assert [f["severity"] for f in surface] == ["drift"]
+        assert ".claude/hooks/guard_main_worktree.py" in surface[0]["message"]
+
+    def test_absent_but_doctrine_referenced_is_a_missing_finding(self):
+        surface = self._findings({"with_test_env.py": ABSENT_REFERENCED})
+        assert [f["severity"] for f in surface] == ["missing"]
+        assert "CLAUDE.md" in surface[0]["message"]
+
+    def test_plain_absence_is_informational(self):
+        surface = self._findings({"guard_neon.py": ABSENT})
+        assert [f["severity"] for f in surface] == ["info"]
+
+    def test_unreadable_origin_ref_is_informational(self):
+        surface = self._findings({}, available=False)
+        assert [f["severity"] for f in surface] == ["info"]
+
+    def test_family_is_skipped_when_no_rows_supplied(self):
+        assert _by_surface(diff_state(_snapshot()), "canonical-family") == []
 
 
 class TestSharedDeploy:

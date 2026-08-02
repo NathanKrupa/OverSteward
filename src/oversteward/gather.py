@@ -19,19 +19,8 @@ LOCAL_BLOCK_MARKER = "<!-- [oversteward:local] -->"
 # Per-target mutable files: deployed copies legitimately diverge from canonical.
 MUTABLE_SHARED_FILES = {"inbox.md"}
 
-HOOK_RELPATH = ".claude/hooks/guard_main_worktree.py"
-NEW_SESSION_RELPATH = "scripts/dev/new-session.sh"
-WITH_TEST_ENV_RELPATH = "scripts/dev/with_test_env.py"
-# The Tier-1 secret-scan gate script (scripts/dev/secret_scan.py).
-SCAN_SCRIPT_RELPATH = "scripts/dev/secret_scan.py"
 GITLEAKSIGNORE_RELPATH = ".gitleaksignore"
 SETTINGS_RELPATH = ".claude/settings.json"
-CANONICAL_DEV_FILES = (
-    "guard_main_worktree.py",
-    "new-session.sh",
-    "with_test_env.py",
-    "secret_scan.py",
-)
 
 
 def _sha256(path: Path) -> str:
@@ -80,10 +69,6 @@ def gather_context(ctx: dict[str, Any]) -> dict[str, Any]:
         "reachable": True,
         "claude_md": _gather_claude_md(root / ctx["claude_md_path"]),
         "settings_sha256": _sha256_or_none(root / SETTINGS_RELPATH),
-        "hook_sha256": _sha256_or_none(root / HOOK_RELPATH),
-        "new_session_sha256": _sha256_or_none(root / NEW_SESSION_RELPATH),
-        "with_test_env_sha256": _sha256_or_none(root / WITH_TEST_ENV_RELPATH),
-        "secret_scan_sha256": _sha256_or_none(root / SCAN_SCRIPT_RELPATH),
         "gitleaksignore_present": (root / GITLEAKSIGNORE_RELPATH).is_file(),
     }
 
@@ -113,15 +98,15 @@ def gather_state(
     canonical_shared: Path,
     deploy_targets: dict[str, Path],
 ) -> dict[str, Any]:
-    """Assemble the full read-only snapshot: contexts + canonical shared + deploy targets."""
-    canonical_tree = gather_shared_tree(canonical_shared) or {}
-    canonical_dev = {
-        name: canonical_tree.get(f"scripts/dev/{name}") for name in CANONICAL_DEV_FILES
-    }
+    """Assemble the full read-only snapshot: contexts + canonical shared + deploy targets.
+
+    The canonical ``shared/scripts/dev/`` byte-copy family is audited separately by
+    ``dev_family`` against each repo's origin ref — the local checkouts run stale, so
+    hashing them here produced both false drift and false parity.
+    """
     return {
         "contexts": [gather_context(ctx) for ctx in registry.get("contexts", [])],
-        "canonical_shared": canonical_tree,
-        "canonical_dev": canonical_dev,
+        "canonical_shared": gather_shared_tree(canonical_shared) or {},
         "deploy_targets": {
             name: gather_shared_tree(path) for name, path in deploy_targets.items()
         },

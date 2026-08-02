@@ -5,7 +5,23 @@ from __future__ import annotations
 
 from typing import Any
 
+from oversteward.dev_family import (
+    ABSENT,
+    ABSENT_REFERENCED,
+    DRIFTED,
+    RepoFamilyStatus,
+    deployed_relpath,
+)
+
 Finding = dict[str, Any]
+
+# How each canonical-family status reads in the drift report. `present-identical`
+# is absent from the map: parity is not a finding.
+FAMILY_MESSAGES = {
+    DRIFTED: ("drift", "{path} differs from canonical shared/scripts/dev/{member}"),
+    ABSENT_REFERENCED: ("missing", "{path} absent, yet CLAUDE.md tells agents to use it"),
+    ABSENT: ("info", "{path} not deployed"),
+}
 
 
 def _finding(severity: str, surface: str, message: str, context: str | None = None) -> Finding:
@@ -39,63 +55,40 @@ def _diff_managed_block(ctx: dict[str, Any]) -> list[Finding]:
     return findings
 
 
-def _diff_worktree_discipline(ctx: dict[str, Any], canonical_dev: dict[str, Any]) -> list[Finding]:
-    findings: list[Finding] = []
-    checks = (
-        ("hook_sha256", "guard_main_worktree.py", ".claude/hooks/guard_main_worktree.py"),
-        ("new_session_sha256", "new-session.sh", "scripts/dev/new-session.sh"),
-        ("with_test_env_sha256", "with_test_env.py", "scripts/dev/with_test_env.py"),
-    )
-    for key, canonical_name, deployed_path in checks:
-        expected = canonical_dev.get(canonical_name)
-        if expected is None:
-            continue
-        actual = ctx.get(key)
-        if actual is None:
-            findings.append(
-                _finding("missing", "worktree-discipline", f"{deployed_path} absent", ctx["id"])
-            )
-        elif actual != expected:
-            findings.append(
-                _finding(
-                    "drift",
-                    "worktree-discipline",
-                    f"{deployed_path} differs from canonical shared/scripts/dev/",
-                    ctx["id"],
-                )
-            )
-    return findings
+def _diff_security_gate(ctx: dict[str, Any]) -> list[Finding]:
+    """Tier-1 secret-scan gate baseline.
 
-
-def _diff_security_gate(ctx: dict[str, Any], canonical_dev: dict[str, Any]) -> list[Finding]:
-    """Tier-1 secret-scan gate parity: canonical byte-copy + a baseline file.
-
-    ``secret_scan.py`` is a byte-copy canonical family member (like
-    ``with_test_env.py``); ``.gitleaksignore`` is a per-repo baseline whose
-    *contents* legitimately differ, so only its presence is checked.
+    ``secret_scan.py`` itself is a canonical family member, checked against origin
+    by the ``canonical-family`` surface. ``.gitleaksignore`` is a per-repo baseline
+    whose *contents* legitimately differ, so only its presence is checked.
     """
+    if ctx.get("gitleaksignore_present"):
+        return []
+    return [_finding("missing", "security-gate", ".gitleaksignore baseline absent", ctx["id"])]
+
+
+def _diff_canonical_family(rows: list[RepoFamilyStatus]) -> list[Finding]:
+    """Turn per-repo ``shared/scripts/dev/`` family statuses into findings."""
     findings: list[Finding] = []
-    cid = ctx["id"]
-    expected = canonical_dev.get("secret_scan.py")
-    if expected is not None:
-        actual = ctx.get("secret_scan_sha256")
-        if actual is None:
-            findings.append(
-                _finding("missing", "security-gate", "scripts/dev/secret_scan.py absent", cid)
-            )
-        elif actual != expected:
+    for row in rows:
+        cid = row.context_id
+        if not row.available:
             findings.append(
                 _finding(
-                    "drift",
-                    "security-gate",
-                    "scripts/dev/secret_scan.py differs from canonical shared/scripts/dev/",
+                    "info",
+                    "canonical-family",
+                    f"origin/{row.branch} unreadable — family not checked",
                     cid,
                 )
             )
-    if not ctx.get("gitleaksignore_present"):
-        findings.append(
-            _finding("missing", "security-gate", ".gitleaksignore baseline absent", cid)
-        )
+            continue
+        for member, status in sorted(row.members.items()):
+            entry = FAMILY_MESSAGES.get(status)
+            if entry is None:
+                continue
+            severity, template = entry
+            message = template.format(path=deployed_relpath(member), member=member)
+            findings.append(_finding(severity, "canonical-family", message, cid))
     return findings
 
 
@@ -157,11 +150,12 @@ def _diff_freshness(freshness: dict[str, str] | None) -> list[Finding]:
 
 
 def diff_state(
-    snapshot: dict[str, Any], freshness: dict[str, str] | None = None
+    snapshot: dict[str, Any],
+    freshness: dict[str, str] | None = None,
+    family_rows: list[RepoFamilyStatus] | None = None,
 ) -> list[Finding]:
     """Compare a gather snapshot against expectations; return structured findings."""
     findings: list[Finding] = []
-    canonical_dev = snapshot.get("canonical_dev", {})
     for ctx in snapshot.get("contexts", []):
         if not ctx.get("reachable"):
             findings.append(
@@ -169,8 +163,8 @@ def diff_state(
             )
             continue
         findings.extend(_diff_managed_block(ctx))
-        findings.extend(_diff_worktree_discipline(ctx, canonical_dev))
-        findings.extend(_diff_security_gate(ctx, canonical_dev))
+        findings.extend(_diff_security_gate(ctx))
+    findings.extend(_diff_canonical_family(family_rows or []))
     canonical = snapshot.get("canonical_shared", {})
     for name, target in snapshot.get("deploy_targets", {}).items():
         findings.extend(_diff_deploy_target(name, target, canonical))
