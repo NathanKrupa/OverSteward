@@ -76,39 +76,21 @@ class TestGatherContext:
         result = gather_context(self._ctx(tmp_path))
         assert result["claude_md"]["exists"] is False
 
-    def test_collects_settings_hook_and_dev_script_hashes(self, tmp_path):
+    def test_collects_settings_hash_and_gitleaks_baseline(self, tmp_path):
         (tmp_path / "CLAUDE.md").write_text(UNMANAGED_CLAUDE_MD, encoding="utf-8")
         settings = tmp_path / ".claude" / "settings.json"
         settings.parent.mkdir(parents=True)
         settings.write_bytes(b"{}")
-        hook = tmp_path / ".claude" / "hooks" / "guard_main_worktree.py"
-        hook.parent.mkdir(parents=True)
-        hook.write_bytes(b"hook-code")
-        dev = tmp_path / "scripts" / "dev" / "new-session.sh"
-        dev.parent.mkdir(parents=True)
-        dev.write_bytes(b"dev-script")
-        runner = tmp_path / "scripts" / "dev" / "with_test_env.py"
-        runner.write_bytes(b"runner-code")
-        scan = tmp_path / "scripts" / "dev" / "secret_scan.py"
-        scan.write_bytes(b"scan-code")
         (tmp_path / ".gitleaksignore").write_bytes(b"# baseline")
 
         result = gather_context(self._ctx(tmp_path))
         assert result["settings_sha256"] == _sha(b"{}")
-        assert result["hook_sha256"] == _sha(b"hook-code")
-        assert result["new_session_sha256"] == _sha(b"dev-script")
-        assert result["with_test_env_sha256"] == _sha(b"runner-code")
-        assert result["secret_scan_sha256"] == _sha(b"scan-code")
         assert result["gitleaksignore_present"] is True
 
     def test_absent_optional_files_are_none(self, tmp_path):
         (tmp_path / "CLAUDE.md").write_text(UNMANAGED_CLAUDE_MD, encoding="utf-8")
         result = gather_context(self._ctx(tmp_path))
         assert result["settings_sha256"] is None
-        assert result["hook_sha256"] is None
-        assert result["new_session_sha256"] is None
-        assert result["with_test_env_sha256"] is None
-        assert result["secret_scan_sha256"] is None
         assert result["gitleaksignore_present"] is False
 
     def test_registry_flags_carried_into_snapshot(self, tmp_path):
@@ -146,9 +128,6 @@ class TestGatherState:
         dev = canonical / "scripts" / "dev"
         dev.mkdir(parents=True)
         (dev / "guard_main_worktree.py").write_bytes(b"hook-code")
-        (dev / "new-session.sh").write_bytes(b"dev-script")
-        (dev / "with_test_env.py").write_bytes(b"runner-code")
-        (dev / "secret_scan.py").write_bytes(b"scan-code")
         target = tmp_path / "deployed"
         target.mkdir()
         (target / "f.md").write_bytes(b"f")
@@ -170,10 +149,6 @@ class TestGatherState:
             deploy_targets={"wsl": target, "windows": tmp_path / "missing"},
         )
         assert [c["id"] for c in snapshot["contexts"]] == ["demo"]
-        assert snapshot["canonical_dev"]["guard_main_worktree.py"] == _sha(b"hook-code")
-        assert snapshot["canonical_dev"]["new-session.sh"] == _sha(b"dev-script")
-        assert snapshot["canonical_dev"]["with_test_env.py"] == _sha(b"runner-code")
-        assert snapshot["canonical_dev"]["secret_scan.py"] == _sha(b"scan-code")
         assert snapshot["deploy_targets"]["wsl"] == {"f.md": _sha(b"f")}
         assert snapshot["deploy_targets"]["windows"] is None
         assert "scripts/dev/guard_main_worktree.py" in snapshot["canonical_shared"]

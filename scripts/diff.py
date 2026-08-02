@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import yaml
 
+from oversteward.dev_family import format_family_table, gather_family_status
 from oversteward.diff import diff_state
 from oversteward.gather import default_paths, gather_state
 
@@ -52,10 +53,17 @@ def _print_report(findings: list[dict]) -> None:
 def main(argv: list[str]) -> int:
     paths = default_paths()
     registry_text = (paths["repo_root"] / "registry.yaml").read_text(encoding="utf-8")
-    snapshot = gather_state(
-        yaml.safe_load(registry_text), paths["canonical_shared"], paths["deploy_targets"]
+    registry = yaml.safe_load(registry_text)
+    snapshot = gather_state(registry, paths["canonical_shared"], paths["deploy_targets"])
+    family_rows = gather_family_status(
+        registry, paths["canonical_shared"], fetch="--no-fetch" not in argv
     )
-    findings = diff_state(snapshot, freshness=_freshness(paths["repo_root"]))
+    findings = diff_state(
+        snapshot, freshness=_freshness(paths["repo_root"]), family_rows=family_rows
+    )
+    if "--family" in argv:
+        header = "## CANONICAL FAMILY (shared/scripts/dev/ vs each repo's origin ref)"
+        print("\n".join([header, *format_family_table(family_rows)]))
     if "--json" in argv:
         json.dump(findings, sys.stdout, indent=2)
         sys.stdout.write("\n")
