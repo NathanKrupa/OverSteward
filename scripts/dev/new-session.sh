@@ -58,10 +58,16 @@ CLAUDE_ALLOW_MAIN_GIT=1 git -C "$root" worktree add "$wt" -b "$branch" "$base"
 if [ -d "$root/.venv" ]; then
     ln -sfn "$root/.venv" "$wt/.venv"
 fi
+# Two forms of the same path, because the consumers expand at different times.
+# .envrc gets the literal '$PWD/src' — direnv expands it inside the worktree.
+# The printed instruction is copy-pasted by a human whose shell is elsewhere, so
+# it must carry the worktree-absolute path already resolved.
 if [ -d "$wt/src" ]; then
     pp='$PWD/src'
+    pp_display="$wt/src"
 else
     pp='$PWD'
+    pp_display="$wt"
 fi
 printf 'export PYTHONPATH="%s"\n' "$pp" >"$wt/.envrc"
 
@@ -73,8 +79,13 @@ cat <<EOF
   Start Claude Code IN that directory, with the shared venv + isolated source:
 
       cd "$wt"
-      export PYTHONPATH="$(eval echo "$pp")"
+      export PYTHONPATH="$pp_display"
       # launch Claude Code here
+
+  Then CONFIRM the package resolves to this worktree, not the primary tree —
+  without it every gate silently validates the wrong source:
+
+      python scripts/dev/check_worktree_imports.py <your-package>
 
   (direnv users: a .envrc was written — run 'direnv allow'.)
   (uv repos: run tools as .venv/bin/<tool> in the worktree — not 'uv run',
