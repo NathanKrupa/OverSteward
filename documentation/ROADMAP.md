@@ -374,4 +374,4 @@ Captured in `IDEA_STORE.md` from gstack research and conversational drift. None 
 - If §2-§3 grow past readable length, extract to a `documentation/changelog.md` and keep this doc thin.
 - This doc is the single answer to "what are we trying to do, what's done, what's next?" If it can't answer that in under 60 seconds of reading, it's grown past its purpose — restructure rather than expand.
 
-*Last updated: 2026-07-26 (July reconciliation, hand-run — §3.6 added; maintenance moving to the dream cycle's intent pass, OS#231).*
+*Last updated: 2026-08-02 (August reconciliation — §3.7 added; the first pass produced by the dream cycle's intent machinery rather than hand-run, OS#231).*
