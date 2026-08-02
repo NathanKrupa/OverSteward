@@ -186,6 +186,8 @@ A second class of shared artifact lives at `oversteward/shared/scripts/` — Pyt
 | `guard_main_worktree.py` | `oversteward/shared/scripts/dev/guard_main_worktree.py` | `<repo>/.claude/hooks/guard_main_worktree.py` | all repos (session-per-worktree guard) |
 | `new-session.sh` | `oversteward/shared/scripts/dev/new-session.sh` | `<repo>/scripts/dev/new-session.sh` | all repos (worktree launcher) |
 | `test_worktree_guard.py` | `oversteward/shared/scripts/dev/test_worktree_guard.py` | `<repo>/tests/dev/test_worktree_guard.py` | all repos (guard tests) |
+| `format_staged.py` | `oversteward/shared/scripts/dev/format_staged.py` | `<repo>/scripts/dev/format_staged.py` | AG, GS (pre-commit format gate) |
+| `require_formatted_commit.py` | `oversteward/shared/scripts/dev/require_formatted_commit.py` | `<repo>/scripts/dev/require_formatted_commit.py` | AG, GS (verify-time format gate) |
 
 Phase-1 sync = byte-copy from source to each pickup repo (any dispatch target). Phase-2 sow.py will fold these into the same workflow as souls/personas. Per-repo configuration (e.g. `data/tool_registry.toml` for project-specific category names) lives in the consuming repo and is **not** managed by OverSteward — only the script itself is canonical.
 
@@ -224,6 +226,23 @@ The estate rule was "author canonical scripts to the strictest linter across all
 The strictest-linter rule survives for everything a formatter does *not* normalize (rule selection, `DTZ`, import banning, type-checker strictness): canonical must still pass the union of those. Formatting is now excluded from it, not ranked within it.
 
 OverSteward itself has no formatter gate to exclude — ruff is not installed here and its `pyproject.toml` block is vestigial config; the pre-commit gates are gaudi and the secret scan. If ruff is ever installed in OverSteward, it takes the same `extend-exclude`.
+
+#### The formatted bytes must be the committed bytes (OS#78)
+
+Checking formatting locally burns a verify cycle every time a freshly-written file is unformatted (AG#669, GS#1175), so local verify **applies** `ruff format` instead. Applying it alone opens a worse hole, which broke an AG promote on 2026-08-01: commit → verify applies formatting → the marker is written at HEAD → the rewrite sits unstaged → push ships the *committed* (unformatted) bytes → CI's `ruff format --check` fails on a locally-green tree. The marker certified a commit whose bytes nobody verified.
+
+Two canonical family members close it, at the two moments where it can be closed:
+
+| Member | Deployed to | Runs at | Failure means |
+|---|---|---|---|
+| `format_staged.py` | `<repo>/scripts/dev/format_staged.py` | pre-commit (`local` hook, `pass_filenames: false`) | the formatter rewrote staged Python — re-stage and commit again |
+| `require_formatted_commit.py` | `<repo>/scripts/dev/require_formatted_commit.py` | first step of local verify, **before** any marker is written | the tracked tree differs from HEAD after formatting — amend the residue (or commit the work in progress) |
+
+`format_staged.py` is the upstream half: a commit that can never contain unformatted Python leaves no residue for verify to find. `require_formatted_commit.py` is the assertion that survives a bypassed or absent hook — it formats, then requires every tracked path to match HEAD, and reports the two causes separately because the fixes differ (residue → `git commit --amend`; work in progress → commit or stash). It blocks the marker rather than repairing the tree, because a gate that silently amends a commit changes bytes nobody reviewed.
+
+Both delegate to the repo's own `ruff format`, discovered at `<repo>/.venv/bin/ruff`, which reads that repo's `pyproject.toml` — line length, target version, and `extend-exclude` are the repo's, never the script's, so the same bytes deploy to a 99-, 100-, and 120-column repo. `format_staged.py` passes `--force-exclude` so `extend-exclude` still applies to files named explicitly: without it, a hook that passes paths would reformat the very canonical family each repo excludes to stay byte-identical (OS#241 above). Neither script has a formatter of its own to fall back on — an unresolvable `ruff` exits 2 rather than skipping, since a format gate that silently passes is the failure it exists to prevent.
+
+OverSteward carries the canonical source only: with no ruff installed there is nothing to gate, so neither member is deployed into `scripts/dev/` here and neither is registered in `.pre-commit-config.yaml`. The family audit reports both as `absent` (info) for `oversteward` — the correct "not adopted here" reading — and as `absent` for AG/GS until their deploy PRs land. Their tests are OverSteward-local (`tests/dev/test_format_staged.py`, `tests/dev/test_require_formatted_commit.py`) and drive both gates through an injected stand-in formatter, so the canonical behaviour is covered in a repo that has no ruff to run.
 
 ### Session-per-worktree discipline
 
