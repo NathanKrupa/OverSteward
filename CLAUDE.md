@@ -47,6 +47,17 @@ branch checkout/switch in the primary worktree** (file restores, `git worktree
 add`, and linked worktrees are exempt). Deliberate one-offs (a promote, a
 rebase) prefix the command with `CLAUDE_ALLOW_MAIN_GIT=1`.
 
+A worktree's `.venv` is a symlink to the primary's, so the two share one
+environment. The `.claude/hooks/guard_shared_venv.py` `PreToolUse(Bash)` hook
+**refuses env-mutating `uv` commands** (`uv sync`, `uv venv`, `uv add`, `uv
+remove`, `uv pip install/uninstall`, `uv lock --upgrade`) from a tree whose
+`.venv` is a symlink resolving outside it — uv would stamp the worktree's path
+into the shared venv's console-script shebangs and its `__editable__*.pth`,
+breaking every entry point in every checkout the moment the worktree is pruned.
+`uv run` and read-only `uv pip list/show/freeze` are untouched, and a primary
+checkout (real `.venv` directory) never trips it. Deliberate installs prefix the
+command with `CLAUDE_ALLOW_SHARED_VENV_MUTATION=1`.
+
 This is the estate-wide standard, canonical here in `shared/scripts/dev/` and
 deployed to every repo's `.claude/hooks/` + `scripts/dev/`. See OVERSTEWARD.md
 § "Session-per-worktree discipline" for the rollout + new-project bootstrap.
