@@ -127,6 +127,11 @@ def test_worktree_mounts_common_git_dir(scan, tmp_path):
     repo = tmp_path / "main"
     repo.mkdir()
     _git("init", cwd=repo)
+    # A throwaway repo has no committer identity, and CI runners carry no global
+    # one — so the commit below exits 128 there while passing on any developer
+    # machine. Set it locally rather than depending on ambient config.
+    _git("config", "user.email", "secret-scan@example.test", cwd=repo)
+    _git("config", "user.name", "Secret Scan Test", cwd=repo)
     _git("commit", "--allow-empty", "-m", "init", cwd=repo)
     wt = tmp_path / "wt"
     _git("worktree", "add", str(wt), cwd=repo)
