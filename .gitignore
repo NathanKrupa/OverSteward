@@ -19,6 +19,12 @@ build/
 .env.local
 *.env
 
+# Worktree bootstrap artifacts written by scripts/dev/new-session.sh. The primary
+# .venv self-ignores (uv writes .venv/.gitignore), but a worktree's is a symlink
+# git cannot descend into — so every session tree carried them as strays (OS#255).
+.envrc
+.venv
+
 # OS
 .DS_Store
 Thumbs.db

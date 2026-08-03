@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -136,3 +137,29 @@ def test_teardown_instruction_routes_through_the_worktree_doctor(
 def test_deployed_copy_is_byte_identical_to_canonical() -> None:
     """new-session.sh is a canonical byte-copy; drift here is drift estate-wide."""
     assert DEPLOYED.read_bytes() == CANONICAL.read_bytes()
+
+
+def _instructed_scripts() -> list[str]:
+    """Repo-relative `scripts/dev/...` paths the printed instructions tell the user to run."""
+    text = CANONICAL.read_text(encoding="utf-8")
+    return sorted(set(re.findall(r"\bscripts/dev/[\w.-]+", text)))
+
+
+@pytest.mark.parametrize("relpath", _instructed_scripts())
+def test_every_instructed_script_is_deployed_and_canonical(relpath: str) -> None:
+    """The #255 gap: the printout named a file this repo had never deployed."""
+    deployed = REPO_ROOT / relpath
+    canonical = REPO_ROOT / "shared" / relpath
+    assert deployed.is_file(), f"new-session.sh instructs `{relpath}`, which does not exist here"
+    assert deployed.read_bytes() == canonical.read_bytes()
+
+
+@pytest.mark.parametrize("stray", [".envrc", ".venv"])
+def test_worktree_bootstrap_artifacts_are_ignored(stray: str) -> None:
+    """new-session.sh writes both into every worktree; untracked strays invite `git add -A`."""
+    ignored = subprocess.run(
+        ("git", "check-ignore", "--quiet", stray),
+        cwd=REPO_ROOT,
+        capture_output=True,
+    )
+    assert ignored.returncode == 0, f"`{stray}` is not gitignored"
