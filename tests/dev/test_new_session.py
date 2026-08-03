@@ -119,6 +119,20 @@ def test_envrc_deferred_literal_is_the_worktree_root_when_there_is_no_src_dir(
     assert envrc.read_text(encoding="utf-8") == 'export PYTHONPATH="$PWD"\n'
 
 
+def test_teardown_instruction_routes_through_the_worktree_doctor(
+    script: Path, tmp_path: Path
+) -> None:
+    """#263: removing a captured worktree breaks every checkout on the shared venv."""
+    repo = _make_repo(tmp_path, with_src=True)
+    stdout = _run_new_session(script, repo, "demo")
+
+    worktree = repo / ".claude" / "worktrees" / "demo"
+    assert (
+        f'scripts/dev/worktree_doctor.py check "{worktree}" && git worktree remove "{worktree}"'
+        in stdout
+    )
+
+
 def test_deployed_copy_is_byte_identical_to_canonical() -> None:
     """new-session.sh is a canonical byte-copy; drift here is drift estate-wide."""
     assert DEPLOYED.read_bytes() == CANONICAL.read_bytes()

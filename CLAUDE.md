@@ -58,6 +58,20 @@ breaking every entry point in every checkout the moment the worktree is pruned.
 checkout (real `.venv` directory) never trips it. Deliberate installs prefix the
 command with `CLAUDE_ALLOW_SHARED_VENV_MUTATION=1`.
 
+**Tear the worktree down through the doctor, never blind.** A shared venv or a
+docker compose project can have captured the worktree's path weeks earlier, and
+the removal is what detonates it:
+
+```bash
+scripts/dev/worktree_doctor.py check <worktree> && git worktree remove <worktree>
+```
+
+`check` exits non-zero and names every captured console-script shebang,
+`__editable__*.pth`, and compose container. `scripts/dev/worktree_doctor.py
+repair` repoints the venv's shebangs and `.pth` entries at this checkout
+(idempotent); it reports — never performs — anything needing `docker rm` or
+`sudo`. `new-session.sh` prints the checked teardown line for this reason.
+
 This is the estate-wide standard, canonical here in `shared/scripts/dev/` and
 deployed to every repo's `.claude/hooks/` + `scripts/dev/`. See OVERSTEWARD.md
 § "Session-per-worktree discipline" for the rollout + new-project bootstrap.
