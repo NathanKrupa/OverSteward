@@ -17,7 +17,9 @@ MANAGED_BLOCK_RE = re.compile(
 LOCAL_BLOCK_MARKER = "<!-- [oversteward:local] -->"
 
 # Per-target mutable files: deployed copies legitimately diverge from canonical.
-MUTABLE_SHARED_FILES = {"inbox.md"}
+# frozenset, not set: this is read-only lookup data and nothing should be able
+# to mutate it at runtime from another module.
+MUTABLE_SHARED_FILES = frozenset({"inbox.md"})
 
 GITLEAKSIGNORE_RELPATH = ".gitleaksignore"
 SETTINGS_RELPATH = ".claude/settings.json"

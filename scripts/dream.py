@@ -50,7 +50,13 @@ def _cmd_show(args: argparse.Namespace) -> int:
 
 
 def _read_json(path: str):
-    text = sys.stdin.read() if path == "-" else Path(path).read_text(encoding="utf-8")
+    # Reason: `path` is an explicit CLI argument from the operator running this
+    # command locally, not untrusted input crossing a trust boundary. Confining
+    # it to a base directory would break the legitimate use (reading worksheets
+    # and verdict files from wherever the operator put them) without denying an
+    # attacker anything — anyone who can pass this argument already has the
+    # operator's own filesystem access.
+    text = sys.stdin.read() if path == "-" else Path(path).read_text(encoding="utf-8")  # noqa: SEC-012
     return json.loads(text)
 
 
