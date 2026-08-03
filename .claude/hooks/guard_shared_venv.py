@@ -25,53 +25,140 @@ either exported in the session or as a genuine leading assignment on the
 guarded command. It is deliberately its own variable — the two guards protect
 unrelated things and one must not wave the other through.
 
+The command line is *lexed*, not pattern-matched, so a verb counts only where
+the shell would run it: as the argv of a simple command. A quoted mention —
+``grep "uv sync" file``, a PR body, a heredoc — is an argument, never an
+invocation, and must not be refused. Refusing read-only inspection is worse
+than useless: it teaches people to reach for the override to run a ``grep``,
+which spends the override's meaning on nothing.
+
 Decision logic is split into pure functions so it is unit-tested without git.
 """
 
 import json
 import os
 import re
+import shlex
 import subprocess  # list-form argv, no shell; cwd is the only input
 import sys
 from pathlib import Path
 
 _OVERRIDE_VAR = "CLAUDE_ALLOW_SHARED_VENV_MUTATION"
 
-# A uv verb only at a command position — start of line or after a shell
-# separator (``; & | && ||``), with an optional leading run of environment
-# assignments (``VAR=x``). This skips string mentions (echo / grep / test data)
-# that merely contain "uv sync", which would otherwise false-positive.
-_SEP = r"(?:^|[\n;&|])\s*"  # start-of-line or after a shell separator
-_ASSIGN = r"(?:\w+=\S+\s+)*"  # a run of ``VAR=value`` env assignments
-_AT_CMD = _SEP + _ASSIGN
+# Tokens that end one simple command and start the next, so the token after
+# them sits in command position. Grouping and substitution parens count.
+_SEPARATORS = frozenset({";", ";;", "&", "&&", "|", "||", "|&", "(", ")", "{", "}"})
 
-# Verb label -> the shape that identifies it. ``uv lock`` alone only rewrites
-# the lockfile; only ``--upgrade`` re-resolves and re-installs.
-_MUTATING_VERBS: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
-    (label, re.compile(_AT_CMD + pattern))
-    for label, pattern in (
-        ("uv pip install", r"uv\s+pip\s+install\b"),
-        ("uv pip uninstall", r"uv\s+pip\s+uninstall\b"),
-        ("uv sync", r"uv\s+sync\b"),
-        ("uv add", r"uv\s+add\b"),
-        ("uv remove", r"uv\s+remove\b"),
-        ("uv venv", r"uv\s+venv\b"),
-        ("uv lock --upgrade", r"uv\s+lock\b[^\n;&|]*--upgrade\b"),
-    )
+# A leading ``VAR=value`` on a command sets that command's environment; it does
+# not displace the command position, so a run of them is skipped over.
+_ASSIGNMENT = re.compile(r"[A-Za-z_]\w*=")
+
+# Verb label -> the argv after ``uv``, plus a flag prefix the argv must also
+# carry. ``uv lock`` alone only rewrites the lockfile; only ``--upgrade``
+# (and ``--upgrade-package``) re-resolves and re-installs.
+_MUTATING_VERBS: tuple[tuple[str, tuple[str, ...], str | None], ...] = (
+    ("uv pip install", ("pip", "install"), None),
+    ("uv pip uninstall", ("pip", "uninstall"), None),
+    ("uv sync", ("sync",), None),
+    ("uv add", ("add",), None),
+    ("uv remove", ("remove",), None),
+    ("uv venv", ("venv",), None),
+    ("uv lock --upgrade", ("lock",), "--upgrade"),
 )
 
-# The inline escape hatch: the override var set to 1 as a real leading
-# assignment on the guarded uv command. Matching it as a command-position
-# prefix — not a bare substring — is what stops a quoted mention
-# (``echo "CLAUDE_ALLOW_SHARED_VENV_MUTATION=1"``) waving the guard through.
-_OVERRIDE_PREFIX = re.compile(_SEP + _ASSIGN + rf"{_OVERRIDE_VAR}=1\s+" + _ASSIGN + r"uv\b")
+
+def _lex(text: str) -> list[str] | None:
+    """``text`` as shell tokens, or None if a quote is left open."""
+    lexer = shlex.shlex(text, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    try:
+        return list(lexer)
+    except ValueError:
+        return None
+
+
+def _token_runs(command: str) -> list[list[str]] | None:
+    """Tokens of ``command``, one run per line, so a newline ends a command.
+
+    A quote still open at end of line means the quoting spans lines — a
+    heredoc, a multi-line PR body — so the whole command is lexed as one unit
+    instead, keeping that quoted text a single token rather than reading its
+    contents as commands. None means no lexing succeeded at all.
+    """
+    runs: list[list[str]] = []
+    for line in command.splitlines():
+        tokens = _lex(line)
+        if tokens is None:
+            whole = _lex(command)
+            return None if whole is None else [whole]
+        runs.append(tokens)
+    return runs
+
+
+def _simple_commands(tokens: list[str]) -> list[list[str]]:
+    """``tokens`` split at shell separators — one argv per simple command."""
+    argvs: list[list[str]] = [[]]
+    for token in tokens:
+        if token in _SEPARATORS:
+            argvs.append([])
+        else:
+            argvs[-1].append(token)
+    return [argv for argv in argvs if argv]
+
+
+def _split_assignments(argv: list[str]) -> tuple[list[str], list[str]]:
+    """``argv`` as (its leading environment assignments, the command it runs)."""
+    index = 0
+    while index < len(argv) and _ASSIGNMENT.match(argv[index]):
+        index += 1
+    return argv[:index], argv[index:]
+
+
+def _invocations(command: str) -> list[tuple[list[str], list[str]]] | None:
+    """Every simple command in ``command`` as (env assignments, argv).
+
+    None means the text could not be lexed, which callers treat as
+    un-analysable rather than as safe.
+    """
+    runs = _token_runs(command)
+    if runs is None:
+        return None
+    return [
+        _split_assignments(argv) for tokens in runs for argv in _simple_commands(tokens)
+    ]
+
+
+def _verb_of(argv: list[str]) -> str | None:
+    """The env-mutating verb ``argv`` invokes, or None if it is not uv's."""
+    if argv[:1] != ["uv"]:
+        return None
+    args = argv[1:]
+    for label, prefix, flag in _MUTATING_VERBS:
+        if tuple(args[: len(prefix)]) != prefix:
+            continue
+        if flag is None or any(arg.startswith(flag) for arg in args):
+            return label
+    return None
+
+
+def _unlexable_verb(command: str) -> str | None:
+    """A conservative scan for text no lexer could parse — err toward refusing."""
+    for label, prefix, flag in _MUTATING_VERBS:
+        phrase = r"\buv\s+" + r"\s+".join(prefix) + r"\b"
+        if re.search(phrase, command) and (flag is None or flag in command):
+            return label
+    return None
 
 
 def mutating_verb(command: str) -> str | None:
     """The env-mutating uv verb ``command`` invokes, or None if it invokes none."""
-    for label, pattern in _MUTATING_VERBS:
-        if pattern.search(command):
-            return label
+    invocations = _invocations(command)
+    if invocations is None:
+        return _unlexable_verb(command)
+    for _, argv in invocations:
+        verb = _verb_of(argv)
+        if verb is not None:
+            return verb
     return None
 
 
@@ -104,10 +191,18 @@ def venv_is_shared(tree_root: str) -> bool:
 
 
 def has_override(command: str) -> bool:
-    """True if the override is exported, or set as a leading assignment on ``command``."""
+    """True if the override is exported, or set as a leading assignment on ``command``.
+
+    Reading it off the invocation's own assignments — not as a substring — is
+    what stops a quoted mention (``echo "CLAUDE_ALLOW_SHARED_VENV_MUTATION=1"``)
+    waving the guard through.
+    """
     if os.environ.get(_OVERRIDE_VAR) == "1":
         return True
-    return bool(_OVERRIDE_PREFIX.search(command))
+    for assignments, argv in _invocations(command) or []:
+        if argv[:1] == ["uv"] and f"{_OVERRIDE_VAR}=1" in assignments:
+            return True
+    return False
 
 
 def blocked_venv(command: str, tree_root: str) -> str | None:
