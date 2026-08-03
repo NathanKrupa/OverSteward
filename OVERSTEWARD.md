@@ -184,6 +184,7 @@ A second class of shared artifact lives at `oversteward/shared/scripts/` — Pyt
 | `generate_tool_registry.py` | `oversteward/shared/scripts/tools/generate_tool_registry.py` | `<repo>/scripts/tools/generate_tool_registry.py` | AG, GS, FI, OS |
 | `generate_workflow_registry.py` | `oversteward/shared/scripts/workflows/generate_workflow_registry.py` | `<repo>/scripts/workflows/generate_workflow_registry.py` | GS (others as they grow workflows) |
 | `guard_main_worktree.py` | `oversteward/shared/scripts/dev/guard_main_worktree.py` | `<repo>/.claude/hooks/guard_main_worktree.py` | all repos (session-per-worktree guard) |
+| `guard_shared_venv.py` | `oversteward/shared/scripts/dev/guard_shared_venv.py` | `<repo>/.claude/hooks/guard_shared_venv.py` | all repos (shared-venv mutation guard) |
 | `new-session.sh` | `oversteward/shared/scripts/dev/new-session.sh` | `<repo>/scripts/dev/new-session.sh` | all repos (worktree launcher) |
 | `test_worktree_guard.py` | `oversteward/shared/scripts/dev/test_worktree_guard.py` | `<repo>/tests/dev/test_worktree_guard.py` | all repos (guard tests) |
 | `format_staged.py` | `oversteward/shared/scripts/dev/format_staged.py` | `<repo>/scripts/dev/format_staged.py` | AG, GS (pre-commit format gate) |
@@ -198,7 +199,7 @@ Every file in `shared/scripts/dev/` is a family member, and its destination insi
 | Canonical name shape | Deployed to | Examples |
 |---|---|---|
 | leading `.` (dotfile config) | `<repo>/<name>` (repo root) | `.gitleaks.toml` |
-| a registered hook | `<repo>/.claude/hooks/<name>` | `guard_main_worktree.py`, `guard_neon.py`, `check_destructive_command.py` |
+| a registered hook | `<repo>/.claude/hooks/<name>` | `guard_main_worktree.py`, `guard_neon.py`, `guard_shared_venv.py`, `check_destructive_command.py` |
 | `test_*.py` | `<repo>/tests/dev/<name>` | `test_worktree_guard.py`, `test_secret_scan.py` |
 | anything else | `<repo>/scripts/dev/<name>` | `new-session.sh`, `with_test_env.py`, `secret_scan.py`, `check_worktree_imports.py` |
 
@@ -248,21 +249,25 @@ OverSteward carries the canonical source only: with no ruff installed there is n
 
 **One git worktree per session — the estate-wide standard.** Parallel Claude/human sessions that share a single checkout collide: a `git checkout`/`switch` in one session yanks another's branch out from under it and strands uncommitted work (it bit GS twice, which is where the guard originated — GS PR #1196). The discipline: each unit of work gets its own worktree under `.claude/worktrees/<name>` on a `session/<name>` branch, cut from the integration branch.
 
-Three byte-identical canonical files (above) make it portable:
+Four byte-identical canonical files (above) make it portable:
 
 - **`guard_main_worktree.py`** — `PreToolUse(Bash)` hook (registered in `<repo>/.claude/settings.json`) that refuses branch checkout/switch in the *primary* worktree. Linked worktrees, file restores (`git checkout -- `, `git restore`), and `git worktree add` are exempt. Override per-command with `CLAUDE_ALLOW_MAIN_GIT=1` (GS also honors `GS_ALLOW_MAIN_GIT=1` for back-compat).
+- **`guard_shared_venv.py`** — `PreToolUse(Bash)` hook (same registration) that refuses env-mutating `uv` verbs (`sync`, `venv`, `add`, `remove`, `pip install`, `pip uninstall`, `lock --upgrade`) when the current tree's `.venv` is a symlink resolving outside it. uv would otherwise stamp the borrowing tree's path into the *shared* venv's console-script shebangs and `__editable__*.pth`, breaking every entry point in every checkout on that venv the moment the borrowing tree is pruned. `uv run` and read-only `uv pip list/show/freeze` are exempt, as is any tree with a real `.venv` directory. Override per-command with `CLAUDE_ALLOW_SHARED_VENV_MUTATION=1`.
 - **`new-session.sh`** — self-adapting launcher: base ref is `origin/staging` if it exists (GS/AG), else the remote default branch (trunk-only repos); `PYTHONPATH` is `src/` if present, else the worktree root (Django/flat). One shared `.venv` is symlinked in — `PYTHONPATH` overrides the editable install's `.pth` (verified for pip and uv), so worktrees cost ~nothing. (uv repos: invoke `.venv/bin/<tool>` directly, not `uv run`, which may re-sync the shared venv.)
-- **`test_worktree_guard.py`** — pure-logic unit tests for the guard (locates the hook by walking up to the repo root, so it is depth-independent).
+- **`test_worktree_guard.py`** / **`test_guard_shared_venv.py`** — pure-logic unit tests for the two guards (each locates its hook by walking up to the repo root, so they are depth-independent).
 
-**New-project / new-repo bootstrap** (this IS "the template" — copy these three from the canonical source):
+**New-project / new-repo bootstrap** (this IS "the template" — copy these from the canonical source):
 
 ```bash
 mkdir -p .claude/hooks scripts/dev tests/dev
-cp <oversteward>/shared/scripts/dev/guard_main_worktree.py .claude/hooks/
-cp <oversteward>/shared/scripts/dev/new-session.sh         scripts/dev/   # chmod +x
-cp <oversteward>/shared/scripts/dev/test_worktree_guard.py tests/dev/
-# register the hook in .claude/settings.json under hooks.PreToolUse (matcher "Bash"):
+cp <oversteward>/shared/scripts/dev/guard_main_worktree.py   .claude/hooks/
+cp <oversteward>/shared/scripts/dev/guard_shared_venv.py     .claude/hooks/
+cp <oversteward>/shared/scripts/dev/new-session.sh           scripts/dev/   # chmod +x
+cp <oversteward>/shared/scripts/dev/test_worktree_guard.py   tests/dev/
+cp <oversteward>/shared/scripts/dev/test_guard_shared_venv.py tests/dev/
+# register the hooks in .claude/settings.json under hooks.PreToolUse (matcher "Bash"):
 #   python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/guard_main_worktree.py"
+#   python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/guard_shared_venv.py"
 echo '.claude/worktrees/' >> .gitignore
 ```
 

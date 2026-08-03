@@ -22,6 +22,7 @@ HOOK_MEMBERS = frozenset(
     {
         "guard_main_worktree.py",
         "guard_neon.py",
+        "guard_shared_venv.py",
         "check_destructive_command.py",
     }
 )
