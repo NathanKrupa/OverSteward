@@ -186,6 +186,7 @@ A second class of shared artifact lives at `oversteward/shared/scripts/` — Pyt
 | `guard_main_worktree.py` | `oversteward/shared/scripts/dev/guard_main_worktree.py` | `<repo>/.claude/hooks/guard_main_worktree.py` | all repos (session-per-worktree guard) |
 | `guard_shared_venv.py` | `oversteward/shared/scripts/dev/guard_shared_venv.py` | `<repo>/.claude/hooks/guard_shared_venv.py` | all repos (shared-venv mutation guard) |
 | `new-session.sh` | `oversteward/shared/scripts/dev/new-session.sh` | `<repo>/scripts/dev/new-session.sh` | all repos (worktree launcher) |
+| `worktree_doctor.py` | `oversteward/shared/scripts/dev/worktree_doctor.py` | `<repo>/scripts/dev/worktree_doctor.py` | all repos (pre-removal capture check + repair) |
 | `test_worktree_guard.py` | `oversteward/shared/scripts/dev/test_worktree_guard.py` | `<repo>/tests/dev/test_worktree_guard.py` | all repos (guard tests) |
 | `format_staged.py` | `oversteward/shared/scripts/dev/format_staged.py` | `<repo>/scripts/dev/format_staged.py` | AG, GS (pre-commit format gate) |
 | `require_formatted_commit.py` | `oversteward/shared/scripts/dev/require_formatted_commit.py` | `<repo>/scripts/dev/require_formatted_commit.py` | AG, GS (verify-time format gate) |
@@ -249,12 +250,13 @@ OverSteward carries the canonical source only: with no ruff installed there is n
 
 **One git worktree per session — the estate-wide standard.** Parallel Claude/human sessions that share a single checkout collide: a `git checkout`/`switch` in one session yanks another's branch out from under it and strands uncommitted work (it bit GS twice, which is where the guard originated — GS PR #1196). The discipline: each unit of work gets its own worktree under `.claude/worktrees/<name>` on a `session/<name>` branch, cut from the integration branch.
 
-Four byte-identical canonical files (above) make it portable:
+Five byte-identical canonical files (above) make it portable:
 
 - **`guard_main_worktree.py`** — `PreToolUse(Bash)` hook (registered in `<repo>/.claude/settings.json`) that refuses branch checkout/switch in the *primary* worktree. Linked worktrees, file restores (`git checkout -- `, `git restore`), and `git worktree add` are exempt. Override per-command with `CLAUDE_ALLOW_MAIN_GIT=1` (GS also honors `GS_ALLOW_MAIN_GIT=1` for back-compat).
 - **`guard_shared_venv.py`** — `PreToolUse(Bash)` hook (same registration) that refuses env-mutating `uv` verbs (`sync`, `venv`, `add`, `remove`, `pip install`, `pip uninstall`, `lock --upgrade`) when the current tree's `.venv` is a symlink resolving outside it. uv would otherwise stamp the borrowing tree's path into the *shared* venv's console-script shebangs and `__editable__*.pth`, breaking every entry point in every checkout on that venv the moment the borrowing tree is pruned. `uv run` and read-only `uv pip list/show/freeze` are exempt, as is any tree with a real `.venv` directory. Override per-command with `CLAUDE_ALLOW_SHARED_VENV_MUTATION=1`.
 - **`new-session.sh`** — self-adapting launcher: base ref is `origin/staging` if it exists (GS/AG), else the remote default branch (trunk-only repos); `PYTHONPATH` is `src/` if present, else the worktree root (Django/flat). One shared `.venv` is symlinked in — `PYTHONPATH` overrides the editable install's `.pth` (verified for pip and uv), so worktrees cost ~nothing. (uv repos: invoke `.venv/bin/<tool>` directly, not `uv run`, which may re-sync the shared venv.)
-- **`test_worktree_guard.py`** / **`test_guard_shared_venv.py`** — pure-logic unit tests for the two guards (each locates its hook by walking up to the repo root, so they are depth-independent).
+- **`worktree_doctor.py`** — the other half of `guard_shared_venv.py`: the guard prevents new capture, the doctor finds capture that already happened and repairs it. `check <worktree>` exits non-zero if anything still points at a worktree — a captured console-script shebang, an `__editable__*.pth`, or a docker compose project whose `working_dir` label names it — and `new-session.sh`'s teardown instruction routes through it, so the estate's own sweep cannot detonate capture. `repair [--repo <path>]` repoints captured shebangs and `.pth` entries at the owning checkout, idempotently. It deliberately will not remove a container or escalate to `sudo` for a root-owned bind-mount skeleton: those are reported with the exact command, and a human decides.
+- **`test_worktree_guard.py`** / **`test_guard_shared_venv.py`** / **`test_worktree_doctor.py`** — pure-logic unit tests for the two guards and the doctor (each locates its subject by walking up to the repo root, so they are depth-independent).
 
 **New-project / new-repo bootstrap** (this IS "the template" — copy these from the canonical source):
 
@@ -263,8 +265,10 @@ mkdir -p .claude/hooks scripts/dev tests/dev
 cp <oversteward>/shared/scripts/dev/guard_main_worktree.py   .claude/hooks/
 cp <oversteward>/shared/scripts/dev/guard_shared_venv.py     .claude/hooks/
 cp <oversteward>/shared/scripts/dev/new-session.sh           scripts/dev/   # chmod +x
+cp <oversteward>/shared/scripts/dev/worktree_doctor.py       scripts/dev/   # chmod +x
 cp <oversteward>/shared/scripts/dev/test_worktree_guard.py   tests/dev/
 cp <oversteward>/shared/scripts/dev/test_guard_shared_venv.py tests/dev/
+cp <oversteward>/shared/scripts/dev/test_worktree_doctor.py  tests/dev/
 # register the hooks in .claude/settings.json under hooks.PreToolUse (matcher "Bash"):
 #   python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/guard_main_worktree.py"
 #   python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/guard_shared_venv.py"

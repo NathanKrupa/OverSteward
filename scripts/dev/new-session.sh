@@ -91,5 +91,9 @@ cat <<EOF
   (uv repos: run tools as .venv/bin/<tool> in the worktree — not 'uv run',
    which may re-sync the shared venv.)
 
-  When done: open a PR from '$branch', then  git worktree remove "$wt"
+  When done: open a PR from '$branch', then tear down THROUGH the doctor —
+  a shared venv or a docker compose project may have captured this path, and
+  removing it blind breaks every checkout on that venv:
+
+      scripts/dev/worktree_doctor.py check "$wt" && git worktree remove "$wt"
 EOF
