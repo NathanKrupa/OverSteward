@@ -54,6 +54,10 @@ def guard():
         "make clean; uv add ruff",
         "  uv sync --frozen",
         "FOO=bar uv sync",
+        "echo x && uv sync",
+        "cd /tmp/x\nuv sync",
+        "uv lock --upgrade-package httpx",
+        "cd /tmp/x&&uv sync",
     ],
 )
 def test_env_mutating_detected(guard, cmd):
@@ -81,6 +85,31 @@ def test_env_mutating_detected(guard, cmd):
     ],
 )
 def test_non_mutating_ignored(guard, cmd):
+    assert guard.is_env_mutating(cmd) is False
+
+
+# ---------------------------------------------------------------------------
+# Quoted mentions are arguments, not invocations — a read-only search that
+# merely names a guarded verb must never be refused.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        # The reported repro: alternation bars inside the search pattern read
+        # as shell pipes to anything matching raw text.
+        r'grep -n "uv run\|uv sync\|\.venv/bin" scripts/ci/run-local.sh',
+        r'rg "uv sync|uv add" scripts/',
+        "git grep -n 'uv pip install' -- scripts/",
+        "sed -n '/uv sync/p' CLAUDE.md",
+        "awk '/uv venv/ {print}' notes.txt",
+        'echo "run uv sync from the primary checkout"',
+        # A multi-line quoted body (PR description, heredoc) is one argument.
+        'gh pr create --body "$(cat <<EOF\nRun uv sync in the primary checkout.\nEOF\n)"',
+    ],
+)
+def test_quoted_mention_is_not_an_invocation(guard, cmd):
     assert guard.is_env_mutating(cmd) is False
 
 
@@ -211,6 +240,16 @@ def test_allows_read_only_command_in_shared_venv_tree(guard, shared_tree):
     assert guard.blocked_venv("uv run pytest", shared_tree) is None
 
 
+def test_allows_grep_for_the_guarded_phrase_in_shared_venv_tree(guard, shared_tree):
+    cmd = r'grep -n "uv run\|uv sync\|\.venv/bin" scripts/ci/run-local.sh'
+    assert guard.blocked_venv(cmd, shared_tree) is None
+
+
+def test_blocks_mutation_after_a_separator_in_shared_venv_tree(guard, shared_tree, tmp_path):
+    expected = str((tmp_path / "primary" / ".venv").resolve())
+    assert guard.blocked_venv("echo x && uv sync", shared_tree) == expected
+
+
 def test_allows_mutation_with_override(guard, shared_tree):
     assert guard.blocked_venv("CLAUDE_ALLOW_SHARED_VENV_MUTATION=1 uv sync", shared_tree) is None
 
@@ -223,3 +262,17 @@ def test_allows_mutation_in_primary_checkout(guard, tmp_path):
 
 def test_allows_mutation_outside_a_git_tree(guard):
     assert guard.blocked_venv("uv sync", "") is None
+
+
+# ---------------------------------------------------------------------------
+# The deployed hook is a byte-copy of the canonical source — drift between the
+# two means the tests above vouch for a file nothing actually runs.
+# ---------------------------------------------------------------------------
+
+
+def test_deployed_hook_matches_the_canonical_source():
+    repo = Path(__file__).resolve().parents[2]
+    hook = "guard_shared_venv.py"
+    canonical = repo / "shared" / "scripts" / "dev" / hook
+    deployed = repo / ".claude" / "hooks" / hook
+    assert deployed.read_bytes() == canonical.read_bytes()
