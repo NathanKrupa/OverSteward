@@ -93,7 +93,8 @@ cat <<EOF
 
   When done: open a PR from '$branch', then tear down THROUGH the doctor —
   a shared venv or a docker compose project may have captured this path, and
-  removing it blind breaks every checkout on that venv:
+  removing it blind breaks every checkout on that venv. The doctor also drops
+  the test database this worktree owns, which nothing else will:
 
-      scripts/dev/worktree_doctor.py check "$wt" && git worktree remove "$wt"
+      scripts/dev/worktree_doctor.py teardown "$wt"
 EOF

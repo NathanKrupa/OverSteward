@@ -248,3 +248,188 @@ def test_a_live_worktree_is_not_reported_as_a_skeleton(doctor, tmp_path):
 
 def test_deployed_copy_is_byte_identical_to_canonical() -> None:
     assert SCRIPT.read_bytes() == CANONICAL.read_bytes()
+
+
+# ---------------------------------------------------------------------------
+# the worktree's database on the shared test container
+# ---------------------------------------------------------------------------
+
+
+class ScriptedDocker:
+    """A docker seam that answers per-argv, so a query can be told apart from a drop."""
+
+    def __init__(self, responses: dict[str, str] | None = None) -> None:
+        self.responses = responses or {}
+        self.calls: list[list[str]] = []
+
+    def __call__(self, args: list[str]) -> str | None:
+        self.calls.append(args)
+        for marker, output in self.responses.items():
+            if marker in " ".join(args):
+                return output
+        return ""
+
+
+def _bench_docker(database: str, *, container: str = "grantspider-test-pg") -> ScriptedDocker:
+    """A container running postgres that holds ``database``."""
+    return ScriptedDocker(
+        {
+            "ps --format": f"{container}\nsome-unrelated-app\n",
+            f"inspect --format {{{{range .Config.Env}}}}{{{{println .}}}}{{{{end}}}} {container}": (
+                "POSTGRES_USER=grantspider\nPOSTGRES_PASSWORD=testpass\n"
+            ),
+            f"datname = '{database}'": "1\n",
+        }
+    )
+
+
+def test_the_worktrees_database_is_found_on_the_shared_container(doctor, tmp_path):
+    _, worktree = _make_repo(tmp_path, captured=False)
+    docker = _bench_docker("repo_test_demo")
+
+    hits = doctor.database_hits(worktree, docker, name="repo_test_demo")
+
+    assert len(hits) == 1
+    assert hits[0].kind == doctor.DATABASE_OWNED
+    assert "repo_test_demo" in hits[0].detail
+    assert "grantspider-test-pg" in hits[0].where
+
+
+def test_no_database_no_hit(doctor, tmp_path):
+    _, worktree = _make_repo(tmp_path, captured=False)
+    docker = ScriptedDocker({"ps --format": "grantspider-test-pg\n"})
+
+    assert doctor.database_hits(worktree, docker, name="repo_test_demo") == []
+
+
+def test_a_container_that_is_not_postgres_is_skipped(doctor, tmp_path):
+    """No POSTGRES_USER means the image is not a postgres — never exec into it."""
+    _, worktree = _make_repo(tmp_path, captured=False)
+    docker = ScriptedDocker({"ps --format": "redis\n"})
+
+    doctor.database_hits(worktree, docker, name="repo_test_demo")
+
+    assert not any(call[0] == "exec" for call in docker.calls)
+
+
+def test_the_database_does_not_block_removal(doctor, tmp_path):
+    """It is owned state to drop, not capture that breaks another checkout.
+
+    ``check`` exits non-zero on capture; if a database counted, every teardown
+    of every worktree would be blocked forever.
+    """
+    _, worktree = _make_repo(tmp_path, captured=False)
+    docker = _bench_docker("repo_test_demo")
+
+    assert doctor.check_worktree(worktree, [], docker=docker) == []
+
+
+def test_dropping_the_database_targets_the_right_container(doctor, tmp_path):
+    _, worktree = _make_repo(tmp_path, captured=False)
+    docker = _bench_docker("repo_test_demo")
+
+    dropped = doctor.drop_database(worktree, docker, name="repo_test_demo")
+
+    assert dropped == ["repo_test_demo (grantspider-test-pg)"]
+    drops = [call for call in docker.calls if "dropdb" in call]
+    assert drops, "no dropdb issued"
+    assert drops[0][:3] == ["exec", "grantspider-test-pg", "dropdb"]
+    assert "--if-exists" in drops[0]
+    assert drops[0][-1] == "repo_test_demo"
+
+
+def test_dropping_an_absent_database_is_a_no_op(doctor, tmp_path):
+    _, worktree = _make_repo(tmp_path, captured=False)
+    docker = ScriptedDocker({"ps --format": "grantspider-test-pg\n"})
+
+    assert doctor.drop_database(worktree, docker, name="repo_test_demo") == []
+    assert not any("dropdb" in call for call in docker.calls)
+
+
+def test_teardown_drops_the_database_then_removes_the_worktree(doctor, tmp_path):
+    repo, worktree = _make_repo(tmp_path, captured=False)
+    docker = _bench_docker("repo_test_demo")
+    removed: list[Path] = []
+
+    rc = doctor.teardown(
+        worktree,
+        [doctor.venv_of(repo)],
+        docker=docker,
+        remove=removed.append,
+        name="repo_test_demo",
+    )
+
+    assert rc == 0
+    assert removed == [worktree]
+    assert any("dropdb" in call for call in docker.calls)
+
+
+def test_teardown_refuses_while_something_still_points_here(doctor, tmp_path):
+    """Capture first, drop second: a blocked teardown must change nothing."""
+    repo, worktree = _make_repo(tmp_path, captured=True)
+    docker = _bench_docker("repo_test_demo")
+    removed: list[Path] = []
+
+    rc = doctor.teardown(
+        worktree,
+        [doctor.venv_of(repo)],
+        docker=docker,
+        remove=removed.append,
+        name="repo_test_demo",
+    )
+
+    assert rc == 1
+    assert removed == []
+    assert not any("dropdb" in call for call in docker.calls)
+
+
+def _git(tree: Path, *args: str) -> None:
+    subprocess.run(["git", "-C", str(tree), *args], check=True, capture_output=True)
+
+
+def _make_git_repo(tmp_path: Path) -> tuple[Path, Path]:
+    """A real checkout with a real linked worktree — the database name needs git.
+
+    Built git-first: ``git worktree add`` refuses a directory that already has
+    content, so the venv scaffolding goes on afterwards.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "config", "user.email", "t@example.com")
+    _git(repo, "config", "user.name", "t")
+    (repo / "README.md").write_text("x", encoding="utf-8")
+    _git(repo, "add", "README.md")
+    _git(repo, "commit", "-qm", "init")
+
+    worktree = repo / ".claude" / "worktrees" / "demo"
+    worktree.parent.mkdir(parents=True)
+    _git(repo, "worktree", "add", "-q", "-b", "session/demo", str(worktree))
+
+    venv_bin = repo / ".venv" / "bin"
+    venv_bin.mkdir(parents=True)
+    (venv_bin / "python").write_text("", encoding="utf-8")
+    (worktree / ".venv").symlink_to(repo / ".venv")
+    return repo, worktree
+
+
+def test_check_names_the_database_without_blocking_removal(tmp_path, monkeypatch):
+    """The operator must see the database; it must not fail the gate."""
+    repo, worktree = _make_git_repo(tmp_path)
+    fake_docker = tmp_path / "docker"
+    fake_docker.write_text(
+        "#!/bin/sh\n"
+        'case "$*" in\n'
+        '  *"--format {{.Names}}"*) echo repo-test-pg ;;\n'
+        '  *"{{range .Config.Env}}"*) echo POSTGRES_USER=repo ;;\n'
+        "  *pg_database*) echo 1 ;;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    fake_docker.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}:{__import__('os').environ['PATH']}")
+
+    result = _run("check", str(worktree), "--repo", str(repo))
+
+    assert result.returncode == 0
+    assert "repo_test_demo" in result.stdout
