@@ -63,14 +63,23 @@ docker compose project can have captured the worktree's path weeks earlier, and
 the removal is what detonates it:
 
 ```bash
-scripts/dev/worktree_doctor.py check <worktree> && git worktree remove <worktree>
+scripts/dev/worktree_doctor.py teardown <worktree>
 ```
 
-`check` exits non-zero and names every captured console-script shebang,
-`__editable__*.pth`, and compose container. `scripts/dev/worktree_doctor.py
-repair` repoints the venv's shebangs and `.pth` entries at this checkout
-(idempotent); it reports — never performs — anything needing `docker rm` or
-`sudo`. `new-session.sh` prints the checked teardown line for this reason.
+`teardown` re-runs `check`, refuses on any capture (so a refused teardown
+changes nothing), then drops the worktree's test database and removes the
+worktree. `check` alone exits non-zero and names every captured console-script
+shebang, `__editable__*.pth`, and compose container, and reports the worktree's
+database as owned state — owned state never blocks removal, or every teardown
+would be blocked forever. `scripts/dev/worktree_doctor.py repair` repoints the
+venv's shebangs and `.pth` entries at this checkout (idempotent); it reports —
+never performs — anything needing `docker rm` or `sudo`. `new-session.sh` prints
+the teardown line for this reason.
+
+A worktree's database name comes from `scripts/dev/worktree_db.py` — the
+primary checkout keeps `<project>_test`, each worktree gets
+`<project>_test_<slug>` on the same container. Read the name from that script;
+never recompute it.
 
 This is the estate-wide standard, canonical here in `shared/scripts/dev/` and
 deployed to every repo's `.claude/hooks/` + `scripts/dev/`. See OVERSTEWARD.md

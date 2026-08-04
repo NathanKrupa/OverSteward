@@ -52,6 +52,10 @@ SHEBANG_CAPTURE = "venv-script-shebang"
 PTH_CAPTURE = "editable-pth"
 DOCKER_CAPTURE = "docker-compose-project"
 
+# Not a capture: state the worktree owns and teardown drops. Kept out of the
+# blocking set deliberately — see check_worktree.
+DATABASE_OWNED = "worktree-database"
+
 # The docker seam: a callable taking an argv tail and returning stdout, or None
 # when docker is absent or unhappy. Injected so tests never need a daemon.
 DockerRunner = Callable[[list[str]], "str | None"]
@@ -128,29 +132,49 @@ def shebang(path: Path) -> str | None:
     return first.decode("utf-8", errors="replace").rstrip("\n")
 
 
-def _load_guard():
-    """The shared-venv predicate from its canonical owner, ``guard_shared_venv.py``.
+def _load_sibling(name: str, *relatives: str):
+    """Import a family member by path, or None when it is not deployed here.
 
-    Deliberately imported rather than reimplemented: two copies of "is this
-    .venv a symlink out of the tree" drifting apart is the exact failure this
-    family exists to prevent. Both deploy shapes are covered — canonical sibling
-    and the hook location a pickup repo installs it to.
+    Deliberately imported rather than reimplemented: two copies of the same
+    predicate drifting apart is the exact failure this family exists to prevent.
+    Every deploy shape is covered — canonical sibling, and the hook location a
+    pickup repo installs to.
     """
     here = Path(__file__).resolve().parent
-    for relative in ("guard_shared_venv.py", "../../.claude/hooks/guard_shared_venv.py"):
+    for relative in relatives:
         candidate = (here / relative).resolve()
         if not candidate.is_file():
             continue
-        spec = importlib.util.spec_from_file_location("guard_shared_venv", candidate)
+        spec = importlib.util.spec_from_file_location(name, candidate)
         if spec is None or spec.loader is None:
             continue
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         return module
-    raise FileNotFoundError(
-        "guard_shared_venv.py not found beside this script or in .claude/hooks/ — "
-        "deploy the shared/scripts/dev/ family, or pass --repo explicitly."
+    return None
+
+
+def _load_guard():
+    """The shared-venv predicate from its canonical owner, ``guard_shared_venv.py``."""
+    module = _load_sibling(
+        "guard_shared_venv", "guard_shared_venv.py", "../../.claude/hooks/guard_shared_venv.py"
     )
+    if module is None:
+        raise FileNotFoundError(
+            "guard_shared_venv.py not found beside this script or in .claude/hooks/ — "
+            "deploy the shared/scripts/dev/ family, or pass --repo explicitly."
+        )
+    return module
+
+
+def _load_worktree_db():
+    """The database-name derivation from ``worktree_db.py``, or None if not deployed.
+
+    Absence is tolerated: a repo that has not picked up ``worktree_db.py`` has no
+    per-worktree databases to find, and the doctor's other work must not stop
+    because one family member is missing.
+    """
+    return _load_sibling("worktree_db", "worktree_db.py")
 
 
 def venv_of(checkout: Path) -> Path:
@@ -267,13 +291,114 @@ def docker_hits(worktree: Path, docker: DockerRunner) -> list[Hit]:
 def check_worktree(
     worktree: Path, venvs: Iterable[Path], docker: DockerRunner | None = None
 ) -> list[Hit]:
-    """Everything that would break, or be resurrected, by removing ``worktree``."""
+    """Everything that would break, or be resurrected, by removing ``worktree``.
+
+    The worktree's own database is deliberately NOT here: it is state the
+    worktree owns and teardown drops, not capture that breaks another checkout.
+    Counting it would block every teardown of every worktree forever. See
+    :func:`database_hits`.
+    """
     hits: list[Hit] = []
     for venv in venvs:
         hits.extend(venv_hits(venv, worktree))
     if docker is not None:
         hits.extend(docker_hits(worktree, docker))
     return hits
+
+
+# ---------------------------------------------------------------------------
+# the worktree's database on the shared test container
+# ---------------------------------------------------------------------------
+
+
+def postgres_containers(docker: DockerRunner) -> list[tuple[str, str]]:
+    """Running containers that are a Postgres, as ``(container, superuser)``.
+
+    The superuser comes from the image's own ``POSTGRES_USER`` rather than a
+    constant, because the name differs per repo (``grantspider``,
+    ``aigranthelper``) and this file is a byte-identical copy in all of them. A
+    container with no ``POSTGRES_USER`` is not a Postgres, and is never exec'd
+    into.
+    """
+    listing = docker(["ps", "--format", "{{.Names}}"])
+    found = []
+    for container in (listing or "").split():
+        env = docker(
+            ["inspect", "--format", "{{range .Config.Env}}{{println .}}{{end}}", container]
+        )
+        for line in (env or "").splitlines():
+            key, _, value = line.partition("=")
+            if key == "POSTGRES_USER" and value:
+                found.append((container, value))
+                break
+    return found
+
+
+def _database_name(worktree: Path, name: str | None) -> str | None:
+    if name is not None:
+        return name
+    module = _load_worktree_db()
+    if module is None:
+        return None
+    try:
+        return module.database_name(worktree)
+    except FileNotFoundError:
+        return None
+
+
+def _holders(worktree: Path, docker: DockerRunner, name: str | None) -> list[tuple[str, str, str]]:
+    """``(container, superuser, database)`` for every container holding the database."""
+    database = _database_name(worktree, name)
+    if not database:
+        return []
+    held = []
+    for container, user in postgres_containers(docker):
+        answer = docker(
+            [
+                "exec",
+                container,
+                "psql",
+                "-U",
+                user,
+                "-tAc",
+                f"SELECT 1 FROM pg_database WHERE datname = '{database}'",
+            ]
+        )
+        if (answer or "").strip() == "1":
+            held.append((container, user, database))
+    return held
+
+
+def database_hits(
+    worktree: Path, docker: DockerRunner, name: str | None = None
+) -> list[Hit]:
+    """The databases ``worktree`` owns on the shared test container.
+
+    Reported as owned state, not as a blocker — see :func:`check_worktree`.
+    """
+    return [
+        Hit(
+            DATABASE_OWNED,
+            f"{container} ({database})",
+            f"database {database}",
+            "left behind on the shared container when the worktree goes",
+        )
+        for container, _, database in _holders(worktree, docker, name)
+    ]
+
+
+def drop_database(worktree: Path, docker: DockerRunner, name: str | None = None) -> list[str]:
+    """Drop the worktree's database; return what was dropped.
+
+    Unlike ``repair`` — which reports docker work rather than doing it — this is
+    reached only through an explicit ``teardown``, where dropping the database
+    is the whole point of the verb. Nothing else on the container is touched.
+    """
+    dropped = []
+    for container, user, database in _holders(worktree, docker, name):
+        docker(["exec", container, "dropdb", "--if-exists", "-U", user, database])
+        dropped.append(f"{database} ({container})")
+    return dropped
 
 
 # ---------------------------------------------------------------------------
@@ -375,6 +500,46 @@ def skeleton_report(repo: Path, is_root_owned: Callable[[Path], bool] = is_root_
     return report
 
 
+def remove_worktree(worktree: Path) -> None:
+    """``git worktree remove`` — run from the checkout that owns the worktree."""
+    owner = primary_checkout(worktree) or worktree.parent
+    subprocess.run(  # list-form argv, no shell
+        ["git", "-C", str(owner), "worktree", "remove", str(worktree)],
+        check=True,
+        timeout=60,
+    )
+
+
+def teardown(
+    worktree: Path,
+    venvs: Iterable[Path],
+    docker: DockerRunner | None = None,
+    remove: Callable[[Path], None] = remove_worktree,
+    name: str | None = None,
+) -> int:
+    """Check, drop the worktree's database, then remove it. Non-zero means refused.
+
+    The order is the point. Capture is checked first and stops everything, so a
+    refused teardown changes nothing at all — no database dropped, no worktree
+    gone. Only once nothing else points here does the doctor touch state.
+
+    This is the one verb that acts on docker rather than reporting it: dropping
+    the database *is* the teardown, and it is reached only by asking for one.
+    """
+    hits = check_worktree(worktree, venvs, docker=docker)
+    if hits:
+        print(f"{len(hits)} reference(s) to {worktree} — teardown refused:\n")
+        print("\n\n".join(format_hit(hit) for hit in hits))
+        print("\nRun `worktree_doctor.py repair` first, or accept the breakage knowingly.")
+        return 1
+    if docker is not None:
+        for dropped in drop_database(worktree, docker, name=name):
+            print(f"dropped {dropped}")
+    remove(worktree)
+    print(f"removed {worktree}")
+    return 0
+
+
 def repair_repo(repo: Path, docker: DockerRunner | None = None) -> tuple[list[str], list[str]]:
     """Repair ``repo``'s venv in place; return (what was fixed, what needs a human)."""
     fixed = repair_venv(venv_of(repo))
@@ -389,10 +554,21 @@ def repair_repo(repo: Path, docker: DockerRunner | None = None) -> tuple[list[st
 # ---------------------------------------------------------------------------
 
 
+def _venvs_for(args: argparse.Namespace, worktree: Path) -> list[Path]:
+    return [venv_of(Path(args.repo).resolve())] if args.repo else default_venvs(worktree)
+
+
 def _check(args: argparse.Namespace) -> int:
     worktree = Path(args.worktree).resolve()
-    venvs = [venv_of(Path(args.repo).resolve())] if args.repo else default_venvs(worktree)
-    hits = check_worktree(worktree, venvs, docker=None if args.no_docker else docker_output)
+    venvs = _venvs_for(args, worktree)
+    docker = None if args.no_docker else docker_output
+    hits = check_worktree(worktree, venvs, docker=docker)
+    if docker is not None:
+        owned = database_hits(worktree, docker)
+        if owned:
+            print("Worktree-owned state — `worktree_doctor.py teardown` drops it:\n")
+            print("\n\n".join(format_hit(hit) for hit in owned))
+            print()
     if not hits:
         return 0
     print(f"{len(hits)} reference(s) to {worktree} — removing it now would break them:\n")
@@ -409,6 +585,15 @@ def _repair(args: argparse.Namespace) -> int:
         print("\nNeeds a human — the doctor will not do these itself:")
         print("\n".join(f"    {line}" for line in manual))
     return 0
+
+
+def _teardown(args: argparse.Namespace) -> int:
+    worktree = Path(args.worktree).resolve()
+    return teardown(
+        worktree,
+        _venvs_for(args, worktree),
+        docker=None if args.no_docker else docker_output,
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -429,6 +614,14 @@ def build_parser() -> argparse.ArgumentParser:
     repair.add_argument("--repo", help="checkout to repair (default: the current directory)")
     repair.add_argument("--no-docker", action="store_true", help="skip the docker query")
     repair.set_defaults(func=_repair)
+
+    down = sub.add_parser("teardown", help="check, drop the worktree's database, remove it")
+    down.add_argument("worktree", help="the worktree to remove")
+    down.add_argument(
+        "--repo", help="checkout whose venv to scan (default: derive from the worktree)"
+    )
+    down.add_argument("--no-docker", action="store_true", help="skip the docker query")
+    down.set_defaults(func=_teardown)
     return parser
 
 
