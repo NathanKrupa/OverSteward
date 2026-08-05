@@ -239,7 +239,7 @@ def parse_candidates(raw: str) -> list[CandidateFact]:
 
 # ---- Extraction prompt asset (§5) -------------------------------------------
 
-EXTRACTION_PROMPT_VERSION = "3"
+EXTRACTION_PROMPT_VERSION = "4"
 
 EXTRACTION_PROMPT = """\
 You are reading a development-session transcript to extract DURABLE memory for a
@@ -293,11 +293,16 @@ derives the tier when you leave it blank. Set them ONLY as follows:
   - "scope": the repos or domains the fact applies to (e.g. ["grantspider"]).
   - "digest": a one-line imperative phrasing for the standing-orders layer.
 
-Set "superseded_by" ONLY when this fact records that a tool/approach was RETIRED
-and names the live replacement to reach for instead (e.g. "the `railway` CLI").
-It files the fact under the always-loaded Graveyard. Do NOT set it just because
-the text contains "removed"/"deprecated"/"retired" — those words appear
-incidentally; set it only for a genuine "use X now, not Y" redirect.
+Set "superseded_by" ONLY when this fact records that a rule, tool, or approach it
+states is no longer in force, and say what to reach for instead. It files the fact
+under the always-loaded Graveyard. Two shapes qualify:
+  - a redirect — the live replacement to use now (e.g. "the `railway` CLI"),
+  - a rule simply LIFTED with no successor — say so ("no successor — the hold is
+    lifted", "no successor — the boundary is abolished").
+The second shape matters most: a lifted rule has nothing to point at, and leaving
+the marker off files a dead rule as live law. Do NOT set it just because the text
+contains "removed"/"deprecated"/"retired" — those words appear incidentally; set
+it only when THIS fact's own subject is the thing that is no longer in force.
 
 Transcript follows:
 ---

@@ -209,6 +209,15 @@ def test_prompt_states_required_instructions() -> None:
     assert "when in doubt" in text  # omit-on-doubt
 
 
+def test_prompt_covers_a_retirement_with_no_successor() -> None:
+    # OS#288: a rule that is simply LIFTED has no "use X now, not Y" redirect, so
+    # a prompt demanding a replacement made the extractor omit the marker exactly
+    # where it was needed — and the dead rule kept loading as live law.
+    text = EXTRACTION_PROMPT.lower()
+    assert "lifted" in text
+    assert "no successor" in text
+
+
 def test_build_prompt_embeds_transcript() -> None:
     rendered = build_extraction_prompt("USER:\nhello\n\nASSISTANT:\nhi")
     assert "USER:\nhello" in rendered

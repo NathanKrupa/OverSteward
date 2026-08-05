@@ -129,6 +129,17 @@ $DREAM drain --key <hold-key>      # clear just one
 
 `drain` removes the items from the open set and rebuilds `MEMORY_REVIEW.md` from what remains, committing the surface as a doc-only `[skip ci]` change.
 
+## Retiring a dead law (explicit, one memory at a time)
+
+A `user` fact is a law outright, so a rule that has since been LIFTED keeps loading as live law — the worst class of always-loaded content. The cycle handles this on the way in: set `superseded_by` on the candidate and both write paths persist it, which files the fact under `## Graveyard`. That only reaches facts a transcript still raises. A rule nobody discusses any more never comes back through the cycle, so retire it by name:
+
+```bash
+python scripts/dream.py supersede <slug> "<what to reach for instead>"
+python scripts/dream.py supersede <slug> "no successor — <why it was lifted>"
+```
+
+One named memory, one operator-supplied replacement, `MEMORY.md` rebuilt. Never a scan: the Graveyard is explicit-marker-only and retirement vocabulary alone must never drag a fact into it.
+
 ## Report
 
 One short summary: sessions processed, facts appended/merged, holds surfaced for review (point Nathan at `MEMORY_REVIEW.md`, drained via `cycle drain`), the roadmap verdict ("roadmap current" or the reconciliation PR number + any unfiled-intent flags), and whether the commit landed. On a no-op run, just "ledger current."

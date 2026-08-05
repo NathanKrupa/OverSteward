@@ -13,6 +13,8 @@ from oversteward.dream import cycle, roadmap
 from oversteward.dream.consolidate import MemoryStore, commit_store
 from oversteward.dream.extract import CandidateFact
 from oversteward.dream.ledger import ProcessedLedger
+from oversteward.dream.standing import classify
+from oversteward.dream.supersede import supersede
 from oversteward.dream.transcripts import (
     TranscriptMeta,
     default_projects_root,
@@ -154,6 +156,20 @@ def _cmd_drain(args: argparse.Namespace) -> int:
     )
 
 
+def _cmd_supersede(args: argparse.Namespace) -> int:
+    store = MemoryStore(Path(args.store))
+    memory = supersede(store, args.memory, args.replacement)
+    index_path = store.regenerate_index()
+    return _emit(
+        {
+            "filename": memory.filename,
+            "superseded_by": memory.metadata["superseded_by"],
+            "kind": classify(memory).kind,
+            "index_path": str(index_path),
+        }
+    )
+
+
 def _cmd_roadmap_probe(args: argparse.Namespace) -> int:
     today = date.fromisoformat(args.today) if args.today else date.today()
     report = roadmap.probe_repo(Path(args.roadmap), Path(args.repo_root), now=today)
@@ -186,6 +202,17 @@ def _add_roadmap_subparser(sub: argparse._SubParsersAction) -> None:
     pkt.add_argument("--issues", default=None, help="gh issue snapshot JSON file, or - for stdin")
     pkt.add_argument("--prs", default=None, help="gh pr snapshot JSON file")
     pkt.set_defaults(func=_cmd_roadmap_packet)
+
+
+def _add_supersede_subparser(sub: argparse._SubParsersAction) -> None:
+    sup = sub.add_parser(
+        "supersede",
+        help="mark ONE stored memory retired (metadata.superseded_by) + rebuild the index",
+    )
+    sup.add_argument("memory", help="the memory's <slug>.md basename (bare slug accepted)")
+    sup.add_argument("replacement", help="what to reach for instead, or 'no successor — <why>'")
+    sup.add_argument("--store", default=str(cycle.DEFAULT_STORE_PATH))
+    sup.set_defaults(func=_cmd_supersede)
 
 
 def _add_transcripts_subparser(sub: argparse._SubParsersAction) -> None:
@@ -251,6 +278,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="group", required=True)
     _add_transcripts_subparser(sub)
     _add_cycle_subparser(sub)
+    _add_supersede_subparser(sub)
     _add_roadmap_subparser(sub)
     return parser
 
