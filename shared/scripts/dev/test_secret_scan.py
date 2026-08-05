@@ -206,25 +206,71 @@ _CANONICAL_DIR = ("shared", "scripts", "dev")
 _WP_RULE_ID = "wordpress-application-password"
 
 
-def _repo_root() -> Path:
-    for parent in Path(__file__).resolve().parents:
-        if parent.joinpath(*_CANONICAL_DIR).is_dir():
+def _repo_root_for(start: Path) -> Path:
+    """The checkout root above ``start`` — the tree holding ``.git``.
+
+    Keyed on ``.git`` rather than on ``shared/scripts/dev``, because only
+    OverSteward has that directory: a pickup repo holds the deployed copy and no
+    canonical tree, so the old marker could not find the root there at all and
+    raised (OS#281). ``.git`` is a FILE in a linked worktree and a directory in a
+    primary checkout, so ``exists()`` covers both.
+    """
+    for parent in start.resolve().parents:
+        if (parent / ".git").exists():
             return parent
-    raise FileNotFoundError("could not locate repo root above test file")
+    raise FileNotFoundError(f"could not locate a checkout root above {start}")
 
 
-def _canonical_config_path() -> Path:
-    return _repo_root().joinpath(*_CANONICAL_DIR, _GITLEAKS_TOML)
+def _repo_root() -> Path:
+    return _repo_root_for(Path(__file__))
 
 
+def _canonical_config_path() -> Path | None:
+    """The canonical config, or None where there is no ``shared/`` tree."""
+    canonical = _repo_root().joinpath(*_CANONICAL_DIR, _GITLEAKS_TOML)
+    return canonical if canonical.is_file() else None
+
+
+def _deployed_config_path() -> Path:
+    """The root ``.gitleaks.toml`` — the copy that actually gates commits."""
+    return _repo_root() / _GITLEAKS_TOML
+
+
+def test_repo_root_is_found_without_a_canonical_tree(tmp_path):
+    """A pickup repo has the deployed config and no ``shared/`` tree (OS#281)."""
+    root = tmp_path / "repo"
+    (root / "tests" / "dev").mkdir(parents=True)
+    (root / ".git").mkdir()
+    (root / _GITLEAKS_TOML).write_text("", encoding="utf-8")
+
+    assert _repo_root_for(root / "tests" / "dev" / "test_secret_scan.py") == root
+
+
+def test_repo_root_is_found_from_a_linked_worktree(tmp_path):
+    """``.git`` is a FILE in a worktree, not a directory."""
+    root = tmp_path / "wt"
+    (root / "tests" / "dev").mkdir(parents=True)
+    (root / ".git").write_text("gitdir: /elsewhere/.git/worktrees/wt\n", encoding="utf-8")
+
+    assert _repo_root_for(root / "tests" / "dev" / "test_secret_scan.py") == root
+
+
+@pytest.mark.skipif(
+    _canonical_config_path() is None, reason="no shared/ tree — this is a pickup repo"
+)
 def test_gitleaks_config_canonical_and_root_are_byte_identical():
-    canonical = _canonical_config_path().read_bytes()
-    deployed = (_repo_root() / _GITLEAKS_TOML).read_bytes()
-    assert canonical == deployed, "root .gitleaks.toml must be a byte-copy of the canonical source"
+    canonical = _canonical_config_path()
+    assert canonical is not None
+    deployed = _deployed_config_path().read_bytes()
+    assert canonical.read_bytes() == deployed, (
+        "root .gitleaks.toml must be a byte-copy of the canonical source"
+    )
 
 
 def test_gitleaks_config_extends_default_and_defines_wp_rule():
-    conf = tomllib.loads(_canonical_config_path().read_text())
+    """Read the DEPLOYED config — it exists in every repo, and it is the one
+    gitleaks actually loads."""
+    conf = tomllib.loads(_deployed_config_path().read_text())
     assert conf["extend"]["useDefault"] is True, "must keep built-in rules (AWS, etc.)"
     ids = [r["id"] for r in conf.get("rules", [])]
     assert _WP_RULE_ID in ids
@@ -237,7 +283,7 @@ def test_wp_rule_is_keyword_anchored():
     regex requires an app-password key in context, so prose containing four short
     tokens can never trip it.
     """
-    conf = tomllib.loads(_canonical_config_path().read_text())
+    conf = tomllib.loads(_deployed_config_path().read_text())
     rule = next(r for r in conf["rules"] if r["id"] == _WP_RULE_ID)
     pattern = re.compile(rule["regex"])
     assert pattern.search('WP_APP_PASSWORD="abcd 1234 wxyz 7890"')
