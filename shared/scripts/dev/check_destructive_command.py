@@ -169,14 +169,25 @@ _GIT_REBASE = re.compile(_AT_CMD + r"git\s+rebase\b")
 _TEXT_TOOL_LEAD = re.compile(
     _AT_CMD + r"(?:grep|egrep|fgrep|rg|ack|cat|less|more|head|tail|awk|sed|echo|printf)\b"
 )
+# Deliberately broader than ``_SEP``: this one keeps ``\s``, because the client
+# need not be at command position — ``docker exec -it db psql`` is a real shape.
+# It carries the substitution openers for the opposite reason to every detector
+# in this file. ``_DB_CLIENT`` is a *suppressor's escape clause*, so a miss here
+# does not lose one detection — it inverts the verdict, and the SQL detectors
+# stand down on a command the shell is about to run (OS#307).
 _DB_CLIENT = re.compile(
-    r"(?:^|[\s;&|])(?:psql|mysql|sqlite3?|mongo|redis-cli|clickhouse-client|"
+    r"(?:^|[\s;&|`(])(?:psql|mysql|sqlite3?|mongo|redis-cli|clickhouse-client|"
     r"cockroach\s+sql|dbshell|db\s+scratch|db_scratch|manage\.py\s+dbshell|alembic)\b"
 )
 
 
 def _is_sql_data_only(command: str) -> bool:
-    """True if SQL keywords here are inert data (text tool, no DB client)."""
+    """True if SQL keywords here are inert data (text tool, no DB client).
+
+    The ``not`` is what makes this the one place where a *narrow* pattern is the
+    unsafe direction. Everywhere else a missed match means one command is not
+    flagged; here it means the guard concludes the SQL is being printed.
+    """
     return bool(_TEXT_TOOL_LEAD.search(command)) and not _DB_CLIENT.search(command)
 
 

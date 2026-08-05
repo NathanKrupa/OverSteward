@@ -202,6 +202,54 @@ def test_sql_with_db_client_still_flagged(hook):
     assert hook._match("echo 'TRUNCATE foo' | psql") is not None
 
 
+# ---------------------------------------------------------------------------
+# A client inside a substitution is still a client (OS#307).
+#
+# `_DB_CLIENT` is a suppressor's escape clause, not a detector: when it fails to
+# see the client, `_is_sql_data_only` concludes the SQL is being printed and the
+# SQL detectors stand down. A miss here does not lose one detection — it inverts
+# the verdict on a command the shell is about to run.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "echo $(psql -c 'DROP TABLE grants')",
+        "echo `psql -c 'DROP TABLE grants'`",
+        "cat $(sqlite3 app.db 'DROP TABLE users')",
+        "printf `mysql -e 'TRUNCATE grants'`",
+    ],
+)
+def test_a_client_in_a_substitution_does_not_suppress_the_sql(hook, cmd):
+    """The client is *immediately* preceded by the opener — no whitespace.
+
+    That is the whole gap: the old class carried ``\\s``, so anything with a
+    space before the client already matched. Only ``$(psql`` and ``` `psql ```
+    slipped, which is why the shape has to be written exactly this way to
+    regress.
+    """
+    assert hook._match(cmd) is not None
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "grep -rn 'DROP TABLE' migrations/",
+        "cat schema.sql",
+        "echo 'TRUNCATE is a SQL keyword'",
+        "rg --files-with-matches 'DELETE FROM users;' src/",
+    ],
+)
+def test_genuine_data_only_commands_stay_clean(hook, cmd):
+    """The negative controls: widening the class must not start flagging prose.
+
+    Without these in the same run, a `_DB_CLIENT` that matched everything would
+    satisfy every assertion above.
+    """
+    assert hook._match(cmd) is None
+
+
 def test_egg_info_not_confused_with_arbitrary_name(hook):
     # A non-artifact directory that merely contains 'build' is not safe.
     assert hook._match("rm -rf build_prod_data") is not None
