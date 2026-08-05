@@ -198,10 +198,24 @@ class MemoryStore:
         return path
 
     def _write_full_index(self, memories: list[MemoryFile]) -> Path:
-        """Write the on-demand full flat index — one line per fact (OS#203)."""
+        """Write the on-demand full flat index — one line per fact (OS#203).
+
+        This index owns every fact's recall hook: the standing layer states the
+        orders and carries no file links (OS#287), so a fact is resolved to its
+        file by grepping its text here. A line therefore also carries the standing
+        ``digest`` whenever that text is not already in the description — otherwise
+        the digest-bearing facts would be the ones recall could not resolve. The
+        index is on-demand and uncapped, so those bytes cost nothing.
+        """
+        from .standing import standing_text
+
         lines = ["# Memory Index (full)", ""]
         for mem in memories:
-            lines.append(f"- [{mem.filename}]({mem.filename}) — {mem.description}")
+            line = f"- [{mem.filename}]({mem.filename}) — {mem.description}"
+            standing = standing_text(mem)
+            if standing not in mem.description:
+                line = f"{line} — standing: {standing}"
+            lines.append(line)
         path = self._root / FULL_INDEX_FILENAME
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return path

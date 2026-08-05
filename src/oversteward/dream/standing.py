@@ -29,6 +29,12 @@ on a memory's metadata OVERRIDES the derivation: ``model`` / ``cookbook`` demote
 fact out of the standing layer, and ``standing`` keeps it in (as a habit unless it
 also qualifies as a law). When ``tier`` is absent — today's whole store — the
 strict derivation runs, so the standing layer populates immediately.
+
+THE SECOND LOAD-BEARING CONSTRAINT: the layer is always-loaded, so it is CAPPED
+(:data:`STANDING_LAYER_BYTE_BUDGET`). Entries carry no file-link scaffolding — the
+``[file](file)`` recall hook belongs to ``MEMORY_FULL.md``, and duplicating it here
+spent half the budget on paths — and :func:`render_standing_orders` raises
+:class:`StandingOrdersOverBudget` rather than hand the harness a layer to truncate.
 """
 
 from __future__ import annotations
@@ -123,10 +129,16 @@ _HABIT_RE = re.compile(
 
 @dataclass(frozen=True)
 class Classification:
-    """One memory's standing verdict — its ``kind`` and the ``scope`` it applies to."""
+    """One memory's standing verdict.
+
+    Carries the ``kind``, the ``scope`` it applies to, and — for a graveyard
+    verdict — the ``replacement`` the corpse was superseded by, so rendering an
+    entry needs only the verdict and the fact's text, never the memory itself.
+    """
 
     kind: str
     scope: list[str]
+    replacement: str | None = None
 
 
 def _haystack(memory: MemoryLike) -> str:
@@ -201,8 +213,9 @@ def classify(memory: MemoryLike) -> Classification:
     derivation runs.
     """
     scope = _scope_of(memory)
-    if _superseded_target(memory) is not None:
-        return Classification(GRAVEYARD, scope)
+    target = _superseded_target(memory)
+    if target is not None:
+        return Classification(GRAVEYARD, scope, target)
     tier = _explicit_tier(memory)
     if tier is not None:
         if tier == TIER_STANDING:
@@ -226,36 +239,97 @@ _GROUP_HEADINGS = (
 )
 
 
-def _entry_text(memory: MemoryLike) -> str:
-    """One standing-order line — the dream-written ``digest`` if set, else the description."""
+def standing_text(memory: MemoryLike) -> str:
+    """The text one standing order states — the dream-written ``digest`` if set, else
+    the description.
+
+    Public because the full index needs it too: with the file links gone from the
+    standing layer (OS#287), a fact is resolved to its file by grepping this exact
+    text in ``MEMORY_FULL.md``, so a digest the description does not already
+    contain has to be carried there or that fact's recall hook is broken.
+    """
     digest = memory.metadata.get(_DIGEST)
     if isinstance(digest, str) and digest.strip():
         return digest.strip()
     return memory.description
 
 
-def _render_entry(memory: MemoryLike, classification: Classification) -> str:
+def _render_entry(text: str, classification: Classification) -> str:
+    """One standing-order line — the order itself, with no file-link scaffolding.
+
+    The layer's job is to STATE the standing orders, not to be a second copy of a
+    file index. ``_write_full_index`` already emits every memory to
+    ``MEMORY_FULL.md`` in ``[file](file) — desc`` form, so the recall hook lives
+    there; repeating each ~70-char filename twice per line here bought nothing and
+    cost half the capped budget (OS#287). A fact resolves to its file by grepping
+    its text in ``MEMORY_FULL.md``.
+    """
     scope = classification.scope
     scope_suffix = f" _(scope: {', '.join(scope)})_" if scope else ""
-    replacement = ""
-    if classification.kind == GRAVEYARD:
-        target = _superseded_target(memory)
-        if target:
-            replacement = f" → {target}"
-    return (
-        f"- [{memory.filename}]({memory.filename}) — "
-        f"{_entry_text(memory)}{replacement}{scope_suffix}"
-    )
+    target = classification.replacement
+    replacement = f" → {target}" if classification.kind == GRAVEYARD and target else ""
+    return f"- {text}{replacement}{scope_suffix}"
 
 
 _HEADER_LINES = (
     "# Standing Orders",
     "",
     "The lean always-loaded memory layer — durable laws, cross-session habits,",
-    "retired approaches, and living-doc pointers. The full per-file index is in",
-    "`MEMORY_FULL.md`; every fact remains reachable there.",
+    "retired approaches, and living-doc pointers. Entries state the order itself;",
+    "to reach the file behind one, grep its text in `MEMORY_FULL.md` — the full",
+    "per-file index, where every fact remains reachable.",
     "",
 )
+
+
+# The harness that always-loads ``MEMORY.md`` caps it at 25,000 bytes and cuts
+# whatever runs past the cap. That failure is silent from inside a session: a
+# truncated always-loaded layer is indistinguishable from a short one, so standing
+# orders simply stop arriving, with nothing but a harness warning nobody reads to
+# show for it. The renderer therefore owns the cap — it refuses to emit a layer the
+# harness would have to cut, rather than growing unbounded with every dream cycle
+# (OS#287). The value is the harness limit itself, not a margin below it; the
+# renderer's job is to notice the breach, and the operator decides what to shed.
+STANDING_LAYER_BYTE_BUDGET = 25_000
+
+
+class StandingOrdersOverBudget(RuntimeError):
+    """The rendered standing layer would exceed :data:`STANDING_LAYER_BYTE_BUDGET`.
+
+    Raised in place of emitting an oversized layer. Trimming to fit is deliberately
+    NOT done: silently dropping the tail would reproduce the harness's own
+    truncation one layer down, and a dropped standing order looks exactly like a
+    fact that was never standing. The message carries the rendered size, the
+    budget, and the per-group byte cost so the operator can act.
+    """
+
+
+def _section_bytes(entries: list[str]) -> int:
+    """The rendered byte cost of one group's entries (each line plus its newline)."""
+    return sum(len(entry.encode("utf-8")) + 1 for entry in entries)
+
+
+def _over_budget_message(size: int, grouped: dict[str, list[str]]) -> str:
+    """The loud failure — what the layer costs now, group by group, and what to do."""
+    lines = [
+        f"Standing Orders layer is {size} bytes against a "
+        f"{STANDING_LAYER_BYTE_BUDGET}-byte budget "
+        f"(over by {size - STANDING_LAYER_BYTE_BUDGET}). Refusing to emit a layer "
+        "the harness would silently truncate.",
+        "Section cost:",
+    ]
+    for kind, heading in _GROUP_HEADINGS:
+        entries = grouped[kind]
+        if not entries:
+            continue
+        noun = "entry" if len(entries) == 1 else "entries"
+        lines.append(f"  {heading} — {len(entries)} {noun}, {_section_bytes(entries)} bytes")
+    lines.append(
+        "Shorten the `digest` on the largest entries, or demote facts out of the "
+        "standing tier (`tier: model` / `tier: cookbook`) — they stay recallable "
+        "via MEMORY_FULL.md."
+    )
+    return "\n".join(lines)
 
 
 def _group_entries(memories: list[MemoryLike]) -> dict[str, list[str]]:
@@ -266,7 +340,9 @@ def _group_entries(memories: list[MemoryLike]) -> dict[str, list[str]]:
             continue
         classification = classify(memory)
         if classification.kind in grouped:
-            grouped[classification.kind].append(_render_entry(memory, classification))
+            grouped[classification.kind].append(
+                _render_entry(standing_text(memory), classification)
+            )
     return grouped
 
 
@@ -277,6 +353,9 @@ def render_standing_orders(memories: list[MemoryLike]) -> str:
     standing kinds surface (non-standing facts stay in the full index only). Empty
     groups are omitted. Entries sort by filename within a group for a stable,
     diff-friendly layer.
+
+    Raises :class:`StandingOrdersOverBudget` when the result would exceed
+    :data:`STANDING_LAYER_BYTE_BUDGET` — the layer is never emitted oversized.
     """
     grouped = _group_entries(memories)
     lines = list(_HEADER_LINES)
@@ -288,4 +367,8 @@ def render_standing_orders(memories: list[MemoryLike]) -> str:
         lines.append("")
         lines.extend(entries)
         lines.append("")
-    return "\n".join(lines).rstrip("\n") + "\n"
+    rendered = "\n".join(lines).rstrip("\n") + "\n"
+    size = len(rendered.encode("utf-8"))
+    if size > STANDING_LAYER_BYTE_BUDGET:
+        raise StandingOrdersOverBudget(_over_budget_message(size, grouped))
+    return rendered

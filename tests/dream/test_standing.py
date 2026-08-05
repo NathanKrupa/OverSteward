@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from oversteward.dream.consolidate import MemoryFile
 from oversteward.dream.standing import (
     GRAVEYARD,
@@ -10,6 +12,8 @@ from oversteward.dream.standing import (
     LAW,
     NON_STANDING,
     POINTER,
+    STANDING_LAYER_BYTE_BUDGET,
+    StandingOrdersOverBudget,
     classify,
     is_steward_variant,
     render_standing_orders,
@@ -138,7 +142,10 @@ def test_explicit_superseded_by_is_graveyard() -> None:
         "Telegram removed; Happy adopted as live transport",
         superseded_by="Happy",
     )
-    assert classify(mem).kind == GRAVEYARD
+    classification = classify(mem)
+    assert classification.kind == GRAVEYARD
+    # The verdict carries the replacement, so rendering never needs the memory.
+    assert classification.replacement == "Happy"
 
 
 def test_retirement_vocabulary_alone_is_not_graveyard() -> None:
@@ -235,7 +242,8 @@ def test_render_excludes_sidecars() -> None:
         filename="law_x.steward-variant.md",
     )
     out = render_standing_orders([law, sidecar])
-    assert "law_x.md" in out
+    assert "a law" in out
+    assert "backup variant" not in out
     assert "steward-variant" not in out
 
 
@@ -248,9 +256,9 @@ def test_render_groups_and_omits_empty_and_non_standing() -> None:
     out = render_standing_orders([law, plain])
     assert "# Standing Orders" in out
     assert "## Laws" in out
-    assert "law_x.md" in out
+    assert "- a law" in out
     # Non-standing facts never appear; empty groups are omitted.
-    assert "ref_x.md" not in out
+    assert "a plain reference" not in out
     assert "## Graveyard" not in out
 
 
@@ -270,6 +278,69 @@ def test_render_graveyard_shows_replacement() -> None:
     grave = _mem("gy_x", "Telegram interface removed", superseded_by="Happy")
     out = render_standing_orders([grave])
     assert "## Graveyard" in out
-    assert "gy_x.md" in out
+    assert "Telegram interface removed" in out
     # The always-loaded line points at the live replacement, not just the corpse.
     assert "Happy" in out
+
+
+# ---- no link scaffolding + the byte budget (OS#287) --------------------------
+
+
+def test_render_carries_no_link_scaffolding() -> None:
+    # THE OS#287 case: the always-loaded layer states the orders; the
+    # `[file](file)` recall hook belongs to MEMORY_FULL.md. Repeating each ~70-char
+    # filename twice per entry spent 51% of the capped budget on paths.
+    law = _mem("a_very_long_slugified_filename_law", "a law", provenance="nathan-stated")
+    out = render_standing_orders([law])
+    assert "- a law" in out
+    assert "a_very_long_slugified_filename_law.md" not in out
+    assert "](" not in out
+
+
+def test_render_keeps_every_fact_when_links_are_dropped() -> None:
+    # Dropping the scaffolding loses zero facts — each standing memory's text,
+    # its scope, and a graveyard replacement all still render.
+    law = _mem("law_x", "a scoped law", provenance="nathan-stated", scope=["grantspider"])
+    habit = _mem("h_x", "a habit", tier="standing")
+    grave = _mem("gy_x", "a corpse", superseded_by="the live path")
+    pointer = _mem("p_x", "read architecture.md at scope time")
+    out = render_standing_orders([law, habit, grave, pointer])
+    for text in ("a scoped law", "a habit", "a corpse", "read architecture.md at scope time"):
+        assert text in out
+    assert "scope: grantspider" in out
+    assert "→ the live path" in out
+
+
+def test_render_under_budget_is_clean() -> None:
+    # A normal store renders without complaint and comfortably under the cap.
+    memories = [_mem(f"law_{i}", f"standing order number {i}", type_="user") for i in range(40)]
+    out = render_standing_orders(memories)
+    assert len(out.encode("utf-8")) < STANDING_LAYER_BYTE_BUDGET
+    assert "standing order number 39" in out
+
+
+def test_render_over_budget_fails_loudly() -> None:
+    # A store large enough to breach the cap must RAISE, not emit a layer the
+    # harness would silently truncate (which is the defect this budget exists for).
+    filler = "x" * 500
+    memories = [_mem(f"law_{i:03d}", f"{filler} {i}", type_="user") for i in range(60)]
+    with pytest.raises(StandingOrdersOverBudget) as excinfo:
+        render_standing_orders(memories)
+    message = str(excinfo.value)
+    assert str(STANDING_LAYER_BYTE_BUDGET) in message
+    assert "over by" in message
+    # The message names the per-group cost so the operator knows what to shed.
+    assert "## Laws — 60 entries" in message
+
+
+def test_over_budget_message_reports_every_populated_section() -> None:
+    filler = "y" * 500
+    memories = [_mem(f"law_{i:03d}", f"{filler} {i}", type_="user") for i in range(60)]
+    memories.append(_mem("gy_x", "a corpse", superseded_by="the live path"))
+    with pytest.raises(StandingOrdersOverBudget) as excinfo:
+        render_standing_orders(memories)
+    message = str(excinfo.value)
+    assert "## Laws — 60 entries" in message
+    assert "## Graveyard — 1 entry," in message
+    # Empty groups are not listed.
+    assert "## Habits" not in message
