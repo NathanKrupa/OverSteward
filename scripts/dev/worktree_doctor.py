@@ -56,6 +56,12 @@ DOCKER_CAPTURE = "docker-compose-project"
 # blocking set deliberately — see check_worktree.
 DATABASE_OWNED = "worktree-database"
 
+# The database every psql/dropdb call connects THROUGH. Never the database being
+# looked for or dropped, and never the implicit default: with no ``-d``, libpq
+# connects to a database named after the user, which no estate container has
+# (OS#278). ``postgres`` is created by the official image on every bootstrap.
+MAINTENANCE_DB = "postgres"
+
 # The docker seam: a callable taking an argv tail and returning stdout, or None
 # when docker is absent or unhappy. Injected so tests never need a daemon.
 DockerRunner = Callable[[list[str]], "str | None"]
@@ -260,8 +266,36 @@ def docker_output(args: list[str]) -> str | None:
     return result.stdout if result.returncode == 0 else None
 
 
+def bind_sources(container: str, docker: DockerRunner) -> list[str]:
+    """The host paths a container bind-mounts. Named volumes are not paths."""
+    output = docker(
+        [
+            "inspect",
+            "--format",
+            '{{range .Mounts}}{{if eq .Type "bind"}}{{println .Source}}{{end}}{{end}}',
+            container,
+        ]
+    )
+    return [line.strip() for line in (output or "").splitlines() if line.strip()]
+
+
+def _under(path: str, root: Path) -> bool:
+    """True when ``path`` is ``root`` or sits beneath it — not merely prefixed."""
+    base = str(root).rstrip("/")
+    return path == base or path.startswith(f"{base}/")
+
+
 def docker_hits(worktree: Path, docker: DockerRunner) -> list[Hit]:
-    """Containers whose compose project is rooted at ``worktree``."""
+    """Containers that bind-mount a path inside ``worktree``.
+
+    The compose ``working_dir`` label narrows the candidates cheaply, but it is
+    not the breakage on its own. A shared bench container under one fixed
+    compose project outlives every worktree, so its label names whichever tree
+    happened to run ``compose up`` first — and blocking that tree's teardown for
+    a container it does not own is a false positive that never clears. What
+    actually breaks is a *bind mount*: with the source gone, docker recreates the
+    deleted path as root-owned directories to materialise it.
+    """
     output = docker(
         [
             "ps",
@@ -277,11 +311,14 @@ def docker_hits(worktree: Path, docker: DockerRunner) -> list[Hit]:
         container, _, name = line.partition("\t")
         if not container:
             continue
+        captured = [source for source in bind_sources(container, docker) if _under(source, worktree)]
+        if not captured:
+            continue
         hits.append(
             Hit(
                 DOCKER_CAPTURE,
                 f"{container} ({name})" if name else container,
-                f"{WORKING_DIR_LABEL}={worktree}",
+                f"bind mount {captured[0]}",
                 "docker recreates this path as root-owned dirs on restart",
             )
         )
@@ -360,6 +397,14 @@ def _holders(worktree: Path, docker: DockerRunner, name: str | None) -> list[tup
                 "psql",
                 "-U",
                 user,
+                # Without ``-d``, libpq connects to a database named after the
+                # user — which no estate container has, since POSTGRES_DB is
+                # ``<project>_test`` and POSTGRES_USER is ``<project>``. The
+                # probe then fails to connect and every worktree reads as
+                # database-free (OS#278). ``postgres`` is the maintenance
+                # database the official image always creates.
+                "-d",
+                MAINTENANCE_DB,
                 "-tAc",
                 f"SELECT 1 FROM pg_database WHERE datname = '{database}'",
             ]
@@ -396,7 +441,21 @@ def drop_database(worktree: Path, docker: DockerRunner, name: str | None = None)
     """
     dropped = []
     for container, user, database in _holders(worktree, docker, name):
-        docker(["exec", container, "dropdb", "--if-exists", "-U", user, database])
+        # ``--maintenance-db`` for the same reason as the probe's ``-d``, with
+        # one addition: a client cannot drop the database it is connected to.
+        docker(
+            [
+                "exec",
+                container,
+                "dropdb",
+                "--if-exists",
+                "-U",
+                user,
+                "--maintenance-db",
+                MAINTENANCE_DB,
+                database,
+            ]
+        )
         dropped.append(f"{database} ({container})")
     return dropped
 
