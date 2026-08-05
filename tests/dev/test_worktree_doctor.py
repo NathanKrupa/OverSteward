@@ -495,11 +495,17 @@ def _git(tree: Path, *args: str) -> None:
     subprocess.run(["git", "-C", str(tree), *args], check=True, capture_output=True)
 
 
-def _make_git_repo(tmp_path: Path, name: str = "demo") -> tuple[Path, Path]:
+def _make_git_repo(
+    tmp_path: Path, name: str = "demo", *, tracked: tuple[str, ...] = ()
+) -> tuple[Path, Path]:
     """A real checkout with a real linked worktree — the database name needs git.
 
     Built git-first: ``git worktree add`` refuses a directory that already has
     content, so the venv scaffolding goes on afterwards.
+
+    ``tracked`` names files committed *before* the worktree is added, so the
+    worktree checks them out under version control — grantspider's ``.envrc``
+    is one (OS#308).
     """
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -508,6 +514,9 @@ def _make_git_repo(tmp_path: Path, name: str = "demo") -> tuple[Path, Path]:
     _git(repo, "config", "user.name", "t")
     (repo / "README.md").write_text("x", encoding="utf-8")
     _git(repo, "add", "README.md")
+    for relative in tracked:
+        (repo / relative).write_text(f"committed {relative}\n", encoding="utf-8")
+        _git(repo, "add", relative)
     _git(repo, "commit", "-qm", "init")
 
     worktree = repo / ".claude" / "worktrees" / name
@@ -732,6 +741,83 @@ def test_a_real_venv_directory_is_never_deleted_as_scaffolding(doctor, tmp_path)
     doctor.clear_launcher_scaffolding(worktree)
 
     assert (worktree / ".venv" / "bin").is_dir()
+
+
+def test_a_tracked_envrc_is_never_deleted_as_scaffolding(doctor, tmp_path):
+    """OS#308: grantspider commits its ``.envrc``, so the name alone proves nothing.
+
+    The launcher's ``.venv`` symlink still goes — the rule is *tracked*, not
+    *named ``.envrc``*.
+    """
+    _, worktree = _make_git_repo(tmp_path, tracked=(".envrc",))
+
+    cleared = doctor.clear_launcher_scaffolding(worktree)
+
+    assert (worktree / ".envrc").read_text(encoding="utf-8") == "committed .envrc\n"
+    assert cleared == [".venv"]
+
+
+def test_a_worktree_whose_envrc_is_tracked_tears_down(doctor, tmp_path):
+    """The grantspider shape end to end — previously blocked on every retry.
+
+    Deleting the tracked file left ` D .envrc` behind, so git refused; the next
+    attempt deleted it again. The worktree could never go through the sanctioned
+    path.
+    """
+    _, worktree = _make_git_repo(tmp_path, tracked=(".envrc",))
+
+    doctor.remove_worktree(worktree)
+
+    assert not worktree.exists()
+
+
+def _snapshot(tree: Path) -> dict[str, str]:
+    """Every path under ``tree`` and what it holds — symlinks by target, files by text."""
+    contents: dict[str, str] = {}
+    for path in sorted(tree.rglob("*")):
+        key = str(path.relative_to(tree))
+        if path.is_symlink():
+            contents[key] = f"-> {path.readlink()}"
+        elif path.is_file():
+            contents[key] = path.read_text(encoding="utf-8", errors="replace")
+    return contents
+
+
+def test_a_refused_removal_leaves_the_working_tree_byte_identical(doctor, tmp_path):
+    """OS#286 promised a refused teardown changes nothing. OS#308 broke the tree half.
+
+    The refusal was always clean about the databases; it was not clean about the
+    working tree, because the scaffolding clear ran *before* the step git can
+    still refuse. The operator was left restoring by hand what the doctor
+    deleted on the way to failing.
+    """
+    _, worktree = _make_git_repo(tmp_path, tracked=(".envrc",))
+    (worktree / "notes.md").write_text("a session's uncommitted work\n", encoding="utf-8")
+    before = _snapshot(worktree)
+
+    with pytest.raises(doctor.WorktreeRemovalRefused):
+        doctor.remove_worktree(worktree)
+
+    assert _snapshot(worktree) == before
+
+
+def test_a_refused_teardown_keeps_the_launcher_symlink(doctor, tmp_path):
+    """Through the full verb, with the real removal — the symlink is a mutation too."""
+    repo, worktree = _make_git_repo(tmp_path)
+    (worktree / "notes.md").write_text("a session's uncommitted work\n", encoding="utf-8")
+    docker = _bench_docker("repo_test_demo")
+
+    rc = doctor.teardown(
+        worktree,
+        [doctor.venv_of(repo)],
+        docker=docker,
+        remove=doctor.remove_worktree,
+        name="repo_test_demo",
+    )
+
+    assert rc == 1
+    assert (worktree / ".venv").is_symlink()
+    assert not any("dropdb" in call for call in docker.calls)
 
 
 # ---------------------------------------------------------------------------
