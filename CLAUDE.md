@@ -67,19 +67,26 @@ scripts/dev/worktree_doctor.py teardown <worktree>
 ```
 
 `teardown` re-runs `check`, refuses on any capture (so a refused teardown
-changes nothing), then drops the worktree's test database and removes the
-worktree. `check` alone exits non-zero and names every captured console-script
-shebang, `__editable__*.pth`, and compose container, and reports the worktree's
-database as owned state — owned state never blocks removal, or every teardown
-would be blocked forever. `scripts/dev/worktree_doctor.py repair` repoints the
-venv's shebangs and `.pth` entries at this checkout (idempotent); it reports —
-never performs — anything needing `docker rm` or `sudo`. `new-session.sh` prints
-the teardown line for this reason.
+changes nothing), names every database the worktree owns, removes the worktree,
+and only then drops them — in that order, because the removal is the step git
+can still refuse and the drop is the step nothing can undo. It clears the
+`.venv` symlink and `.envrc` that `new-session.sh` wrote (its own scaffolding,
+which git counted as untracked), never `--force`, so a worktree holding real
+uncommitted work still refuses and keeps its databases. `check` alone exits
+non-zero and names every captured console-script shebang, `__editable__*.pth`,
+and compose container, and reports the worktree's databases as owned state —
+owned state never blocks removal, or every teardown would be blocked forever.
+`scripts/dev/worktree_doctor.py repair` repoints the venv's shebangs and `.pth`
+entries at this checkout (idempotent); it reports — never performs — anything
+needing `docker rm` or `sudo`. `new-session.sh` prints the teardown line for
+this reason.
 
 A worktree's database name comes from `scripts/dev/worktree_db.py` — the
 primary checkout keeps `<project>_test`, each worktree gets
 `<project>_test_<slug>` on the same container. Read the name from that script;
-never recompute it.
+never recompute it. A worktree can own more than one (a repo with a second stem,
+as aigranthelper has); the doctor finds them all by the suffix the derivation
+guarantees — `_<slug>`, or `_<digest>` once the name has outgrown 63 bytes.
 
 This is the estate-wide standard, canonical here in `shared/scripts/dev/` and
 deployed to every repo's `.claude/hooks/` + `scripts/dev/`. See OVERSTEWARD.md

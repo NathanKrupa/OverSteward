@@ -71,13 +71,24 @@ def sanitize(text: str) -> str:
     return f"_{folded}" if folded[0].isdigit() else folded
 
 
+def path_digest(key: str) -> str:
+    """The digest a shortened name ends with, derived from the worktree path.
+
+    Public because a shortened name can only be recognised by whoever knows this
+    expression: the doctor finds the databases a worktree owns by matching the
+    suffixes ``derive`` can append, and computing the digest a second time there
+    is the split brain this module exists to prevent.
+    """
+    return hashlib.blake2s(key.encode("utf-8"), digest_size=_DIGEST_LENGTH // 2).hexdigest()
+
+
 def _shorten(base: str, slug: str, key: str) -> str:
     """``base_slug`` cut to fit, with a digest of ``key`` keeping it unique.
 
     The digest is taken over the full worktree path rather than the truncated
     slug: two worktrees can share a 60-character prefix, but not a path.
     """
-    digest = hashlib.blake2s(key.encode("utf-8"), digest_size=_DIGEST_LENGTH // 2).hexdigest()
+    digest = path_digest(key)
     room = MAX_IDENTIFIER - len(base) - len("_") - len("_") - len(digest)
     if room <= 0:
         # The stem alone is near the limit; keep the digest and cut the stem,
