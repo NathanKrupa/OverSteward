@@ -207,13 +207,15 @@ class MemoryStore:
         the digest-bearing facts would be the ones recall could not resolve. The
         index is on-demand and uncapped, so those bytes cost nothing.
         """
-        from .standing import unindexed_digest
+        from .standing import standing_text
 
         lines = ["# Memory Index (full)", ""]
         for mem in memories:
             line = f"- [{mem.filename}]({mem.filename}) — {mem.description}"
-            digest = unindexed_digest(mem)
-            lines.append(f"{line} — standing: {digest}" if digest else line)
+            standing = standing_text(mem)
+            if standing not in mem.description:
+                line = f"{line} — standing: {standing}"
+            lines.append(line)
         path = self._root / FULL_INDEX_FILENAME
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return path

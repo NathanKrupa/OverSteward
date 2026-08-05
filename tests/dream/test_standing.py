@@ -142,7 +142,10 @@ def test_explicit_superseded_by_is_graveyard() -> None:
         "Telegram removed; Happy adopted as live transport",
         superseded_by="Happy",
     )
-    assert classify(mem).kind == GRAVEYARD
+    classification = classify(mem)
+    assert classification.kind == GRAVEYARD
+    # The verdict carries the replacement, so rendering never needs the memory.
+    assert classification.replacement == "Happy"
 
 
 def test_retirement_vocabulary_alone_is_not_graveyard() -> None:
