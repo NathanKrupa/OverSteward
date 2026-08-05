@@ -39,11 +39,12 @@ context an unanswered ``ask`` blocks the command. Both match the intent.
 ``git stash``, ``git branch -d``, ``docker system prune`` without ``-a``) pass
 through cleanly — exit 0, no prompt.
 
-Command detection is anchored at a shell-command position (start of line or
-after a ``; & |`` separator, allowing a leading run of ``VAR=value`` env
-assignments) so quoted mentions in ``echo``/``printf``/test data do not
-false-positive. This mirrors ``guard_main_worktree.py``'s anchoring after the
-#172 bypass fix.
+Command detection is anchored at a shell-command position (start of line, after
+a ``; & |`` separator, or after a `` ` ``/``(`` substitution opener, allowing a
+leading run of ``VAR=value`` env assignments) so quoted mentions in
+``echo``/``printf``/test data do not false-positive. ``guard_main_worktree.py``
+carries a byte-identical DUPLICATE of that anchoring — not a shared import —
+so a change to it lands in only one guard unless made in both.
 
 Decision logic is split into pure functions so it is unit-tested without a
 shell. This is an estate-canonical byte-copy (ratchet treaty): improve here and
@@ -57,15 +58,35 @@ import re
 import sys
 
 # ---------------------------------------------------------------------------
-# Command-position anchoring (shared with guard_main_worktree.py post-#172).
-# A command sits at start-of-line or after a shell separator, optionally
-# preceded by a run of ``VAR=value`` env assignments. Anchoring here — rather
-# than matching a bare substring — is what keeps quoted mentions (``echo "rm
-# -rf /"``) and test data from false-positiving.
+# Command-position anchoring.
+#
+# A command sits at start-of-line, after a shell separator, or after a
+# substitution/grouping opener (a backtick or ``(``, which covers `` `cmd` ``,
+# ``$(cmd)`` and ``(cmd)``) — optionally preceded by a run of ``VAR=value`` env
+# assignments. Anchoring here — rather than matching a bare substring — is what
+# keeps quoted mentions (``echo "rm -rf /"``) and test data from
+# false-positiving.
+#
+# A closing ``)`` is deliberately NOT a separator: a group's closer is always
+# followed by a real separator before the next command, so adding it would buy
+# nothing and only widen the quoted-text false-positive surface.
+#
+# DUPLICATE — ``guard_main_worktree.py`` carries a byte-identical copy of these
+# three lines. They are NOT shared: nothing imports them across the two hooks,
+# because both are standalone byte-copies deployed into other repos'
+# ``.claude/hooks/`` where a sibling import would not resolve. Any change here
+# must be made in BOTH files or only one guard gets it.
 # ---------------------------------------------------------------------------
-_SEP = r"(?:^|[\n;&|])\s*"  # start-of-line or after a shell separator
+_SEP = r"(?:^|[\n;&|`(])\s*"  # start-of-line, shell separator, or substitution opener
 _ASSIGN = r"(?:\w+=\S+\s+)*"  # a leading run of ``VAR=value`` env assignments
 _AT_CMD = _SEP + _ASSIGN
+
+# An argument list ends at a shell separator OR at a substitution/grouping
+# delimiter: a closing backtick or paren belongs to the shell, not to the
+# argument beside it. Used only where individual arguments are inspected
+# (``rm`` targets, ``git add`` paths) — never for the flag scans, which must
+# keep reading past a ``$(...)`` to find a trailing ``--no-verify``.
+_ARG_RUN = r"[^\n;&|`()]*"
 
 # Build-artifact directories that ``rm -rf`` may target without a prompt
 # (careful.md Safe Exceptions). Matched as whole path segments so a stray
@@ -84,7 +105,7 @@ _SAFE_EGG_INFO = re.compile(r"(?:^|[\s/])[\w.-]*\.egg-info/?\s*$")
 
 def _rm_targets(command: str) -> list[str]:
     """Return the non-flag arguments of a leading ``rm`` command, or []."""
-    m = re.search(_AT_CMD + r"rm\b(?P<args>[^\n;&|]*)", command)
+    m = re.search(_AT_CMD + r"rm\b(?P<args>" + _ARG_RUN + r")", command)
     if not m:
         return []
     args = m.group("args").split()
@@ -327,7 +348,7 @@ _SECRET_PLACEHOLDER_SUFFIXES = (".example", ".sample", ".template", ".dist")
 _SECRET_ARG = re.compile(
     r"(?:^|/)(?:\.env(?:\.[\w.-]+)?|[\w.-]*\.pem|[\w.-]*\.key|credentials[\w.-]*)$"
 )
-_GIT_ADD_LEAD = re.compile(_AT_CMD + r"git\s+add\b(?P<args>[^\n;&|]*)")
+_GIT_ADD_LEAD = re.compile(_AT_CMD + r"git\s+add\b(?P<args>" + _ARG_RUN + r")")
 
 
 def _is_placeholder_dotenv(arg: str) -> bool:
