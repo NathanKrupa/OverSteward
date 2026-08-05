@@ -34,6 +34,23 @@ recoverability: check what still points here, name the databases the worktree
 owns, remove the worktree, and only then drop them. Everything that can fail
 happens before anything that cannot be undone, so a teardown that stops halfway
 has destroyed nothing.
+
+``sweep`` is the recovery path for the worktrees that never went through
+``teardown``. Every other verb names a database by deriving it from a worktree's
+path; remove the worktree by any other means and the path is gone, the
+derivation has no input, and nothing can name the database again — it simply
+sits on the container. So the sweep reconciles the other way: enumerate what the
+container holds, subtract what the live worktrees account for, and report the
+difference.
+
+    worktree_doctor.py sweep [--repo <path>]    # report; destroys nothing
+    worktree_doctor.py sweep --drop             # destroy what it reported
+
+That is a match on *absence*, not a derivation, which makes it the one place
+here that could destroy something it never positively named. It is therefore
+dry-run by default, it prints which live worktree each database was matched
+against so the inference can be audited before it is authorised, and it leaves
+alone every name it cannot attribute to this repo's own stems.
 """
 
 from __future__ import annotations
@@ -430,6 +447,19 @@ class Ownership:
 UNOWNED = Ownership()
 
 
+def _suffix_claims(module, root: Path) -> Ownership:
+    """The suffixes ``worktree_db.derive`` can append for a tree at ``root``.
+
+    The one place either verb turns a path into database names. ``teardown``
+    reaches it forwards through :func:`_ownership`; the sweep reaches it for a
+    tree it already knows is linked, because git said so.
+    """
+    slug = module.sanitize(root.name)
+    if not slug:
+        return UNOWNED
+    return Ownership(suffixes=(f"_{slug}", f"_{module.path_digest(str(root))}"))
+
+
 def _ownership(worktree: Path) -> Ownership:
     """The names ``worktree`` owns, derived from its path — see :class:`Ownership`.
 
@@ -451,7 +481,7 @@ def _ownership(worktree: Path) -> Ownership:
         # rather than guess, the doctor claims only the one name it is certain
         # of and discovers no further stems.
         return Ownership(exact=module.database_name(worktree))
-    return Ownership(suffixes=(f"_{slug}", f"_{module.path_digest(str(root))}"))
+    return _suffix_claims(module, root)
 
 
 #: Every database the server knows. The doctor filters the listing itself, since
@@ -541,6 +571,275 @@ def drop_held(held: Iterable[tuple[str, str, str]], docker: DockerRunner) -> lis
         )
         dropped.append(f"{database} ({container})")
     return dropped
+
+
+# ---------------------------------------------------------------------------
+# sweep — the databases whose worktree is already gone
+# ---------------------------------------------------------------------------
+#
+# Everywhere else the doctor acts on a name it *derived* from a path it can see.
+# Here the path is gone — that is the whole premise — so the only question left
+# is which names nothing live accounts for. That is an inference from absence,
+# and it is the one place in this family where the doctor could destroy
+# something it did not positively derive. Hence: it reports by default, it shows
+# which live worktree each database was matched against so the inference can be
+# audited, and it drops nothing it cannot attribute to this repo's own stems.
+
+
+class SweepUnavailable(RuntimeError):
+    """The sweep could not look — never to be reported as having found nothing."""
+
+
+@dataclass(frozen=True)
+class Candidate:
+    """A database in this repo's derivation shape, and the live tree claiming it."""
+
+    container: str
+    user: str
+    database: str
+    #: The live worktree whose path derives this name. None is the whole finding.
+    claimed_by: Path | None
+
+    @property
+    def held(self) -> tuple[str, str, str]:
+        """The triple :func:`drop_held` drops."""
+        return (self.container, self.user, self.database)
+
+
+@dataclass(frozen=True)
+class LiveTree:
+    """A linked worktree git still knows about, and the names it accounts for."""
+
+    path: Path
+    #: The verbatim ``_<slug>`` its name derives — "" when it derives none.
+    suffix: str
+    ownership: Ownership
+
+
+@dataclass(frozen=True)
+class Reconciliation:
+    """What the container holds, sorted by whether this repo can account for it."""
+
+    candidates: tuple[Candidate, ...]
+    #: Databases outside this repo's stems — another repo's, or hand-made. Never
+    #: dropped: the doctor has no derivation that could have written them.
+    unattributed: tuple[str, ...]
+
+    @property
+    def orphans(self) -> tuple[Candidate, ...]:
+        return tuple(candidate for candidate in self.candidates if candidate.claimed_by is None)
+
+
+#: Databases the server creates for itself. Nobody's bench, so listing them as
+#: unattributable would be noise on every run.
+SYSTEM_DATABASES = frozenset({"postgres", "template0", "template1"})
+
+
+def require_worktree_db():
+    """The derivation, or a refusal. Absence must stop this verb, not quieten it.
+
+    :func:`_load_worktree_db` tolerates absence because the doctor's other work
+    must not stop for one missing family member. The sweep cannot inherit that:
+    with no derivation it matches no database, and an empty result reads as
+    "nothing is orphaned" when the truth is "I could not look".
+    """
+    module = _load_worktree_db()
+    if module is None:
+        raise SweepUnavailable(
+            "worktree_db.py is not deployed beside this script — every name the "
+            "sweep reasons about comes from it, so without it an orphan and an "
+            "unknown are indistinguishable. Deploy the shared/scripts/dev/ family."
+        )
+    return module
+
+
+def live_worktrees(repo: Path) -> tuple[Path, list[Path]]:
+    """``(primary checkout, linked worktrees)`` as git currently knows them.
+
+    ``git worktree list`` always names the main worktree first. A failure raises
+    rather than returning nothing, because nothing is the answer that makes every
+    database on the container look unclaimed.
+    """
+    try:
+        result = subprocess.run(  # list-form argv, no shell
+            ["git", "-C", str(repo), "worktree", "list", "--porcelain"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except OSError as failure:
+        raise SweepUnavailable(f"git could not be run in {repo}: {failure}") from failure
+    if result.returncode != 0:
+        raise SweepUnavailable(f"git could not list the worktrees of {repo}: {result.stderr.strip()}")
+    marker = "worktree "
+    trees = [
+        Path(line[len(marker) :].strip())
+        for line in result.stdout.splitlines()
+        if line.startswith(marker)
+    ]
+    if not trees:
+        raise SweepUnavailable(f"{repo} is not inside a git checkout")
+    return trees[0], trees[1:]
+
+
+def _live_tree(module, path: Path) -> LiveTree:
+    """One worktree git listed, with the names its path derives."""
+    slug = module.sanitize(path.name)
+    return LiveTree(path, f"_{slug}" if slug else "", _suffix_claims(module, path))
+
+
+def _revealed_stem(database: str, tree: LiveTree, bench_suffix: str) -> str | None:
+    """The stem standing in front of a live worktree's verbatim suffix.
+
+    A repo can own more than one stem — aigranthelper's ``test_research`` shares
+    nothing with its project name — and this file is a byte-identical copy in
+    every repo, so it cannot be told them. A live worktree reveals them instead:
+    every database it owns ends with the suffix its own path derives.
+
+    Only the verbatim ``_<slug>`` reveals anything. The digest form cannot: a
+    shortened name is ``<stem>_<cut-slug>_<digest>``, so what precedes the digest
+    is the slug, not a stem. Nor can a worktree named ``test``, which derives the
+    very suffix every bench name ends with — read as a revelation,
+    ``<project>_test`` would yield the stem ``<project>``, and every bench on the
+    container would then look like an orphan of it. Same refusal as
+    :func:`_ownership`: where the name is ambiguous, discover nothing.
+    """
+    if not tree.suffix or tree.suffix == bench_suffix:
+        return None
+    if not database.endswith(tree.suffix) or len(database) <= len(tree.suffix):
+        return None
+    return database[: -len(tree.suffix)]
+
+
+def _stems(module, primary: Path, trees: Sequence[LiveTree], databases: Iterable[str]) -> set[str]:
+    """Every stem this repo owns: its own, plus whatever a live worktree reveals."""
+    stems = {module.base_name(primary)}
+    for database in databases:
+        for tree in trees:
+            revealed = _revealed_stem(database, tree, module.SUFFIX)
+            if revealed:
+                stems.add(revealed)
+    return stems
+
+
+def _attributed(module, database: str, stems: Iterable[str]) -> str | None:
+    """The stem ``database`` was derived from, or None when nothing here owns it.
+
+    ``derive`` only ever writes ``<stem>_<slug>`` or ``<stem>_<cut-slug>_<digest>``,
+    every character of it inside the alphabet ``sanitize`` folds to. A name
+    outside that shape was not written by the derivation, so nothing here can
+    attribute it — and what cannot be attributed is reported, never dropped.
+
+    A bare stem never matches: the shared bench carries no suffix, so no worktree
+    ever derived it. That is what keeps ``<project>_test`` out of the result by
+    construction rather than by special case.
+    """
+    if module.sanitize(database) != database:
+        return None
+    for stem in sorted(stems, key=len, reverse=True):
+        if database.startswith(f"{stem}_") and len(database) > len(stem) + 1:
+            return stem
+    return None
+
+
+def _database_listings(docker: DockerRunner) -> list[tuple[str, str, list[str]]]:
+    """``(container, superuser, databases)`` for every running Postgres.
+
+    Every silence is a refusal. ``docker`` answers None when it is absent or
+    unhappy, which by the time it reaches a caller is indistinguishable from an
+    empty answer — and an empty answer here reads as "nothing is orphaned".
+    """
+    if docker(["ps", "--format", "{{.Names}}"]) is None:
+        raise SweepUnavailable("docker did not answer `docker ps` — is the daemon running?")
+    listings = []
+    for container, user in postgres_containers(docker):
+        answer = docker(_psql(container, user, LIST_DATABASES))
+        if answer is None:
+            raise SweepUnavailable(f"{container} did not answer `{LIST_DATABASES}`")
+        listings.append((container, user, _listed(answer)))
+    if not listings:
+        raise SweepUnavailable(
+            "no running Postgres container — a stopped bench still holds every "
+            "database it ever had, so nothing here could be called an orphan"
+        )
+    return listings
+
+
+def reconcile(repo: Path, docker: DockerRunner) -> Reconciliation:
+    """Match every database on the container against the worktrees git still lists."""
+    module = require_worktree_db()
+    primary, linked = live_worktrees(repo)
+    trees = [_live_tree(module, path) for path in linked]
+    listings = _database_listings(docker)
+    everything = [database for _, _, databases in listings for database in databases]
+    stems = _stems(module, primary, trees, everything)
+    candidates = [
+        Candidate(
+            container,
+            user,
+            database,
+            next((tree.path for tree in trees if tree.ownership.owns(database)), None),
+        )
+        for container, user, databases in listings
+        for database in databases
+        if _attributed(module, database, stems) is not None
+    ]
+    named = {candidate.database for candidate in candidates}
+    return Reconciliation(
+        tuple(candidates),
+        tuple(sorted(set(everything) - named - SYSTEM_DATABASES)),
+    )
+
+
+def sweep_candidates(repo: Path, docker: DockerRunner) -> list[Candidate]:
+    """Every database in this repo's shape, with the live tree that claims it."""
+    return list(reconcile(repo, docker).candidates)
+
+
+def format_candidate(candidate: Candidate) -> str:
+    """One reconciled database and what it was matched against — the audit trail."""
+    if candidate.claimed_by is None:
+        return (
+            f"  ORPHAN  {candidate.database} ({candidate.container})\n"
+            "            matched: no live worktree derives this name"
+        )
+    return (
+        f"  keep    {candidate.database} ({candidate.container})\n"
+        f"            matched: {candidate.claimed_by}"
+    )
+
+
+def report_reconciliation(found: Reconciliation) -> None:
+    """Print the whole working — what was matched, what was not, what is unclaimed."""
+    print(f"{len(found.candidates)} database(s) in this repo's derivation shape:\n")
+    print("\n".join(format_candidate(candidate) for candidate in found.candidates) or "  (none)")
+    if found.unattributed:
+        print("\nOutside this repo's stems — left alone, never dropped:")
+        print("\n".join(f"    {name}" for name in found.unattributed))
+
+
+def sweep(repo: Path, docker: DockerRunner, drop: bool = False) -> int:
+    """Report the databases no live worktree accounts for; drop them only if asked.
+
+    Non-zero means orphans were found and left standing — a question the operator
+    still has to answer. Answering it with ``--drop`` exits 0.
+    """
+    found = reconcile(repo, docker)
+    report_reconciliation(found)
+    if not found.orphans:
+        print("\nNo orphans — every database in this repo's shape has a live worktree.")
+        return 0
+    if not drop:
+        print(
+            f"\n{len(found.orphans)} orphan(s). Nothing was dropped: this is a match on "
+            "absence, not a derivation.\nAudit the pairing above, then re-run with --drop."
+        )
+        return 1
+    print()
+    for dropped in drop_held([candidate.held for candidate in found.orphans], docker):
+        print(f"dropped {dropped}")
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -766,34 +1065,83 @@ def _teardown(args: argparse.Namespace) -> int:
     )
 
 
+def _sweep(args: argparse.Namespace) -> int:
+    """The verb refuses rather than answers whenever it could not look.
+
+    Both refusals go to stderr and exit 2, kept apart from the 1 that means
+    "orphans found": a caller has to be able to tell a finding from a failure,
+    and nothing on stdout may read as a result the sweep never reached.
+    """
+    if args.no_docker:
+        print(
+            "sweep reconciles the container against the live worktrees — "
+            "with --no-docker there is nothing to reconcile against",
+            file=sys.stderr,
+        )
+        return 2
+    repo = Path(args.repo).resolve() if args.repo else Path.cwd().resolve()
+    try:
+        return sweep(repo, docker_output, drop=args.drop)
+    except SweepUnavailable as unavailable:
+        print(f"sweep refused — {unavailable}", file=sys.stderr)
+        return 2
+
+
+#: What ``--repo`` means to the verbs that start from a worktree and work outwards.
+DERIVED_REPO_HELP = "checkout whose venv to scan (default: derive from the worktree)"
+
+
+def _add_scan_flags(verb: argparse.ArgumentParser, repo_help: str) -> None:
+    """The two flags every verb shares: which checkout, and whether to ask docker."""
+    verb.add_argument("--repo", help=repo_help)
+    verb.add_argument("--no-docker", action="store_true", help="skip the docker query")
+
+
+def _add_check_verb(sub) -> None:
+    check = sub.add_parser("check", help="fail if anything still references a worktree")
+    check.add_argument("worktree", help="the worktree about to be removed")
+    _add_scan_flags(check, DERIVED_REPO_HELP)
+    check.set_defaults(func=_check)
+
+
+def _add_repair_verb(sub) -> None:
+    repair = sub.add_parser("repair", help="repoint captured shebangs and .pth entries")
+    _add_scan_flags(repair, "checkout to repair (default: the current directory)")
+    repair.set_defaults(func=_repair)
+
+
+def _add_teardown_verb(sub) -> None:
+    down = sub.add_parser(
+        "teardown", help="check, remove the worktree, then drop the databases it owned"
+    )
+    down.add_argument("worktree", help="the worktree to remove")
+    _add_scan_flags(down, DERIVED_REPO_HELP)
+    down.set_defaults(func=_teardown)
+
+
+def _add_sweep_verb(sub) -> None:
+    orphans = sub.add_parser(
+        "sweep",
+        help="report bench databases no live worktree accounts for; --drop destroys them",
+    )
+    _add_scan_flags(orphans, "checkout to reconcile (default: the current directory)")
+    orphans.add_argument(
+        "--drop",
+        action="store_true",
+        help="destroy the reported orphans (the default reports and destroys nothing)",
+    )
+    orphans.set_defaults(func=_sweep)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     sub = parser.add_subparsers(dest="mode", required=True)
-
-    check = sub.add_parser("check", help="fail if anything still references a worktree")
-    check.add_argument("worktree", help="the worktree about to be removed")
-    check.add_argument(
-        "--repo", help="checkout whose venv to scan (default: derive from the worktree)"
-    )
-    check.add_argument("--no-docker", action="store_true", help="skip the docker query")
-    check.set_defaults(func=_check)
-
-    repair = sub.add_parser("repair", help="repoint captured shebangs and .pth entries")
-    repair.add_argument("--repo", help="checkout to repair (default: the current directory)")
-    repair.add_argument("--no-docker", action="store_true", help="skip the docker query")
-    repair.set_defaults(func=_repair)
-
-    down = sub.add_parser(
-        "teardown", help="check, remove the worktree, then drop the databases it owned"
-    )
-    down.add_argument("worktree", help="the worktree to remove")
-    down.add_argument(
-        "--repo", help="checkout whose venv to scan (default: derive from the worktree)"
-    )
-    down.add_argument("--no-docker", action="store_true", help="skip the docker query")
-    down.set_defaults(func=_teardown)
+    _add_check_verb(sub)
+    _add_repair_verb(sub)
+    _add_teardown_verb(sub)
+    _add_sweep_verb(sub)
     return parser
 
 

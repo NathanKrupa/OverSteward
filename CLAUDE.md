@@ -110,6 +110,26 @@ never recompute it. A worktree can own more than one (a repo with a second stem,
 as aigranthelper has); the doctor finds them all by the suffix the derivation
 guarantees — `_<slug>`, or `_<digest>` once the name has outgrown 63 bytes.
 
+**When a worktree went without the doctor, sweep.** Because every name is
+derived from the worktree's *path*, a `git worktree remove` leaves a database
+nothing can name again — seven accumulated in grantspider in one evening
+(OS#293). The recovery path reconciles the other way:
+
+```bash
+scripts/dev/worktree_doctor.py sweep [--repo <checkout>]   # reports; destroys nothing
+scripts/dev/worktree_doctor.py sweep --drop                # destroys what it reported
+```
+
+It enumerates the databases each running bench container serves, subtracts what
+the live worktrees account for, and reports the difference — naming the live
+worktree each database was matched against, so the pairing can be audited before
+it is authorised. Unlike every other verb this is a match on *absence*, not a
+derivation, so it is dry-run by default; it drops nothing outside this repo's
+own stems, and the shared `<project>_test` bench is never a candidate. It
+refuses (exit 2) rather than reports when it could not look — no `worktree_db.py`
+beside it, no answer from docker, no running Postgres — because "I found nothing"
+and "I could not look" must never print the same.
+
 This is the estate-wide standard, canonical here in `shared/scripts/dev/` and
 deployed to every repo's `.claude/hooks/` + `scripts/dev/`. See OVERSTEWARD.md
 § "Session-per-worktree discipline" for the rollout + new-project bootstrap.

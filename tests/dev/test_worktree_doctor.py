@@ -732,3 +732,218 @@ def test_a_real_venv_directory_is_never_deleted_as_scaffolding(doctor, tmp_path)
     doctor.clear_launcher_scaffolding(worktree)
 
     assert (worktree / ".venv" / "bin").is_dir()
+
+
+# ---------------------------------------------------------------------------
+# sweep — the databases whose worktree is already gone (OS#296)
+# ---------------------------------------------------------------------------
+
+
+def _orphans(candidates) -> set[str]:
+    return {candidate.database for candidate in candidates if candidate.claimed_by is None}
+
+
+def _databases(candidates) -> set[str]:
+    return {candidate.database for candidate in candidates}
+
+
+def test_sweep_finds_a_database_whose_worktree_is_gone(doctor, tmp_path):
+    """The recovery direction: enumerate what exists, subtract what is live.
+
+    ``repo_test_ghost`` is what a ``git worktree remove --force`` leaves behind —
+    the path that named it is gone, so no forward derivation can reach it again.
+    """
+    repo, worktree = _make_git_repo(tmp_path)
+    docker = _bench_docker("repo_test_demo", "repo_test_ghost")
+
+    candidates = doctor.sweep_candidates(repo, docker)
+
+    assert _orphans(candidates) == {"repo_test_ghost"}
+    assert {c.database: c.claimed_by for c in candidates if c.claimed_by} == {
+        "repo_test_demo": worktree
+    }
+
+
+def test_sweep_never_reports_the_shared_bench(doctor, tmp_path):
+    """The primary checkout's unsuffixed name is every session's bench, not an orphan."""
+    repo, _ = _make_git_repo(tmp_path)
+    docker = _bench_docker("repo_test_demo")
+
+    assert "repo_test" not in _databases(doctor.sweep_candidates(repo, docker))
+
+
+def test_sweep_never_reports_another_repos_database(doctor, tmp_path):
+    """One container serves several repos; a sweep run from here claims only here."""
+    repo, _ = _make_git_repo(tmp_path)
+    docker = _bench_docker("grantspider_test_gs_2044")
+
+    assert doctor.sweep_candidates(repo, docker) == []
+
+
+def test_sweep_finds_an_orphan_on_a_second_stem(doctor, tmp_path):
+    """Nothing can tell this file that ``test_research`` is a stem of this repo.
+
+    A *live* worktree reveals it: every database it owns ends with the suffix its
+    own path derives, and what stands in front of that suffix is a stem.
+    """
+    repo, _ = _make_git_repo(tmp_path)
+    docker = _bench_docker("repo_test_demo", RESEARCH, "test_research_ghost")
+
+    assert _orphans(doctor.sweep_candidates(repo, docker)) == {"test_research_ghost"}
+
+
+def test_a_live_worktree_with_a_hashed_name_is_not_swept(doctor, wdb, tmp_path):
+    """Past 63 bytes the slug is cut away — only the path digest still matches."""
+    long_name = "os-296-orphan-sweep-with-a-name-long-enough-to-overflow-the-identifier-limit"
+    repo, worktree = _make_git_repo(tmp_path, name=long_name)
+    hashed = wdb.database_name(worktree)
+    docker = _bench_docker(hashed)
+
+    assert not hashed.endswith(wdb.sanitize(long_name)), "not a shortened name — test is vacuous"
+    assert _orphans(doctor.sweep_candidates(repo, docker)) == set()
+
+
+def test_a_worktree_named_test_never_makes_a_bench_an_orphan(doctor, tmp_path):
+    """``_test`` is the suffix every bench name ends with, so it reveals no stem.
+
+    Read as one, ``repo_test`` would yield the stem ``repo`` — and every bench on
+    the container would then look like an orphan of it.
+    """
+    repo, _ = _make_git_repo(tmp_path, name="test")
+    docker = _bench_docker("repo_test_test")
+
+    candidates = doctor.sweep_candidates(repo, docker)
+
+    assert _orphans(candidates) == set()
+    assert not {"repo_test", "grantspider_test"} & _databases(candidates)
+
+
+def test_the_default_sweep_destroys_nothing(doctor, tmp_path, capsys):
+    """A heuristic match may not destroy on its own say-so."""
+    repo, _ = _make_git_repo(tmp_path)
+    docker = _bench_docker("repo_test_ghost")
+
+    rc = doctor.sweep(repo, docker)
+
+    assert rc == 1
+    assert not any("dropdb" in call for call in docker.calls)
+    assert "repo_test_ghost" in capsys.readouterr().out
+
+
+def test_sweep_drops_only_the_orphan_and_only_when_told(doctor, tmp_path):
+    repo, _ = _make_git_repo(tmp_path)
+    docker = _bench_docker("repo_test_demo", "repo_test_ghost")
+
+    rc = doctor.sweep(repo, docker, drop=True)
+
+    assert rc == 0
+    assert [call[-1] for call in docker.calls if "dropdb" in call] == ["repo_test_ghost"]
+
+
+def test_sweep_names_what_each_candidate_was_matched_against(doctor, tmp_path, capsys):
+    """The inference is absence, not derivation — the operator has to audit it."""
+    repo, worktree = _make_git_repo(tmp_path)
+    docker = _bench_docker("repo_test_demo", "repo_test_ghost")
+
+    doctor.sweep(repo, docker)
+
+    printed = capsys.readouterr().out
+    assert str(worktree) in printed
+    assert "repo_test_demo" in printed
+
+
+def test_sweep_refuses_when_docker_will_not_answer(doctor, tmp_path):
+    """Silence is not an empty container — that is an orphan wearing a success message."""
+    repo, _ = _make_git_repo(tmp_path)
+
+    with pytest.raises(doctor.SweepUnavailable):
+        doctor.sweep_candidates(repo, lambda args: None)
+
+
+def test_sweep_refuses_when_no_postgres_is_running(doctor, tmp_path):
+    """A stopped bench still holds every database; it just cannot be asked."""
+    repo, _ = _make_git_repo(tmp_path)
+    docker = ScriptedDocker({"ps --format": "redis\n"})
+
+    with pytest.raises(doctor.SweepUnavailable):
+        doctor.sweep_candidates(repo, docker)
+
+
+def _deployed(tmp_path: Path, *sources: Path) -> Path:
+    """The deploy shape a pickup repo gets: named files, no ``shared/`` tree, no siblings."""
+    target = tmp_path / "deployed"
+    target.mkdir()
+    for source in sources:
+        (target / source.name).write_bytes(source.read_bytes())
+    return target / "worktree_doctor.py"
+
+
+def _fake_docker(tmp_path: Path, *databases: str) -> None:
+    """A ``docker`` on PATH that answers the three reads the sweep makes."""
+    listing = "".join(f"echo {name}; " for name in databases)
+    script = tmp_path / "docker"
+    script.write_text(
+        "#!/bin/sh\n"
+        'case "$*" in\n'
+        '  *"--format {{.Names}}"*) echo repo-test-pg ;;\n'
+        '  *"{{range .Config.Env}}"*) echo POSTGRES_USER=repo ;;\n'
+        f"  *pg_database*) {listing};;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+
+
+def test_a_doctor_without_the_derivation_refuses_the_sweep(tmp_path):
+    """``_load_worktree_db`` tolerates absence — a sweep inheriting that would lie.
+
+    With no derivation the sweep matches nothing, and nothing reads as "the
+    container is clean" when the truth is "I could not look". Stdout must stay
+    empty: a refusal belongs on stderr, where nothing mistakes it for a result.
+    """
+    repo, _ = _make_git_repo(tmp_path)
+    lone = _deployed(tmp_path, SCRIPT)
+
+    result = subprocess.run(
+        [sys.executable, str(lone), "sweep", "--repo", str(repo)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert result.stdout.strip() == ""
+    assert "worktree_db" in result.stderr
+
+
+def test_the_cli_sweeps_a_materialised_copy_through_repo(tmp_path, monkeypatch):
+    """``--repo`` is what makes the doctor work outside its own checkout.
+
+    That path must not need ``guard_shared_venv.py`` either: the sweep looks at
+    databases, not venvs, and the guard is not deployed beside this copy.
+    """
+    repo, _ = _make_git_repo(tmp_path)
+    lone = _deployed(tmp_path, SCRIPT, DB_SCRIPT)
+    _fake_docker(tmp_path, "postgres", "repo_test", "repo_test_demo", "repo_test_ghost")
+    monkeypatch.setenv("PATH", f"{tmp_path}:{__import__('os').environ['PATH']}")
+
+    result = subprocess.run(
+        [sys.executable, str(lone), "sweep", "--repo", str(repo)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 1, result.stderr
+    assert "repo_test_ghost" in result.stdout
+
+
+def test_the_cli_refuses_a_sweep_it_was_told_not_to_look_at(tmp_path):
+    """``--no-docker`` leaves a docker-only verb nothing to reconcile against."""
+    repo, _ = _make_git_repo(tmp_path)
+
+    result = _run("sweep", "--repo", str(repo), "--no-docker")
+
+    assert result.returncode == 2
+    assert result.stdout.strip() == ""
+    assert "reconcile" in result.stderr
