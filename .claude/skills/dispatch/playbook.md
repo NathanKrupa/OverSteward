@@ -22,6 +22,8 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
 - **Never** use `git add -A` or `git add .` — stage specific files only
 - **Never** guess when ambiguous — use the intent-capture protocol
 - **Never** run any git command that mutates Nathan's live working tree state. The forbidden list is illustrative, not exhaustive: `git checkout` (any form, including `git checkout origin/main -- .`), `git pull`, `git reset`, `git restore`, `git stash` (any variant — `--keep-index`, `-u`, push, pop, drop), `git rebase`, `git merge`, `git clean`, `git rm`. **The forbidden list applies inside dispatch worktrees too, not only in the main checkout.** The worktree exists to isolate `git add` (specific files) / `git commit` / `git push` / `git branch` from Nathan's tree — not to enable the forbidden ops. `git stash` is especially dangerous: the stash list is repo-wide (one stack shared across all worktrees), so a stash inside a worktree pollutes the same list the main checkout sees and a `pop` can land on the wrong tree. (Postmortem: grantspider PR #543, 2026-04-28 — agent stashed inside the worktree and self-reported the violation.) The test is: if the operation could surprise a human running `git status` or `git stash list` in the main repo right now, it's forbidden — wherever you are.
+- **Never** tear a worktree down with `git worktree remove` — with or without `--force`. `scripts/dev/worktree_doctor.py teardown <worktree-path>` is the only sanctioned teardown. A raw removal orphans the worktree's bench database *permanently*, because the doctor derives the database name from the worktree path and the path is what you just destroyed. Full rule, and the single fallback for repos that genuinely carry no doctor, at step 19.
+- **Never** answer "does this repo have X?" from the primary checkout's working tree. Resolve file and tooling presence against `origin/<default-branch>` — see step 4a.
 - **Never** fall back to Nathan's live working tree when the temp worktree fails. If step 5 or step 6 fails, the correct response is STOP (`REFUSED_PREFLIGHT`), not "work in the main checkout instead." Touching the live tree as a fallback leaves uncommitted state, switched branches, and contaminated HEAD — Nathan's open terminals and IDE will see the mess. This has happened (grantspider #426 postmortem, 2026-04-22) — the fix is the step-6 viability probe, and violating it anyway is a fireable offense.
 - **Never** reach into the main checkout for a "baseline" or "before" view of files. If you need to compare your changes against pristine master (gaudi delta, lint delta, test delta), create a SECOND temp worktree at `origin/<default-branch>` and run the comparison there. **Do NOT** `git stash` your way to a clean view of the main checkout — even with `--keep-index` and even if you believe the working tree is clean, the operation can capture and then discard untracked uncommitted files (notes, drafts, runbooks, session-state docs). This happened on grantspider #538 (PR #539 postmortem, 2026-04-28): the agent's stash reported "captured nothing" but the subsequent `git checkout origin/master -- .` wiped two uncommitted markdown files Nathan had authored. The correct pattern is in "The 'baseline-comparison snapshot' pattern" below.
 - **Never** patch module globals in tests (`monkeypatch.setattr("module.attr", fake)` for `subprocess`, HTTP clients, filesystem, clock, `os.environ`, `random`) when the fix is to expose the dependency as a parameter. See `~/.claude/shared/references/architecture-principles.md` §Dependency Seams. If a test needs a patched global, the code under test has a hidden dependency — fix the signature, not the test.
@@ -41,6 +43,17 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
 ### Worktree setup (isolation — keeps Nathan's live working tree untouched)
 
 4. **Fetch.** `cd` into the repo. Run `git worktree prune 2>/dev/null || true` to drain any stale worktree metadata left by a prior run. **Unshallow pre-check:** if `git rev-parse --is-shallow-repository` prints `true`, run `git fetch --unshallow` first — a shallow clone triggers "refusing to merge unrelated histories" on back-merge and grafted/orphan branches that aren't worth repairing. Then run `git fetch origin <default-branch>`. Do NOT run `git checkout` or `git pull` on the main working tree — Nathan may be editing there.
+4a. **Resolve file and tooling presence against `origin/<default-branch>`, never against the primary checkout's working tree.** The primary checkout is the repo root you were handed, so it is the tempting place to look — and it is routinely **dozens-to-hundreds of commits stale**. grantspider's sits on `main` while every piece of work lands on `staging`, so tooling merged weeks ago is simply not on disk there until the next promotion. Ask the ref instead:
+
+   ```bash
+   git -C <repo-primary-checkout> ls-tree origin/<default-branch> <path>   # does it exist?
+   git -C <repo-primary-checkout> show origin/<default-branch>:<path>      # what does it say?
+   ```
+
+   Your own worktree is branched from `origin/<default-branch>` (step 5), so reading it there is the other correct answer. The primary checkout's working tree is never one. **"Not deployed to this repo" is a claim about origin and needs a `ls-tree` behind it** — most of all before it becomes the premise for a destructive fallback. Same root cause as the standing order about never declaring a primary checkout's code broken without diffing against origin first.
+
+   (Postmortem: OverSteward #293, 2026-08-05 — an agent checked grantspider's `main`-pinned primary checkout, concluded `scripts/dev/worktree_doctor.py` "is not deployed to grantspider", and removed its worktree with `git worktree remove --force` instead. The doctor *was* deployed: `git ls-tree origin/staging scripts/dev/` listed it. Seven orphaned bench databases accumulated in a single evening this way.)
+
 5. **Create worktree.** Generate a temp path and read what it prints: `mktemp -d -t dispatch-<repo>-<n>-XXXX` emits an absolute path (e.g. `/tmp/dispatch-<repo>-<n>-a1B2`). Capture that path from the output and write it out **literally** in every command below. All five pickup repos run on WSL2, so the worktree lands in `/tmp` on ext4 — no OneDrive lock contention, no husk fragility.
 
    **The Bash tool starts a fresh shell on every tool call — shell state (env vars, functions, cwd) does NOT persist across calls.** A `WORKTREE_PATH=$(mktemp …)` assignment is therefore empty on every *subsequent* command, so `$WORKTREE_PATH` (or any other cross-call shell variable) must **never** be relied on across tool calls: `cd "$WORKTREE_PATH"` becomes `cd ""` (a no-op that leaves you in the main checkout), and a probe that compares against `$WORKTREE_PATH` compares against an empty string and silently passes. Below, `<worktree-path>` denotes the literal absolute path you captured — substitute the real path each time; do not carry it in a variable. If you genuinely must persist the handle to a file, namespace the filename by repo+issue (e.g. `dispatch-<repo>-<n>.path`) and keep it **outside** the shared session scratchpad — never a fixed filename in a shared dir, or two concurrent sibling dispatches clobber each other's path and misdirect a later write (postmortem: OverSteward #210, 2026-07-06 — a fixed-name path file in the shared session scratchpad crossed two dispatches and copied one repo's prod `.env` into another repo's worktree).
@@ -181,7 +194,37 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
 
 ### Cleanup (always runs, even on error/stop)
 
-19. **Remove worktree.** From the primary checkout (a fresh Bash shell already starts outside the worktree), run `git worktree remove <worktree-path> --force`. If the worktree held unpushed commits (e.g. STOPPED_FOR_INPUT without draft push), push them as a draft PR FIRST, then remove.
+19. **Tear the worktree down through the doctor.** `scripts/dev/worktree_doctor.py teardown <worktree-path>` is the **only** sanctioned teardown. Run it from a fresh Bash shell, which already starts outside the worktree. If the worktree holds unpushed commits (e.g. STOPPED_FOR_INPUT without a draft push), push them as a draft PR FIRST, then tear down.
+
+    `teardown` runs in strict order of recoverability: it checks what still points at the path (captured venv shebangs, `__editable__*.pth` entries, docker compose bind mounts), **names** the databases the worktree owns, removes the worktree, and only then **drops** them. Everything that can fail happens before anything that cannot be undone, so a teardown that stops halfway has destroyed nothing.
+
+    **`git worktree remove` — with or WITHOUT `--force` — orphans the bench database.** Every worktree gets its own Postgres database on the shared test container (`<project>_test_<slug>`, derived from the worktree path by `scripts/dev/worktree_db.py`), and nothing else in the estate ever drops it. The loss is **unrecoverable by the tooling**, and the asymmetry is worth understanding: the doctor derives the database name *from the worktree path*, so once the path is gone there is nothing left to derive from — **the doctor cannot clean up after you**. Recovery has to reconcile from the other direction (enumerate every database on the container, enumerate the live worktrees, drop the difference), which only the operator does, by hand, once someone notices. `--force` is doubly wrong: it exists to discard uncommitted work, and it skips the database drop entirely. The doctor deliberately calls `git worktree remove` *without* `--force` — a refusal means real uncommitted work is sitting in there, and the answer is to commit and push it (steps 13-14), never to force past it.
+
+    `new-session.sh` prints this teardown line when it creates a worktree. It is restated here because creation time is not when it is needed.
+
+    **Locate the doctor via origin, not the working tree** (step 4a — this is exactly the misread that caused #293):
+
+    ```bash
+    git -C <repo-primary-checkout> ls-tree origin/<default-branch> scripts/dev/worktree_doctor.py
+    ```
+
+    - **Listed, and present on disk in the primary checkout** → run it directly:
+      ```bash
+      <repo-primary-checkout>/scripts/dev/worktree_doctor.py teardown <worktree-path>
+      ```
+    - **Listed on origin but absent on disk** (the primary checkout is behind — grantspider's `main`-pinned checkout today) → materialize the pair from origin into a directory **outside** the worktree, and pass `--repo` so the venv scan is pointed at the primary checkout:
+      ```bash
+      mkdir -p /tmp/wtdoctor-<repo>-<n>
+      git -C <repo-primary-checkout> show origin/<default-branch>:scripts/dev/worktree_doctor.py > /tmp/wtdoctor-<repo>-<n>/worktree_doctor.py
+      git -C <repo-primary-checkout> show origin/<default-branch>:scripts/dev/worktree_db.py      > /tmp/wtdoctor-<repo>-<n>/worktree_db.py
+      python3 /tmp/wtdoctor-<repo>-<n>/worktree_doctor.py teardown <worktree-path> --repo <repo-primary-checkout>
+      ```
+      Copy **both** files, always: the doctor imports `worktree_db.py` from beside itself to name the databases, and without it silently finds none — which is the orphan you are trying to avoid. And never pass `--no-docker` to a teardown: the drop runs through docker, so `--no-docker` removes the worktree and leaves the database behind.
+    - **Not listed on `origin/<default-branch>` at all** (fiscus, gaudi and wphelper carry no doctor, and no per-worktree bench database for it to drop) → plain `git worktree remove <worktree-path>`, **without `--force`**. If git refuses, the refusal is information, not an obstacle: run `git -C <worktree-path> status --porcelain`, push anything of value, then retry.
+
+    **If you built a dedicated worktree venv at step 6**, delete that directory first — `rm -rf <worktree-path>/.venv`. It is yours, it is untracked, and it will make git refuse the removal; the doctor clears only the `.venv` *symlink* and `.envrc` that `new-session.sh` writes, never a real environment directory.
+
+    A `.baseline` worktree from the baseline-comparison pattern is torn down the same way.
 
 ### Final
 
@@ -296,7 +339,7 @@ notes: "anything unexpected"
 In ALL failure paths — tests failed, scope exceeded, CI failed, STOPPED_FOR_INPUT, unexpected error:
 
 - **Always** remove `agent-in-progress` AND `ready-for-agent` labels (step 18)
-- **Always** remove the worktree (step 19)
+- **Always** tear the worktree down through the doctor (step 19) — never `git worktree remove`, and never `--force`
 - **Always** emit the structured report
 
 The agent does not leave orphaned state on Nathan's machine OR on GitHub.
@@ -343,11 +386,12 @@ git worktree add --detach <worktree-path>.baseline origin/<default-branch>
 # Run the same tool against your worktree (the post-change state)
 ( cd <worktree-path> && .venv/bin/gaudi check src/ -f json > /tmp/after-<repo>-<n>.json )
 
-# Diff and report. Then clean up:
-git worktree remove --force <worktree-path>.baseline
+# Diff and report. Then tear it down through the doctor, exactly as at step 19 —
+# never `git worktree remove`, with or without `--force`.
+<repo-primary-checkout>/scripts/dev/worktree_doctor.py teardown <worktree-path>.baseline
 ```
 
-The `.baseline` worktree is owned by your dispatch — same lifecycle, removed at step 19 alongside the primary worktree. Nathan's main checkout stays untouched throughout.
+The `.baseline` worktree is owned by your dispatch — same lifecycle, torn down at step 19 alongside the primary worktree. Nathan's main checkout stays untouched throughout.
 
 **Why this matters (grantspider #538 / PR #539, 2026-04-28):** an agent ran `git stash --keep-index -u` and `git checkout origin/master -- .` in the main checkout to source a baseline. The stash reported "captured nothing" — which the agent interpreted as harmless. The subsequent `checkout` then wiped two uncommitted markdown files Nathan had authored that session. The agent self-reported the procedural violation; Nathan recovered the files from a separate context. The recovery was lucky. The new rule above + this pattern are the real fix.
 
