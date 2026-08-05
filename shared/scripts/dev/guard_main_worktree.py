@@ -36,13 +36,24 @@ import sys
 # GS_ALLOW_MAIN_GIT is grantspider's original name, kept as an alias.
 _OVERRIDE_VARS = ("CLAUDE_ALLOW_MAIN_GIT", "GS_ALLOW_MAIN_GIT")
 
-# ``git`` only at a command position — start of line or after a shell
-# separator (``; & | && ||``), with an optional leading run of environment
-# assignments (``VAR=x``) so an ordinary ``FOO=bar git checkout`` prefix is
-# still caught (it used to slip past). This still skips string mentions (echo /
-# printf / test data) that merely contain "git checkout", which would otherwise
-# false-positive constantly.
-_SEP = r"(?:^|[\n;&|])\s*"  # start-of-line or after a shell separator
+# ``git`` only at a command position — start of line, after a shell separator
+# (``; & | && ||``), or after a substitution/grouping opener (a backtick or
+# ``(``, which covers `` `cmd` ``, ``$(cmd)`` and ``(cmd)``) — with an optional
+# leading run of environment assignments (``VAR=x``) so an ordinary ``FOO=bar
+# git checkout`` prefix is still caught. This still skips string mentions (echo
+# / printf / test data) that merely contain "git checkout", which would
+# otherwise false-positive constantly.
+#
+# A closing ``)`` is deliberately NOT a separator: a group's closer is always
+# followed by a real separator before the next command, so adding it would buy
+# nothing and only widen the quoted-text false-positive surface.
+#
+# DUPLICATE — ``check_destructive_command.py`` carries a byte-identical copy of
+# these three lines. They are NOT shared: nothing imports them across the two
+# hooks, because both are standalone byte-copies deployed into other repos'
+# ``.claude/hooks/`` where a sibling import would not resolve. Any change here
+# must be made in BOTH files or only one guard gets it.
+_SEP = r"(?:^|[\n;&|`(])\s*"  # start-of-line, shell separator, or substitution opener
 _ASSIGN = r"(?:\w+=\S+\s+)*"  # a run of ``VAR=value`` env assignments
 _AT_CMD = _SEP + _ASSIGN
 _BRANCH_OP = re.compile(_AT_CMD + r"git\s+(?:checkout|switch)\b")

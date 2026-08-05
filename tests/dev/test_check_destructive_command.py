@@ -46,10 +46,14 @@ def hook():
 # so the expected-value column has a single source of truth.
 _RM_RF = "rm -rf"
 _DROP = "DROP/TRUNCATE"
+_RESET_HARD = "git reset --hard"
+_PUSH_FORCE = "git push --force"
 # Hook-evasion category labels (class 1).
 _HOOKSPATH = "core.hooksPath disabled"
 _ADD_ALL = "git add -A / ."
 _ADD_SECRET = "git add of a secret file"
+_NO_VERIFY = "git --no-verify"
+_ADMIN = "--admin bypass"
 
 
 @pytest.mark.parametrize(
@@ -64,9 +68,9 @@ _ADD_SECRET = "git add of a secret file"
         ("shred -u secret.key", "shred/wipe"),
         ("wipe /dev/sdb", "shred/wipe"),
         # Git — hard to reverse
-        ("git push --force origin main", "git push --force"),
-        ("git push -f", "git push --force"),
-        ("git reset --hard HEAD~3", "git reset --hard"),
+        ("git push --force origin main", _PUSH_FORCE),
+        ("git push -f", _PUSH_FORCE),
+        ("git reset --hard HEAD~3", _RESET_HARD),
         ("git clean -fd", "git clean -f"),
         ("git clean -fx", "git clean -f"),
         ("git branch -D feature", "git branch -D"),
@@ -88,6 +92,15 @@ _ADD_SECRET = "git add of a secret file"
         ("npm i -g eslint", "npm install -g"),
         ("pip install requests", "pip install outside a venv"),
         ("python -m pip install requests", "pip install outside a venv"),
+        # Command substitution is a command position too
+        ("`rm -rf /home/natha/project`", _RM_RF),
+        ("$(rm -rf /home/natha/project)", _RM_RF),
+        ("(rm -rf /home/natha/project)", _RM_RF),
+        ("out=$(rm -rf /home/natha/project)", _RM_RF),
+        ("`git reset --hard origin/master`", _RESET_HARD),
+        ("$(git reset --hard origin/master)", _RESET_HARD),
+        ("(git push --force origin main)", _PUSH_FORCE),
+        ("`psql -c 'DROP TABLE users'`", _DROP),
     ],
 )
 def test_destructive_commands_matched(hook, cmd, expected_category):
@@ -135,6 +148,21 @@ def test_destructive_commands_matched(hook, cmd, expected_category):
         "npm ci",
         "ls -la",
         "git status",
+        'echo "rm -rf /"',
+        'grep "git checkout" file',
+        "git checkout origin/master -- scripts/dev/",
+        # a substitution reaching a harmless command stays clean
+        "(git status)",
+        "echo $(git rev-parse HEAD)",
+        "cd $(pwd) && ls",
+        # careful.md Safe Exceptions keep passing inside a group: the closing
+        # delimiter must not attach to the argument and hide the artifact name
+        "(rm -rf node_modules)",
+        "`rm -rf dist`",
+        "(cd /repo && rm -rf build)",
+        "(git stash)",
+        "(git branch -d merged-feature)",
+        "(docker system prune)",
     ],
 )
 def test_safe_commands_pass_through(hook, cmd):
@@ -183,6 +211,19 @@ def test_delete_with_where_passes(hook):
     assert hook._match("psql -c 'DELETE FROM users WHERE id = 1'") is None
 
 
+def test_quoted_substitution_char_is_an_accepted_false_positive(hook):
+    """A regex cannot see quotes, so a quoted separator reads as a real one.
+
+    Already true of ``;``/``|``/``&`` before substitution chars were added: the
+    anchor recognises a command position, not a *shell-parsed* command position.
+    Adding a backtick and ``(`` extends that accepted cost to those two
+    characters. The common quoted mentions (``echo "rm -rf /"``) stay clean
+    because they carry no separator at all.
+    """
+    assert hook._match('echo "; rm -rf /"') is not None
+    assert hook._match('echo "(rm -rf /tmp)"') is not None
+
+
 # ---------------------------------------------------------------------------
 # Class 1 — hook-evasion / secret-staging (hard ``deny``).
 # ---------------------------------------------------------------------------
@@ -192,11 +233,11 @@ def test_delete_with_where_passes(hook):
     ("cmd", "expected_category"),
     [
         # Hook / signing / protection bypass
-        ("git commit --no-verify -m x", "git --no-verify"),
-        ("git commit -m x --no-verify", "git --no-verify"),
+        ("git commit --no-verify -m x", _NO_VERIFY),
+        ("git commit -m x --no-verify", _NO_VERIFY),
         ("git commit --no-gpg-sign -m x", "git --no-gpg-sign"),
-        ("gh pr merge 12 --admin --merge", "--admin bypass"),
-        ("git merge --admin", "--admin bypass"),
+        ("gh pr merge 12 --admin --merge", _ADMIN),
+        ("git merge --admin", _ADMIN),
         ("git -c core.hooksPath=/dev/null commit -m x", _HOOKSPATH),
         ("git config core.hooksPath ''", _HOOKSPATH),
         ('git -c core.hooksPath="" commit', _HOOKSPATH),
@@ -213,6 +254,16 @@ def test_delete_with_where_passes(hook):
         ("git add id_rsa.key", _ADD_SECRET),
         ("git add credentials.json", _ADD_SECRET),
         ("git add secrets/credentials", _ADD_SECRET),
+        # Class 1 is the non-downgradable tier — command substitution must not
+        # walk it back to a class-2 ask, or to no decision at all.
+        ("`git commit --no-verify -m x`", _NO_VERIFY),
+        ("$(git commit --no-verify -m x)", _NO_VERIFY),
+        ("(git commit --no-verify -m x)", _NO_VERIFY),
+        ("`gh pr merge 12 --admin --merge`", _ADMIN),
+        ("`git add -A`", _ADD_ALL),
+        ("$(git add -A)", _ADD_ALL),
+        ("(git add -A)", _ADD_ALL),
+        ("`git add .env`", _ADD_SECRET),
     ],
 )
 def test_hook_evasion_matched(hook, cmd, expected_category):
@@ -241,6 +292,10 @@ def test_hook_evasion_matched(hook, cmd, expected_category):
         "git add .env.template",
         "git add .env.dist",
         "git add config/.env.example",
+        # substitutions that reach no evasion shape stay clean
+        "echo $(git rev-parse HEAD)",
+        "(git add src/foo.py)",
+        "`git status`",
     ],
 )
 def test_hook_evasion_pass_through(hook, cmd):
@@ -271,6 +326,8 @@ _CMD = "command"
 _BASH = "Bash"
 _HSO = "hookSpecificOutput"
 _DECISION = "permissionDecision"
+_DENY = "deny"
+_ASK = "ask"
 _REASON = "permissionDecisionReason"
 
 
@@ -303,7 +360,7 @@ def test_ask_decision_emitted_on_match():
     assert proc.returncode == 0
     hso = _hso(proc)
     assert hso["hookEventName"] == "PreToolUse"
-    assert hso[_DECISION] == "ask"
+    assert hso[_DECISION] == _ASK
     assert "rm -rf" in hso[_REASON]
 
 
@@ -312,8 +369,39 @@ def test_deny_decision_emitted_on_evasion():
     assert proc.returncode == 0
     hso = _hso(proc)
     assert hso["hookEventName"] == "PreToolUse"
-    assert hso[_DECISION] == "deny"
+    assert hso[_DECISION] == _DENY
     assert "I-3" in hso[_REASON]
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "`git commit --no-verify -m x`",
+        "$(git commit --no-verify -m x)",
+        "(git commit --no-verify -m x)",
+        "`git add -A`",
+        "(git add -A)",
+    ],
+)
+def test_deny_decision_survives_command_substitution(cmd):
+    """Class 1 through a substitution is still a deny — not an ask, not silence."""
+    proc = _run_hook(_payload(_BASH, cmd))
+    assert proc.returncode == 0
+    assert _hso(proc)[_DECISION] == _DENY
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "`rm -rf /home/natha/x`",
+        "$(git reset --hard origin/master)",
+        "(rm -rf /home/natha/x)",
+    ],
+)
+def test_ask_decision_survives_command_substitution(cmd):
+    proc = _run_hook(_payload(_BASH, cmd))
+    assert proc.returncode == 0
+    assert _hso(proc)[_DECISION] == _ASK
 
 
 def test_evasion_denies_even_when_destructive_present():
@@ -321,7 +409,7 @@ def test_evasion_denies_even_when_destructive_present():
     # must be deny, proving class-1 is checked first end-to-end.
     proc = _run_hook(_payload(_BASH, "git add . && rm -rf /data"))
     assert proc.returncode == 0
-    assert _hso(proc)[_DECISION] == "deny"
+    assert _hso(proc)[_DECISION] == _DENY
 
 
 def test_safe_command_no_output(hook):
