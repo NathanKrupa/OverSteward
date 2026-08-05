@@ -487,12 +487,22 @@ def _merge(
     verdict: JudgeResult,
     ctx: WriteContext,
 ) -> ConsolidationOutcome:
-    """Refine the matched file's body, bump ``last_reinforced``, append session."""
+    """Refine the matched file's body, bump ``last_reinforced``, append session.
+
+    A candidate's ``superseded_by`` carries onto the match: a retirement arrives as
+    a *refinement* of the very fact it retires ("X is gone; use Y"), so the
+    auto-merge band is where the graveyard marker is normally earned. Dropping it
+    here left facts whose refined body announced their own retirement still
+    classified as live law (OS#288). An absent marker never clears an existing one
+    — a later reinforcement must not resurrect a retired fact.
+    """
     existing = verdict.match
     if existing is None:  # pragma: no cover - guarded by classify_band
         raise ConsolidationError("auto-merge band requires a matched memory")
     existing.body = verdict.merged_body if verdict.merged_body is not None else existing.body
     existing.metadata["last_reinforced"] = ctx.when.isoformat()
+    if candidate.superseded_by is not None:
+        existing.metadata["superseded_by"] = candidate.superseded_by
     _append_session(existing.metadata, ctx.session_id)
     store.write(existing)
     return ConsolidationOutcome(

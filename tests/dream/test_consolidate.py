@@ -255,6 +255,34 @@ def test_merge_without_merged_body_keeps_existing(tmp_path: Path) -> None:
     assert store.memories()[0].body.strip() == "Keep me."
 
 
+def test_merge_carries_the_candidates_graveyard_marker(tmp_path: Path) -> None:
+    # OS#288: a retirement arrives as a REFINEMENT of the fact it retires, so it
+    # lands on the auto-merge path. Dropping the candidate's `superseded_by` there
+    # left the store full of facts whose body announced their own retirement while
+    # the classifier still filed them as live law.
+    existing = _memory("user_x", "the working-hours boundary")
+    store = _store_with(tmp_path, existing)
+    target = store.memories()[0]
+    consolidate(
+        _fact(superseded_by="no successor — AG work is no longer clock-gated"),
+        store,
+        judge=_fake_judge(0.95, match=target, merged_body="RETIRED 2026-07-11.\n"),
+        today=date(2026, 7, 11),
+    )
+    reloaded = store.memories()[0]
+    assert reloaded.metadata["superseded_by"] == "no successor — AG work is no longer clock-gated"
+
+
+def test_merge_without_a_marker_keeps_an_existing_one(tmp_path: Path) -> None:
+    # A later reinforcement of an already-retired fact must not resurrect it.
+    existing = _memory("user_x", "the working-hours boundary")
+    existing.metadata["superseded_by"] = "the live replacement"
+    store = _store_with(tmp_path, existing)
+    target = store.memories()[0]
+    consolidate(_fact(), store, judge=_fake_judge(0.95, match=target), today=date(2026, 7, 11))
+    assert store.memories()[0].metadata["superseded_by"] == "the live replacement"
+
+
 # ---- flag band (ambiguous middle) auto-approves (OS#134) ---------------------
 
 
