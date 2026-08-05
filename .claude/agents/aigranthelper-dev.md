@@ -74,6 +74,10 @@ capitalized check names beside the lowercase ones. **They are not the same jobs
 running twice** — the capitalized ones ran nothing. Read `ci-light`/`ci-heavy`
 for the real verdict.
 
+**The tell is the duration.** On aigranthelper#1444: `Test` passed in **5s**,
+`Lint` in 3s, `Types` in 2s, while `ci-light` was still running. A `Test` that
+passes in five seconds did not run a test suite.
+
 `ci-passthrough.yml` requires job-count and name parity with `ci.yml`. If you
 add or rename a job in one, mirror it in the other.
 
