@@ -350,6 +350,34 @@ def test_full_index_has_one_line_per_memory(tmp_path: Path) -> None:
     assert "- [b_mem.md](b_mem.md) — second hook" in entries
 
 
+def test_full_index_carries_a_digest_the_description_lacks(tmp_path: Path) -> None:
+    # THE OS#287 recall case: the standing layer renders the digest and no longer
+    # carries a file link, so a digest absent from the description would leave that
+    # fact unresolvable. The full index carries it (uncapped — the bytes are free).
+    mem = _memory("law_x", "a long recall hook", provenance="nathan-stated")
+    mem.metadata["digest"] = "short imperative form"
+    store = _store_with(tmp_path, mem)
+    store.regenerate_index()
+    standing = (store.root / INDEX_FILENAME).read_text(encoding="utf-8")
+    full = (store.root / FULL_INDEX_FILENAME).read_text(encoding="utf-8")
+    # The standing layer states the digest, with no link to resolve it by.
+    assert "- short imperative form" in standing
+    assert "law_x.md" not in standing
+    # Grepping that same text in the full index reaches the file.
+    assert "- [law_x.md](law_x.md) — a long recall hook — standing: short imperative form" in full
+
+
+def test_full_index_does_not_repeat_a_digest_already_in_the_description(
+    tmp_path: Path,
+) -> None:
+    mem = _memory("law_y", "always ship migrations in their own PR", provenance="nathan-stated")
+    mem.metadata["digest"] = "always ship migrations"
+    store = _store_with(tmp_path, mem)
+    store.regenerate_index()
+    full = (store.root / FULL_INDEX_FILENAME).read_text(encoding="utf-8")
+    assert "standing:" not in full
+
+
 def test_regenerate_index_emits_standing_orders(tmp_path: Path) -> None:
     # A nathan-stated law surfaces under ## Laws; a plain claude-inferred
     # reference stays non-standing (full index only), not promoted.
@@ -362,9 +390,12 @@ def test_regenerate_index_emits_standing_orders(tmp_path: Path) -> None:
     standing = (store.root / INDEX_FILENAME).read_text(encoding="utf-8")
     assert "# Standing Orders" in standing
     assert "## Laws" in standing
-    assert "user_law.md" in standing
+    assert "- always ship migrations in their own PR" in standing
     # The keyword-laden-but-inferred reference is NOT a law and NOT standing.
-    assert "ref_plain.md" not in standing
+    assert "a plain reference fact" not in standing
+    # The recall hook it dropped still resolves via the full index (OS#287).
+    full = (store.root / FULL_INDEX_FILENAME).read_text(encoding="utf-8")
+    assert "- [user_law.md](user_law.md) — always ship migrations in their own PR" in full
 
 
 # ---- flag surface ------------------------------------------------------------
