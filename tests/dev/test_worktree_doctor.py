@@ -38,6 +38,11 @@ DB_SCRIPT = _locate("scripts/dev/worktree_db.py", "shared/scripts/dev/worktree_d
 #: family exists to serve.
 CANONICAL = _find("shared/scripts/dev/worktree_doctor.py")
 
+#: This file, and its canonical twin. The doctor's tests are deployed the same
+#: way the doctor is, so they drift the same way — and nothing was watching.
+TESTS = _locate("tests/dev/test_worktree_doctor.py", "shared/scripts/dev/test_worktree_doctor.py")
+CANONICAL_TESTS = _find("shared/scripts/dev/test_worktree_doctor.py")
+
 
 def _import(name: str, path: Path):
     spec = importlib.util.spec_from_file_location(name, path)
@@ -286,6 +291,19 @@ def test_a_live_worktree_is_not_reported_as_a_skeleton(doctor, tmp_path):
 def test_deployed_copy_is_byte_identical_to_canonical() -> None:
     assert CANONICAL is not None
     assert SCRIPT.read_bytes() == CANONICAL.read_bytes()
+
+
+@pytest.mark.skipif(CANONICAL_TESTS is None, reason="no shared/ tree — this is a pickup repo")
+def test_this_test_file_is_byte_identical_to_canonical() -> None:
+    """The regression tests deploy with the script, or a pickup repo runs unguarded.
+
+    The script had this assertion from the start; the tests did not, and drifted
+    the first time a fix was written against ``tests/dev/`` alone. A repo that
+    picks up the doctor gets whatever ``shared/scripts/dev/`` holds — so a test
+    that never reached the canonical copy protects nowhere but here.
+    """
+    assert CANONICAL_TESTS is not None
+    assert TESTS.read_bytes() == CANONICAL_TESTS.read_bytes()
 
 
 # ---------------------------------------------------------------------------
@@ -942,7 +960,7 @@ def test_sweep_refuses_when_docker_will_not_answer(doctor, tmp_path):
     """Silence is not an empty container — that is an orphan wearing a success message."""
     repo, _ = _make_git_repo(tmp_path)
 
-    with pytest.raises(doctor.SweepUnavailable):
+    with pytest.raises(doctor.CouldNotLook):
         doctor.sweep_candidates(repo, lambda args: None)
 
 
@@ -951,7 +969,7 @@ def test_sweep_refuses_when_no_postgres_is_running(doctor, tmp_path):
     repo, _ = _make_git_repo(tmp_path)
     docker = ScriptedDocker({"ps --format": "redis\n"})
 
-    with pytest.raises(doctor.SweepUnavailable):
+    with pytest.raises(doctor.CouldNotLook):
         doctor.sweep_candidates(repo, docker)
 
 
@@ -1033,3 +1051,120 @@ def test_the_cli_refuses_a_sweep_it_was_told_not_to_look_at(tmp_path):
     assert result.returncode == 2
     assert result.stdout.strip() == ""
     assert "reconcile" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# a doctor that cannot derive a name must not act (OS#305)
+# ---------------------------------------------------------------------------
+
+
+def test_ownership_refuses_rather_than_reporting_an_unowned_tree(doctor, tmp_path, monkeypatch):
+    """``UNOWNED`` is a finding. "I could not derive any name" is not one.
+
+    Folding them together is what let a teardown remove the worktree and report
+    success while dropping nothing.
+    """
+    _, worktree = _make_git_repo(tmp_path)
+    monkeypatch.setattr(doctor, "_load_worktree_db", lambda: None)
+
+    with pytest.raises(doctor.CouldNotLook):
+        doctor._ownership(worktree)
+
+
+def test_a_primary_checkout_is_still_genuinely_unowned(doctor, tmp_path):
+    """The sentinel must keep working where it means what it says."""
+    repo, _ = _make_git_repo(tmp_path)
+
+    assert doctor._ownership(repo) == doctor.UNOWNED
+
+
+def test_teardown_refuses_before_removing_when_it_cannot_derive(doctor, tmp_path, monkeypatch):
+    """The refusal has to land before the removal, or the names are unreachable forever.
+
+    Once the path is gone no forward derivation can reach those databases again —
+    the asymmetry that made this worse in ``teardown`` than in ``sweep``.
+    """
+    repo, worktree = _make_git_repo(tmp_path)
+    docker = _bench_docker("repo_test_demo")
+    removed: list[Path] = []
+    monkeypatch.setattr(doctor, "_load_worktree_db", lambda: None)
+
+    with pytest.raises(doctor.CouldNotLook):
+        doctor.teardown(worktree, [doctor.venv_of(repo)], docker=docker, remove=removed.append)
+
+    assert removed == []
+    assert not any("dropdb" in call for call in docker.calls)
+
+
+def test_a_lone_doctor_refuses_the_teardown_and_removes_nothing(tmp_path, monkeypatch):
+    """The shape that actually occurs: the doctor materialised **alone** at a scratch path.
+
+    Agents extract it there because a checkout's own copy is stale, and the
+    sanctioned workaround silently disarmed half the tool — four orphan
+    databases in one dispatch. Stdout must stay empty: nothing may read as a
+    result the verb never reached.
+    """
+    repo, worktree = _make_git_repo(tmp_path)
+    lone = _deployed(tmp_path, SCRIPT)
+    _fake_docker(tmp_path, "postgres", "repo_test", "repo_test_demo")
+    monkeypatch.setenv("PATH", f"{tmp_path}:{__import__('os').environ['PATH']}")
+
+    result = subprocess.run(
+        [sys.executable, str(lone), "teardown", str(worktree), "--repo", str(repo)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert result.stdout.strip() == ""
+    assert "worktree_db" in result.stderr
+    assert worktree.is_dir()
+
+
+def test_the_pair_tears_the_same_worktree_down(tmp_path, monkeypatch):
+    """The negative control in the same run: extracted *with* its sibling, it works.
+
+    Without this beside the refusal, a doctor broken outright would pass the
+    test above for the wrong reason.
+    """
+    repo, worktree = _make_git_repo(tmp_path)
+    pair = _deployed(tmp_path, SCRIPT, DB_SCRIPT)
+    _fake_docker(tmp_path, "postgres", "repo_test", "repo_test_demo")
+    monkeypatch.setenv("PATH", f"{tmp_path}:{__import__('os').environ['PATH']}")
+
+    result = subprocess.run(
+        [sys.executable, str(pair), "teardown", str(worktree), "--repo", str(repo)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert not worktree.exists()
+
+
+def test_a_lone_doctor_refuses_the_check_it_cannot_answer(tmp_path):
+    """``check`` reports owned databases; with no derivation it reports none of them."""
+    repo, worktree = _make_git_repo(tmp_path)
+    lone = _deployed(tmp_path, SCRIPT)
+
+    result = subprocess.run(
+        [sys.executable, str(lone), "check", str(worktree), "--repo", str(repo)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "worktree_db" in result.stderr
+
+
+def test_a_no_docker_teardown_says_the_databases_were_left(doctor, tmp_path, capsys):
+    """Explicit intent, but the same silence — and silence reads as "there were none"."""
+    _, worktree = _make_git_repo(tmp_path)
+
+    rc = doctor.teardown(worktree, [], docker=None, remove=lambda path: None)
+
+    assert rc == 0
+    assert "neither named nor dropped" in capsys.readouterr().out

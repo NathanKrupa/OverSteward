@@ -218,11 +218,36 @@ def _load_guard():
 def _load_worktree_db():
     """The database-name derivation from ``worktree_db.py``, or None if not deployed.
 
-    Absence is tolerated: a repo that has not picked up ``worktree_db.py`` has no
-    per-worktree databases to find, and the doctor's other work must not stop
-    because one family member is missing.
+    Absence is reported, never interpreted. Every verb that reasons about
+    databases goes through :func:`require_worktree_db`, which turns the None
+    into a refusal; ``repair`` never asks, so a partial deploy still repairs.
     """
     return _load_sibling("worktree_db", "worktree_db.py")
+
+
+def require_worktree_db():
+    """The derivation, or a refusal. Absence must stop the verb, not quieten it.
+
+    Every database name in this file comes from ``worktree_db.py``. Without it a
+    verb matches nothing, and nothing reads as "there is nothing here" when the
+    truth is "I could not look" — so the sweep reports no orphans and the
+    teardown drops none, both while printing success.
+
+    The way this actually fails is not a repo that skipped a family member: it is
+    the doctor **extracted alone to a scratch path**, which is the sanctioned
+    workaround when a checkout's own copy is stale. There the sibling is missing
+    because the extraction separated them, and that repo very much does have
+    per-worktree databases (OS#305 — four orphaned in one dispatch).
+    """
+    module = _load_worktree_db()
+    if module is None:
+        raise CouldNotLook(
+            "worktree_db.py is not deployed beside this script — every database "
+            "name the doctor reasons about comes from it, so without it a "
+            "worktree that owns databases and one that owns none look alike. "
+            "Extract it beside this copy, or deploy the shared/scripts/dev/ family."
+        )
+    return module
 
 
 def venv_of(checkout: Path) -> Path:
@@ -466,9 +491,14 @@ def _ownership(worktree: Path) -> Ownership:
     A tree that is not a *linked* worktree owns nothing. The primary checkout's
     unsuffixed database is the shared bench every session gates against;
     reporting it as state teardown drops would be an invitation to destroy it.
+
+    Raises :class:`CouldNotLook` when the derivation is missing, rather than
+    folding that into ``UNOWNED``. The sentinel means *this tree owns no
+    databases*, which is a finding; a doctor that cannot derive any name at all
+    has made no finding, and the two must not share a return value (OS#305).
     """
-    module = _load_worktree_db()
-    if module is None or not module.is_linked_worktree(worktree):
+    module = require_worktree_db()
+    if not module.is_linked_worktree(worktree):
         return UNOWNED
     root = module.toplevel(worktree) or worktree
     slug = module.sanitize(root.name)
@@ -586,8 +616,13 @@ def drop_held(held: Iterable[tuple[str, str, str]], docker: DockerRunner) -> lis
 # audited, and it drops nothing it cannot attribute to this repo's own stems.
 
 
-class SweepUnavailable(RuntimeError):
-    """The sweep could not look — never to be reported as having found nothing."""
+class CouldNotLook(RuntimeError):
+    """A verb could not look — never to be reported as having found nothing.
+
+    Shared by ``sweep`` and ``teardown`` because the rule is: "I found nothing"
+    and "I could not look" must never print the same. Which verb was asking is
+    the caller's to say; that it could not look is the same fact either way.
+    """
 
 
 @dataclass(frozen=True)
@@ -635,24 +670,6 @@ class Reconciliation:
 SYSTEM_DATABASES = frozenset({"postgres", "template0", "template1"})
 
 
-def require_worktree_db():
-    """The derivation, or a refusal. Absence must stop this verb, not quieten it.
-
-    :func:`_load_worktree_db` tolerates absence because the doctor's other work
-    must not stop for one missing family member. The sweep cannot inherit that:
-    with no derivation it matches no database, and an empty result reads as
-    "nothing is orphaned" when the truth is "I could not look".
-    """
-    module = _load_worktree_db()
-    if module is None:
-        raise SweepUnavailable(
-            "worktree_db.py is not deployed beside this script — every name the "
-            "sweep reasons about comes from it, so without it an orphan and an "
-            "unknown are indistinguishable. Deploy the shared/scripts/dev/ family."
-        )
-    return module
-
-
 def live_worktrees(repo: Path) -> tuple[Path, list[Path]]:
     """``(primary checkout, linked worktrees)`` as git currently knows them.
 
@@ -669,9 +686,9 @@ def live_worktrees(repo: Path) -> tuple[Path, list[Path]]:
             check=False,
         )
     except OSError as failure:
-        raise SweepUnavailable(f"git could not be run in {repo}: {failure}") from failure
+        raise CouldNotLook(f"git could not be run in {repo}: {failure}") from failure
     if result.returncode != 0:
-        raise SweepUnavailable(f"git could not list the worktrees of {repo}: {result.stderr.strip()}")
+        raise CouldNotLook(f"git could not list the worktrees of {repo}: {result.stderr.strip()}")
     marker = "worktree "
     trees = [
         Path(line[len(marker) :].strip())
@@ -679,7 +696,7 @@ def live_worktrees(repo: Path) -> tuple[Path, list[Path]]:
         if line.startswith(marker)
     ]
     if not trees:
-        raise SweepUnavailable(f"{repo} is not inside a git checkout")
+        raise CouldNotLook(f"{repo} is not inside a git checkout")
     return trees[0], trees[1:]
 
 
@@ -751,15 +768,15 @@ def _database_listings(docker: DockerRunner) -> list[tuple[str, str, list[str]]]
     empty answer — and an empty answer here reads as "nothing is orphaned".
     """
     if docker(["ps", "--format", "{{.Names}}"]) is None:
-        raise SweepUnavailable("docker did not answer `docker ps` — is the daemon running?")
+        raise CouldNotLook("docker did not answer `docker ps` — is the daemon running?")
     listings = []
     for container, user in postgres_containers(docker):
         answer = docker(_psql(container, user, LIST_DATABASES))
         if answer is None:
-            raise SweepUnavailable(f"{container} did not answer `{LIST_DATABASES}`")
+            raise CouldNotLook(f"{container} did not answer `{LIST_DATABASES}`")
         listings.append((container, user, _listed(answer)))
     if not listings:
-        raise SweepUnavailable(
+        raise CouldNotLook(
             "no running Postgres container — a stopped bench still holds every "
             "database it ever had, so nothing here could be called an orphan"
         )
@@ -1056,6 +1073,10 @@ def teardown(
     module docstring. The databases are *named* before the removal, because
     every name is derived from the worktree's path; they are *dropped* after it,
     because a removal git refuses must cost nothing (OS#286).
+
+    Naming first is also what makes the OS#305 refusal safe: :class:`CouldNotLook`
+    escapes from the naming step, so it lands before the removal and the
+    worktree — the only thing that can still produce the names — is still there.
     """
     hits = check_worktree(worktree, venvs, docker=docker)
     if hits:
@@ -1068,9 +1089,12 @@ def teardown(
         print(f"{worktree} was not removed — nothing was dropped:\n\n    {refused}")
         return 1
     print(f"removed {worktree}")
-    if docker is not None:
-        for dropped in drop_held(held, docker):
-            print(f"dropped {dropped}")
+    if docker is None:
+        # Silence here would read exactly like a worktree that owned nothing.
+        print("--no-docker: this worktree's databases were neither named nor dropped")
+        return 0
+    for dropped in drop_held(held, docker):
+        print(f"dropped {dropped}")
     return 0
 
 
@@ -1092,13 +1116,27 @@ def _venvs_for(args: argparse.Namespace, worktree: Path) -> list[Path]:
     return [venv_of(Path(args.repo).resolve())] if args.repo else default_venvs(worktree)
 
 
+def _refused(verb: str, unavailable: CouldNotLook) -> int:
+    """The one way any verb reports that it could not look: stderr, exit 2.
+
+    Kept apart from the 1 that means "found something": a caller has to be able
+    to tell a finding from a failure, and nothing on stdout may read as a result
+    the verb never reached.
+    """
+    print(f"{verb} refused — {unavailable}", file=sys.stderr)
+    return 2
+
+
 def _check(args: argparse.Namespace) -> int:
     worktree = Path(args.worktree).resolve()
     venvs = _venvs_for(args, worktree)
     docker = None if args.no_docker else docker_output
     hits = check_worktree(worktree, venvs, docker=docker)
     if docker is not None:
-        owned = database_hits(worktree, docker)
+        try:
+            owned = database_hits(worktree, docker)
+        except CouldNotLook as unavailable:
+            return _refused("check", unavailable)
         if owned:
             print("Worktree-owned state — `worktree_doctor.py teardown` drops it:\n")
             print("\n\n".join(format_hit(hit) for hit in owned))
@@ -1120,21 +1158,26 @@ def _repair(args: argparse.Namespace) -> int:
 
 
 def _teardown(args: argparse.Namespace) -> int:
+    """A teardown that cannot name the databases removes nothing (OS#305).
+
+    Without the derivation this verb used to remove the worktree and print
+    ``removed <path>`` while dropping nothing — and once the path is gone no
+    forward derivation can reach those names again, so the refusal has to come
+    before the removal, not after it.
+    """
     worktree = Path(args.worktree).resolve()
-    return teardown(
-        worktree,
-        _venvs_for(args, worktree),
-        docker=None if args.no_docker else docker_output,
-    )
+    try:
+        return teardown(
+            worktree,
+            _venvs_for(args, worktree),
+            docker=None if args.no_docker else docker_output,
+        )
+    except CouldNotLook as unavailable:
+        return _refused("teardown", unavailable)
 
 
 def _sweep(args: argparse.Namespace) -> int:
-    """The verb refuses rather than answers whenever it could not look.
-
-    Both refusals go to stderr and exit 2, kept apart from the 1 that means
-    "orphans found": a caller has to be able to tell a finding from a failure,
-    and nothing on stdout may read as a result the sweep never reached.
-    """
+    """The verb refuses rather than answers whenever it could not look."""
     if args.no_docker:
         print(
             "sweep reconciles the container against the live worktrees — "
@@ -1145,9 +1188,8 @@ def _sweep(args: argparse.Namespace) -> int:
     repo = Path(args.repo).resolve() if args.repo else Path.cwd().resolve()
     try:
         return sweep(repo, docker_output, drop=args.drop)
-    except SweepUnavailable as unavailable:
-        print(f"sweep refused — {unavailable}", file=sys.stderr)
-        return 2
+    except CouldNotLook as unavailable:
+        return _refused("sweep", unavailable)
 
 
 #: What ``--repo`` means to the verbs that start from a worktree and work outwards.
