@@ -234,11 +234,16 @@ def test_repair_reports_a_stale_container_without_removing_it(doctor, tmp_path):
 
 
 def test_repair_never_shells_out_to_sudo(tmp_path):
-    """Privilege escalation is the human's call — the doctor only prints the line."""
+    """Privilege escalation is the human's call — the doctor only prints the line.
+
+    Asserted against ``SCRIPT``, the copy that actually ran above. ``CANONICAL``
+    is absent in a pickup repo, and the file whose behaviour is in question is
+    the deployed one anyway.
+    """
     repo, _ = _make_repo(tmp_path, captured=True)
     _run("repair", "--repo", str(repo), "--no-docker")
 
-    source = CANONICAL.read_text(encoding="utf-8")
+    source = SCRIPT.read_text(encoding="utf-8")
     for line in source.splitlines():
         code = line.split("#", 1)[0]
         assert "subprocess" not in code or "sudo" not in code
