@@ -29,6 +29,7 @@ def _locate(*relatives: str) -> Path:
 
 
 SCRIPT = _locate("scripts/dev/worktree_doctor.py", "shared/scripts/dev/worktree_doctor.py")
+DB_SCRIPT = _locate("scripts/dev/worktree_db.py", "shared/scripts/dev/worktree_db.py")
 
 #: Only OverSteward holds the canonical source; a pickup repo has the deployed
 #: copy and no ``shared/`` tree at all. Absence must skip the byte-identity
@@ -38,9 +39,8 @@ SCRIPT = _locate("scripts/dev/worktree_doctor.py", "shared/scripts/dev/worktree_
 CANONICAL = _find("shared/scripts/dev/worktree_doctor.py")
 
 
-@pytest.fixture(scope="module")
-def doctor():
-    spec = importlib.util.spec_from_file_location("worktree_doctor", SCRIPT)
+def _import(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     # Registered before exec: @dataclass resolves annotations through
@@ -48,6 +48,17 @@ def doctor():
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+@pytest.fixture(scope="module")
+def doctor():
+    return _import("worktree_doctor", SCRIPT)
+
+
+@pytest.fixture(scope="module")
+def wdb():
+    """The name derivation itself — a test must never recompute what it asserts."""
+    return _import("worktree_db", DB_SCRIPT)
 
 
 class FakeDocker:
@@ -282,6 +293,15 @@ def test_deployed_copy_is_byte_identical_to_canonical() -> None:
 # ---------------------------------------------------------------------------
 
 
+#: A second stem, the way aigranthelper keeps one: nothing shares a prefix
+#: with the project name, so only the derivation can find it.
+RESEARCH = "test_research_demo"
+
+#: The container was asked what databases it serves — the step that must
+#: happen while the worktree still exists.
+LISTED = "listed"
+
+
 class ScriptedDocker:
     """A docker seam that answers per-argv, so a query can be told apart from a drop.
 
@@ -290,6 +310,9 @@ class ScriptedDocker:
     connection to a database that does not exist fails outright. A fake that
     answered on the SQL text alone would pass a probe that can never connect —
     which is exactly the defect this models (OS#278).
+
+    ``events`` records what the container was actually made to do, in order, so a
+    test can assert that the drop came *after* the worktree was removed.
     """
 
     def __init__(
@@ -298,10 +321,12 @@ class ScriptedDocker:
         *,
         databases: frozenset[str] = frozenset(),
         user: str = "grantspider",
+        events: list[str] | None = None,
     ) -> None:
         self.responses = responses or {}
         self.databases = databases
         self.user = user
+        self.events = [] if events is None else events
         self.calls: list[list[str]] = []
 
     def __call__(self, args: list[str]) -> str | None:
@@ -311,15 +336,24 @@ class ScriptedDocker:
             target = args[args.index(flag) + 1] if flag in args else self.user
             if target not in self.databases:
                 return None  # FATAL: database "<target>" does not exist
+            if "dropdb" in args:
+                self.events.append(f"dropped {args[-1]}")
+            elif args[-1].startswith("SELECT datname"):
+                self.events.append(LISTED)
+                return "".join(f"{name}\n" for name in sorted(self.databases))
         for marker, output in self.responses.items():
             if marker in " ".join(args):
                 return output
         return ""
 
 
-def _bench_docker(database: str, *, container: str = "grantspider-test-pg") -> ScriptedDocker:
-    """A container running postgres that holds ``database``.
+def _bench_docker(
+    *databases: str, container: str = "grantspider-test-pg", events: list[str] | None = None
+) -> ScriptedDocker:
+    """A container running postgres that serves ``databases``.
 
+    ``repo_test`` is always there: it is the primary checkout's own database, and
+    every discovery test needs the bench present to prove it is left alone.
     ``grantspider`` — the superuser's name — is deliberately NOT a database here,
     because it is not one on any estate container: ``POSTGRES_DB`` is
     ``<project>_test``, never ``<project>``.
@@ -330,9 +364,9 @@ def _bench_docker(database: str, *, container: str = "grantspider-test-pg") -> S
             f"inspect --format {{{{range .Config.Env}}}}{{{{println .}}}}{{{{end}}}} {container}": (
                 "POSTGRES_USER=grantspider\nPOSTGRES_PASSWORD=testpass\n"
             ),
-            f"datname = '{database}'": "1\n",
         },
-        databases=frozenset({"postgres", "grantspider_test", database}),
+        databases=frozenset({"postgres", "grantspider_test", "repo_test", *databases}),
+        events=events,
     )
 
 
@@ -399,22 +433,43 @@ def test_dropping_an_absent_database_is_a_no_op(doctor, tmp_path):
     assert not any("dropdb" in call for call in docker.calls)
 
 
-def test_teardown_drops_the_database_then_removes_the_worktree(doctor, tmp_path):
+def test_teardown_names_then_removes_then_drops(doctor, tmp_path):
+    """The order IS the fix (OS#286): nothing irreversible until nothing can fail.
+
+    The names must be taken while the worktree exists — they are derived from
+    its path — and the drop must come after the removal git can still refuse.
+    """
     repo, worktree = _make_repo(tmp_path, captured=False)
-    docker = _bench_docker("repo_test_demo")
-    removed: list[Path] = []
+    events: list[str] = []
+    docker = _bench_docker("repo_test_demo", events=events)
 
     rc = doctor.teardown(
         worktree,
         [doctor.venv_of(repo)],
         docker=docker,
-        remove=removed.append,
+        remove=lambda path: events.append(f"removed {path}"),
         name="repo_test_demo",
     )
 
     assert rc == 0
-    assert removed == [worktree]
-    assert any("dropdb" in call for call in docker.calls)
+    assert events == [LISTED, f"removed {worktree}", "dropped repo_test_demo"]
+
+
+def test_a_refused_removal_leaves_every_database_intact(doctor, tmp_path, capsys):
+    """OS#286: a worktree that will not go must still have its databases."""
+    repo, worktree = _make_repo(tmp_path, captured=False)
+    docker = _bench_docker("repo_test_demo", RESEARCH)
+
+    def refuse(path: Path) -> None:
+        raise doctor.WorktreeRemovalRefused(f"'{path}' contains modified or untracked files")
+
+    rc = doctor.teardown(
+        worktree, [doctor.venv_of(repo)], docker=docker, remove=refuse, name="repo_test_demo"
+    )
+
+    assert rc == 1
+    assert not any("dropdb" in call for call in docker.calls)
+    assert "contains modified or untracked files" in capsys.readouterr().out
 
 
 def test_teardown_refuses_while_something_still_points_here(doctor, tmp_path):
@@ -440,7 +495,7 @@ def _git(tree: Path, *args: str) -> None:
     subprocess.run(["git", "-C", str(tree), *args], check=True, capture_output=True)
 
 
-def _make_git_repo(tmp_path: Path) -> tuple[Path, Path]:
+def _make_git_repo(tmp_path: Path, name: str = "demo") -> tuple[Path, Path]:
     """A real checkout with a real linked worktree — the database name needs git.
 
     Built git-first: ``git worktree add`` refuses a directory that already has
@@ -455,9 +510,9 @@ def _make_git_repo(tmp_path: Path) -> tuple[Path, Path]:
     _git(repo, "add", "README.md")
     _git(repo, "commit", "-qm", "init")
 
-    worktree = repo / ".claude" / "worktrees" / "demo"
+    worktree = repo / ".claude" / "worktrees" / name
     worktree.parent.mkdir(parents=True)
-    _git(repo, "worktree", "add", "-q", "-b", "session/demo", str(worktree))
+    _git(repo, "worktree", "add", "-q", "-b", f"session/{name}", str(worktree))
 
     venv_bin = repo / ".venv" / "bin"
     venv_bin.mkdir(parents=True)
@@ -475,7 +530,7 @@ def test_check_names_the_database_without_blocking_removal(tmp_path, monkeypatch
         'case "$*" in\n'
         '  *"--format {{.Names}}"*) echo repo-test-pg ;;\n'
         '  *"{{range .Config.Env}}"*) echo POSTGRES_USER=repo ;;\n'
-        "  *pg_database*) echo 1 ;;\n"
+        "  *pg_database*) echo repo_test; echo repo_test_demo ;;\n"
         "esac\n",
         encoding="utf-8",
     )
@@ -564,3 +619,116 @@ def test_a_bind_mount_merely_sharing_a_prefix_is_not_capture(doctor, tmp_path):
     )
 
     assert doctor.check_worktree(worktree, [], docker=docker) == []
+
+
+# ---------------------------------------------------------------------------
+# a worktree can own more than one database (OS#283)
+# ---------------------------------------------------------------------------
+
+
+def _named(hits) -> set[str]:
+    return {hit.detail for hit in hits}
+
+
+def test_check_names_every_database_the_worktree_owns(doctor, tmp_path):
+    """aigranthelper keeps two per checkout, and the second stem shares no prefix.
+
+    Nothing tells the doctor that ``test_research`` is a stem of this repo; both
+    names are found because both were derived from the worktree's own path.
+    """
+    _, worktree = _make_git_repo(tmp_path)
+    docker = _bench_docker("repo_test_demo", RESEARCH)
+
+    named = _named(doctor.database_hits(worktree, docker))
+
+    assert named == {"database repo_test_demo", f"database {RESEARCH}"}
+
+
+def test_teardown_drops_every_database_the_worktree_owns(doctor, tmp_path):
+    """Dropping one and removing the worktree orphans the other forever."""
+    _, worktree = _make_git_repo(tmp_path)
+    events: list[str] = []
+    docker = _bench_docker("repo_test_demo", RESEARCH, events=events)
+
+    rc = doctor.teardown(worktree, [], docker=docker, remove=lambda path: events.append("removed"))
+
+    assert rc == 0
+    assert events == [LISTED, "removed", "dropped repo_test_demo", f"dropped {RESEARCH}"]
+
+
+def test_a_hashed_database_is_found_by_its_digest_suffix(doctor, wdb, tmp_path):
+    """Past 63 bytes the slug is cut away and only the path digest is left to match."""
+    long_name = "os-286-283-teardown-with-a-name-long-enough-to-overflow-the-identifier-limit"
+    _, worktree = _make_git_repo(tmp_path, name=long_name)
+    hashed = wdb.database_name(worktree)
+    digest = hashed.rsplit("_", 1)[1]
+    docker = _bench_docker(hashed, f"test_research_{digest}")
+
+    named = _named(doctor.database_hits(worktree, docker))
+
+    assert not hashed.endswith(wdb.sanitize(long_name)), "not a shortened name — test is vacuous"
+    assert named == {f"database {hashed}", f"database test_research_{digest}"}
+
+
+def test_a_primary_checkout_owns_no_databases(doctor, tmp_path):
+    """The unsuffixed database is the shared bench — reporting it invites its loss."""
+    repo, _ = _make_git_repo(tmp_path)
+    docker = _bench_docker("repo_test_demo")
+
+    assert doctor.database_hits(repo, docker) == []
+    assert doctor.drop_database(repo, docker) == []
+    assert not any("dropdb" in call for call in docker.calls)
+
+
+def test_the_shared_bench_survives_a_worktree_whose_slug_is_the_stem(doctor, tmp_path):
+    """A worktree named ``test`` derives ``_test`` — what every bench name ends with.
+
+    ``grantspider_test`` belongs to another repo on the same container and
+    ``repo_test`` is this repo's own; neither is worktree-owned. The name is
+    ambiguous, so discovery stands down to the one certain name — the extra
+    stem this worktree may also own is knowingly not found, which orphans a
+    database rather than destroying a shared one.
+    """
+    _, worktree = _make_git_repo(tmp_path, name="test")
+    docker = _bench_docker("repo_test_test", "test_research_test")
+
+    named = _named(doctor.database_hits(worktree, docker))
+
+    assert named == {"database repo_test_test"}
+
+
+# ---------------------------------------------------------------------------
+# the removal itself (OS#286)
+# ---------------------------------------------------------------------------
+
+
+def test_new_session_scaffolding_does_not_block_the_removal(doctor, tmp_path):
+    """The launcher's own untracked ``.venv`` symlink and ``.envrc`` refused every teardown."""
+    _, worktree = _make_git_repo(tmp_path)
+    (worktree / ".envrc").write_text('export PYTHONPATH="$PWD/src"\n', encoding="utf-8")
+
+    doctor.remove_worktree(worktree)
+
+    assert not worktree.exists()
+
+
+def test_an_unexpected_untracked_file_still_refuses_the_removal(doctor, tmp_path):
+    """``--force`` would discard real work — the loss this family exists to prevent."""
+    _, worktree = _make_git_repo(tmp_path)
+    (worktree / "notes.md").write_text("a session's uncommitted work\n", encoding="utf-8")
+
+    with pytest.raises(doctor.WorktreeRemovalRefused):
+        doctor.remove_worktree(worktree)
+
+    assert (worktree / "notes.md").read_text(encoding="utf-8") == "a session's uncommitted work\n"
+
+
+def test_a_real_venv_directory_is_never_deleted_as_scaffolding(doctor, tmp_path):
+    """The launcher writes a symlink; a private venv is an environment, not scaffolding."""
+    _, worktree = _make_git_repo(tmp_path)
+    (worktree / ".venv").unlink()
+    (worktree / ".venv" / "bin").mkdir(parents=True)
+
+    doctor.clear_launcher_scaffolding(worktree)
+
+    assert (worktree / ".venv" / "bin").is_dir()

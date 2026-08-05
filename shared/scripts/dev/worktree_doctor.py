@@ -28,6 +28,12 @@ the capture happened weeks earlier. Hence ``check`` before the removal.
 shebangs and ``.pth`` entries, and it *reports* — never performs — anything
 needing docker state changes or root. Those get the exact command to run, and a
 human decides.
+
+``teardown`` is the one verb that changes state, and it runs in strict order of
+recoverability: check what still points here, name the databases the worktree
+owns, remove the worktree, and only then drop them. Everything that can fail
+happens before anything that cannot be undone, so a teardown that stops halfway
+has destroyed nothing.
 """
 
 from __future__ import annotations
@@ -62,9 +68,21 @@ DATABASE_OWNED = "worktree-database"
 # (OS#278). ``postgres`` is created by the official image on every bootstrap.
 MAINTENANCE_DB = "postgres"
 
+#: What ``new-session.sh`` writes into every worktree it creates: a symlink to
+#: the primary checkout's venv, and a direnv file. Neither is tracked, and
+#: neither is reliably ignored — a ``.venv/`` pattern matches a directory but
+#: not the symlink git sees as a file — so git counts them as untracked and
+#: refuses the removal. The tool's own scaffolding blocked its own teardown on
+#: every worktree it had ever created (OS#286).
+LAUNCHER_ARTIFACTS = (".venv", ".envrc")
+
 # The docker seam: a callable taking an argv tail and returning stdout, or None
 # when docker is absent or unhappy. Injected so tests never need a daemon.
 DockerRunner = Callable[[list[str]], "str | None"]
+
+
+class WorktreeRemovalRefused(RuntimeError):
+    """``git worktree remove`` declined — uncommitted work, or a held lock."""
 
 
 @dataclass(frozen=True)
@@ -79,6 +97,13 @@ class Hit:
 
 def format_hit(hit: Hit) -> str:
     return f"{hit.kind}: {hit.where}\n    references: {hit.detail}\n    breaks:     {hit.breaks}"
+
+
+def report_capture(worktree: Path, hits: Sequence[Hit], verdict: str) -> None:
+    """Print what still points at ``worktree`` — the same account for both verbs."""
+    print(f"{len(hits)} reference(s) to {worktree} — {verdict}:\n")
+    print("\n\n".join(format_hit(hit) for hit in hits))
+    print("\nRun `worktree_doctor.py repair` first, or accept the breakage knowingly.")
 
 
 # ---------------------------------------------------------------------------
@@ -371,46 +396,95 @@ def postgres_containers(docker: DockerRunner) -> list[tuple[str, str]]:
     return found
 
 
-def _database_name(worktree: Path, name: str | None) -> str | None:
-    if name is not None:
-        return name
+@dataclass(frozen=True)
+class Ownership:
+    """Which database names one worktree owns — the only names teardown may drop.
+
+    A worktree can own more than one: aigranthelper keeps two per checkout, and
+    the second stem (``test_research``) shares no prefix with the project name.
+    The doctor cannot be told them — this file is a byte-identical copy in every
+    repo, so per-repo configuration is not available to it. What every database
+    a worktree owns *does* share is the derivation in ``worktree_db.derive``:
+
+    * a short name gets ``_<slug>`` appended verbatim;
+    * a name that overflowed the 63-byte identifier limit gets ``_<digest>``,
+      the digest taken over the worktree's path.
+
+    Both are computable from the worktree alone, so matching on the suffix finds
+    every database it owns with no per-repo knowledge at all.
+    """
+
+    #: A name the caller supplied outright — matched exactly, nothing derived.
+    exact: str | None = None
+    #: The suffixes ``worktree_db.derive`` can append for this worktree.
+    suffixes: tuple[str, ...] = ()
+
+    def owns(self, database: str) -> bool:
+        if self.exact is not None:
+            return database == self.exact
+        return any(database.endswith(suffix) for suffix in self.suffixes)
+
+
+#: A tree with no worktree-owned databases at all: a primary checkout, or a repo
+#: that has not picked up ``worktree_db.py``.
+UNOWNED = Ownership()
+
+
+def _ownership(worktree: Path) -> Ownership:
+    """The names ``worktree`` owns, derived from its path — see :class:`Ownership`.
+
+    A tree that is not a *linked* worktree owns nothing. The primary checkout's
+    unsuffixed database is the shared bench every session gates against;
+    reporting it as state teardown drops would be an invitation to destroy it.
+    """
     module = _load_worktree_db()
-    if module is None:
-        return None
-    try:
-        return module.database_name(worktree)
-    except FileNotFoundError:
-        return None
+    if module is None or not module.is_linked_worktree(worktree):
+        return UNOWNED
+    root = module.toplevel(worktree) or worktree
+    slug = module.sanitize(root.name)
+    if not slug:
+        return UNOWNED
+    if f"_{slug}" == module.SUFFIX:
+        # A worktree named `test` derives the very suffix every *bench* name
+        # ends with — `<project>_test`, for this repo and for every other repo
+        # sharing the container. Nothing in the name distinguishes the two, so
+        # rather than guess, the doctor claims only the one name it is certain
+        # of and discovers no further stems.
+        return Ownership(exact=module.database_name(worktree))
+    return Ownership(suffixes=(f"_{slug}", f"_{module.path_digest(str(root))}"))
+
+
+#: Every database the server knows. The doctor filters the listing itself, since
+#: what a worktree owns is a question about its path, not one postgres can answer.
+LIST_DATABASES = "SELECT datname FROM pg_database"
+
+
+def _psql(container: str, user: str, sql: str) -> list[str]:
+    """A ``docker exec`` argv running one query through the maintenance database."""
+    return ["exec", container, "psql", "-U", user, "-d", MAINTENANCE_DB, "-tAc", sql]
+
+
+def _listed(answer: str | None) -> list[str]:
+    """The database names in a ``psql -tA`` listing, in a stable order."""
+    return sorted(line.strip() for line in (answer or "").splitlines() if line.strip())
 
 
 def _holders(worktree: Path, docker: DockerRunner, name: str | None) -> list[tuple[str, str, str]]:
-    """``(container, superuser, database)`` for every container holding the database."""
-    database = _database_name(worktree, name)
-    if not database:
+    """``(container, superuser, database)`` for every database ``worktree`` owns.
+
+    Listing every database and filtering here — rather than asking after one
+    name — is what lets a worktree own N of them without the doctor knowing any
+    repo's stems. See :class:`Ownership`.
+    """
+    ownership = Ownership(exact=name) if name is not None else _ownership(worktree)
+    if ownership == UNOWNED:
         return []
     held = []
     for container, user in postgres_containers(docker):
-        answer = docker(
-            [
-                "exec",
-                container,
-                "psql",
-                "-U",
-                user,
-                # Without ``-d``, libpq connects to a database named after the
-                # user — which no estate container has, since POSTGRES_DB is
-                # ``<project>_test`` and POSTGRES_USER is ``<project>``. The
-                # probe then fails to connect and every worktree reads as
-                # database-free (OS#278). ``postgres`` is the maintenance
-                # database the official image always creates.
-                "-d",
-                MAINTENANCE_DB,
-                "-tAc",
-                f"SELECT 1 FROM pg_database WHERE datname = '{database}'",
-            ]
+        listing = _listed(docker(_psql(container, user, LIST_DATABASES)))
+        held.extend(
+            (container, user, database) for database in listing if ownership.owns(database)
         )
-        if (answer or "").strip() == "1":
-            held.append((container, user, database))
     return held
 
 
@@ -433,14 +507,23 @@ def database_hits(
 
 
 def drop_database(worktree: Path, docker: DockerRunner, name: str | None = None) -> list[str]:
-    """Drop the worktree's database; return what was dropped.
+    """Name every database the worktree owns and drop them; return what went."""
+    return drop_held(_holders(worktree, docker, name), docker)
+
+
+def drop_held(held: Iterable[tuple[str, str, str]], docker: DockerRunner) -> list[str]:
+    """Drop already-named databases; return what was dropped.
+
+    Separate from the naming because teardown must name them *before* the
+    worktree goes and drop them *after* — every name is derived from the
+    worktree's path, so nothing can work them out once it has been removed.
 
     Unlike ``repair`` — which reports docker work rather than doing it — this is
     reached only through an explicit ``teardown``, where dropping the database
     is the whole point of the verb. Nothing else on the container is touched.
     """
     dropped = []
-    for container, user, database in _holders(worktree, docker, name):
+    for container, user, database in held:
         # ``--maintenance-db`` for the same reason as the probe's ``-d``, with
         # one addition: a client cannot drop the database it is connected to.
         docker(
@@ -559,14 +642,43 @@ def skeleton_report(repo: Path, is_root_owned: Callable[[Path], bool] = is_root_
     return report
 
 
+def clear_launcher_scaffolding(worktree: Path) -> list[str]:
+    """Delete only what ``new-session.sh`` wrote, so it cannot block the removal.
+
+    Deliberately not ``--force``: that discards uncommitted work, the exact loss
+    this family exists to prevent. Only the launcher's own symlink and file go —
+    a real ``.venv`` *directory* is left alone, because the launcher never
+    writes one and deleting a whole environment is no longer scaffolding. Every
+    other untracked file still refuses the removal.
+    """
+    cleared = []
+    for artifact in LAUNCHER_ARTIFACTS:
+        path = worktree / artifact
+        if path.is_symlink() or path.is_file():
+            path.unlink()
+            cleared.append(artifact)
+    return cleared
+
+
 def remove_worktree(worktree: Path) -> None:
-    """``git worktree remove`` — run from the checkout that owns the worktree."""
+    """``git worktree remove`` — run from the checkout that owns the worktree.
+
+    A refusal raises :class:`WorktreeRemovalRefused`, carrying git's own reason,
+    rather than a raw ``CalledProcessError``: the operator is being told their
+    work is uncommitted, which is a message, not a traceback.
+    """
+    clear_launcher_scaffolding(worktree)
     owner = primary_checkout(worktree) or worktree.parent
-    subprocess.run(  # list-form argv, no shell
+    result = subprocess.run(  # list-form argv, no shell
         ["git", "-C", str(owner), "worktree", "remove", str(worktree)],
-        check=True,
+        capture_output=True,
+        text=True,
         timeout=60,
+        check=False,
     )
+    if result.returncode != 0:
+        reason = result.stderr.strip() or result.stdout.strip()
+        raise WorktreeRemovalRefused(reason or f"git worktree remove {worktree} failed")
 
 
 def teardown(
@@ -576,26 +688,27 @@ def teardown(
     remove: Callable[[Path], None] = remove_worktree,
     name: str | None = None,
 ) -> int:
-    """Check, drop the worktree's database, then remove it. Non-zero means refused.
+    """Check, remove the worktree, then drop what it owned. Non-zero means refused.
 
-    The order is the point. Capture is checked first and stops everything, so a
-    refused teardown changes nothing at all — no database dropped, no worktree
-    gone. Only once nothing else points here does the doctor touch state.
-
-    This is the one verb that acts on docker rather than reporting it: dropping
-    the database *is* the teardown, and it is reached only by asking for one.
+    Most recoverable step first, irreversible last — the ordering rule in the
+    module docstring. The databases are *named* before the removal, because
+    every name is derived from the worktree's path; they are *dropped* after it,
+    because a removal git refuses must cost nothing (OS#286).
     """
     hits = check_worktree(worktree, venvs, docker=docker)
     if hits:
-        print(f"{len(hits)} reference(s) to {worktree} — teardown refused:\n")
-        print("\n\n".join(format_hit(hit) for hit in hits))
-        print("\nRun `worktree_doctor.py repair` first, or accept the breakage knowingly.")
+        report_capture(worktree, hits, "teardown refused")
         return 1
-    if docker is not None:
-        for dropped in drop_database(worktree, docker, name=name):
-            print(f"dropped {dropped}")
-    remove(worktree)
+    held = _holders(worktree, docker, name) if docker is not None else []
+    try:
+        remove(worktree)
+    except WorktreeRemovalRefused as refused:
+        print(f"{worktree} was not removed — nothing was dropped:\n\n    {refused}")
+        return 1
     print(f"removed {worktree}")
+    if docker is not None:
+        for dropped in drop_held(held, docker):
+            print(f"dropped {dropped}")
     return 0
 
 
@@ -630,9 +743,7 @@ def _check(args: argparse.Namespace) -> int:
             print()
     if not hits:
         return 0
-    print(f"{len(hits)} reference(s) to {worktree} — removing it now would break them:\n")
-    print("\n\n".join(format_hit(hit) for hit in hits))
-    print("\nRun `worktree_doctor.py repair` first, or accept the breakage knowingly.")
+    report_capture(worktree, hits, "removing it now would break them")
     return 1
 
 
@@ -674,7 +785,9 @@ def build_parser() -> argparse.ArgumentParser:
     repair.add_argument("--no-docker", action="store_true", help="skip the docker query")
     repair.set_defaults(func=_repair)
 
-    down = sub.add_parser("teardown", help="check, drop the worktree's database, remove it")
+    down = sub.add_parser(
+        "teardown", help="check, remove the worktree, then drop the databases it owned"
+    )
     down.add_argument("worktree", help="the worktree to remove")
     down.add_argument(
         "--repo", help="checkout whose venv to scan (default: derive from the worktree)"
