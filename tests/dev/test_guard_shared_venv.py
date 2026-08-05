@@ -126,6 +126,101 @@ def test_mutating_verb_named(guard):
 
 
 # ---------------------------------------------------------------------------
+# Command substitution — both spellings are a command position (#298).
+# The backtick form evaded the guard completely: the lexer leaves the tick glued
+# to the word beside it, so argv[0] read as "`uv" and matched no verb at all.
+# Every guarded verb was bypassable this way, not just one.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "`uv sync`",
+        "`uv run pytest`",
+        "`uv pip install -e .`",
+        "`uv venv`",
+        "`uv add httpx`",
+        "`uv lock --upgrade`",
+        "echo `uv sync`",
+        "cd /tmp/x && `uv sync`",
+        # Adjacent substitutions — the second must be caught as well as the first.
+        "`uv sync` && `uv venv`",
+        "echo hi `uv sync`&&`uv venv`",
+        # Nested, with the inner ticks escaped as the shell requires.
+        "echo `echo \\`uv sync\\``",
+        # A leading assignment that is not the override must not excuse it.
+        "FOO=bar `uv sync`",
+    ],
+)
+def test_backtick_substitution_is_a_command_position(guard, cmd):
+    assert guard.is_env_mutating(cmd) is True
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "$(uv sync)",
+        "$(uv run pytest)",
+        "$(uv pip install -e .)",
+        "echo $(uv sync)",
+    ],
+)
+def test_dollar_paren_substitution_stays_a_command_position(guard, cmd):
+    """The spelling that already worked — held against regression by the tick fix."""
+    assert guard.is_env_mutating(cmd) is True
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        # Quoted, so the text is passed along rather than run.
+        'echo "`uv sync`"',
+        "echo '`uv sync`'",
+        'printf "run `uv sync` first\\n"',
+        'grep "`uv pip install`" notes.md',
+    ],
+)
+def test_quoted_backtick_is_prose_not_an_invocation(guard, cmd):
+    """Firing on documentation is what teaches people to reach for the override."""
+    assert guard.is_env_mutating(cmd) is False
+
+
+def test_backtick_verb_is_named_like_any_other(guard):
+    assert guard.mutating_verb("`uv pip install -e .`") == "uv pip install"
+    assert guard.mutating_verb("`uv run pytest`") == "uv run"
+    assert guard.mutating_verb("`uv run --no-sync pytest`") is None
+
+
+def test_override_written_outside_a_backtick_still_overrides(guard):
+    """The assignment sits in the enclosing command; the intent is unmistakable."""
+    assert guard.has_override("CLAUDE_ALLOW_SHARED_VENV_MUTATION=1 `uv sync`") is True
+
+
+def test_quoted_backtick_override_mention_still_does_not_count(guard):
+    """Carrying assignments into a substitution must not carry a quoted mention."""
+    assert guard.has_override('echo "CLAUDE_ALLOW_SHARED_VENV_MUTATION=1" && `uv sync`') is False
+
+
+def test_backtick_mutation_is_blocked_in_a_shared_venv_tree(guard, tmp_path):
+    """End to end: the shape that reached the venv unguarded now names it."""
+    primary = tmp_path / "primary"
+    (primary / ".venv").mkdir(parents=True)
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+    (worktree / ".venv").symlink_to(primary / ".venv")
+    expected = str((primary / ".venv").resolve())
+    assert guard.blocked_venv("`uv sync`", str(worktree)) == expected
+
+
+def test_backtick_mutation_is_allowed_in_a_primary_checkout(guard, tmp_path):
+    """A tree owning its venv rebinds nothing, whatever the spelling."""
+    primary = tmp_path / "primary"
+    (primary / ".venv").mkdir(parents=True)
+    assert guard.blocked_venv("`uv sync`", str(primary)) is None
+
+
+# ---------------------------------------------------------------------------
 # `uv run` — the sync it performs before running the command is the mutation,
 # so only an explicit opt-out stands it down.
 # ---------------------------------------------------------------------------
