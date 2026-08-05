@@ -26,29 +26,31 @@ guard hook ripples into every other repo.
 
 ### Test / Gaudi commands (exact)
 
-There is **no CI** (no `.github/workflows/` — intentionally off across the estate
-for cost conservation) and **no ruff** (the `[tool.ruff]` block in `pyproject.toml`
-is vestigial; ruff is not installed). The gates are **pytest + gaudi**. Run both
-before pushing and report the results in the PR body:
+There is **no ruff** (the `[tool.ruff]` block in `pyproject.toml` is vestigial;
+ruff is not installed). The local gates are **pytest + gaudi**. Run both before
+pushing and report the results in the PR body:
 
 ```bash
 # In a worktree, invoke via .venv/bin/<tool> — NOT `uv run`, which re-points the
 # shared editable install at the worktree (see gotchas).
-.venv/bin/python -m pytest          # 185 tests under tests/
+.venv/bin/python -m pytest          # 999 tests: 804 under tests/, 195 under shared/
 .venv/bin/gaudi check src/ --severity warn --exit-code
 ```
 
-Gaudi is enforced as a `pre-commit` hook (`uv run gaudi check --exit-code
---severity warn`). The dispatch **playbook compares a gaudi baseline (origin) vs
-your worktree and only blocks on NEW findings** — follow it. A pre-existing
-`SMELL-005` in `src/oversteward/gather.py:20` (`MUTABLE_SHARED_FILES`) is baseline
-noise; do not treat it as your regression. `line-length = 100` (config only).
+Gaudi is enforced at commit time by the `gaudi-errors` `pre-commit` hook, which
+runs `python scripts/lint/gaudi_check_files.py` — severity `error`, changed
+Python files only. The dispatch **playbook compares a gaudi baseline (origin) vs
+your worktree and only blocks on NEW findings** — follow it. `master` is not
+warn-clean; take the baseline from origin rather than trusting any count written
+here. `line-length = 100` (config only).
 
 ### CI check names
 
-**None.** No GitHub Actions. Do not wait for checks — there are none. Your local
-pytest + gaudi run IS the verification. Auto-merge still applies once the PR is
-approved/mergeable.
+One: **`check`** (workflow `CI`, `.github/workflows/ci.yml`), which runs `gaudi
+check . --severity error --exit-code` then `pytest -q` on every PR to `master`.
+It is deliberately **not** a required status check — local gates are primary, CI
+is the watchdog — so auto-merge does not wait for it. It does run, though: a red
+`check` on your PR is yours to fix, not noise to merge past.
 
 ## Repo-Specific Denylist
 
