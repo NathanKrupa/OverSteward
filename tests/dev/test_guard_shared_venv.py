@@ -58,6 +58,10 @@ def guard():
         "cd /tmp/x\nuv sync",
         "uv lock --upgrade-package httpx",
         "cd /tmp/x&&uv sync",
+        # `uv run` syncs the project environment first, so it rebinds too.
+        "uv run pytest",
+        "uv run python -m pytest",
+        "uv run --extra dev pytest",
     ],
 )
 def test_env_mutating_detected(guard, cmd):
@@ -67,8 +71,6 @@ def test_env_mutating_detected(guard, cmd):
 @pytest.mark.parametrize(
     "cmd",
     [
-        "uv run pytest",
-        "uv run python -m pytest",
         "uv pip list",
         "uv pip show httpx",
         "uv pip freeze",
@@ -76,6 +78,9 @@ def test_env_mutating_detected(guard, cmd):
         "uv lock --check",
         "uv tree",
         "uv --version",
+        # `uv tool run` / uvx use an ephemeral env, never the project's.
+        "uv tool run ruff check .",
+        "uvx ruff check .",
         "pytest",
         "git status",
         "echo 'uv sync'",
@@ -116,7 +121,65 @@ def test_quoted_mention_is_not_an_invocation(guard, cmd):
 def test_mutating_verb_named(guard):
     assert guard.mutating_verb("cd /tmp && uv pip install -e .") == "uv pip install"
     assert guard.mutating_verb("uv sync --extra dev") == "uv sync"
-    assert guard.mutating_verb("uv run pytest") is None
+    assert guard.mutating_verb("uv run pytest") == "uv run"
+    assert guard.mutating_verb("uv run --no-sync pytest") is None
+
+
+# ---------------------------------------------------------------------------
+# `uv run` — the sync it performs before running the command is the mutation,
+# so only an explicit opt-out stands it down.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "uv run --no-sync pytest",
+        "uv run --no-sync python -m pytest",
+        "UV_NO_SYNC=1 uv run pytest",
+        "UV_NO_SYNC=true uv run pytest",
+        "UV_NO_SYNC=yes uv run pytest",
+        "cd /tmp/x && UV_NO_SYNC=1 uv run pytest",
+    ],
+)
+def test_uv_run_with_the_sync_disabled_is_allowed(guard, cmd):
+    assert guard.is_env_mutating(cmd) is False
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        # A value uv does not read as true leaves the sync on.
+        "UV_NO_SYNC=0 uv run pytest",
+        "UV_NO_SYNC=false uv run pytest",
+        "UV_NO_SYNC= uv run pytest",
+        # The opt-out has to be this command's own, not a quoted mention.
+        "echo 'UV_NO_SYNC=1' && uv run pytest",
+        # Command position, not raw text.
+        "foo && uv run pytest",
+        "$(uv run pytest)",
+    ],
+)
+def test_uv_run_without_a_real_opt_out_is_refused(guard, cmd):
+    assert guard.mutating_verb(cmd) == "uv run"
+
+
+def test_uv_run_is_allowed_when_no_sync_is_exported(guard, monkeypatch):
+    """What ``new-session.sh`` writes into a shared-venv worktree's .envrc."""
+    monkeypatch.setenv("UV_NO_SYNC", "1")
+    assert guard.is_env_mutating("uv run pytest") is False
+
+
+def test_exported_no_sync_is_overridden_by_the_command_s_own_assignment(guard, monkeypatch):
+    """A ``VAR=value`` prefix wins over the export, exactly as the shell does."""
+    monkeypatch.setenv("UV_NO_SYNC", "1")
+    assert guard.mutating_verb("UV_NO_SYNC=0 uv run pytest") == "uv run"
+
+
+def test_no_sync_does_not_excuse_the_other_verbs(guard):
+    """``uv sync --no-sync`` is not a thing; the flag must not become a skeleton key."""
+    assert guard.mutating_verb("UV_NO_SYNC=1 uv sync") == "uv sync"
+    assert guard.mutating_verb("uv pip install --no-sync -e .") == "uv pip install"
 
 
 # ---------------------------------------------------------------------------
@@ -211,6 +274,14 @@ def test_refusal_message_names_verb_target_and_override(guard):
     assert "removed" in message
 
 
+def test_uv_run_refusal_names_both_opt_outs_and_the_direct_entry_point(guard):
+    """A guard that blocks without naming the remedy just trains the override."""
+    message = guard.refusal_message("uv run", "/home/u/repo/.venv")
+    assert "uv run --no-sync" in message
+    assert "UV_NO_SYNC=1 uv run" in message
+    assert ".venv/bin/<tool>" in message
+
+
 # ---------------------------------------------------------------------------
 # blocked_venv — the glued decision, naming the venv that would be damaged
 # ---------------------------------------------------------------------------
@@ -227,8 +298,10 @@ def shared_tree(tmp_path):
 
 
 @pytest.fixture(autouse=True)
-def _no_ambient_override(monkeypatch):
+def _no_ambient_variables(monkeypatch):
+    """Both switches start unset, so a session that exports one cannot green a test."""
     monkeypatch.delenv("CLAUDE_ALLOW_SHARED_VENV_MUTATION", raising=False)
+    monkeypatch.delenv("UV_NO_SYNC", raising=False)
 
 
 def test_blocks_mutation_in_shared_venv_tree(guard, shared_tree, tmp_path):
@@ -237,7 +310,32 @@ def test_blocks_mutation_in_shared_venv_tree(guard, shared_tree, tmp_path):
 
 
 def test_allows_read_only_command_in_shared_venv_tree(guard, shared_tree):
-    assert guard.blocked_venv("uv run pytest", shared_tree) is None
+    assert guard.blocked_venv("uv pip list", shared_tree) is None
+
+
+def test_blocks_bare_uv_run_in_shared_venv_tree(guard, shared_tree, tmp_path):
+    expected = str((tmp_path / "primary" / ".venv").resolve())
+    assert guard.blocked_venv("uv run pytest", shared_tree) == expected
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "uv run --no-sync pytest",
+        "UV_NO_SYNC=1 uv run pytest",
+        ".venv/bin/pytest",
+        "CLAUDE_ALLOW_SHARED_VENV_MUTATION=1 uv run pytest",
+    ],
+)
+def test_allows_the_sanctioned_ways_to_run_a_tool_in_shared_venv_tree(guard, shared_tree, cmd):
+    assert guard.blocked_venv(cmd, shared_tree) is None
+
+
+def test_allows_bare_uv_run_in_primary_checkout(guard, tmp_path):
+    """A tree owning its venv rebinds nothing — the guard must stay out of the way."""
+    primary = tmp_path / "primary"
+    (primary / ".venv").mkdir(parents=True)
+    assert guard.blocked_venv("uv run pytest", str(primary)) is None
 
 
 def test_allows_grep_for_the_guarded_phrase_in_shared_venv_tree(guard, shared_tree):

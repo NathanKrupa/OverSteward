@@ -18,14 +18,28 @@ Core rules: `~/.claude/CLAUDE.md`
 
 ## Python Environment
 
-**Use the project venv** (uv-managed) for running Python commands:
+**Use the project venv** (uv-managed) for running Python commands. Which form
+depends on which tree you are in:
+
 ```bash
+# In the PRIMARY checkout — it owns .venv, so uv's implicit sync is harmless:
 uv run python <script>
 uv run python -m <module>
 uv run pytest
+
+# In a session WORKTREE — its .venv is a symlink to the primary's:
+.venv/bin/python <script>
+.venv/bin/pytest
 ```
 
 `uv` auto-creates `.venv/` from `pyproject.toml` on first invocation; subsequent `uv run` calls implicitly activate it. No need to `source .venv/bin/activate` manually.
+
+That implicit sync is exactly why bare `uv run` is wrong in a worktree — it
+rebinds the *shared* venv to the worktree, so the primary checkout starts
+importing a session branch's source. `guard_shared_venv.py` refuses it there
+(see § Session worktree discipline); `uv run --no-sync` and `UV_NO_SYNC=1 uv
+run` are allowed, and `new-session.sh` exports `UV_NO_SYNC=1` in the worktree's
+`.envrc` so direnv users never notice.
 
 Bootstrap on a fresh checkout:
 ```bash
@@ -50,13 +64,21 @@ rebase) prefix the command with `CLAUDE_ALLOW_MAIN_GIT=1`.
 A worktree's `.venv` is a symlink to the primary's, so the two share one
 environment. The `.claude/hooks/guard_shared_venv.py` `PreToolUse(Bash)` hook
 **refuses env-mutating `uv` commands** (`uv sync`, `uv venv`, `uv add`, `uv
-remove`, `uv pip install/uninstall`, `uv lock --upgrade`) from a tree whose
-`.venv` is a symlink resolving outside it — uv would stamp the worktree's path
-into the shared venv's console-script shebangs and its `__editable__*.pth`,
-breaking every entry point in every checkout the moment the worktree is pruned.
-`uv run` and read-only `uv pip list/show/freeze` are untouched, and a primary
-checkout (real `.venv` directory) never trips it. Deliberate installs prefix the
-command with `CLAUDE_ALLOW_SHARED_VENV_MUTATION=1`.
+remove`, `uv pip install/uninstall`, `uv lock --upgrade`, and bare `uv run`)
+from a tree whose `.venv` is a symlink resolving outside it — uv would stamp the
+worktree's path into the shared venv's console-script shebangs and its
+`__editable__*.pth`, breaking every entry point in every checkout the moment the
+worktree is pruned. Read-only `uv pip list/show/freeze` are untouched, and a
+primary checkout (real `.venv` directory) never trips it. Deliberate installs
+prefix the command with `CLAUDE_ALLOW_SHARED_VENV_MUTATION=1`.
+
+**`uv run` is on that list because it syncs the project environment before it
+runs anything** — that sync is the rebind, even for a read-only command like a
+test run. In a worktree, run tools as `.venv/bin/<tool>` (preferred, and never
+syncs) or disable the sync explicitly: `uv run --no-sync <cmd>`, or
+`UV_NO_SYNC=1 uv run <cmd>`. `new-session.sh` writes `export UV_NO_SYNC=1` into
+a shared-venv worktree's `.envrc`, so a direnv session is covered without
+thinking about it.
 
 **Tear the worktree down through the doctor, never blind.** A shared venv or a
 docker compose project can have captured the worktree's path weeks earlier, and
@@ -170,9 +192,10 @@ Drift-prevention rules for the primary checkout:
 
 **When looking for a CLI tool, script, or entry point — read `data/tool_registry.md` first.**
 
-Regenerate after adding/removing tools:
+Regenerate after adding/removing tools (`.venv/bin/python`, so it is the same
+command in the primary checkout and in a worktree):
 ```bash
-uv run python scripts/tools/generate_tool_registry.py
+.venv/bin/python scripts/tools/generate_tool_registry.py
 ```
 
 ## Sync Instructions (Phase 1 — Manual)

@@ -14,10 +14,21 @@ bad install rather than a cross-tree collision.
 
 So: refuse the uv verbs that rewrite a venv in place (``sync``, ``venv``,
 ``add``, ``remove``, ``pip install``, ``pip uninstall``, ``lock --upgrade``)
-when this tree's ``.venv`` is a symlink resolving outside the tree. Reads and
-executions are untouched — ``uv run`` and ``uv pip list/show/freeze`` are fine,
-and a tree with a real ``.venv`` directory (every primary checkout) never trips
-the guard.
+when this tree's ``.venv`` is a symlink resolving outside the tree. Reads are
+untouched — ``uv pip list/show/freeze`` are fine — and a tree with a real
+``.venv`` directory (every primary checkout) never trips the guard.
+
+``uv run`` is refused too, which is the least obvious entry on that list.
+Running a command is not the mutation; the *sync* uv performs first is.
+``uv run`` syncs the project environment before it executes anything — that is
+why uv documents ``--no-sync`` and ``UV_NO_SYNC`` — so a bare ``uv run`` from a
+borrowing tree rebinds the shared venv exactly as ``uv sync`` would, for a
+command as harmless-looking as a test run. Observed in the wild: a repo's
+shared venv bound to a throwaway dispatch checkout under ``/tmp`` while its
+primary checkout silently imported that agent's source. An invocation that
+disables the sync (``uv run --no-sync``, or ``UV_NO_SYNC=1`` set on the command
+or exported — ``new-session.sh`` writes it into a shared-venv worktree's
+``.envrc``) mutates nothing and is allowed.
 
 The escape hatch matches the family convention
 (``CLAUDE_ALLOW_MAIN_GIT=1``): ``CLAUDE_ALLOW_SHARED_VENV_MUTATION=1``, honored
@@ -42,8 +53,17 @@ import shlex
 import subprocess  # list-form argv, no shell; cwd is the only input
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 _OVERRIDE_VAR = "CLAUDE_ALLOW_SHARED_VENV_MUTATION"
+
+# uv's own opt-out for the implicit sync ``uv run`` performs.
+_NO_SYNC_VAR = "UV_NO_SYNC"
+
+# What uv reads as "yes" for a boolean flag taken from the environment. An
+# empty or unrecognised value leaves the flag off, so the sync still happens
+# and the guard must still refuse.
+_TRUE_VALUES = frozenset({"1", "y", "yes", "t", "true", "on"})
 
 # Tokens that end one simple command and start the next, so the token after
 # them sits in command position. Grouping and substitution parens count.
@@ -53,17 +73,30 @@ _SEPARATORS = frozenset({";", ";;", "&", "&&", "|", "||", "|&", "(", ")", "{", "
 # not displace the command position, so a run of them is skipped over.
 _ASSIGNMENT = re.compile(r"[A-Za-z_]\w*=")
 
-# Verb label -> the argv after ``uv``, plus a flag prefix the argv must also
-# carry. ``uv lock`` alone only rewrites the lockfile; only ``--upgrade``
-# (and ``--upgrade-package``) re-resolves and re-installs.
-_MUTATING_VERBS: tuple[tuple[str, tuple[str, ...], str | None], ...] = (
-    ("uv pip install", ("pip", "install"), None),
-    ("uv pip uninstall", ("pip", "uninstall"), None),
-    ("uv sync", ("sync",), None),
-    ("uv add", ("add",), None),
-    ("uv remove", ("remove",), None),
-    ("uv venv", ("venv",), None),
-    ("uv lock --upgrade", ("lock",), "--upgrade"),
+
+class _Verb(NamedTuple):
+    """One guarded uv invocation: how to recognise it, and what stands it down."""
+
+    label: str
+    prefix: tuple[str, ...]  # the argv immediately after ``uv``
+    required_flag: str | None = None  # counts only when the argv also carries this
+    no_sync_flag: str | None = None  # this flag disables the sync it would do
+    no_sync_var: str | None = None  # this variable, set true, disables it
+
+
+# ``uv lock`` alone only rewrites the lockfile; only ``--upgrade`` (and
+# ``--upgrade-package``) re-resolves and re-installs. ``uv run`` syncs the
+# project environment before running the command, so it belongs here unless the
+# invocation explicitly turns that sync off.
+_MUTATING_VERBS: tuple[_Verb, ...] = (
+    _Verb("uv pip install", ("pip", "install")),
+    _Verb("uv pip uninstall", ("pip", "uninstall")),
+    _Verb("uv sync", ("sync",)),
+    _Verb("uv add", ("add",)),
+    _Verb("uv remove", ("remove",)),
+    _Verb("uv venv", ("venv",)),
+    _Verb("uv lock --upgrade", ("lock",), required_flag="--upgrade"),
+    _Verb("uv run", ("run",), no_sync_flag="--no-sync", no_sync_var=_NO_SYNC_VAR),
 )
 
 
@@ -128,25 +161,73 @@ def _invocations(command: str) -> list[tuple[list[str], list[str]]] | None:
     ]
 
 
-def _verb_of(argv: list[str]) -> str | None:
-    """The env-mutating verb ``argv`` invokes, or None if it is not uv's."""
+def _variable_value(name: str, assignments: list[str]) -> str | None:
+    """``name`` as this invocation sees it: its own leading assignment, else the session's.
+
+    A ``VAR=value`` prefix on the command wins over an export, and the last such
+    prefix wins over an earlier one — which is what the shell itself does.
+    """
+    value = None
+    for assignment in assignments:
+        key, _, candidate = assignment.partition("=")
+        if key == name:
+            value = candidate
+    return os.environ.get(name) if value is None else value
+
+
+def _reads_as_true(value: str | None) -> bool:
+    return value is not None and value.strip().lower() in _TRUE_VALUES
+
+
+def _sync_disabled(verb: _Verb, assignments: list[str], args: list[str]) -> bool:
+    """True if this invocation explicitly turns off the sync ``verb`` would do.
+
+    The flag is matched anywhere in the arguments rather than only within uv's
+    own option region. The guard exists to catch an *accidental* sync; anyone
+    who writes ``--no-sync`` on the line has said what they want, and anyone who
+    means to sync from a borrowing tree has the override.
+    """
+    if verb.no_sync_flag is not None and verb.no_sync_flag in args:
+        return True
+    if verb.no_sync_var is None:
+        return False
+    return _reads_as_true(_variable_value(verb.no_sync_var, assignments))
+
+
+def _verb_of(assignments: list[str], argv: list[str]) -> str | None:
+    """The env-mutating verb ``argv`` invokes, or None if it mutates nothing."""
     if argv[:1] != ["uv"]:
         return None
     args = argv[1:]
-    for label, prefix, flag in _MUTATING_VERBS:
-        if tuple(args[: len(prefix)]) != prefix:
+    for verb in _MUTATING_VERBS:
+        if tuple(args[: len(verb.prefix)]) != verb.prefix:
             continue
-        if flag is None or any(arg.startswith(flag) for arg in args):
-            return label
+        if verb.required_flag is not None and not any(
+            arg.startswith(verb.required_flag) for arg in args
+        ):
+            continue
+        if _sync_disabled(verb, assignments, args):
+            continue
+        return verb.label
     return None
 
 
 def _unlexable_verb(command: str) -> str | None:
     """A conservative scan for text no lexer could parse — err toward refusing."""
-    for label, prefix, flag in _MUTATING_VERBS:
-        phrase = r"\buv\s+" + r"\s+".join(prefix) + r"\b"
-        if re.search(phrase, command) and (flag is None or flag in command):
-            return label
+    for verb in _MUTATING_VERBS:
+        phrase = r"\buv\s+" + r"\s+".join(verb.prefix) + r"\b"
+        if not re.search(phrase, command):
+            continue
+        if verb.required_flag is not None and verb.required_flag not in command:
+            continue
+        if verb.no_sync_flag is not None and verb.no_sync_flag in command:
+            continue
+        if verb.no_sync_var is not None and (
+            f"{verb.no_sync_var}=" in command
+            or _reads_as_true(os.environ.get(verb.no_sync_var))
+        ):
+            continue
+        return verb.label
     return None
 
 
@@ -155,15 +236,15 @@ def mutating_verb(command: str) -> str | None:
     invocations = _invocations(command)
     if invocations is None:
         return _unlexable_verb(command)
-    for _, argv in invocations:
-        verb = _verb_of(argv)
+    for assignments, argv in invocations:
+        verb = _verb_of(assignments, argv)
         if verb is not None:
             return verb
     return None
 
 
 def is_env_mutating(command: str) -> bool:
-    """True if ``command`` runs a uv verb that rewrites a venv in place."""
+    """True if ``command`` runs a uv verb that syncs or rewrites a venv in place."""
     return mutating_verb(command) is not None
 
 
@@ -216,19 +297,37 @@ def blocked_venv(command: str, tree_root: str) -> str | None:
     return shared_venv_target(tree_root)
 
 
+# Verb-specific remedy, shown when the same work has a cheaper route than the
+# override. A guard that blocks without naming the alternative teaches people to
+# reach for the override, which spends its meaning on ordinary work.
+_REMEDIES: dict[str, str] = {
+    "uv run": (
+        "`uv run` syncs the project environment before it runs anything, so the\n"
+        "sync above happens even for a read-only command like a test run. Use the\n"
+        "venv's own entry point, which never syncs:\n"
+        "    .venv/bin/<tool> <args>              # preferred in a worktree\n"
+        "or run uv with the sync turned off:\n"
+        "    uv run --no-sync <command>\n"
+        f"    {_NO_SYNC_VAR}=1 uv run <command>            # or export it (.envrc does)"
+    ),
+}
+
+
 def refusal_message(verb: str, target: str) -> str:
-    """The refusal — names the consequence, not just the rule."""
-    return (
-        f"BLOCKED — `{verb}` in a tree whose .venv is not its own.\n\n"
-        f"This tree's .venv is a symlink to:\n    {target}\n\n"
+    """The refusal — names the consequence and the way out, not just the rule."""
+    paragraphs = [
+        f"BLOCKED — `{verb}` in a tree whose .venv is not its own.",
+        f"This tree's .venv is a symlink to:\n    {target}",
         "uv would rewrite that SHARED venv's console-script shebangs and its\n"
         "editable-install pointer to THIS tree's path — silently breaking every\n"
         "entry point for every checkout on that venv the moment this tree is\n"
         "removed. The damage stays invisible until then, so the eventual failure\n"
-        "looks like a bad install rather than a cross-tree collision.\n\n"
+        "looks like a bad install rather than a cross-tree collision.",
+        *([_REMEDIES[verb]] if verb in _REMEDIES else []),
         "Run it from the checkout that owns the venv instead, or override:\n"
-        f"    {_OVERRIDE_VAR}=1 <your uv command>\n"
-    )
+        f"    {_OVERRIDE_VAR}=1 <your uv command>",
+    ]
+    return "\n\n".join(paragraphs) + "\n"
 
 
 def _tree_root(cwd: str) -> str:
