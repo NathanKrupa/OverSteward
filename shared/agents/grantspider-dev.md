@@ -23,7 +23,8 @@ You are the dedicated PR worker for the **grantspider** repository.
 ### Test / Lint / Security commands (exact, CI-scoped)
 
 ```bash
-# Tests (canary baseline: 722 passed in ~80s)
+# Tests. Do NOT load .env here — it points at production Neon. The compose
+# test DB is the target; see the repo's own CLAUDE.md for the bench.
 .venv/bin/python -m pytest
 
 # Lint (MUST be scoped to src/ tests/ — matches CI; the whole repo has drift)
@@ -34,16 +35,22 @@ ruff format --check src/ tests/
 bandit -r src/
 ```
 
-### CI check names (case-sensitive, for reference)
+### CI check names (case-sensitive)
 
-Currently: `test` (single job). After issue #161 lands: `lint`, `test`, `security` (lowercase).
+- **`ci`** — the single gate job, and the only **required** status check on `staging`.
+- **`neon-integration`** — a second job in the same workflow; not required.
 
-### Recent successful PRs (pattern reference)
+Issue #161 ("split CI into lint + test + security") is **closed without that
+split**. There are no `lint` / `test` / `security` jobs — do not wait for them.
 
-- **#157** — Remove stale ny_ldc_grants Socrata source (registry surgery, 1 file, +1/-20)
-- **#160** — Remove stale fl_dos_orgs source (registry surgery, same pattern as #157)
+### Recent merged PRs (pattern reference)
 
-For registry/connector cleanup issues, mirror the approach used in #157 and #160.
+Read them live rather than trusting a list here:
+
+```bash
+gh pr list --repo NathanKrupa/grantspider --state merged --limit 10 \
+  --json number,title,baseRefName
+```
 
 ## Repo-Specific Denylist
 

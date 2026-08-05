@@ -17,39 +17,62 @@ You are the dedicated PR worker for the **aigranthelper** repository.
 |---|---|
 | Local path | `/home/natha/aigranthelper` (WSL2) |
 | GitHub remote | `NathanKrupa/aigranthelper` |
-| Default branch | `main` |
+| GitHub default branch | `main` — **but every PR bases on `staging`.** `main` is production; work is promoted to it. Branch from `staging` and target `staging`. |
 | Python | 3.14 (matches `requires-python = ">=3.14"` in `pyproject.toml` — use the same) |
 | Stack | Django 6.0, HTMX, Tailwind, Neon Postgres (two-schema), Stripe, Resend, Anthropic/Gemini/OpenAI |
-| Dependency install | `pip install -e ".[dev]"` |
+| Dependency install | `uv sync --extra dev` — the repo is uv-managed (`uv.lock` is tracked). See the caveat below before running it. |
 | Venv location | `.venv/bin/python` |
+
+**`uv sync` prunes the sibling packages.** `grantspider` and `wphelper` are
+installed into this venv but are **not** declared in `pyproject.toml`, so a sync
+removes them. After any `uv sync` here:
+
+```bash
+uv pip install ../grantspider ../wphelper
+```
+
+In a session worktree the venv is shared, so `guard_shared_venv.py` refuses bare
+`uv run` and every env-mutating `uv` verb. Use `.venv/bin/<tool>` (never syncs),
+or `uv run --no-sync` / `UV_NO_SYNC=1 uv run` — which is what CI does.
 
 ### Test / Lint / Security commands (exact, CI-scoped)
 
 ```bash
-# Tests (canary baseline: 443 passed in ~275s)
-.venv/bin/python -m pytest
+# Tests. Needs .env — load it through the sanctioned runner, never `source`:
+scripts/dev/with_test_env.py .venv/bin/python -m pytest
 
-# Lint (ruff + format)
-ruff check apps/ config/ tests/
-ruff format --check apps/ config/ tests/
+# Lint (ruff + format) — CI targets the repo root, not a path list
+uv run --no-sync ruff check .
+uv run --no-sync ruff format --check .
 
-# Security (when issue #144 lands as a standalone job)
-bandit -r apps/ config/
-pip-audit
+# Security — already live in ci-light, not pending an issue
+uv run --no-sync bandit -r apps/ config/ scripts/ -c pyproject.toml
+uv run --no-sync pip-audit --strict .    # CI adds the ignores in scripts/ci/pip-audit-ignores.txt
 ```
 
-### CI check names (case-sensitive — this matters)
+Report the passed/failed counts your run produced. No baseline number is stated
+here on purpose — an absolute count typed into prose is wrong within weeks, and
+a stale one reads as authoritative. A large drop against the count the previous
+PR reported is the signal worth acting on.
 
-- **`Lint`** (capitalized) — required
-- **`Test`** (capitalized) — required
-- **`Security`** (after #144) — will be required post-merge of #144
+### CI jobs
 
-Branch protection uses the capitalized job names. If you create new jobs, match the casing.
+- **`ci-light`** — ruff, the untyped-function ratchet, gaudi (ERROR-only gate) plus its SMELL-003/ARCH-013 ratchets, the boy-scout per-file ratchet, bandit, pip-audit. No database.
+- **`ci-heavy`** — pytest and research-drift against a real `pgvector/pgvector:pg17` service container.
 
-### Recent successful PRs (pattern reference)
+**There are no required status checks on `main` or `staging`.** Branch
+protection does not gate on these jobs — the estate's pre-launch posture is that
+local gates are primary and CI is the watchdog. Do not describe a job as
+"required", and do not wait on one as though a merge depends on it.
 
-- **#142** — Fix invalid ClaudeProvider DEFAULT_MODEL + add identifier allowlist test
-- **#143** — Convert mutable module constants to immutable types (3 suppressions; 8 were already done)
+### Recent merged PRs (pattern reference)
+
+Read them live rather than trusting a list here:
+
+```bash
+gh pr list --repo NathanKrupa/aigranthelper --state merged --limit 10 \
+  --json number,title,baseRefName
+```
 
 ## Repo-Specific Denylist
 
@@ -69,7 +92,7 @@ Branch protection uses the capitalized job names. If you create new jobs, match 
 - **Stripe tests are fully mocked.** A wrong price ID passes unit tests. Adding real Stripe tests needs secrets in CI (not your job unless explicitly asked).
 - **Email provider is Resend via django-anymail.** `RESEND_API_KEY` env var is correct — don't invent variations.
 - **Anthropic model IDs** must match `KNOWN_GOOD_IDENTIFIERS` in `tests/test_model_identifiers.py`. If you need a new model, update both the code and the allowlist in the same PR.
-- **Test DB:** the repo spins a real `pgvector/pgvector:pg16` in CI. Locally your `.venv/bin/python -m pytest` runs against whatever your local DB config points at.
+- **Test DB:** the repo spins a real `pgvector/pgvector:pg17` in CI — pinned in three places (`.github/workflows/ci.yml`, `.github/workflows/bump-gs-pin.yml`, `compose.test.yml`) and they must agree. Locally, `compose.test.yml` serves the same image; one container holds many databases and each checkout owns its own pair, derived only by `scripts/dev/bench.py` (#1426).
 
 ## Repo-Specific PR Body Template
 
