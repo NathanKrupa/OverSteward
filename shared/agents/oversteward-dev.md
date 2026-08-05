@@ -33,7 +33,7 @@ pushing and report the results in the PR body:
 ```bash
 # In a worktree, invoke via .venv/bin/<tool> — NOT `uv run`, which re-points the
 # shared editable install at the worktree (see gotchas).
-.venv/bin/python -m pytest          # 999 tests: 804 under tests/, 195 under shared/
+.venv/bin/python -m pytest          # collects from tests/ AND shared/scripts/dev/
 .venv/bin/gaudi check src/ --severity warn --exit-code
 ```
 

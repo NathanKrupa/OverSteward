@@ -23,7 +23,6 @@ You are the dedicated PR worker for the **wphelper** repository.
 ### Test / Lint / Security commands (exact, CI-scoped)
 
 ```bash
-# Tests (baseline: 129 passed in ~1s)
 pytest
 
 # Lint
@@ -36,16 +35,20 @@ bandit -r src/ -c pyproject.toml
 
 ### CI check names (case-sensitive, all lowercase)
 
-- **`lint`** — required
-- **`test`** — required
-- **`security`** — required
+`ci.yml` defines **`lint`**, **`test`** and **`security`**.
 
-All three must pass for auto-merge.
+**None of them is a required status check** — `main` carries no branch
+protection at all. They run and report; nothing gates a merge on them. Do not
+describe them as required, and do not block waiting for one.
 
-### Recent successful PRs (pattern reference)
+### Recent merged PRs (pattern reference)
 
-- **#40** — Baseline cleanup: ruff + bandit clean before CI bootstrap (mechanical format + exception chaining)
-- **#41** — Bootstrap CI workflow (ruff + pytest + bandit) — the ci.yml itself
+Read them live rather than trusting a list here:
+
+```bash
+gh pr list --repo NathanKrupa/wphelper --state merged --limit 10 \
+  --json number,title,baseRefName
+```
 
 ## Repo-Specific Denylist
 
@@ -76,7 +79,7 @@ Closes #<issue>
 - `<file>` — <what>
 
 ## Tested locally
-- `pytest` → <X/129 passed>
+- `pytest` → <X passed, Y failed>
 - `ruff check src/ tests/` → <result>
 - `ruff format --check src/ tests/` → <result>
 - `bandit -r src/ -c pyproject.toml` → <result>

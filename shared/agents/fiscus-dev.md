@@ -24,7 +24,6 @@ You are the dedicated PR worker for the **fiscus** repository.
 ### Test / Lint / Typecheck / Gaudi commands (exact, CI-scoped)
 
 ```bash
-# Tests (baseline: 25 passed in ~0.25s)
 uv run pytest
 
 # Lint
@@ -50,23 +49,28 @@ uv run python scripts/promotion_lesson_check.py
 
 `make test`, `make lint`, `make typecheck`, `make gaudi`, `make boy-scout-check` are the documented entry points and all route through `uv run`.
 
-### CI check names (case-sensitive)
+### CI — do not wait for it
 
-- **`lint (ruff + format)`** — required
-- **`typecheck (pyright)`** — required
-- **`test (pytest)`** — required
-- **`gaudi (architecture lint)`** — required
-- **`boy-scout rule (per-file gaudi monotonic-down vs main)`** — required
-- **`promotion-lesson check (no promotion without lesson)`** — required (fires only when prompts/ / subjects/ / shared/decisions/ touched)
+**`ci.yml` is `workflow_dispatch` only.** It does not fire on push or on
+pull_request, and `main` carries no required status checks. The workflow's own
+header says so: pre-push hooks are the gate, CI is the same checks re-run on
+demand. An agent that polls for a check here waits forever.
 
-All required-and-firing checks must pass for auto-merge.
+The **pre-push hooks** are the real gate, and they run locally on every push:
+ruff + format, pyright, gaudi-errors, boy-scout, promotion-lesson, pytest. If a
+push is rejected, that is the gate speaking — fix it rather than looking to CI.
 
-### Recent successful PRs (pattern reference)
+The jobs `ci.yml` defines, for when it is dispatched by hand: `lint`,
+`typecheck`, `test`, `gaudi`, `boy-scout`, `promotion-lesson`.
 
-- **#4** — Hygiene scaffold: CODEOWNERS + dependabot config matching the estate pattern
-- **#5** — Matchmaker run-shapes design doc (typed discriminated-union, 8 step payloads, cross-payload invariants)
-- **#9** — GHP-general run-shapes companion doc (8 event-type payloads, same EventPayload base)
-- **#10** — Makefile fix: route python-tool invocations correctly so the env's tools resolve
+### Recent merged PRs (pattern reference)
+
+Read them live rather than trusting a list here:
+
+```bash
+gh pr list --repo NathanKrupa/Fiscus --state merged --limit 10 \
+  --json number,title,baseRefName
+```
 
 ## Repo-Specific Denylist
 
@@ -169,7 +173,7 @@ Closes #<issue>
 - `<file>` — <what>
 
 ## Tested locally
-- `uv run pytest` → <X/25 passed>
+- `uv run pytest` → <X passed, Y failed>
 - `uv run ruff check .` → <result>
 - `uv run ruff format --check .` → <result>
 - `uv run pyright` → <result>
