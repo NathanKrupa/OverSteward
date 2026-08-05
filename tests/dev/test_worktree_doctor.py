@@ -11,18 +11,31 @@ from pathlib import Path
 import pytest
 
 
-def _locate(*relatives: str) -> Path:
-    """Find the first of ``relatives`` that exists above this test file."""
+def _find(*relatives: str) -> Path | None:
+    """The first of ``relatives`` that exists above this test file, or None."""
     for parent in Path(__file__).resolve().parents:
         for relative in relatives:
             candidate = parent / relative
             if candidate.is_file():
                 return candidate
-    raise FileNotFoundError(f"could not locate any of {relatives} above {__file__}")
+    return None
+
+
+def _locate(*relatives: str) -> Path:
+    found = _find(*relatives)
+    if found is None:
+        raise FileNotFoundError(f"could not locate any of {relatives} above {__file__}")
+    return found
 
 
 SCRIPT = _locate("scripts/dev/worktree_doctor.py", "shared/scripts/dev/worktree_doctor.py")
-CANONICAL = _locate("shared/scripts/dev/worktree_doctor.py")
+
+#: Only OverSteward holds the canonical source; a pickup repo has the deployed
+#: copy and no ``shared/`` tree at all. Absence must skip the byte-identity
+#: assertion, not raise at import — a module-scope raise fails COLLECTION, which
+#: takes every other test in this file down with it in exactly the repos the
+#: family exists to serve.
+CANONICAL = _find("shared/scripts/dev/worktree_doctor.py")
 
 
 @pytest.fixture(scope="module")
@@ -139,12 +152,19 @@ def test_check_is_silent_and_clean_for_an_uncaptured_worktree(tmp_path):
 
 def test_check_detects_a_compose_project_stamped_on_a_container(doctor, tmp_path):
     repo, worktree = _make_repo(tmp_path, captured=False)
-    docker = FakeDocker("9fa1c0de\tdemo-db-1\n")
+    docker = ScriptedDocker(
+        {
+            "ps -a": "9fa1c0de\tdemo-db-1\n",
+            "range .Mounts": f"{worktree}/data\n",
+        }
+    )
 
     hits = doctor.check_worktree(worktree, [repo / ".venv"], docker=docker)
 
     assert [hit.kind for hit in hits] == [doctor.DOCKER_CAPTURE]
     assert "demo-db-1" in hits[0].where
+    # The label is still the cheap candidate filter, even though the bind mount
+    # is what decides.
     assert f"label=com.docker.compose.project.working_dir={worktree}" in " ".join(docker.calls[0])
 
 
@@ -246,7 +266,9 @@ def test_a_live_worktree_is_not_reported_as_a_skeleton(doctor, tmp_path):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(CANONICAL is None, reason="no shared/ tree — this is a pickup repo")
 def test_deployed_copy_is_byte_identical_to_canonical() -> None:
+    assert CANONICAL is not None
     assert SCRIPT.read_bytes() == CANONICAL.read_bytes()
 
 
@@ -256,14 +278,34 @@ def test_deployed_copy_is_byte_identical_to_canonical() -> None:
 
 
 class ScriptedDocker:
-    """A docker seam that answers per-argv, so a query can be told apart from a drop."""
+    """A docker seam that answers per-argv, so a query can be told apart from a drop.
 
-    def __init__(self, responses: dict[str, str] | None = None) -> None:
+    ``psql``/``dropdb`` calls are modelled the way libpq actually behaves: with no
+    ``-d``, the client connects to a database named after the *user*, and a
+    connection to a database that does not exist fails outright. A fake that
+    answered on the SQL text alone would pass a probe that can never connect —
+    which is exactly the defect this models (OS#278).
+    """
+
+    def __init__(
+        self,
+        responses: dict[str, str] | None = None,
+        *,
+        databases: frozenset[str] = frozenset(),
+        user: str = "grantspider",
+    ) -> None:
         self.responses = responses or {}
+        self.databases = databases
+        self.user = user
         self.calls: list[list[str]] = []
 
     def __call__(self, args: list[str]) -> str | None:
         self.calls.append(args)
+        if args[:1] == ["exec"] and ("psql" in args or "dropdb" in args):
+            flag = "-d" if "psql" in args else "--maintenance-db"
+            target = args[args.index(flag) + 1] if flag in args else self.user
+            if target not in self.databases:
+                return None  # FATAL: database "<target>" does not exist
         for marker, output in self.responses.items():
             if marker in " ".join(args):
                 return output
@@ -271,7 +313,12 @@ class ScriptedDocker:
 
 
 def _bench_docker(database: str, *, container: str = "grantspider-test-pg") -> ScriptedDocker:
-    """A container running postgres that holds ``database``."""
+    """A container running postgres that holds ``database``.
+
+    ``grantspider`` — the superuser's name — is deliberately NOT a database here,
+    because it is not one on any estate container: ``POSTGRES_DB`` is
+    ``<project>_test``, never ``<project>``.
+    """
     return ScriptedDocker(
         {
             "ps --format": f"{container}\nsome-unrelated-app\n",
@@ -279,7 +326,8 @@ def _bench_docker(database: str, *, container: str = "grantspider-test-pg") -> S
                 "POSTGRES_USER=grantspider\nPOSTGRES_PASSWORD=testpass\n"
             ),
             f"datname = '{database}'": "1\n",
-        }
+        },
+        databases=frozenset({"postgres", "grantspider_test", database}),
     )
 
 
@@ -433,3 +481,81 @@ def test_check_names_the_database_without_blocking_removal(tmp_path, monkeypatch
 
     assert result.returncode == 0
     assert "repo_test_demo" in result.stdout
+
+
+def test_the_probe_names_a_database_it_can_actually_connect_to(doctor, tmp_path):
+    """OS#278: ``psql -U <user>`` with no ``-d`` connects to a database named
+    after the user, which no estate container has — so the probe never ran and
+    every worktree looked database-free."""
+    _, worktree = _make_repo(tmp_path, captured=False)
+    docker = _bench_docker("repo_test_demo")
+
+    doctor.database_hits(worktree, docker, name="repo_test_demo")
+
+    probes = [call for call in docker.calls if "psql" in call]
+    assert probes, "no psql probe issued"
+    assert "-d" in probes[0], "psql must be told which database to connect to"
+    assert probes[0][probes[0].index("-d") + 1] != "grantspider", (
+        "connecting to a database named after the superuser is the OS#278 bug"
+    )
+
+
+def test_the_drop_connects_through_a_maintenance_database(doctor, tmp_path):
+    """``dropdb`` cannot connect to the database it is dropping."""
+    _, worktree = _make_repo(tmp_path, captured=False)
+    docker = _bench_docker("repo_test_demo")
+
+    doctor.drop_database(worktree, docker, name="repo_test_demo")
+
+    drops = [call for call in docker.calls if "dropdb" in call]
+    assert drops, "no dropdb issued"
+    assert "--maintenance-db" in drops[0]
+    assert drops[0][drops[0].index("--maintenance-db") + 1] != "repo_test_demo"
+
+
+def test_a_container_that_only_carries_the_stale_label_is_not_capture(doctor, tmp_path):
+    """A shared bench keeps whichever tree ran ``compose up`` first in its label.
+
+    Under one fixed compose project name the bench container outlives every
+    worktree, so its ``working_dir`` is an accident of who created it. With no
+    bind mount under the worktree there is nothing for docker to re-materialise,
+    and treating the label alone as capture blocks that tree's teardown forever.
+    """
+    _, worktree = _make_repo(tmp_path, captured=False)
+    docker = ScriptedDocker(
+        {
+            "ps -a": "7c1182b75f03\tgrantspider-test-pg\n",
+            "range .Mounts": "",  # a named volume only — no bind
+        }
+    )
+
+    assert doctor.check_worktree(worktree, [], docker=docker) == []
+
+
+def test_a_container_bind_mounting_the_worktree_is_capture(doctor, tmp_path):
+    """The real breakage: docker re-creates the path as root-owned dirs."""
+    _, worktree = _make_repo(tmp_path, captured=False)
+    docker = ScriptedDocker(
+        {
+            "ps -a": "7c1182b75f03\tdemo-db-1\n",
+            "range .Mounts": f"{worktree}/scripts/init.sql\n",
+        }
+    )
+
+    hits = doctor.check_worktree(worktree, [], docker=docker)
+
+    assert [hit.kind for hit in hits] == [doctor.DOCKER_CAPTURE]
+    assert "init.sql" in hits[0].detail
+
+
+def test_a_bind_mount_merely_sharing_a_prefix_is_not_capture(doctor, tmp_path):
+    """``/wt/demo-old`` is not inside ``/wt/demo``."""
+    _, worktree = _make_repo(tmp_path, captured=False)
+    docker = ScriptedDocker(
+        {
+            "ps -a": "7c1182b75f03\tdemo-db-1\n",
+            "range .Mounts": f"{worktree}-old/scripts/init.sql\n",
+        }
+    )
+
+    assert doctor.check_worktree(worktree, [], docker=docker) == []
