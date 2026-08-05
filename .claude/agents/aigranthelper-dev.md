@@ -55,15 +55,38 @@ here on purpose — an absolute count typed into prose is wrong within weeks, an
 a stale one reads as authoritative. A large drop against the count the previous
 PR reported is the signal worth acting on.
 
-### CI jobs
+### CI jobs — two workflows, and a PR shows checks from both
+
+**`ci.yml`** (workflow `CI`) — the real gates:
 
 - **`ci-light`** — ruff, the untyped-function ratchet, gaudi (ERROR-only gate) plus its SMELL-003/ARCH-013 ratchets, the boy-scout per-file ratchet, bandit, pip-audit. No database.
 - **`ci-heavy`** — pytest and research-drift against a real `pgvector/pgvector:pg17` service container.
 
-**There are no required status checks on `main` or `staging`.** Branch
-protection does not gate on these jobs — the estate's pre-launch posture is that
-local gates are primary and CI is the watchdog. Do not describe a job as
-"required", and do not wait on one as though a merge depends on it.
+**`ci-passthrough.yml`** (workflow `CI Passthrough (docs-only)`) — reports
+**`Lint`, `Types`, `Gaudi-ratchet`, `Security`, `Test`, `research-drift-check`**
+as successes without running anything. `ci.yml` uses `paths-ignore` to skip
+docs-only changes for cost; with no triggering event those contexts would never
+report, so this fires on the inverse path filter (`**/*.md`, `docs/**`,
+`.claude/**`) and satisfies them.
+
+So a PR touching **both** docs and code fires both workflows, and you will see
+capitalized check names beside the lowercase ones. **They are not the same jobs
+running twice** — the capitalized ones ran nothing. Read `ci-light`/`ci-heavy`
+for the real verdict.
+
+**The tell is the duration.** On aigranthelper#1444: `Test` passed in **5s**,
+`Lint` in 3s, `Types` in 2s, while `ci-light` was still running. A `Test` that
+passes in five seconds did not run a test suite.
+
+`ci-passthrough.yml` requires job-count and name parity with `ci.yml`. If you
+add or rename a job in one, mirror it in the other.
+
+**There are no required status checks on `main` or `staging`** — verified
+against the branch-protection API, `required_status_checks.contexts` is `[]` on
+both (`enforce_admins` is on, but it gates nothing). The passthrough's own header
+describes protection that requires these contexts; that is the posture it was
+built for, not the one configured today. Do not describe a job as "required", and
+do not wait on one as though a merge depends on it.
 
 ### Recent merged PRs (pattern reference)
 
