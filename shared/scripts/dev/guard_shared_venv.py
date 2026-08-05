@@ -43,6 +43,14 @@ invocation, and must not be refused. Refusing read-only inspection is worse
 than useless: it teaches people to reach for the override to run a ``grep``,
 which spends the override's meaning on nothing.
 
+Command substitution is a command position in both of its spellings. The
+``$(...)`` form falls out of the lexer's own parentheses; the backtick form is
+split by :func:`_simple_commands`, because a backtick is not shell punctuation
+to the lexer and arrives glued to the word beside it. Either way the
+substituted text is a command the shell runs, so a verb inside it is guarded
+exactly as it is outside. A backtick inside quotes stays prose, like every
+other quoted mention.
+
 Decision logic is split into pure functions so it is unit-tested without git.
 """
 
@@ -68,6 +76,13 @@ _TRUE_VALUES = frozenset({"1", "y", "yes", "t", "true", "on"})
 # Tokens that end one simple command and start the next, so the token after
 # them sits in command position. Grouping and substitution parens count.
 _SEPARATORS = frozenset({";", ";;", "&", "&&", "|", "||", "|&", "(", ")", "{", "}"})
+
+# A backtick opens or closes a command substitution, so it ends one simple
+# command and starts another exactly as ``;`` does. Unlike the separators
+# above it never arrives as a token of its own: it is not shell punctuation to
+# the lexer, so ``uv sync`` in backticks lexes as ["`uv", "sync`"] and the
+# split has to be made on the token's own text.
+_BACKTICK = "`"
 
 # A leading ``VAR=value`` on a command sets that command's environment; it does
 # not displace the command position, so a run of them is skipped over.
@@ -129,11 +144,36 @@ def _token_runs(command: str) -> list[list[str]] | None:
 
 
 def _simple_commands(tokens: list[str]) -> list[list[str]]:
-    """``tokens`` split at shell separators — one argv per simple command."""
+    """``tokens`` split at shell separators — one argv per simple command.
+
+    Backticks separate too, and are split out of the token that carries them
+    (see :data:`_BACKTICK`). A *quoted* backtick survives that split as prose:
+    the lexer has already collapsed ``echo "`uv sync`"`` to the single token
+    ```uv sync```, whose interior space is inside the token, so splitting it
+    yields the one word ``uv sync`` — never the two-word ``uv`` argv any verb
+    matches.
+
+    Environment assignments already collected in the enclosing command carry
+    into the substitution, so an explicit override written outside a backtick
+    still reads as that command's override instead of being stranded in the
+    outer argv.
+    """
     argvs: list[list[str]] = [[]]
+
+    def _open_command() -> None:
+        """Start the next argv, inheriting the current one's assignments."""
+        carried, _ = _split_assignments(argvs[-1])
+        argvs.append(list(carried))
+
     for token in tokens:
         if token in _SEPARATORS:
             argvs.append([])
+        elif _BACKTICK in token:
+            for index, fragment in enumerate(token.split(_BACKTICK)):
+                if index:
+                    _open_command()
+                if fragment:
+                    argvs[-1].append(fragment)
         else:
             argvs[-1].append(token)
     return [argv for argv in argvs if argv]
