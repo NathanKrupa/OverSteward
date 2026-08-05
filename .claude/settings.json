@@ -5,7 +5,21 @@
       "Bash(systemctl --user is-enabled *)",
       "Bash(systemctl --user list-timers *)",
       "mcp__railway__list_projects",
-      "mcp__railway__get_service_config"
+      "mcp__railway__get_service_config",
+      "Bash(docker info*)",
+      "Bash(docker compose version*)",
+      "Bash(docker context ls*)",
+      "Bash(gaudi check *)",
+      "Bash(.venv/bin/gaudi check *)",
+      "Bash(ruff format --check *)",
+      "Bash(.venv/bin/ruff format --check *)",
+      "Bash(railway status*)",
+      "Bash(railway whoami*)",
+      "Bash(railway logs *)",
+      "Bash(railway service list*)",
+      "Bash(railway deployment list*)",
+      "Bash(railway volume list*)",
+      "mcp__railway__get_logs"
     ]
   },
   "hooks": {
