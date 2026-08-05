@@ -941,22 +941,84 @@ def skeleton_report(repo: Path, is_root_owned: Callable[[Path], bool] = is_root_
     return report
 
 
+def is_tracked(worktree: Path, relative: str) -> bool:
+    """True when git has ``relative`` under version control inside ``worktree``.
+
+    A tracked path is by definition not the launcher's scaffolding, whatever its
+    name — grantspider commits its ``.envrc``. Asking git makes the rule true
+    rather than assumed, and an unanswerable git reads as *tracked*: the cost of
+    keeping a file that could have gone is a retry, the cost of deleting one
+    that should have stayed is the operator's work.
+    """
+    try:
+        result = subprocess.run(  # list-form argv, no shell
+            ["git", "-C", str(worktree), "ls-files", "--error-unmatch", "--", relative],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return True
+    return result.returncode == 0
+
+
 def clear_launcher_scaffolding(worktree: Path) -> list[str]:
     """Delete only what ``new-session.sh`` wrote, so it cannot block the removal.
 
     Deliberately not ``--force``: that discards uncommitted work, the exact loss
     this family exists to prevent. Only the launcher's own symlink and file go —
     a real ``.venv`` *directory* is left alone, because the launcher never
-    writes one and deleting a whole environment is no longer scaffolding. Every
-    other untracked file still refuses the removal.
+    writes one and deleting a whole environment is no longer scaffolding, and a
+    *tracked* path is left alone because it belongs to the repository rather
+    than to the launcher. Every other untracked file still refuses the removal.
     """
     cleared = []
     for artifact in LAUNCHER_ARTIFACTS:
         path = worktree / artifact
-        if path.is_symlink() or path.is_file():
-            path.unlink()
-            cleared.append(artifact)
+        if not (path.is_symlink() or path.is_file()):
+            continue
+        if is_tracked(worktree, artifact):
+            continue
+        path.unlink()
+        cleared.append(artifact)
     return cleared
+
+
+def dirty_paths(worktree: Path) -> list[str] | None:
+    """The paths ``git status`` reports in ``worktree`` — what would refuse a removal.
+
+    ``None`` when git could not be asked, which the caller must read as "there
+    may be work here", never as "the tree is clean".
+    """
+    try:
+        result = subprocess.run(  # list-form argv, no shell
+            ["git", "-C", str(worktree), "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    # `XY path`: the status columns are fixed-width, the path starts at 3. A
+    # quoted or renamed entry simply will not equal an artifact name, which
+    # lands on the safe side — nothing is cleared.
+    return [line[3:] for line in result.stdout.splitlines() if line.strip()]
+
+
+def blocked_only_by_scaffolding(worktree: Path) -> bool:
+    """True when the launcher's own artifacts are all that stands in git's way.
+
+    Clearing is a mutation, so it must not happen on a removal that was going to
+    be refused anyway (OS#286: a refused teardown changes nothing). No success
+    case turns on this — if anything beyond the artifacts is dirty, git refuses
+    whether or not they were cleared first.
+    """
+    dirty = dirty_paths(worktree)
+    return dirty is not None and all(path in LAUNCHER_ARTIFACTS for path in dirty)
 
 
 def remove_worktree(worktree: Path) -> None:
@@ -966,7 +1028,8 @@ def remove_worktree(worktree: Path) -> None:
     rather than a raw ``CalledProcessError``: the operator is being told their
     work is uncommitted, which is a message, not a traceback.
     """
-    clear_launcher_scaffolding(worktree)
+    if blocked_only_by_scaffolding(worktree):
+        clear_launcher_scaffolding(worktree)
     owner = primary_checkout(worktree) or worktree.parent
     result = subprocess.run(  # list-form argv, no shell
         ["git", "-C", str(owner), "worktree", "remove", str(worktree)],
