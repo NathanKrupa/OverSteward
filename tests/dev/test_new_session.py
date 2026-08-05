@@ -42,7 +42,7 @@ def _git(cwd: Path, *args: str) -> str:
     return result.stdout
 
 
-def _make_repo(tmp_path: Path, *, with_src: bool) -> Path:
+def _make_repo(tmp_path: Path, *, with_src: bool, with_venv: bool = False) -> Path:
     """A throwaway repo with a real `origin`, mirroring what the script expects."""
     origin = tmp_path / "origin.git"
     origin.mkdir()
@@ -60,6 +60,10 @@ def _make_repo(tmp_path: Path, *, with_src: bool) -> Path:
     _git(repo, "commit", "-m", "base")
     _git(repo, "remote", "add", "origin", str(origin))
     _git(repo, "push", "-u", "origin", "main")
+    if with_venv:
+        # Untracked, exactly as a real checkout's venv is — the script symlinks
+        # the worktree's .venv at it, which is what makes the venv shared.
+        (repo / ".venv" / "bin").mkdir(parents=True)
     return repo
 
 
@@ -118,6 +122,38 @@ def test_envrc_deferred_literal_is_the_worktree_root_when_there_is_no_src_dir(
 
     envrc = repo / ".claude" / "worktrees" / "flat" / ".envrc"
     assert envrc.read_text(encoding="utf-8") == 'export PYTHONPATH="$PWD"\n'
+
+
+def test_envrc_disables_the_implicit_sync_when_the_venv_is_shared(
+    script: Path, tmp_path: Path
+) -> None:
+    """#294: bare `uv run` syncs, and the sync rebinds the borrowed venv here."""
+    repo = _make_repo(tmp_path, with_src=True, with_venv=True)
+    _run_new_session(script, repo, "demo")
+
+    envrc = repo / ".claude" / "worktrees" / "demo" / ".envrc"
+    assert envrc.read_text(encoding="utf-8") == (
+        'export PYTHONPATH="$PWD/src"\nexport UV_NO_SYNC=1\n'
+    )
+
+
+def test_banner_explains_the_shared_venv_when_there_is_one(script: Path, tmp_path: Path) -> None:
+    """Enforcement without the ergonomic path just teaches people the override."""
+    repo = _make_repo(tmp_path, with_src=True, with_venv=True)
+    stdout = _run_new_session(script, repo, "demo")
+
+    assert "UV_NO_SYNC=1" in stdout
+    assert ".venv/bin/<tool>" in stdout
+
+
+def test_banner_stays_silent_about_uv_when_the_worktree_owns_no_venv(
+    script: Path, tmp_path: Path
+) -> None:
+    """A repo with no venv to borrow gets no advice about one."""
+    repo = _make_repo(tmp_path, with_src=True)
+    stdout = _run_new_session(script, repo, "demo")
+
+    assert "UV_NO_SYNC" not in stdout
 
 
 def test_teardown_instruction_routes_through_the_worktree_doctor(

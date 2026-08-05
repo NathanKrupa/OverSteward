@@ -69,7 +69,29 @@ else
     pp='$PWD'
     pp_display="$wt"
 fi
-printf 'export PYTHONPATH="%s"\n' "$pp" >"$wt/.envrc"
+{
+    printf 'export PYTHONPATH="%s"\n' "$pp"
+    # PYTHONPATH isolates THIS worktree's imports and does nothing for the
+    # PRIMARY checkout, which is the half that actually breaks: `uv run` syncs
+    # the project environment before running anything, and that sync rebinds the
+    # SHARED venv's editable install to whichever tree invoked it. One `uv run`
+    # here leaves the primary — and every sibling worktree on this symlink —
+    # importing this branch's source. UV_NO_SYNC turns the sync off, so ordinary
+    # work never has to reach for the guard's override.
+    if [ -L "$wt/.venv" ]; then
+        printf 'export UV_NO_SYNC=1\n'
+    fi
+} >"$wt/.envrc"
+
+# The banner is one heredoc, so the shared-venv paragraph is built here and
+# expanded empty when this worktree owns its venv outright.
+shared_venv_note=""
+if [ -L "$wt/.venv" ]; then
+    shared_venv_note="  (shared .venv: this worktree borrows another tree's environment. Bare
+   'uv run' would re-sync it and rebind it here, so the guard_shared_venv hook
+   refuses it — prefer .venv/bin/<tool>, which never syncs. The .envrc above
+   exports UV_NO_SYNC=1; without direnv, export it yourself.)"
+fi
 
 cat <<EOF
 
@@ -88,8 +110,7 @@ cat <<EOF
       python scripts/dev/check_worktree_imports.py <your-package>
 
   (direnv users: a .envrc was written — run 'direnv allow'.)
-  (uv repos: run tools as .venv/bin/<tool> in the worktree — not 'uv run',
-   which may re-sync the shared venv.)
+$shared_venv_note
 
   When done: open a PR from '$branch', then tear down THROUGH the doctor —
   a shared venv or a docker compose project may have captured this path, and
