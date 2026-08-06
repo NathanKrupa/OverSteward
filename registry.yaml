@@ -27,6 +27,7 @@ contexts:
       - fiscus-dev
       - exchequer-dev
       - oversteward-dev
+      - docs-author
     tags:
       - meta
       - governance
