@@ -143,8 +143,10 @@ Working against aigranthelper (`/home/natha/aigranthelper`, WSL2, Django 6.0, Py
   pre-cutover connection string aimed at a deleted Neon project.
 - `make verify`'s `research-drift` job needs `GRANTSPIDER_READ_TOKEN`
   (`export GRANTSPIDER_READ_TOKEN="$(gh auth token)"` — never print the value).
-- Teardown is `scripts/dev/bench.py teardown <worktree>`, **not** the bare
-  `worktree_doctor.py` — AG owns two bench databases per worktree.
+- Teardown is `scripts/dev/worktree_doctor.py teardown <worktree>`. AG owns two bench
+  databases per worktree and the doctor finds both — it matches every database whose
+  name carries the suffix the derivation guarantees. `bench.py` derives those names but
+  has no `teardown` verb; its own module docstring points at the doctor.
 - Run tools as `.venv/bin/<tool>`; never bare `uv run` (it re-syncs and rebinds the
   shared venv).
 - `make verify` gates *code*. Prose changes are data and do not need it.
