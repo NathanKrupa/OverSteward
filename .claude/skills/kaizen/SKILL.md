@@ -15,14 +15,18 @@ Run from the **OverSteward** working tree:
 
 ```bash
 export PYTHONPATH="$PWD/src"
-KAIZEN="python scripts/dream.py kaizen"
+KAIZEN=".venv/bin/python scripts/dream.py kaizen"
 ```
 
 ## Step 1 — build the report and the issue snapshot
 
+The `fiscus` CLI lives in the fiscus checkout's own venv, and `--since` takes
+an absolute `YYYY-MM-DD` date:
+
 ```bash
 mkdir -p /tmp/kaizen
-fiscus review trajectories --all-active --since 60d --min-cluster 3 --format json \
+(cd /home/natha/fiscus && .venv/bin/fiscus review trajectories --all-active \
+  --since "$(date -d '60 days ago' +%F)" --min-cluster 3 --format json) \
   > /tmp/kaizen/patterns.json
 gh issue list --repo NathanKrupa/OverSteward --state open --label kaizen \
   --json number,title,labels > /tmp/kaizen/issues.json
