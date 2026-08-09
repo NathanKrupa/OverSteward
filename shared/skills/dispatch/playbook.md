@@ -24,7 +24,7 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
 - **Never** run any git command that mutates Nathan's live working tree state. The forbidden list is illustrative, not exhaustive: `git checkout` (any form, including `git checkout origin/main -- .`), `git pull`, `git reset`, `git restore`, `git stash` (any variant — `--keep-index`, `-u`, push, pop, drop), `git rebase`, `git merge`, `git clean`, `git rm`. **The forbidden list applies inside dispatch worktrees too, not only in the main checkout.** The worktree exists to isolate `git add` (specific files) / `git commit` / `git push` / `git branch` from Nathan's tree — not to enable the forbidden ops. `git stash` is especially dangerous: the stash list is repo-wide (one stack shared across all worktrees), so a stash inside a worktree pollutes the same list the main checkout sees and a `pop` can land on the wrong tree. (Postmortem: grantspider PR #543, 2026-04-28 — agent stashed inside the worktree and self-reported the violation.) The test is: if the operation could surprise a human running `git status` or `git stash list` in the main repo right now, it's forbidden — wherever you are.
 - **Never** tear a worktree down with `git worktree remove` — with or without `--force`. `scripts/dev/worktree_doctor.py teardown <worktree-path>` is the only sanctioned teardown. A raw removal orphans the worktree's bench database *permanently*, because the doctor derives the database name from the worktree path and the path is what you just destroyed. Full rule, and the single fallback for repos that genuinely carry no doctor, at step 19.
 - **Never** answer "does this repo have X?" from the primary checkout's working tree. Resolve file and tooling presence against `origin/<default-branch>` — see step 4a.
-- **Never** fall back to Nathan's live working tree when the temp worktree fails. If step 5 or step 6 fails, the correct response is STOP (`REFUSED_PREFLIGHT`), not "work in the main checkout instead." Touching the live tree as a fallback leaves uncommitted state, switched branches, and contaminated HEAD — Nathan's open terminals and IDE will see the mess. This has happened (grantspider #426 postmortem, 2026-04-22) — the fix is the step-6 viability probe, and violating it anyway is a fireable offense.
+- **Never** fall back to Nathan's live working tree when the temp worktree fails. If step 5, 6 or 6a fails, the correct response is STOP (`REFUSED_PREFLIGHT`), not "work in the main checkout instead." Touching the live tree as a fallback leaves uncommitted state, switched branches, and contaminated HEAD — Nathan's open terminals and IDE will see the mess. This has happened (grantspider #426 postmortem, 2026-04-22) — the fix is the step-6 viability probe, and violating it anyway is a fireable offense.
 - **Never** reach into the main checkout for a "baseline" or "before" view of files. If you need to compare your changes against pristine master (gaudi delta, lint delta, test delta), create a SECOND temp worktree at `origin/<default-branch>` and run the comparison there. **Do NOT** `git stash` your way to a clean view of the main checkout — even with `--keep-index` and even if you believe the working tree is clean, the operation can capture and then discard untracked uncommitted files (notes, drafts, runbooks, session-state docs). This happened on grantspider #538 (PR #539 postmortem, 2026-04-28): the agent's stash reported "captured nothing" but the subsequent `git checkout origin/master -- .` wiped two uncommitted markdown files Nathan had authored. The correct pattern is in "The 'baseline-comparison snapshot' pattern" below.
 - **Never** patch module globals in tests (`monkeypatch.setattr("module.attr", fake)` for `subprocess`, HTTP clients, filesystem, clock, `os.environ`, `random`) when the fix is to expose the dependency as a parameter. See `~/.claude/shared/references/architecture-principles.md` §Dependency Seams. If a test needs a patched global, the code under test has a hidden dependency — fix the signature, not the test.
 
@@ -69,7 +69,29 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
 
    ALL subsequent git, test, lint, edit operations happen against `<worktree-path>`, addressed explicitly — `git -C <worktree-path> …`, or a compound `cd <worktree-path> && …` **within a single tool call** (never a `cd` in one call relied on by the next). Nathan's live working tree is never touched.
 
-   **Dedicated worktree venv (isolated verify).** A worktree's `.venv` is normally a symlink to the shared parent venv (see `new-session.sh`), and PYTHONPATH points imports at the worktree's own `src/`. That is fine for read-only work, but if your verify **installs or mutates packages** (e.g. `uv sync`, `pip install -e .`, an editable re-point), a concurrent session using the same shared venv gets corrupted mid-run. When your verify installs anything, build a dedicated venv **inside** the worktree instead of sharing the parent:
+6a. **Provision the environment — `git worktree add` does NOT create one.** The `.venv` symlink is written by `new-session.sh`, which step 5 does not use. A worktree made by `git worktree add` therefore has **no `.venv` at all**, and every `.venv/bin/<tool>` instruction in this playbook (steps 11a, 12, and the gaudi-baseline appendix) fails with `No such file or directory` until you create it. Do this immediately after step 6, before any tool invocation:
+
+   ```bash
+   # Borrow the primary checkout's environment. A symlink, never a copy or a sync —
+   # `uv sync`/`uv venv`/bare `uv run` from a worktree rebind the SHARED venv to this
+   # path and break every checkout on it (guard_shared_venv.py refuses them for this reason).
+   ln -sfn <repo-primary-checkout>/.venv <worktree-path>/.venv
+   ```
+
+   **Then prove imports resolve to the worktree, not the primary checkout.** The shared venv carries an editable `.pth` pointing at the *primary* `src/`, so without `PYTHONPATH` your tests import the primary checkout's code and silently verify the wrong tree — this is the mechanism behind the repeated "agent slipped edits into the primary checkout" postmortems (OverSteward #77). The probe is not optional:
+
+   ```bash
+   ( cd <worktree-path> && PYTHONPATH=<worktree-path>/src \
+       .venv/bin/python -c "import <package>; print(<package>.__file__)" )
+   ```
+
+   The printed path **must** start with `<worktree-path>`. If it points at the primary checkout, STOP — every gate you run would be measuring the wrong code.
+
+   Carry `PYTHONPATH=<worktree-path>/src` on every subsequent Python invocation (each Bash call is a fresh shell, so an `export` in one call does not survive to the next).
+
+   If the primary checkout has no `.venv` either, the repo has not been bootstrapped — emit `final_state: REFUSED_PREFLIGHT` rather than running `uv sync` anywhere.
+
+   **Dedicated worktree venv (isolated verify).** The symlink above shares the parent environment, and PYTHONPATH points imports at the worktree's own `src/`. That is fine for read-only work, but if your verify **installs or mutates packages** (e.g. `uv sync`, `pip install -e .`, an editable re-point), a concurrent session using the same shared venv gets corrupted mid-run. When your verify installs anything, build a dedicated venv **inside** the worktree instead of sharing the parent:
 
    ```bash
    # Inside <worktree-path> — replace the shared-venv symlink with a real, isolated venv.
@@ -222,7 +244,12 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
       Copy **both** files, always: the doctor imports `worktree_db.py` from beside itself to name the databases, and without it silently finds none — which is the orphan you are trying to avoid. And never pass `--no-docker` to a teardown: the drop runs through docker, so `--no-docker` removes the worktree and leaves the database behind.
     - **Not listed on `origin/<default-branch>` at all** (fiscus, gaudi and wphelper carry no doctor, and no per-worktree bench database for it to drop) → plain `git worktree remove <worktree-path>`, **without `--force`**. If git refuses, the refusal is information, not an obstacle: run `git -C <worktree-path> status --porcelain`, push anything of value, then retry.
 
-    **If you built a dedicated worktree venv at step 6**, delete that directory first — `rm -rf <worktree-path>/.venv`. It is yours, it is untracked, and it will make git refuse the removal; the doctor clears only the `.venv` *symlink* and `.envrc` that `new-session.sh` writes, never a real environment directory.
+    **Clear the environment scaffolding you created at step 6a.**
+
+    - The **`.venv` symlink** from step 6a — `rm -f <worktree-path>/.venv`. Removing the *link* never touches the environment it points at. `.venv` is gitignored in every estate repo, so the symlink does **not** block `git worktree remove` — clear it anyway, so a stale link to a deleted tree is never left behind for the doctor to trip over. The doctor does this for you; a plain `git worktree remove` (the no-doctor repos above) does not.
+    - A **dedicated worktree venv** if you built one — `rm -rf <worktree-path>/.venv`. It is a real directory, it is yours, and the doctor deliberately will not delete it.
+
+    If git refuses the removal, that refusal is information and it is not about the venv: real uncommitted work is sitting in there — commit and push it (steps 13-14), never force past it.
 
     A `.baseline` worktree from the baseline-comparison pattern is torn down the same way.
 
