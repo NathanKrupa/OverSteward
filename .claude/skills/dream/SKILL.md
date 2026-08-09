@@ -19,6 +19,7 @@ Run from the **OverSteward** working tree, with the package importable:
 export PYTHONPATH="$PWD/src"
 DREAM="python scripts/dream.py cycle"       # use the project venv's python
 ROADMAP="python scripts/dream.py roadmap"   # step 5 — a top-level command, not a cycle action
+PROMOTION="python scripts/dream.py promotion"  # step 6 — likewise top-level
 ```
 
 The store is the private `steward-memory` repo; the ledger is OverSteward's `data/dream/`. The `cycle` subcommands default to the live paths — pass `--store` / `--ledger` / `--store-repo` only when testing.
@@ -118,6 +119,52 @@ Intent found in transcripts that was never filed as an issue is **flagged, not
 filed** (epic OS#230 decision 2): surface it in the run report for the waking
 session; do not open issues from the dream.
 
+## Step 6 — trajectory promotion (§13.5 lesson pass, OS#325)
+
+The estate writes ~1,270 lesson bullets a quarter into trajectory notes and
+promotes almost none of them, which is why nine error classes each recurred
+across 9-11 distinct PRs. This pass closes that loop monthly.
+
+```bash
+$PROMOTION probe > /tmp/dream/promotion_probe.json
+```
+
+- **`"due": false`** → report "promotion current" and move on.
+- **`"due": true`** → build the report, then the worklist:
+
+```bash
+fiscus review trajectories --all-active --since <last-run-or-60d> \
+  --min-cluster 3 --format json > /tmp/dream/patterns.json
+$PROMOTION packet --report /tmp/dream/patterns.json --record \
+  > /tmp/dream/promotion_packet.md
+```
+
+**Exit codes carry meaning — do not collapse them.** `0` is a measured result
+(the packet says plainly when there is nothing to promote). **`2` means the
+detector is broken**, not that the estate is quiet: the report claimed zero
+patterns across a corpus far too large for that, or declared no corpus size at
+all. On `2`, stop and surface it — an empty worklist reported as good news is
+the exact failure this pass exists to prevent (Fiscus #101, which spent its whole
+life answering "no patterns detected" over 425 notes).
+
+Read the packet and, for each candidate, make one call: promote it into doctrine
+(`shared/references/`, CLAUDE.md, an agent card) or into memory, or record why
+not. Each candidate carries its recurrence count and contributing PRs, so the
+decision is auditable without re-running the report.
+
+**Write path (OS#90 — never commit to the primary checkout's master):**
+
+```bash
+scripts/dev/new-session.sh dream-promotion-$(date +%F)
+# edit the doctrine/memory surfaces in that worktree, commit as
+#   docs(doctrine): promote <n> recurring lessons (dream cycle) [skip ci]
+# push, open the PR, merge it, remove the worktree
+```
+
+The `--record` flag stamps the run ledger, so a **skipped month shows as a gap**
+in `data/dream/promotion.json` rather than being silently forgotten. Record the
+run even when the worklist is empty — a measured nothing is still a measurement.
+
 ## Draining the review surface (approve held items)
 
 `MEMORY_REVIEW.md` is no longer a blocking queue — it accumulates only the `nathan-stated`-contradiction holds across runs. When Nathan has adjudicated, clear them explicitly (all, or one by its `key` shown in the surface):
@@ -142,7 +189,7 @@ One named memory, one operator-supplied replacement, `MEMORY.md` rebuilt. Never 
 
 ## Report
 
-One short summary: sessions processed, facts appended/merged, holds surfaced for review (point Nathan at `MEMORY_REVIEW.md`, drained via `cycle drain`), the roadmap verdict ("roadmap current" or the reconciliation PR number + any unfiled-intent flags), and whether the commit landed. On a no-op run, just "ledger current."
+One short summary: sessions processed, facts appended/merged, holds surfaced for review (point Nathan at `MEMORY_REVIEW.md`, drained via `cycle drain`), the roadmap verdict ("roadmap current" or the reconciliation PR number + any unfiled-intent flags), the promotion verdict ("promotion current", the worklist size + PR number, or **a loud stop if the packet exited 2 — a broken detector, not a quiet estate**), and whether the commit landed. On a no-op run, just "ledger current."
 
 ## Invariants (do not violate)
 
