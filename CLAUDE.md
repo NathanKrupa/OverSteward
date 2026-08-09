@@ -208,6 +208,32 @@ Drift-prevention rules for the primary checkout:
   merge — read current code mid-session from origin (`git show
   origin/master:<path>`) rather than mutating the live tree.
 
+## Session start — the kaizen pass (OS#332)
+
+**Every session opens by fixing one recurring process defect.** Run `/kaizen`
+(skill: `.claude/skills/kaizen/`) as the first act of the session, after the
+`git pull --ff-only` above.
+
+The estate had been re-encountering its own defects rather than fixing them —
+nine error classes recurring across 9-11 distinct PRs each, every one already
+written down in a trajectory note that nothing read (2026-08-08 analysis). This
+pass drains that backlog one item per session.
+
+**It is a pass, not a gate.** If Nathan opened the session with an explicit
+task, *his task goes first* — surface the item, do his work, then take the item.
+An urgent production fix must never wait behind a doctrine promotion. If the
+session opens with no assigned work, take the item immediately.
+
+**Record a verdict, or the queue never drains** (`kaizen resolve`). The queue
+ranks by measured recurrence, so an unrecorded item is simply the head of the
+list again next session. `deferred` keeps an item queued; only `promoted` and
+`declined` retire it.
+
+An empty queue is only believable when the detector is working: `kaizen next`
+exits **2** when the pattern report is empty over a large corpus. That is a
+broken instrument, not a quiet backlog — surface it rather than reporting a
+clean morning.
+
 ## Tool Registry
 
 **When looking for a CLI tool, script, or entry point — read `data/tool_registry.md` first.**

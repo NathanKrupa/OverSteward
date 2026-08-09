@@ -9,7 +9,7 @@ import sys
 from datetime import date, datetime
 from pathlib import Path
 
-from oversteward.dream import cycle, promotion, roadmap
+from oversteward.dream import cycle, kaizen, promotion, roadmap
 from oversteward.dream.consolidate import MemoryStore, commit_store
 from oversteward.dream.extract import CandidateFact
 from oversteward.dream.ledger import ProcessedLedger
@@ -258,6 +258,65 @@ def _add_promotion_subparser(sub: argparse._SubParsersAction) -> None:
     pkt.set_defaults(func=_cmd_promotion_packet)
 
 
+def _kaizen_ledger(args: argparse.Namespace) -> Path:
+    return Path(args.ledger or Path(args.repo_root) / "data" / "dream" / "kaizen.json")
+
+
+def _cmd_kaizen_next(args: argparse.Namespace) -> int:
+    """The session-start surface: one item, or a measured empty backlog.
+
+    Exits 2 on a :class:`FalseGreenError` — same contract as `promotion packet`,
+    so "nothing to fix" and "the detector is broken" never render the same.
+    """
+    report = _read_json(args.report) if args.report else None
+    try:
+        candidates = promotion.build_worklist(report, cap=args.cap) if report else []
+        queue = kaizen.build_queue(
+            candidates=candidates,
+            issues=_read_json(args.issues) if args.issues else [],
+            verdicts=kaizen.read_verdicts(_kaizen_ledger(args)),
+            repo=args.repo,
+            report=report,
+        )
+    except promotion.FalseGreenError as exc:
+        sys.stderr.write(f"{exc}\n")
+        return 2
+
+    sys.stdout.write(kaizen.format_next(kaizen.next_item(queue), queue_size=len(queue)))
+    return 0
+
+
+def _cmd_kaizen_resolve(args: argparse.Namespace) -> int:
+    today = date.fromisoformat(args.today) if args.today else date.today()
+    kaizen.record_verdict(
+        _kaizen_ledger(args), key=args.key, verdict=args.verdict, on=today, note=args.note or ""
+    )
+    return _emit({"key": args.key, "verdict": args.verdict, "on": today.isoformat()})
+
+
+def _add_kaizen_subparser(sub: argparse._SubParsersAction) -> None:
+    grp = sub.add_parser("kaizen", help="session-start queue — fix one recurring defect (OS#332)")
+    actions = grp.add_subparsers(dest="action", required=True)
+
+    nxt = actions.add_parser("next", help="this session's item (markdown)")
+    nxt.add_argument("--report", default=None, help="fiscus trajectories JSON, or - for stdin")
+    nxt.add_argument("--issues", default=None, help="gh issue snapshot JSON file")
+    nxt.add_argument("--repo", default=kaizen.DEFAULT_REPO)
+    nxt.add_argument("--repo-root", default=str(cycle.OVERSTEWARD_ROOT))
+    nxt.add_argument("--ledger", default=None, help="verdict-ledger path (default: data/dream)")
+    nxt.add_argument("--cap", type=int, default=promotion.DEFAULT_CAP)
+    nxt.set_defaults(func=_cmd_kaizen_next)
+
+    res = actions.add_parser("resolve", help="record a verdict so the item stops resurfacing")
+    res.add_argument("--key", required=True, help="the item key printed by `kaizen next`")
+    res.add_argument("--verdict", required=True, choices=kaizen.VERDICTS)
+    res.add_argument("--note", default=None, help="why — one line")
+    res.add_argument("--repo-root", default=str(cycle.OVERSTEWARD_ROOT))
+    res.add_argument("--ledger", default=None, help="verdict-ledger path (default: data/dream)")
+    res.add_argument("--today", default=None, help="YYYY-MM-DD stamp (default: today)")
+    res.set_defaults(func=_cmd_kaizen_resolve)
+
+
 def _add_supersede_subparser(sub: argparse._SubParsersAction) -> None:
     sup = sub.add_parser(
         "supersede",
@@ -335,6 +394,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_supersede_subparser(sub)
     _add_roadmap_subparser(sub)
     _add_promotion_subparser(sub)
+    _add_kaizen_subparser(sub)
     return parser
 
 

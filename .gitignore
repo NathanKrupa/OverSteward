@@ -58,6 +58,9 @@ data/dream/flagged.jsonl
 # Promotion-pass run ledger (OS#325) — runtime state, like its siblings above.
 data/dream/promotion.json
 
+# Per-machine kaizen verdict ledger (OS#332) — what has been ruled on
+data/dream/kaizen.json
+
 # Dispatch agent worktrees (registered git worktrees, ephemeral per-machine)
 .claude/worktrees/
 
