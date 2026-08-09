@@ -9,7 +9,7 @@ import sys
 from datetime import date, datetime
 from pathlib import Path
 
-from oversteward.dream import cycle, roadmap
+from oversteward.dream import cycle, promotion, roadmap
 from oversteward.dream.consolidate import MemoryStore, commit_store
 from oversteward.dream.extract import CandidateFact
 from oversteward.dream.ledger import ProcessedLedger
@@ -204,6 +204,60 @@ def _add_roadmap_subparser(sub: argparse._SubParsersAction) -> None:
     pkt.set_defaults(func=_cmd_roadmap_packet)
 
 
+def _cmd_promotion_probe(args: argparse.Namespace) -> int:
+    today = date.fromisoformat(args.today) if args.today else date.today()
+    ledger = Path(args.ledger or promotion.default_promotion_ledger_path(Path(args.repo_root)))
+    probe = promotion.probe_due(promotion.read_last_run(ledger), today=today)
+    return _emit(probe.to_dict())
+
+
+def _cmd_promotion_packet(args: argparse.Namespace) -> int:
+    """Build the worklist packet from a `fiscus review trajectories` JSON report.
+
+    A :class:`FalseGreenError` exits 2, distinct from 1, so the caller can tell
+    "the estate has nothing to promote" from "the detector is broken" — the two
+    must never render the same (Fiscus #101).
+    """
+    report = _read_json(args.report)
+    today = date.fromisoformat(args.today) if args.today else date.today()
+    try:
+        candidates = promotion.build_worklist(
+            report, min_recurrence=args.min_recurrence, cap=args.cap
+        )
+    except promotion.FalseGreenError as exc:
+        sys.stderr.write(f"{exc}\n")
+        return 2
+
+    sys.stdout.write(promotion.format_packet(candidates, generated_on=today))
+    if args.record:
+        ledger = Path(args.ledger or promotion.default_promotion_ledger_path(Path(args.repo_root)))
+        promotion.record_run(ledger, ran_on=today, candidates=len(candidates))
+    return 0
+
+
+def _add_promotion_subparser(sub: argparse._SubParsersAction) -> None:
+    grp = sub.add_parser(
+        "promotion", help="trajectory-promotion pass — recurring lessons → doctrine (§13.5)"
+    )
+    actions = grp.add_subparsers(dest="action", required=True)
+
+    prb = actions.add_parser("probe", help="is the monthly promotion pass due? (JSON)")
+    prb.add_argument("--repo-root", default=str(cycle.OVERSTEWARD_ROOT))
+    prb.add_argument("--ledger", default=None, help="run-ledger path (default: data/dream)")
+    prb.add_argument("--today", default=None, help="YYYY-MM-DD stamp (default: today)")
+    prb.set_defaults(func=_cmd_promotion_probe)
+
+    pkt = actions.add_parser("packet", help="promotion worklist packet (markdown)")
+    pkt.add_argument("--report", required=True, help="fiscus trajectories JSON, or - for stdin")
+    pkt.add_argument("--repo-root", default=str(cycle.OVERSTEWARD_ROOT))
+    pkt.add_argument("--ledger", default=None, help="run-ledger path (default: data/dream)")
+    pkt.add_argument("--today", default=None, help="YYYY-MM-DD stamp (default: today)")
+    pkt.add_argument("--min-recurrence", type=int, default=promotion.MIN_RECURRENCE)
+    pkt.add_argument("--cap", type=int, default=promotion.DEFAULT_CAP)
+    pkt.add_argument("--record", action="store_true", help="record this run in the ledger")
+    pkt.set_defaults(func=_cmd_promotion_packet)
+
+
 def _add_supersede_subparser(sub: argparse._SubParsersAction) -> None:
     sup = sub.add_parser(
         "supersede",
@@ -280,6 +334,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_cycle_subparser(sub)
     _add_supersede_subparser(sub)
     _add_roadmap_subparser(sub)
+    _add_promotion_subparser(sub)
     return parser
 
 
