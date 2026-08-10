@@ -234,6 +234,34 @@ exits **2** when the pattern report is empty over a large corpus. That is a
 broken instrument, not a quiet backlog — surface it rather than reporting a
 clean morning.
 
+## Session start — the Sentry triage sweep (OS#338)
+
+**Alongside the kaizen pass, sweep the Sentry queue.** Run `/sentry-triage`
+(skill: `.claude/skills/sentry-triage/`) as part of opening the session:
+
+```bash
+.venv/bin/python scripts/sentry_triage.py sweep
+```
+
+Steady state is **inbox zero on Sentry *issues*, not zero events**: every issue
+is fixed, filed as a repo issue, or resolved-with-reason, never left unread.
+Sentry's own email alerts are Layer 0; this is the pull side, and it is what
+makes "nothing new" a fact rather than an assumption. The tool is deterministic
+and zero-LLM — it decides what is *unread*, never what the fix should be.
+
+Same shape as kaizen, for the same reasons. **It is a pass, not a gate**, and
+**Nathan's assigned work always goes first.** **Record a verdict, or the queue
+never drains** (`sentry_triage.py record <shortId> fixed|filed|noise-resolved`)
+— an unrecorded issue is at the head of the list again next sweep. Fixed and
+noise issues are marked **resolved** in Sentry (`--resolve`), never ignored, so
+a regression reopens loudly.
+
+The exit codes carry meaning and must not be collapsed: **0** is a measured
+answer (a queue, or `ledger current — nothing to triage`), **1** means Sentry
+could not be read, **2** means it was not configured to look. "I found nothing"
+and "I could not look" never print the same — a red exit is a finding to report,
+not a quiet morning.
+
 ## Tool Registry
 
 **When looking for a CLI tool, script, or entry point — read `data/tool_registry.md` first.**
