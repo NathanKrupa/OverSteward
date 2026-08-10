@@ -61,6 +61,12 @@ data/dream/promotion.json
 # Per-machine kaizen verdict ledger (OS#332) — what has been ruled on
 data/dream/kaizen.json
 
+# Per-machine Sentry triage state (OS#338): the durable verdict ledger and the
+# last sweep's queue snapshot. Runtime state, like its siblings above — the
+# durable record of a triaged issue is the repo issue it was filed as.
+data/sentry/ledger.jsonl
+data/sentry/pending.json
+
 # Dispatch agent worktrees (registered git worktrees, ephemeral per-machine)
 .claude/worktrees/
 
