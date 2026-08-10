@@ -96,6 +96,7 @@ via `scripts/dev/with_test_env.py`, and GitHub Actions secrets for CI/DQ.
 | `GRANTSPIDER_WEB_BOT_AUTH_PRIVATE_KEY` | Web Bot Auth request signer (Cloudflare Verified Bots) | **currently unset in prod** (signer disabled; verified 2026-07-23) | new Ed25519 pair; publish pubkey at `GRANTSPIDER_WEB_BOT_AUTH_KEY_DIR_URL` (default `bot.thealmoner.com` directory) | separate identity from AG's pair |
 | `RAILWAY_API_TOKEN` (+ service/env ID vars) | daemon-watchdog Railway restart | Railway (webserver) | Railway → Account/Project Tokens | IDs are identifiers, not secrets |
 | `AG_DISPATCH_PAT` | cross-repo dispatch to AG on main | GH Actions secret | GitHub → fine-grained PAT (repo-dispatch on AG) | — |
+| `GRANTSPIDER_SENTRY_DSN` (alias `SENTRY_DSN`) | error reporting — process excepthook + Dagster run-failure sensor (`services/error_reporting.py`) | `.env` / Railway | Sentry project settings | low sensitivity; empty DSN keeps reporting inert. Reports to org `the-almoner-llc` project **`python`** (default slug, never renamed to `grantspider`) |
 
 **Delegated-arm migration token** is not an env secret: a mode-restricted local
 file `~/.grantspider/prod-migration.arm`, written by the arm CLI, single-use
@@ -105,8 +106,7 @@ dependency is `GRANTSPIDER_NEON_API_KEY`.
 Gaps (2026-07-23 sweep): `.env.example` documents only ~15 vars — missing
 Typesense admin, Neon API, correction token, Dagster PG set, `AG_TENANT_DATABASE_URL`,
 proxy URL, bot-auth key, watchdog token, and the direct-`os.environ` LLM
-alternates (`GEMINI_API_KEY`/`GOOGLE_API_KEY`, `OPENAI_API_KEY`). No Sentry
-integration exists in GS despite folklore.
+alternates (`GEMINI_API_KEY`/`GOOGLE_API_KEY`, `OPENAI_API_KEY`).
 
 ## 3. wphelper (+ wphelper-clients)
 
