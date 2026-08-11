@@ -113,3 +113,29 @@ def test_quoted_override_does_not_wave_through():
         )
         is True
     )
+
+
+# --- prose is not a command ----------------------------------------------
+#
+# A backtick is a command-substitution opener, so documentation *about this
+# guard* sits at a command position. The tell is the refspec: git forbids the
+# characters a placeholder or quoted fragment carries. Regression — the guard
+# blocked the very commit message that documented it.
+
+
+def test_markdown_placeholder_is_not_a_pull():
+    assert g.pull_target("never `git pull <remote> <ref>` on a trunk branch") is None
+
+
+def test_backticked_prose_does_not_block():
+    prose = "docs: never `git pull <remote> <ref>` on a trunk branch"
+    assert g.should_block(prose, current_branch="master") is False
+
+
+def test_quoted_refspec_is_not_a_pull():
+    assert g.pull_target("git pull origin 'staging'") is None
+
+
+def test_real_pull_still_caught_after_plausibility_filter():
+    assert g.pull_target("git pull --ff-only origin staging") == "staging"
+    assert g.should_block("git pull origin staging", current_branch="main") is True

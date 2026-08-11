@@ -60,6 +60,15 @@ _PULL = re.compile(
 )
 _FLAG = re.compile(r"^-")
 
+# A refspec that cannot name a real branch is prose, not a command. git forbids
+# space ~ ^ : ? * [ \ in a ref name, and documentation placeholders (``<ref>``)
+# and quoted fragments carry characters no ref ever has. Without this the guard
+# fires on its own documentation: a backtick counts as a command-substitution
+# opener, so "`git pull <remote> <ref>`" in a commit message or a Markdown table
+# reads as a command at a command position. A guard that blocks prose gets
+# overridden reflexively, which is exactly how the real case goes unguarded.
+_IMPLAUSIBLE_REF = re.compile(r"""[<>`'"~^:?*\[\\]""")
+
 _OVERRIDE_NAMES = "|".join(_OVERRIDE_VARS)
 _OVERRIDE_PREFIX = re.compile(
     _SEP + _ASSIGN + rf"(?:{_OVERRIDE_NAMES})=1\s+" + _ASSIGN + r"git\s+pull\b"
@@ -95,7 +104,12 @@ def pull_target(command: str) -> str | None:
         return None
     words = [w for w in match.group("rest").split() if not _FLAG.match(w)]
     # words[0] is the remote, words[1] the refspec. No refspec → upstream pull.
-    return words[1] if len(words) >= 2 else None
+    if len(words) < 2:
+        return None
+    target = words[1]
+    if _IMPLAUSIBLE_REF.search(target) or _IMPLAUSIBLE_REF.search(words[0]):
+        return None  # prose or a placeholder, not a runnable pull
+    return target
 
 
 def is_protected(branch: str) -> bool:
