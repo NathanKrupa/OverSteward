@@ -1,0 +1,37 @@
+# ABOUTME: systemd --user unit for the sentry-triage cron BACKSTOP (OverSteward #339).
+# ABOUTME: Oneshot headless `claude -p` run; the paired sentry-triage.timer schedules it. NOT enabled by default.
+#
+# Install (see sentry_triage.README.md for the full walk-through):
+#   mkdir -p ~/.config/systemd/user
+#   cp sentry-triage.service sentry-triage.timer ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now sentry-triage.timer  # explicit operator step
+#   loginctl enable-linger "$USER"                     # keep the timer alive across logout
+#
+# This is the BACKSTOP only — the session-start sweep is the primary trigger. It
+# no-ops cleanly when the ledger is already drained.
+
+[Unit]
+Description=Sentry triage backstop — sweep unresolved Sentry issues with no recorded verdict
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Run from the OverSteward working tree so `claude` finds the /sentry-triage
+# skill, and so the tool resolves data/sentry/ and the repo-root .env that holds
+# SENTRY_API_TOKEN.
+WorkingDirectory=%h/OverSteward
+Environment=PYTHONPATH=%h/OverSteward/src
+# Headless Claude Code uses the Max SUBSCRIPTION (in-session), NOT the metered
+# API — this is a backstop trigger, never an API daemon. The /sentry-triage skill
+# is the convergent runner; on a drained ledger it exits as a clean no-op. The
+# unattended run files and resolves, but never ships a code fix: a `fixed`
+# verdict means a worktree PR, which belongs to an interactive session.
+#
+# ABSOLUTE path on purpose. A systemd --user manager's PATH is the system default
+# (/usr/local/bin:/usr/bin:/bin:/snap/bin) and does NOT carry ~/.local/bin, where
+# the Claude Code CLI installs — a bare `claude` never launches. Confirm yours
+# with `command -v claude`, and check the unit with
+# `systemd-analyze --user verify ~/.config/systemd/user/sentry-triage.service`.
+ExecStart=%h/.local/bin/claude -p "Run the Sentry triage sweep: follow the /sentry-triage skill end to end, but file or noise-resolve only — never ship a code fix unattended; leave anything needing a fix filed as a repo issue. If the ledger is current, no-op."
