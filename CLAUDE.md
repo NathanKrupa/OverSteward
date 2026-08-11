@@ -208,6 +208,65 @@ Drift-prevention rules for the primary checkout:
   merge — read current code mid-session from origin (`git show
   origin/master:<path>`) rather than mutating the live tree.
 
+## The primary checkout tracks what production runs
+
+**Every primary checkout sits on the branch its production runs — not the repo's
+default branch.** The two differ, and the difference is load-bearing:
+
+| repo | default branch | primary checkout sits on |
+| --- | --- | --- |
+| grantspider | `staging` | **`main`** — `db migrate-prod run` refuses anywhere else |
+| aigranthelper | `main` | `main` |
+| OverSteward, wphelper, fiscus, ai-assistants | `main`/`master` | same |
+
+Declare it in `registry.yaml` as `primary_branch` wherever it is not the repo
+default. `scripts/dev/sync_repos.py` reads that key; without it the tool infers
+the target from `origin/HEAD`, decides the checkout is "on a feature branch",
+and **skips the very checkout it should be tending** — which is how aigranthelper
+reached 590 commits behind and grantspider's `main` sat on a staging commit
+unnoticed.
+
+**Never `git pull <remote> <ref>` on a trunk branch.** `git pull` merges into
+whatever branch is *checked out*, whatever it is named, so a pull aimed at a
+repo's default branch while sitting on a different trunk branch silently
+rewrites the wrong pointer — a valid fast-forward, exit 0, no warning:
+
+```
+ec4132a7 main@{2026-08-10 21:56}: pull --ff-only origin staging: Fast-forward
+```
+
+Three times in one evening in grantspider (OS#345). Use the form that names its
+destination and cannot rewrite a differently-named branch:
+
+```bash
+git fetch origin <branch>
+git merge --ff-only origin/<branch>     # or: scripts/dev/sync_repos.py
+```
+
+`.claude/hooks/guard_trunk_pull.py` refuses the dangerous shape when a protected
+branch (`main`/`master`/`staging`) is checked out and the pull names a different
+ref. Pulling upstream into a *feature* branch stays allowed — it is an ordinary
+idiom, and a guard that cries wolf gets overridden reflexively. **The hook is
+defence in depth, not the control**: it sees only Claude Code's Bash tool, so a
+terminal, a Makefile or direnv all bypass it. `sync_repos.py` on the nightly
+timer is what actually carries the load.
+
+**Repair is automatic when it is provably lossless.** A branch moved onto a
+foreign tip is *ahead* of its own remote while carrying nothing unique — every
+commit it gained is published on some other remote ref. `sync_repos.py` measures
+that (`git rev-list <branch> --not --remotes`) and resets it back by itself.
+Only commits reachable from **no** remote — genuine unpushed work — stop it and
+ask for a human. It never touches a dirty tree, and never touches a checkout
+sitting on a branch other than its target.
+
+Enable the nightly sweep once per machine:
+
+```bash
+cp shared/scripts/dev/sync-repos.{service,timer} ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now sync-repos.timer   # 03:00, ahead of the dream cycle
+```
+
 ## Session start — the kaizen pass (OS#332)
 
 **Every session opens by fixing one recurring process defect.** Run `/kaizen`
