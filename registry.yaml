@@ -158,6 +158,10 @@ contexts:
     repo: https://github.com/NathanKrupa/aigranthelper.git
     branch: staging
     local_path: "/home/natha/aigranthelper"
+    # The branch this checkout tracks: what production runs, which is not
+    # the repo default. Without it sync_repos infers from origin/HEAD and
+    # skips this checkout as "on a feature branch".
+    primary_branch: main
     claude_md_path: CLAUDE.md
     skills_path: .claude/skills/
     soul: chestertron
@@ -281,6 +285,10 @@ contexts:
     repo: https://github.com/NathanKrupa/grantspider.git
     branch: staging
     local_path: "/home/natha/grantspider"
+    # The branch this checkout tracks: what production runs, which is not
+    # the repo default. Without it sync_repos infers from origin/HEAD and
+    # skips this checkout as "on a feature branch".
+    primary_branch: main
     claude_md_path: CLAUDE.md
     skills_path: .claude/skills/
     soul: chestertron
