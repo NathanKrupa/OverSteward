@@ -25,4 +25,10 @@ Environment=PYTHONPATH=%h/OverSteward/src
 # Headless Claude Code uses the Max SUBSCRIPTION (in-session), NOT the metered
 # API — this is a backstop trigger, never an API daemon. The /dream skill is the
 # convergent runner; on a current ledger it exits as a clean no-op.
-ExecStart=claude -p "Run the dream cycle: follow the /dream skill end to end (memory/docs only, never code). If the ledger is current, no-op."
+#
+# ABSOLUTE path on purpose. A systemd --user manager's PATH is the system default
+# (/usr/local/bin:/usr/bin:/bin:/snap/bin) and does NOT carry ~/.local/bin, where
+# the Claude Code CLI installs — a bare `claude` never launches. Confirm yours
+# with `command -v claude`, and check the unit with
+# `systemd-analyze --user verify ~/.config/systemd/user/dream-cycle.service`.
+ExecStart=%h/.local/bin/claude -p "Run the dream cycle: follow the /dream skill end to end (memory/docs only, never code). If the ledger is current, no-op."

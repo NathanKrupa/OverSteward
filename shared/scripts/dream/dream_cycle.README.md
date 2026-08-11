@@ -48,6 +48,20 @@ loginctl enable-linger "$USER"                    # keep the timer alive across 
 Check it: `systemctl --user list-timers dream-cycle.timer` and
 `journalctl --user -u dream-cycle.service -f`.
 
+**Check the unit resolves its executable, too:**
+
+```bash
+systemd-analyze --user verify ~/.config/systemd/user/dream-cycle.service
+```
+
+A systemd `--user` manager's PATH is the system default
+(`/usr/local/bin:/usr/bin:/bin:/snap/bin`) and does **not** carry
+`~/.local/bin`, where the Claude Code CLI installs — so the unit names `claude`
+by absolute path (`%h/.local/bin/claude`). If `command -v claude` prints
+somewhere else on your machine, edit the `ExecStart` line to match. A bare
+`claude` verifies as `Command claude is not executable` and the timer would tick
+forever without ever launching anything.
+
 Disable: `systemctl --user disable --now dream-cycle.timer`.
 
 ## crontab alternative
