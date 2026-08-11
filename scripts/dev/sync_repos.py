@@ -49,14 +49,18 @@ class RepoState:
     present: bool
     shallow: bool
     current_branch: str
-    default_branch: str
+    target_branch: str
     ahead: int
     behind: int
     dirty: int
+    #: Commits on the current branch reachable from NO remote ref. Zero means
+    #: everything here is published somewhere, so resetting to the target's
+    #: remote cannot lose work — which is what makes strand repair automatic.
+    unpushed: int = 0
 
     @property
-    def on_default(self) -> bool:
-        return bool(self.default_branch) and self.current_branch == self.default_branch
+    def on_target(self) -> bool:
+        return bool(self.target_branch) and self.current_branch == self.target_branch
 
 
 @dataclass(frozen=True)
@@ -79,18 +83,30 @@ def plan_sync(state: RepoState) -> SyncPlan:
     rid = state.repo_id
     if not state.present:
         return SyncPlan(rid, "absent", "no local checkout")
-    if not state.default_branch:
+    if not state.target_branch:
         return SyncPlan(rid, "skip", "could not determine origin default branch")
     if state.dirty > 0:
         return SyncPlan(rid, "skip", f"{state.dirty} uncommitted change(s) — left untouched")
-    if not state.on_default:
+    if not state.on_target:
         return SyncPlan(
-            rid, "skip", f"on '{state.current_branch}', not default '{state.default_branch}'"
+            rid, "skip", f"on '{state.current_branch}', not target '{state.target_branch}'"
         )
     if state.shallow:
         return SyncPlan(rid, "unshallow_ff", "shallow clone → unshallow + fast-forward")
     if state.ahead > 0:
-        return SyncPlan(rid, "skip", f"{state.ahead} local commit(s) ahead — manual reconcile")
+        # Ahead of its own remote with nothing unique: the branch was moved onto
+        # a foreign tip (a hygiene ``pull`` aimed at the wrong ref does exactly
+        # this) and every commit it carries is published elsewhere. Resetting is
+        # provably lossless, so it needs no human. Only unique work does.
+        if state.unpushed == 0:
+            return SyncPlan(
+                rid,
+                "reset",
+                f"{state.ahead} ahead but no unpushed commits — lossless reset to origin/{state.target_branch}",
+            )
+        return SyncPlan(
+            rid, "skip", f"{state.unpushed} unpushed commit(s) — manual reconcile"
+        )
     if state.behind > 0:
         return SyncPlan(rid, "ff", f"{state.behind} behind → fast-forward")
     return SyncPlan(rid, "current", "already current")
@@ -109,11 +125,20 @@ def _ok(result: subprocess.CompletedProcess) -> bool:
     return getattr(result, "returncode", 1) == 0
 
 
-def gather_state(repo_id: str, path: str, *, runner: Runner = subprocess.run) -> RepoState:
+def gather_state(
+    repo_id: str, path: str, *, runner: Runner = subprocess.run, primary_branch: str = ""
+) -> RepoState:
     """Probe a checkout's state via git. ``runner`` is injected for testing.
 
     Heals ``origin/HEAD`` (``remote set-head --auto``) before reading the default
     branch, and fetches so ahead/behind are measured against a fresh remote.
+
+    ``primary_branch`` (registry ``primary_branch``) wins over ``origin/HEAD``.
+    The two differ wherever a checkout deliberately tracks the branch production
+    runs rather than the repo's integration default — grantspider defaults to
+    ``staging`` but its primary checkout must sit on ``main``, because
+    ``db migrate-prod run`` refuses anywhere else. Inferring the target from
+    ``origin/HEAD`` there makes the tool skip the very checkout it should tend.
     """
     absent = RepoState(repo_id, False, False, "", "", 0, 0, 0)
     if not Path(path, ".git").exists():
@@ -124,7 +149,7 @@ def gather_state(repo_id: str, path: str, *, runner: Runner = subprocess.run) ->
 
     _git(runner, path, "remote", "set-head", "origin", "--auto")
     head = _git(runner, path, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
-    default = head.stdout.strip().removeprefix("origin/") if _ok(head) else ""
+    default = primary_branch or (head.stdout.strip().removeprefix("origin/") if _ok(head) else "")
     if not default:
         return RepoState(repo_id, True, shallow, current, "", 0, 0, 0)
 
@@ -132,7 +157,12 @@ def gather_state(repo_id: str, path: str, *, runner: Runner = subprocess.run) ->
     dirty = len([ln for ln in _git(runner, path, "status", "--porcelain").stdout.splitlines() if ln])
     counts = _git(runner, path, "rev-list", "--left-right", "--count", f"{current}...origin/{default}")
     ahead, behind = _parse_counts(counts.stdout)
-    return RepoState(repo_id, True, shallow, current, default, ahead, behind, dirty)
+    # Commits here that no remote ref carries. ``--not --remotes`` subtracts
+    # every origin branch, not just this one's — a branch stranded onto another
+    # branch's tip therefore scores zero, which is exactly the lossless case.
+    unpushed_out = _git(runner, path, "rev-list", "--count", current, "--not", "--remotes")
+    unpushed = int(unpushed_out.stdout.strip() or 0) if _ok(unpushed_out) else ahead
+    return RepoState(repo_id, True, shallow, current, default, ahead, behind, dirty, unpushed)
 
 
 def _parse_counts(stdout: str) -> tuple[int, int]:
@@ -147,33 +177,61 @@ def _parse_counts(stdout: str) -> tuple[int, int]:
 
 
 def apply_plan(
-    plan: SyncPlan, path: str, *, runner: Runner = subprocess.run
+    plan: SyncPlan, path: str, *, runner: Runner = subprocess.run, target_branch: str
 ) -> tuple[bool, str]:
-    """Carry out a plan's git action. Returns (changed, note). Only ff/unshallow act."""
+    """Carry out a plan's git action. Returns (changed, note). Only ff/unshallow/reset act.
+
+    ``target_branch`` is passed in rather than re-resolved here: this function
+    must act on the branch :func:`plan_sync` actually validated. Re-reading
+    ``origin/HEAD`` at apply time let it operate on a branch nothing had
+    checked — the same wrong-ref shape that strands a trunk branch.
+    """
     if plan.action == "ff":
-        return _fast_forward(path, runner)
+        return _fast_forward(path, runner, target_branch)
     if plan.action == "unshallow_ff":
         unshallow = _git(runner, path, "fetch", "--unshallow")
         if not _ok(unshallow):
             # Already complete (or no shallow boundary) — fall through to ff.
             pass
-        return _fast_forward(path, runner)
+        return _fast_forward(path, runner, target_branch)
+    if plan.action == "reset":
+        return _reset_to_remote(path, runner, target_branch)
     return (False, plan.reason)
 
 
-def _fast_forward(path: str, runner: Runner) -> tuple[bool, str]:
-    head = _git(runner, path, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
-    default = head.stdout.strip().removeprefix("origin/")
-    pull = _git(runner, path, "pull", "--ff-only", "origin", default)
-    if _ok(pull):
-        return (True, f"fast-forwarded to origin/{default}")
-    return (False, f"ff-only pull failed: {pull.stderr.strip().splitlines()[-1] if pull.stderr.strip() else 'unknown'}")
+def _fast_forward(path: str, runner: Runner, branch: str) -> tuple[bool, str]:
+    """Advance the checked-out branch to its remote, without ``git pull``.
+
+    ``git pull <remote> <ref>`` merges into whatever is checked out regardless
+    of what it is named, so a wrong ``<ref>`` silently rewrites a trunk branch.
+    ``merge --ff-only origin/<branch>`` names the destination explicitly and
+    cannot do that; ``gather_state`` has already fetched.
+    """
+    merge = _git(runner, path, "merge", "--ff-only", f"origin/{branch}")
+    if _ok(merge):
+        return (True, f"fast-forwarded to origin/{branch}")
+    tail = merge.stderr.strip().splitlines()
+    return (False, f"ff-only merge failed: {tail[-1] if tail else 'unknown'}")
 
 
-def _local_paths() -> list[tuple[str, str]]:
+def _reset_to_remote(path: str, runner: Runner, branch: str) -> tuple[bool, str]:
+    """Move a diverged-but-fully-published branch back onto its remote.
+
+    Only reached when the tree is clean and no commit here is missing from every
+    remote, so nothing recoverable is discarded.
+    """
+    reset = _git(runner, path, "reset", "--hard", f"origin/{branch}")
+    if _ok(reset):
+        return (True, f"reset to origin/{branch} (was diverged, nothing unpushed)")
+    tail = reset.stderr.strip().splitlines()
+    return (False, f"reset failed: {tail[-1] if tail else 'unknown'}")
+
+
+def _local_paths() -> list[tuple[str, str, str]]:
+    """(id, checkout path, declared primary branch) for every managed checkout."""
     data = yaml.safe_load(REGISTRY_PATH.read_text(encoding="utf-8"))
     return [
-        (ctx["id"], ctx["local_path"])
+        (ctx["id"], ctx["local_path"], ctx.get("primary_branch", ""))
         for ctx in data.get("contexts", [])
         if ctx.get("local_path")
     ]
@@ -182,14 +240,14 @@ def _local_paths() -> list[tuple[str, str]]:
 def sync_all(*, apply: bool, only: Sequence[str] | None = None) -> list[tuple[SyncPlan, str]]:
     """Plan (and optionally apply) a sync for every managed checkout."""
     results: list[tuple[SyncPlan, str]] = []
-    for repo_id, path in _local_paths():
+    for repo_id, path, primary in _local_paths():
         if only and repo_id not in only:
             continue
-        state = gather_state(repo_id, path)
+        state = gather_state(repo_id, path, primary_branch=primary)
         plan = plan_sync(state)
         note = plan.reason
-        if apply and plan.action in ("ff", "unshallow_ff"):
-            _, note = apply_plan(plan, path)
+        if apply and plan.action in ("ff", "unshallow_ff", "reset"):
+            _, note = apply_plan(plan, path, target_branch=state.target_branch)
         results.append((plan, note))
     return results
 

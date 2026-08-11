@@ -1,0 +1,22 @@
+# ABOUTME: systemd --user timer scheduling the nightly checkout-currency sync.
+# ABOUTME: Runs before the dream cycle so consolidation reads current trees.
+#
+# Enable: systemctl --user enable --now sync-repos.timer
+# Inspect: systemctl --user list-timers sync-repos.timer
+
+[Unit]
+Description=Nightly checkout-currency sync schedule
+
+[Timer]
+# 03:00 local — deliberately half an hour ahead of dream-cycle.timer (03:30), so
+# the nightly consolidation reads checkouts that are already current rather than
+# whatever state the previous day's sessions left behind.
+#
+# Persistent runs a missed tick once the machine is back up, which is the normal
+# case here: the laptop is usually closed at 03:00.
+OnCalendar=*-*-* 03:00:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
