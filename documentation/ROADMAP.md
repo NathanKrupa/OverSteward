@@ -3,7 +3,7 @@ ABOUTME: Pulls from registry.yaml, OVERSTEWARD.md horizons, MASTER_TODO/TODO_BAC
 
 # OverSteward Roadmap
 
-**As of 2026-08-02** (August reconciliation — the first pass produced by the dream cycle's own intent machinery, OS#231). Authoritative for "what we're trying to do, what's been done, and what's next." Pull-based — refresh whenever a horizon item lands or a new one promotes from backlog. **Read §3.7 then §3.6 then §3.5 first** for current state — the June–July 2026 program lives there; §2–§4 cover through early May and some of their "next up" items have since shipped (corrections in §3.5/§3.6). Maintenance of this file is becoming a dream-cycle responsibility (§13.4 intent pass, OS#231); `/refresh-docs` sweeps it monthly as the backstop.
+**As of 2026-08-10** (second dream-produced reconciliation, OS#231's intent pass). Authoritative for "what we're trying to do, what's been done, and what's next." Pull-based — refresh whenever a horizon item lands or a new one promotes from backlog. **Read §3.8 then §3.7 then §3.6 then §3.5 first** for current state — the June–July 2026 program lives there; §2–§4 cover through early May and some of their "next up" items have since shipped (corrections in §3.5/§3.6). Maintenance of this file is becoming a dream-cycle responsibility (§13.4 intent pass, OS#231); `/refresh-docs` sweeps it monthly as the backstop.
 
 Source files this roadmap consolidates:
 - `OVERSTEWARD.md` (vision, two pillars, phase plan)
@@ -269,6 +269,114 @@ Heavy delivery between 2026-04-15 and 2026-05-07. Center of gravity moved here.
 
 ---
 
+## §3.8 August 2026 — the estate starts opening its own defects (reconciled 2026-08-10)
+
+> Second dream-produced pass. The period's center of gravity was **turning the
+> session's opening minutes into a drain**: two deterministic session-start
+> sweeps now run before the day's work — `/kaizen` (one recurring process defect,
+> OS#332) and `/sentry-triage` (one production-error queue, OS#338). Both were
+> built on the same shape, deliberately: a pass and not a gate, Nathan's assigned
+> work first, a recorded verdict or the queue never drains, and an exit code that
+> distinguishes "I found nothing" from "I could not look."
+>
+> The forcing evidence: the 2026-08-08 trajectory analysis found **nine error
+> classes recurring across 9–11 distinct PRs each**, every one already written
+> down in a note that nothing read. The lesson loop was severed at the read end,
+> not the write end.
+
+### Shipped (2026-08-03 → 08-10)
+
+- **The kaizen session-start pass is live** (OS#332 → PR #333, #335). Ranks
+  recurring-lesson clusters by measured recurrence out of Fiscus, plus
+  `kaizen`-labelled issues; `kaizen resolve` records the verdict that retires an
+  item (`promoted`/`declined`) or keeps it queued (`deferred`). `kaizen next`
+  exits **2** on an empty pattern report over a large corpus — a broken
+  instrument, never a quiet backlog. Wired into CLAUDE.md as the first act of
+  every session.
+- **The Sentry queue is a swept queue** (OS#338 → PR #340; OS#339 → PR #342).
+  Deterministic zero-LLM sweep + `/sentry-triage` skill + session-start wiring;
+  steady state is inbox zero on *issues*, not zero events, with every issue
+  fixed, filed, or resolved-with-reason. A weekly systemd backstop runs the sweep
+  headless. The 2026-08-10 queue was canonicalized into `MASTER_TODO.md` (PR
+  #337) and the GS Sentry DSN recorded in the secrets registry, replacing a
+  folklore line (PR #336).
+- **The trajectory-promotion pass closes the lesson loop** (OS#325 → PR #331).
+  Monthly dream pass that promotes recurring trajectory lessons into doctrine —
+  the write-end complement to kaizen's read end. With the intent/roadmap pass
+  (OS#231) this is the second of Phase 2's reconciliation passes to land; only
+  ought-vs-actual (OS#232) remains.
+- **The dream cycle became operable unattended** — `dream-cycle.service` names
+  the Claude CLI by absolute path (OS#341 → PR #343), after the systemd `--user`
+  PATH swallowed the bare `claude` invocation exactly as it had for the retired
+  Telegraph supervisor unit (OS#119). The durable `flagged.jsonl` open set was
+  migrated to the current schema in place this cycle; the round-trip defect that
+  drops holds is still open (OS#334).
+- **The worktree-discipline family reached its hardened form.** Per-worktree test
+  databases (OS#276 → PR #277); teardown that destroys **last** and finds *every*
+  database a worktree owns (OS#283, #286 → PR #290); refusal when the derivation
+  is missing rather than a silent green (OS#305 → PR #311); never deleting a
+  *tracked* `.envrc` (OS#308 → PR #310); and an orphan `sweep` that reconciles
+  container databases against live worktrees (OS#296 → PR #301) after seven
+  unnameable databases accumulated in one grantspider evening.
+- **The guard hooks stopped being fooled by shell syntax.** `guard_shared_venv`
+  now matches uv verbs by lexing rather than raw text (OS#267 → PR #271), refuses
+  bare `uv run` because the implicit sync *is* the capture path (OS#294 → PR
+  #295), and treats a backtick as a command position (OS#298 → PR #303); both
+  regex guards — including the class-1 hard deny — are anchored at command
+  substitutions (OS#302 → PR #306), and `_DB_CLIENT` sees a client inside one
+  (OS#307 → PR #312).
+- **Commit-time gates are installed, not merely configured** (OS#244, #246). The
+  gaudi gate was scoped, installed and cleared, and the CI watchdog sits behind
+  the commit-time gate — closing §3.7's "`core.hooksPath` points at a nonexistent
+  `.githooks`" row.
+- **Agent cards were re-verified against origin, and taught to stop asserting
+  what rots** (OS#309 → PR #314, plus #300, #315, #316) — pip-in-a-uv-repo, a
+  wrong Postgres major, an omitted docs-only CI passthrough, and AG's app DB
+  misrecorded as Neon rather than Railway Postgres.
+- **The docs-author agent shipped** (PR #319, #320, #321) — a client-facing
+  help-centre author writing drafts only, with documentation reframed as a **UX
+  triage instrument**: what is hard to document is usually hard to use.
+- **Sphere I context (GS/AG, for the gap table):** the GS website-contamination
+  arc closed end-to-end — diagnosis (GS#2160), resolver gates in the enrich drain
+  (GS#2169), and cleanup applied to production (GS#2164, #2171, #2178), repairing
+  **5,708 websites, 2.72M links, and 15,940 chunks**. The Haiku website verifier
+  (GS#2172, #2173) was built, promoted, and is running. AG's documentation run
+  wave 1 closed eight issues (AG#1472, #1480, #1490, #1506, #1512, #1516, #1517,
+  #1527).
+
+### Corrections to the §3.7 watch-list
+
+| §3.7 row | Correction as of 2026-08-10 |
+|---|---|
+| Commit-time gates not actually installed (OS#244, #246, #247) | **resolved** — #244 and #246 merged; #247 closed, superseded by the guard-hook work |
+| Guard hook vs env-mutating uv in a shared-venv worktree (OS#248) | **shipped** — PR #264, then hardened four times (OS#267, #294, #298, #302) |
+| Canonical family drifts *upward* from its own home (OS#261) | unchanged — still open; canonical test members remain strict subsets of OverSteward's own copies |
+| Routines + `/goal` harness adoption (OS#252, #253) | unchanged — filed, undispatched |
+| `/corrections` operator skill (OS#251) | unchanged |
+| Estate-wide guard-hook deploy (OS#192) | now measured — OS#304 names the specifics (GS lacks `guard_shared_venv`, AG wires no hooks at all); still OverSteward-only |
+| **Unfiled B2 restore-drill flag** | **filed and closed** — GS#2009 covered `backup_drill` among four failing prod jobs (closed 2026-08-04). Residual: a per-DB backup failure still fails green (GS#2122, open) |
+
+### Started, not yet landed (August 10 watch-list)
+
+| Item | Where | State |
+|---|---|---|
+| Dream Phase 2 — ought-vs-actual pass | OS#232 (epic OS#230) | the last unbuilt reconciliation pass; intent/roadmap and trajectory-promotion both live |
+| Dream flagged-set integrity | OS#334 | schema migrated in place this cycle; the migration round-trip still drops holds |
+| Memory retrieval | OS#324 | capture works, retrieval does not — two facts were in the store and neither reached the session that needed them |
+| Trajectory tagging | OS#329 | 52% of lessons untagged — this is the *input quality* of the kaizen queue |
+| "A check that reports success must prove it can fail" | OS#327 | the canary law, generalized from kaizen's and sentry-triage's exit-2 rule; doctrine not yet written |
+| Agent-card rot | OS#328, OS#270 | cards corrected this wave; the mechanism that rots them is untouched |
+| Guard family estate-wide | OS#304, #192, #182, #272 | still OverSteward-only; OS#272 also carries the raw-text false-positive sweep |
+| Credential-hygiene hook gap | OS#323 | `railway variables --kv` slipped a private key through a filtered pipeline |
+| Estate-wide uv transition | OS#318 | GS CI is still 27 pip installs and a pip-era lock |
+| GS worktree doctor unreachable | OS#322 | the checkout that owns the worktrees cannot reach the doctor |
+| Tool-registry drift guard | OS#274 | generator discovery still rglob, not `git ls-files` |
+| Red-team Phase 0.5 + Phase 2 | OS#220, OS#222 | carried unchanged from §3.6 |
+| Vintner alerting layer | OS#229 | carried unchanged — report spine exists, alerter unbuilt |
+| Happy relay self-host | OS#193 | carried unchanged — still on the public relay |
+
+---
+
 ## §4 In flight
 
 Active or partially-shipped items as of 2026-05-07.
@@ -374,4 +482,4 @@ Captured in `IDEA_STORE.md` from gstack research and conversational drift. None 
 - If §2-§3 grow past readable length, extract to a `documentation/changelog.md` and keep this doc thin.
 - This doc is the single answer to "what are we trying to do, what's done, what's next?" If it can't answer that in under 60 seconds of reading, it's grown past its purpose — restructure rather than expand.
 
-*Last updated: 2026-08-02 (August reconciliation — §3.7 added; the first pass produced by the dream cycle's intent machinery rather than hand-run, OS#231).*
+*Last updated: 2026-08-10 (August reconciliation — §3.8 added; the session-start drains, kaizen and Sentry triage, and the worktree/guard family's hardened form).*
