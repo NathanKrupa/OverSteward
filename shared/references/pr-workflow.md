@@ -13,3 +13,17 @@ ABOUTME: Sourced into ~/.claude/CLAUDE.md and any project CLAUDE.md that wants t
 - **Write a trajectory note before opening the PR**, at `<repo>/documentation/trajectories/YYYY-MM-DD-PR<N>.md`. Use the schema in OverSteward `documentation/trajectories/TEMPLATE.md`. Captures what worked, what didn't, and what was learned — input artifact for the review-fork subagent (Fiscus epic #25).
 - **Branch naming:** `feat/short-description`, `fix/short-description`, `docs/short-description`
 - `gh pr list` replaces checking todo files for project status
+
+## Inert controls
+
+A control the passing state shares with the forgotten state is not a control. Two
+shapes recur; both pass every test and change no behaviour.
+
+- **A guard that can be satisfied by doing nothing is inert.** Fail closed, and
+  force a recorded decision *in the same diff*. If "handled correctly" and "never
+  noticed" produce the same output, the guard is decoration (grantspider#2101)
+- **A prohibition is inert while the same document still prescribes the forbidden
+  form.** Before calling a doctrine fix complete, `grep` the *whole* document —
+  and every deployed byte-copy of it — for the form you just forbade. An agent
+  following the surviving instruction reproduces the bug the rule was written to
+  stop (oversteward#297)
