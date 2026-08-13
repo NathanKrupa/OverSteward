@@ -154,6 +154,11 @@ contexts:
 
   - name: "AI Grant Helper"
     id: aigranthelper
+    # Railway project the liveness sweep checks (OS#353). Project ids are not
+    # secrets — the CLI still requires an authenticated session to read them.
+    railway:
+      project_id: 6134a75b-dd3b-48cd-a01b-6228962bab99
+      environment: production
     type: vscode
     repo: https://github.com/NathanKrupa/aigranthelper.git
     branch: staging
@@ -281,6 +286,11 @@ contexts:
 
   - name: "GrantSpider"
     id: grantspider
+    # Railway project the liveness sweep checks (OS#353). Project ids are not
+    # secrets — the CLI still requires an authenticated session to read them.
+    railway:
+      project_id: 7cd131cf-403e-4ba8-91ea-bb91a908f63c
+      environment: production
     type: vscode
     repo: https://github.com/NathanKrupa/grantspider.git
     branch: staging

@@ -321,6 +321,40 @@ could not be read, **2** means it was not configured to look. "I found nothing"
 and "I could not look" never print the same — a red exit is a finding to report,
 not a quiet morning.
 
+## Session start — the liveness sweep (OS#353)
+
+**The Sentry sweep cannot see liveness.** It answers *"what errored"*; a crashed
+Railway service emits no Sentry issue at all, so inbox zero is fully compatible
+with a core service being dead. GrantSpider's `embedding` sat CRASHED for two
+days while the morning sweep reported a clean estate, and was found only because
+an unrelated promote happened to rebuild it. Run this alongside the Sentry sweep:
+
+```bash
+.venv/bin/python scripts/service_liveness.py
+```
+
+It reads every `registry.yaml` context carrying a `railway:` block and reports
+the services that are **down** (`CRASHED`/`FAILED`) or in a state it cannot
+classify. A scheduled one-shot that ended `SUCCESS` and stopped is *completed*,
+not a finding; a deployment mid-flight is *in-flight*, not a finding — but a
+one-shot whose last run **crashed** is down, because that run failed.
+
+Same exit-code discipline as the Sentry sweep, for the same reason: **0** is a
+measured answer, **1** means Railway could not be read, **2** means nothing was
+configured to look at. A project that cannot be read makes the whole sweep fail
+rather than silently contributing zero services — a partial sweep reported as
+complete is the exact failure this instrument exists to remove. And a clean
+result always names the count it checked, because "all 20 accounted for" is a
+measurement while "ok" is a claim.
+
+Adding a Railway project to the sweep is one block in `registry.yaml`:
+
+```yaml
+    railway:
+      project_id: <project-uuid>
+      environment: production
+```
+
 ## Tool Registry
 
 **When looking for a CLI tool, script, or entry point — read `data/tool_registry.md` first.**
