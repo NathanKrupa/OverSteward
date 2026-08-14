@@ -28,7 +28,13 @@ For any read or write against a project database — counts, recency checks, ad-
 
 ## What's blocked at the harness layer
 
-`~/.claude/settings.json` denies the failing shapes — `source .env*`, `set -a*`, `python -c *psycopg*`, `psql:*`, `*DATABASE_URL*`, etc. Denial there is a backstop, not an authorization model: if you find yourself fighting the deny-list, you are about to write the wrong code.
+Two layers cooperate. `~/.claude/settings.json` denies the static shapes — `source .env*`, `set -a*`, `python -c *psycopg*`, `psql:*`, etc. The PreToolUse hook `~/.claude/hooks/check_db_access.py` owns the shape that needs judgment — any `*DATABASE_URL*` reference. The former deny globs for that token were retired in the hook's favour (OverSteward#355), because a glob cannot tell the throwaway local test bench from production, and the blunt match was blocking legitimate bench commands five sessions running.
+
+The hook blocks every DATABASE_URL reference through the shell with one carve-out, the **loopback test-bench exemption**: a command passes only when every `*DATABASE_URL` token in it is a *literal* assignment — `VAR=` followed by a plain or quoted literal containing no `$`, backtick, or backslash, so no shell expansion can smuggle a real value into printed output — whose parsed hostname is exactly `localhost`, `127.0.0.1`, or `::1` (parsed with `urlsplit`, which defeats `user:pass@evil.com/x@localhost` userinfo tricks and `localhost.evil.com` prefix hosts). A `$VAR` read, a grep pattern, a bare mention, or any non-loopback or non-literal value keeps the command blocked. The safety argument: a literal the agent typed cannot leak anything the transcript does not already contain.
+
+The exemption never weakens the other detectors — they run first, so `cat .env`, `source .env`, or a `psql` one-liner stays blocked even with loopback text on the same line. `python3 ~/.claude/hooks/check_db_access.py --self-test` runs the hook's negative-control matrix and must stay green after any edit to it; a blocked row passing is a credential-leak hole, which is a fail state.
+
+Denial there is a backstop, not an authorization model: if you find yourself fighting the deny-list, you are about to write the wrong code.
 
 **For anyone authoring such a block:** redirect on block, never just deny. A bare deny gives the agent no path forward — it retries, gets denied again, eventually asks Nathan. A PreToolUse hook that exits non-zero with a structured "do this instead" message (pointing at the `db scratch` CLI, the service-layer pattern, or `load_dotenv()`) makes the discipline self-teaching. The deny payload *is* the doctrine surface for the moment the agent is most likely to read it.
 
