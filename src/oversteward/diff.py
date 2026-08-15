@@ -149,6 +149,24 @@ def _diff_freshness(freshness: dict[str, str] | None) -> list[Finding]:
     return []
 
 
+def _diff_reachability(ctx: dict[str, Any]) -> Finding:
+    """Why a context wasn't checked — and whether that is a choice or a defect.
+
+    An unconfigured context is a repo nobody asked us to read. A configured path
+    that isn't on disk is a broken instrument: the sweeps drop the repo silently
+    and every surface reports lockstep it never measured (OS#357 — a
+    capitalisation typo hid fiscus from the canonical-family audit for weeks).
+    """
+    if ctx.get("unreachable_reason") == "missing-on-disk":
+        return _finding(
+            "drift",
+            "reachability",
+            f"local_path {ctx.get('local_path')} is not on disk — every sweep skipped this repo",
+            ctx["id"],
+        )
+    return _finding("info", "reachability", "no local_path — not checked", ctx["id"])
+
+
 def diff_state(
     snapshot: dict[str, Any],
     freshness: dict[str, str] | None = None,
@@ -158,9 +176,7 @@ def diff_state(
     findings: list[Finding] = []
     for ctx in snapshot.get("contexts", []):
         if not ctx.get("reachable"):
-            findings.append(
-                _finding("info", "reachability", "no local_path — not checked", ctx["id"])
-            )
+            findings.append(_diff_reachability(ctx))
             continue
         findings.extend(_diff_managed_block(ctx))
         findings.extend(_diff_security_gate(ctx))

@@ -93,6 +93,19 @@ class TestManagedBlock:
         assert _problems(findings) == []
         assert _by_surface(findings, "reachability")[0]["context"] == "remote"
 
+    def test_local_path_missing_on_disk_is_drift_not_info(self):
+        """A configured path that isn't there hides the whole repo from every sweep."""
+        ctx = {
+            "id": "fiscus",
+            "type": "vscode",
+            "reachable": False,
+            "unreachable_reason": "missing-on-disk",
+            "local_path": "/home/natha/Fiscus",
+        }
+        findings = _by_surface(diff_state(_snapshot([ctx])), "reachability")
+        assert [f["severity"] for f in findings] == ["drift"]
+        assert "/home/natha/Fiscus" in findings[0]["message"]
+
 
 class TestSecurityGate:
     def test_clean_context_has_no_security_findings(self):
