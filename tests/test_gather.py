@@ -62,6 +62,21 @@ class TestGatherContext:
         result = gather_context({"id": "remote", "type": "obsidian", "claude_md_path": "x.md"})
         assert result["id"] == "remote"
         assert result["reachable"] is False
+        assert result["unreachable_reason"] == "unconfigured"
+
+    def test_local_path_that_is_not_on_disk_is_distinguishable(self, tmp_path):
+        """A configured path that doesn't exist is a typo, not an unmanaged repo."""
+        result = gather_context(
+            {
+                "id": "fiscus",
+                "type": "vscode",
+                "claude_md_path": "CLAUDE.md",
+                "local_path": str(tmp_path / "nope"),
+            }
+        )
+        assert result["reachable"] is False
+        assert result["unreachable_reason"] == "missing-on-disk"
+        assert result["local_path"] == str(tmp_path / "nope")
 
     def test_collects_claude_md_and_managed_block(self, tmp_path):
         (tmp_path / "CLAUDE.md").write_text(MANAGED_CLAUDE_MD, encoding="utf-8")

@@ -336,9 +336,13 @@ contexts:
   - name: "Fiscus"
     id: fiscus
     type: vscode
-    repo: https://github.com/NathanKrupa/Fiscus.git
+    repo: https://github.com/NathanKrupa/fiscus.git
     branch: main
-    local_path: "/home/natha/Fiscus"
+    # Lowercase. WSL2 is case-sensitive: "/home/natha/Fiscus" does not exist, so
+    # every origin-reading sweep (canonical byte-copy family, managed block,
+    # soul) silently skipped this repo instead of reporting on it — which is how
+    # worktree_doctor.py stayed absent here unnoticed (OS#357).
+    local_path: "/home/natha/fiscus"
     claude_md_path: CLAUDE.md
     skills_path: .claude/skills/
     soul: chestertron

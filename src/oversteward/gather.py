@@ -53,6 +53,18 @@ def _gather_claude_md(path: Path) -> dict[str, Any]:
     }
 
 
+def _why_unreadable(local_path: str | None) -> dict[str, Any]:
+    """Why a context could not be read — a choice, or a defect.
+
+    A path that was configured and isn't there is a different animal from one
+    that was never configured: the registry believes the repo is managed, so
+    every sweep drops it while reporting nothing amiss.
+    """
+    if local_path is None:
+        return {"unreachable_reason": "unconfigured"}
+    return {"unreachable_reason": "missing-on-disk", "local_path": local_path}
+
+
 def gather_context(ctx: dict[str, Any]) -> dict[str, Any]:
     """Extract one registry context's on-disk governance state."""
     base = {
@@ -64,7 +76,7 @@ def gather_context(ctx: dict[str, Any]) -> dict[str, Any]:
     }
     local_path = ctx.get("local_path")
     if local_path is None or not Path(local_path).is_dir():
-        return {**base, "reachable": False}
+        return {**base, "reachable": False, **_why_unreadable(local_path)}
     root = Path(local_path)
     return {
         **base,
