@@ -1,0 +1,36 @@
+# ABOUTME: Commit-time gates for OverSteward — architectural errors + secret scan.
+# ABOUTME: Installed via scripts/dev/install_hooks.sh; mirrors the aigranthelper/grantspider shape.
+
+repos:
+  - repo: local
+    hooks:
+      - id: gaudi-errors
+        name: gaudi (architectural errors only — blocking)
+        description: >
+          Run gaudi at severity=error against changed Python files. Errors
+          are a one-way ratchet — every entry is either a real defect or has
+          a per-line `# noqa: <RULE-CODE>` with rationale. New errors are
+          blocked at commit time, not at review.
+
+          Severity is `error`, not `warn`: a clean tree carries 404 warnings,
+          so a warn-level gate could never pass and was therefore never
+          installed. Scope is the changed files rather than the whole tree,
+          which also keeps `.claude/worktrees/` out of the result set — belt
+          and braces with gaudi.toml's exclude.
+        entry: python scripts/lint/gaudi_check_files.py
+        language: system
+        types: [python]
+        pass_filenames: true
+        exclude: ^\.claude/
+      - id: secret-scan
+        name: secret-scan gate (gitleaks, redacted)
+        # Bare `python`, not `uv run python`. A worktree's .venv is a symlink
+        # to the primary checkout's, and `uv run` re-syncs it — rebinding the
+        # shared editable install to whichever worktree happened to commit, so
+        # the primary checkout (where the resident operator runs) starts
+        # importing a session branch's source. secret_scan.py is stdlib-only,
+        # so it needs nothing uv provides.
+        entry: python scripts/dev/secret_scan.py --staged
+        language: system
+        pass_filenames: false
+        always_run: true
