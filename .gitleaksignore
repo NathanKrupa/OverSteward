@@ -1,4 +1,0 @@
-# gitleaks fingerprint allowlist (red-team Tier-1 baseline, OS#221).
-# One `commit:file:rule:startline` fingerprint per line = an accepted/inert
-# finding the continuous secret-scan gate must ignore. OverSteward had zero
-# Tier-0 (OS#220) history hits, so this baseline starts empty by design.

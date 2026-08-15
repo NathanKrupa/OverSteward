@@ -1,8 +1,0 @@
-{"type": "ai-title", "sessionId": "sample-session", "aiTitle": "noise record, no message"}
-{"type": "user", "sessionId": "sample-session", "message": {"role": "user", "content": "Please summarize the registry."}}
-{"type": "assistant", "sessionId": "sample-session", "message": {"role": "assistant", "content": [{"type": "thinking", "thinking": "The user wants a summary.", "signature": "sig"}, {"type": "text", "text": "Reading the registry now."}, {"type": "tool_use", "id": "t1", "name": "Read", "caller": "agent", "input": {"file_path": "registry.yaml"}}]}}
-{"type": "user", "sessionId": "sample-session", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "contexts: ..."}]}}
-{"type": "assistant", "sessionId": "sample-session", "message": {"role": "assistant", "content": [{"type": "text", "text": "The registry has five contexts."}]}}
-{"type": "mode", "sessionId": "sample-session"}
-this line is not valid json and must be skipped
-{"type": "user", "sessionId": "sample-session", "message": {"role": "user", "content": [{"type": "text", "text": "Thanks."}]}}
