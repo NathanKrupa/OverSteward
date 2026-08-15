@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -510,7 +511,10 @@ def test_teardown_refuses_while_something_still_points_here(doctor, tmp_path):
 
 
 def _git(tree: Path, *args: str) -> None:
-    subprocess.run(["git", "-C", str(tree), *args], check=True, capture_output=True)
+    # Scrub GIT_* — under a git hook, inherited GIT_DIR would point every
+    # scratch-repo command at the hook's repository instead of tmp_path.
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    subprocess.run(["git", "-C", str(tree), *args], check=True, capture_output=True, env=env)
 
 
 def _make_git_repo(

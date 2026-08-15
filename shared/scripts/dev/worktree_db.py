@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import re
 import subprocess  # list-form argv, no shell; git reads only
 import sys
@@ -115,7 +116,13 @@ def derive(base: str, worktree: str | None, *, key: str = "") -> str:
 
 
 def _git(tree: Path, *args: str) -> str | None:
-    """One ``git -C tree`` read, or None when git has nothing to say."""
+    """One ``git -C tree`` read, or None when git has nothing to say.
+
+    GIT_* is scrubbed from the environment: inside a git hook (pre-push
+    exports GIT_DIR) the ambient variables override ``-C`` discovery, and
+    every answer would describe the hook's repository instead of ``tree``.
+    """
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     try:
         result = subprocess.run(  # list-form argv, no shell
             ["git", "-C", str(tree), *args],
@@ -123,6 +130,7 @@ def _git(tree: Path, *args: str) -> str | None:
             text=True,
             timeout=5,
             check=False,
+            env=env,
         )
     except OSError:
         return None

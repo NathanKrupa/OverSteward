@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -35,7 +36,11 @@ def wdb():
 
 
 def _git(tree: Path, *args: str) -> None:
-    subprocess.run(["git", "-C", str(tree), *args], check=True, capture_output=True)
+    # Scrub GIT_* from the environment: these tests run under git hooks too
+    # (pre-push exports GIT_DIR), and an inherited GIT_DIR would point every
+    # scratch-repo command at the *hook's* repository instead of tmp_path.
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    subprocess.run(["git", "-C", str(tree), *args], check=True, capture_output=True, env=env)
 
 
 @pytest.fixture

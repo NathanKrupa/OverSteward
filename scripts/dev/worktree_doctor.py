@@ -57,6 +57,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import os
 import re
 import subprocess  # list-form argv, no shell; docker reads only
 import sys
@@ -273,6 +274,13 @@ def default_venvs(worktree: Path) -> list[Path]:
     return list(seen.values())
 
 
+def _clean_git_env() -> dict[str, str]:
+    """``os.environ`` minus ``GIT_*`` — inside a git hook (pre-push exports
+    GIT_DIR) the ambient variables override ``-C`` discovery, and every git
+    answer would describe the hook's repository instead of the named tree."""
+    return {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+
+
 def primary_checkout(tree: Path) -> Path | None:
     """The checkout that owns ``tree``'s git directory — a worktree's primary."""
     try:
@@ -282,6 +290,7 @@ def primary_checkout(tree: Path) -> Path | None:
             text=True,
             timeout=5,
             check=False,
+            env=_clean_git_env(),
         )
     except OSError:
         return None
@@ -684,6 +693,7 @@ def live_worktrees(repo: Path) -> tuple[Path, list[Path]]:
             text=True,
             timeout=30,
             check=False,
+            env=_clean_git_env(),
         )
     except OSError as failure:
         raise CouldNotLook(f"git could not be run in {repo}: {failure}") from failure
@@ -974,6 +984,7 @@ def is_tracked(worktree: Path, relative: str) -> bool:
             text=True,
             timeout=5,
             check=False,
+            env=_clean_git_env(),
         )
     except (OSError, subprocess.SubprocessError):
         return True
@@ -1015,6 +1026,7 @@ def dirty_paths(worktree: Path) -> list[str] | None:
             text=True,
             timeout=30,
             check=False,
+            env=_clean_git_env(),
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -1054,6 +1066,7 @@ def remove_worktree(worktree: Path) -> None:
         text=True,
         timeout=60,
         check=False,
+        env=_clean_git_env(),
     )
     if result.returncode != 0:
         reason = result.stderr.strip() or result.stdout.strip()
