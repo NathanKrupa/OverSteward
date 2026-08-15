@@ -1,0 +1,383 @@
+# ABOUTME: Manifest of all contexts managed by the OverSteward.
+# ABOUTME: Each entry defines the soul, personas, skills, and sync behavior for one repository.
+
+version: 2
+
+contexts:
+  - name: "OverSteward"
+    id: oversteward
+    type: vscode
+    repo: https://github.com/NathanKrupa/OverSteward.git
+    branch: master
+    local_path: "/home/natha/OverSteward"
+    claude_md_path: CLAUDE.md
+    skills_path: .claude/skills/
+    agents_path: .claude/agents/
+    soul: chestertron
+    skip_sow: true
+    dispatch_target: true
+    personas_always_on: []
+    personas_available: []
+    skills_always_on: []
+    skills_available: []
+    agents_available:
+      - aigranthelper-dev
+      - grantspider-dev
+      - wphelper-dev
+      - fiscus-dev
+      - exchequer-dev
+      - oversteward-dev
+      - docs-author
+    tags:
+      - meta
+      - governance
+      - orchestration
+
+  - name: "Home Obsidian"
+    id: home-obsidian
+    type: obsidian
+    repo: https://github.com/NathanKrupa/Home_Obsidian.git
+    branch: main
+    claude_md_path: .claude/instructions.md
+    skills_path: .claude/skills/
+    skills_format: json
+    soul: chestertron
+    personas_always_on: []
+    personas_available: []
+    skills_always_on:
+      - create-todoist-task
+    skills_available:
+      - daily-planning
+    tags:
+      - personal
+      - writing
+      - faith
+
+  - name: "GH Obsidian"
+    id: gh-obsidian
+    type: obsidian
+    repo: https://github.com/NathanKrupa/GH_Obsidian.git
+    branch: main
+    claude_md_path: .claude/instructions.md
+    skills_path: .claude/skills/
+    skills_format: json
+    soul: chestertron
+    personas_always_on: []
+    personas_available: []
+    skills_always_on:
+      - create-todoist-task
+    skills_available:
+      - daily-planning
+    tags:
+      - work
+      - fundraising
+      - grants
+      - writing
+
+  - name: "billions"
+    id: billions
+    type: vscode
+    repo: https://github.com/NathanKrupa/billions.git
+    branch: main
+    claude_md_path: CLAUDE.md
+    skills_path: .claude/skills/
+    soul: chestertron
+    soul_in_local: true
+    personas_always_on:
+      - angelico
+    personas_available: []
+    skills_always_on: []
+    skills_available:
+      - create-todoist-task
+    tags:
+      - design
+      - web
+
+  - name: "AI Assistants"
+    id: ai-assistants
+    type: vscode
+    repo: https://github.com/NathanKrupa/ai-assistants.git
+    branch: main
+    local_path: "/home/natha/ai-assistants"
+    claude_md_path: CLAUDE.md
+    skills_path: .claude/skills/
+    agents_path: .claude/agents/
+    soul: chestertron
+    dispatch_target: true
+    personas_always_on: []
+    personas_available:
+      - angelico
+      - herald
+    skills_always_on:
+      - create-todoist-task
+      - dispatch
+      - questions
+      - answer
+    skills_available:
+      - daily-planning
+    agents_available:
+      - aigranthelper-dev
+      - grantspider-dev
+      - wphelper-dev
+      - fiscus-dev
+      - exchequer-dev
+    tags:
+      - ai
+      - design
+      - web
+      - python
+      - orchestration
+
+  - name: "AI Grants"
+    id: ai-grants
+    type: vscode
+    repo: https://github.com/NathanKrupa/AI-Grants.git
+    branch: main
+    claude_md_path: CLAUDE.md
+    skills_path: .claude/skills/
+    agents_path: .claude/agents/
+    soul: chestertron
+    personas_always_on: []
+    personas_available:
+      - angelico
+      - herald
+    skills_always_on:
+      - create-todoist-task
+    skills_available: []
+    agents_available:
+      - grant-researcher
+    tags:
+      - grants
+      - fundraising
+      - writing
+      - design
+
+  - name: "AI Grant Helper"
+    id: aigranthelper
+    # Railway project the liveness sweep checks (OS#353). Project ids are not
+    # secrets — the CLI still requires an authenticated session to read them.
+    railway:
+      project_id: 6134a75b-dd3b-48cd-a01b-6228962bab99
+      environment: production
+    type: vscode
+    repo: https://github.com/NathanKrupa/aigranthelper.git
+    branch: staging
+    local_path: "/home/natha/aigranthelper"
+    # The branch this checkout tracks: what production runs, which is not
+    # the repo default. Without it sync_repos infers from origin/HEAD and
+    # skips this checkout as "on a feature branch".
+    primary_branch: main
+    claude_md_path: CLAUDE.md
+    skills_path: .claude/skills/
+    soul: chestertron
+    dispatch_target: true
+    personas_always_on: []
+    personas_available:
+      - angelico
+      - herald
+    skills_always_on:
+      - create-todoist-task
+      - questions
+    skills_available: []
+    tags:
+      - grants
+      - fundraising
+      - saas
+      - django
+      - web
+
+  - name: "MacGregor"
+    id: macgregor
+    type: vscode
+    repo: https://github.com/NathanKrupa/MacGregor.git
+    branch: main
+    claude_md_path: CLAUDE.md
+    skills_path: .claude/skills/
+    soul: macgregor
+    personas_always_on: []
+    personas_available: []
+    skills_always_on: []
+    skills_available: []
+    tags:
+      - macgregor
+
+  - name: "Stocks"
+    id: stocks
+    type: vscode
+    repo: https://github.com/NathanKrupa/Stocks.git
+    branch: main
+    claude_md_path: CLAUDE.md
+    skills_path: .claude/skills/
+    soul: chestertron
+    personas_always_on: []
+    personas_available:
+      - analyst
+    skills_always_on: []
+    skills_available:
+      - create-todoist-task
+    tags:
+      - data
+      - analysis
+      - finance
+
+  - name: "OpportunityMiner"
+    id: opportunity-miner
+    type: vscode
+    repo: https://github.com/NathanKrupa/OpportunityMiner.git
+    branch: main
+    claude_md_path: CLAUDE.md
+    skills_path: .claude/skills/
+    soul: chestertron
+    personas_always_on: []
+    personas_available:
+      - analyst
+    skills_always_on: []
+    skills_available:
+      - create-todoist-task
+    tags:
+      - data
+      - analysis
+      - research
+
+  - name: "wphelper"
+    id: wphelper
+    type: vscode
+    repo: https://github.com/NathanKrupa/wphelper.git
+    branch: main
+    local_path: "/home/natha/wphelper"
+    claude_md_path: CLAUDE.md
+    skills_path: .claude/skills/
+    soul: chestertron
+    dispatch_target: true
+    personas_always_on: []
+    personas_available:
+      - angelico
+    skills_always_on:
+      - create-todoist-task
+      - questions
+    skills_available: []
+    tags:
+      - python
+      - wordpress
+      - consulting
+      - web
+      - tooling
+
+  - name: "Gaudi"
+    id: gaudi
+    type: vscode
+    repo: https://github.com/NathanKrupa/gaudi.git
+    branch: main
+    local_path: "/home/natha/gaudi"
+    claude_md_path: CLAUDE.md
+    skills_path: .claude/skills/
+    soul: chestertron
+    personas_always_on: []
+    personas_available: []
+    skills_always_on: []
+    skills_available:
+      - create-todoist-task
+    tags:
+      - python
+      - tooling
+      - open-source
+      - architecture
+      - linter
+
+  - name: "GrantSpider"
+    id: grantspider
+    # Railway project the liveness sweep checks (OS#353). Project ids are not
+    # secrets — the CLI still requires an authenticated session to read them.
+    railway:
+      project_id: 7cd131cf-403e-4ba8-91ea-bb91a908f63c
+      environment: production
+    type: vscode
+    repo: https://github.com/NathanKrupa/grantspider.git
+    branch: staging
+    local_path: "/home/natha/grantspider"
+    # The branch this checkout tracks: what production runs, which is not
+    # the repo default. Without it sync_repos infers from origin/HEAD and
+    # skips this checkout as "on a feature branch".
+    primary_branch: main
+    claude_md_path: CLAUDE.md
+    skills_path: .claude/skills/
+    soul: chestertron
+    dispatch_target: true
+    personas_always_on: []
+    personas_available: []
+    skills_always_on:
+      - create-todoist-task
+      - questions
+    skills_available: []
+    tags:
+      - python
+      - data
+      - crawling
+      - grants
+      - fundraising
+
+  - name: "Minecraft"
+    id: minecraft
+    type: vscode
+    repo: https://github.com/NathanKrupa/Minecraft.git
+    branch: main
+    claude_md_path: CLAUDE.md
+    skills_path: .claude/skills/
+    soul: chestertron
+    personas_always_on: []
+    personas_available: []
+    skills_always_on: []
+    skills_available:
+      - create-todoist-task
+    tags:
+      - games
+      - minecraft
+
+  - name: "Fiscus"
+    id: fiscus
+    type: vscode
+    repo: https://github.com/NathanKrupa/fiscus.git
+    branch: main
+    # Lowercase. WSL2 is case-sensitive: "/home/natha/Fiscus" does not exist, so
+    # every origin-reading sweep (canonical byte-copy family, managed block,
+    # soul) silently skipped this repo instead of reporting on it — which is how
+    # worktree_doctor.py stayed absent here unnoticed (OS#357).
+    local_path: "/home/natha/fiscus"
+    claude_md_path: CLAUDE.md
+    skills_path: .claude/skills/
+    soul: chestertron
+    dispatch_target: true
+    personas_always_on: []
+    personas_available: []
+    skills_always_on:
+      - create-todoist-task
+      - questions
+    skills_available: []
+    tags:
+      - observability
+      - kaizen
+      - analytics
+      - python
+      - meta
+
+  - name: "Exchequer"
+    id: exchequer
+    type: vscode
+    repo: https://github.com/NathanKrupa/exchequer.git
+    branch: main
+    local_path: "/home/natha/exchequer"
+    claude_md_path: CLAUDE.md
+    skills_path: .claude/skills/
+    soul: chestertron
+    dispatch_target: true
+    personas_always_on: []
+    personas_available: []
+    skills_always_on:
+      - create-todoist-task
+      - questions
+    skills_available: []
+    tags:
+      - finance
+      - back-office
+      - python
+      - private

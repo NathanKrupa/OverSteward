@@ -1,0 +1,241 @@
+<title>Foundation Pages SEO: Gap Analysis &amp; Plan</title>
+<style>
+  :root {
+    --ground: #f8f9f7;
+    --panel: #ffffff;
+    --ink: #212b26;
+    --ink-soft: #55625c;
+    --accent: #2e6e5a;
+    --accent-tint: #e7f0ec;
+    --data: #33608c;
+    --warn: #a6672d;
+    --warn-tint: #f6ede2;
+    --bad: #8c3b33;
+    --bad-tint: #f5e7e5;
+    --rule: #dde2dd;
+  }
+  html { background: var(--ground); }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: var(--ink);
+    line-height: 1.55;
+    margin: 0;
+    padding: 0 20px 80px;
+  }
+  main { max-width: 860px; margin: 0 auto; }
+  header.doc { padding: 56px 0 8px; border-bottom: 3px solid var(--ink); margin-bottom: 8px; }
+  .eyebrow {
+    text-transform: uppercase; letter-spacing: .14em; font-size: 12px;
+    color: var(--accent); font-weight: 650; margin: 0 0 10px;
+  }
+  h1 {
+    font-family: Charter, Georgia, "Times New Roman", serif;
+    font-size: clamp(28px, 4.5vw, 40px); line-height: 1.12;
+    margin: 0 0 14px; text-wrap: balance; font-weight: 700;
+  }
+  .standfirst { font-size: 17px; color: var(--ink-soft); max-width: 68ch; margin: 0 0 26px; }
+  .meta-line { font-size: 13px; color: var(--ink-soft); padding: 10px 0 18px; }
+  .meta-line b { color: var(--ink); font-weight: 600; }
+  h2 {
+    font-family: Charter, Georgia, serif; font-size: 25px; font-weight: 700;
+    margin: 52px 0 6px; padding-top: 18px; border-top: 1px solid var(--rule);
+    text-wrap: balance;
+  }
+  h2 .sec { color: var(--accent); font-family: system-ui, sans-serif; font-size: 13px; font-weight: 650; letter-spacing: .1em; display: block; margin-bottom: 6px; }
+  h3 { font-size: 16.5px; font-weight: 650; margin: 28px 0 6px; }
+  p { max-width: 70ch; margin: 10px 0; }
+  ul, ol { max-width: 70ch; padding-left: 22px; }
+  li { margin: 6px 0; }
+  li::marker { color: var(--accent); }
+  code, .mono {
+    font-family: ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+    font-size: .88em; background: #eef1ee; padding: 1px 5px; border-radius: 3px;
+  }
+  .verdict {
+    background: var(--accent-tint); border-left: 4px solid var(--accent);
+    padding: 16px 20px; margin: 20px 0; max-width: 74ch;
+  }
+  .verdict p { margin: 6px 0; }
+  .flag { background: var(--warn-tint); border-left: 4px solid var(--warn); padding: 12px 18px; margin: 16px 0; max-width: 74ch; }
+  .dead { background: var(--bad-tint); border-left: 4px solid var(--bad); padding: 12px 18px; margin: 16px 0; max-width: 74ch; }
+  .tablewrap { overflow-x: auto; margin: 18px 0; border: 1px solid var(--rule); background: var(--panel); }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th {
+    text-align: left; font-size: 11.5px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--ink-soft); font-weight: 650; padding: 10px 14px; border-bottom: 2px solid var(--ink);
+    background: var(--panel); white-space: nowrap;
+  }
+  td { padding: 10px 14px; border-bottom: 1px solid var(--rule); vertical-align: top; min-width: 130px; }
+  td:first-child { font-weight: 650; white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  .num { font-variant-numeric: tabular-nums; }
+  .pill {
+    display: inline-block; font-size: 11px; font-weight: 650; letter-spacing: .05em;
+    padding: 2px 9px; border-radius: 100px; text-transform: uppercase; white-space: nowrap;
+  }
+  .pill.open { background: var(--accent-tint); color: var(--accent); }
+  .pill.gated { background: var(--warn-tint); color: var(--warn); }
+  .pill.deadp { background: var(--bad-tint); color: var(--bad); }
+  .phase {
+    background: var(--panel); border: 1px solid var(--rule); margin: 20px 0;
+    padding: 20px 24px;
+  }
+  .phase-head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 4px; }
+  .phase-num {
+    font-family: Charter, Georgia, serif; font-size: 30px; font-weight: 700; color: var(--accent);
+    line-height: 1;
+  }
+  .phase-title { font-size: 18px; font-weight: 700; }
+  .phase-when { font-size: 12.5px; color: var(--ink-soft); text-transform: uppercase; letter-spacing: .08em; margin-left: auto; }
+  .phase ol { margin-top: 10px; }
+  .phase li b { font-weight: 650; }
+  .why { color: var(--ink-soft); font-size: .95em; }
+  .snippet {
+    background: #1e2a25; color: #d8e4de; font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 12.5px; padding: 14px 18px; overflow-x: auto; margin: 12px 0;
+    line-height: 1.6; max-width: 100%; box-sizing: border-box;
+  }
+  .snippet .lbl { color: #7fa896; }
+  .snippet .hl { color: #f0c674; }
+  .footnote { font-size: 12.5px; color: var(--ink-soft); border-top: 1px solid var(--rule); margin-top: 48px; padding-top: 14px; max-width: 74ch; }
+  a { color: var(--data); }
+</style>
+<main>
+<header class="doc">
+  <p class="eyebrow">AI Grant Helper · Deep research · 2026-07-23</p>
+  <h1>Foundation pages vs the SERP leaders: gap analysis and the road over</h1>
+  <p class="standfirst">What ProPublica, Instrumentl, Cause&nbsp;IQ, GrantStation and GrantMakers.io actually serve for "&lt;foundation&gt; grants" queries — verbatim, fetched live — and a phased plan to move our 3,439 enriched foundation pages into their vicinity.</p>
+</header>
+<p class="meta-line"><b>Method:</b> internal code + live-page audit of aigranthelper.com, direct fetches of competitor profile pages for the same foundations (EJAF, Moses Taylor, Dover), and a 104-agent deep-research pass with 3-vote adversarial verification on every claim. 11 findings survived; 1 was refuted and is excluded.</p>
+
+<div class="verdict">
+  <p><b>The verdict in three sentences.</b> Our technical base is genuinely good — server-rendered pages, a principled noindex gate (3,439 indexable of ~136k shells), sitemaps, IndexNow, edge caching — but our metadata is prose-flavored where every winner is <b>number-forward</b>, our ~1,400 words trail the 2,500–4,000-word data-rich benchmark, and our FAQPage markup earns nothing (deprecated for all sites May 2026). The head-term SERPs are held by domain authority we can't match this year; the winnable ground is the <b>mid-tail</b>, where competitor pages are demonstrably stale, wrong, or paywalled — Instrumentl's Moses Taylor page says "gave $0 in grants in 2011" under a mismatched EIN, and GrantStation gates the very fields (deadlines, application procedure, contact) that we serve free. <b>Strategy: become the freshest, most correct, fully ungated page for every foundation we enrich</b> — fix the metadata layer now, deepen toward the data benchmark next, then widen the taxonomy web before scaling past 3,400 pages.</p>
+</div>
+
+<h2><span class="sec">§1 — WHERE WE STAND</span>What we serve today</h2>
+<p>Live fetch of <code>/foundations/ny/elton-john-aids-foundation-inc/</code> and the code behind it (<code>apps/research/services/seo_metadata.py</code>, <code>templates/research/detail.html</code>):</p>
+<ul>
+  <li><b>Solid:</b> full SSR (no JS wall), canonical slug URLs with 301s from legacy forms, Organization JSON-LD with EIN, enrichment-gated <code>noindex</code> on ~133k thin shells, snapshot-backed sitemaps, IndexNow submitter, public edge caching with <code>Last-Modified</code>, AI-answer-engine-friendly robots.txt.</li>
+  <li><b>Title:</b> <code>Elton John AIDS Foundation Inc Grants — Program Focus</code>. Qualifier words ("Program Focus", "Application Requirements") — no dollars, no location, no year.</li>
+  <li><b>Meta description:</b> prose clauses, truncated at a word boundary with no cleanup — Moses Taylor's ends <i>"…funds Health Care Access and"</i>. Dangling conjunction, live in the SERP.</li>
+  <li><b>og:description:</b> <i>"68 grants on file.&nbsp;"</i> — thin; <b>twitter:title/description</b> are generic site boilerplate on every page.</li>
+  <li><b>Canonical</b> inherits <code>request.build_absolute_uri</code> from base.html — paginated URLs (<code>?grants_page=2</code>) self-canonicalize with the query string instead of pointing to page 1.</li>
+  <li><b>~1,368 words</b>; no visible data-freshness stamp; FAQPage JSON-LD (see §3).</li>
+</ul>
+<div class="flag"><b>Crawl-health flag:</b> first fetch of the Moses Taylor page returned a <b>502</b> (retry: 200). Transient 5xxs on a young domain teach Googlebot to slow down; worth watching the edge/origin error rate in GSC crawl stats.</div>
+
+<h2><span class="sec">§2 — THE FIELD</span>What the winners serve, verbatim</h2>
+<div class="tablewrap"><table>
+  <tr><th>Site</th><th>Access</th><th>Title pattern (real)</th><th>Structured data</th><th>Depth / freshness</th><th>What earns the rank</th></tr>
+  <tr>
+    <td>ProPublica</td>
+    <td><span class="pill open">Ungated</span></td>
+    <td class="mono">Elton John Aids Foundation Inc - Nonprofit Explorer - ProPublica</td>
+    <td>Dataset + WebPage (datePublished)</td>
+    <td class="num">~4,800 words of pure IRS tables, 16 fiscal years, footer "Updated June 22, 2026" in a &lt;time&gt; tag</td>
+    <td>Massive domain authority + data depth. Meta description is <i>generic site boilerplate</i> — and it ranks anyway.</td>
+  </tr>
+  <tr>
+    <td>Instrumentl</td>
+    <td><span class="pill gated">Blur-gated</span></td>
+    <td class="mono">Dover Foundation Inc. | Shelby, NC | 990 Report</td>
+    <td>FundingAgency w/ EIN; MonetaryGrant + dateModified on program pages</td>
+    <td class="num">2,500–4,200 words; "last updated May 24, 2026"; predicted 2025 assets pre-filing</td>
+    <td>Number-forward metadata ("provided $1,071,283 in grants in 2024"), 990 PDF archive, filterable grantees — but 12 signup CTAs and blurred key fields. Mid-tail pages can be stale/wrong (Moses Taylor: "$0 in 2011", mismatched EIN).</td>
+  </tr>
+  <tr>
+    <td>Cause IQ</td>
+    <td><span class="pill gated">Bot-gated</span></td>
+    <td class="mono">Categories of nonprofits | Cause IQ</td>
+    <td>Zero JSON-LD on hub pages</td>
+    <td class="num">191,973 foundation profiles (~56× our corpus)</td>
+    <td>Taxonomy architecture: 297 NTEE category lists + state + metro + grant-list lanes give every profile multiple crawl paths. (Profile pages themselves unverified — Cloudflare blocks bots.)</td>
+  </tr>
+  <tr>
+    <td>GrantStation</td>
+    <td><span class="pill gated">Paywalled</span></td>
+    <td class="mono">Moses Taylor Foundation</td>
+    <td>—</td>
+    <td class="num">Fullest application-logistics section set; ~5-grant preview visible</td>
+    <td>Deadlines, geographic scope, application procedures, 16 key leaders — nearly all member-only ("41 cents a day"). Their section taxonomy is a proven content model; their gating is our opening.</td>
+  </tr>
+  <tr>
+    <td>GrantMakers.io</td>
+    <td><span class="pill open">Ungated</span></td>
+    <td class="mono">Grantmakers.io Profile - Moses Taylor Foundation Inc.</td>
+    <td>NGO + BreadcrumbList</td>
+    <td class="num">~1,040 words, tax-year stamp in meta description</td>
+    <td>Free, lean, EIN-keyed. The competitor we already out-depth.</td>
+  </tr>
+</table></div>
+<p><b>The pattern:</b> concrete-number-forward titles and descriptions, multi-year filing tables, machine-readable freshness stamps, and dense hub-and-spoke internal linking. Not narrative prose.</p>
+
+<h2><span class="sec">§3 — POLICY</span>Three Google rulings that shape the plan</h2>
+<div class="dead"><b>FAQPage is a dead end.</b> Rich results were restricted to gov/health sites in Aug 2023 and deprecated for <i>all</i> sites in May 2026 (Search Console reporting removed June 2026). Our FAQPage block earns nothing. <b>ProfilePage</b> is explicitly invalid for third-party org directories — don't adopt it.</div>
+<ul>
+  <li><b>Scaled-content abuse (Mar 2024, enforced through the Mar 2026 core update):</b> scale, automation, and AI generation are each permissible — the violation test is pages that add "little value beyond restated feed data." Our enrichment-gated noindex is exactly the right posture; it must hold as the corpus grows toward 100k.</li>
+  <li><b>MonetaryGrant/FundingAgency</b> (Instrumentl's play) has no rich-result type; its value is entity disambiguation. Cheap to add, don't expect a SERP feature from it.</li>
+  <li><b>BreadcrumbList</b> remains a live rich-result type and we don't emit it. GrantMakers.io does.</li>
+</ul>
+
+<div class="flag"><b>Red-teamed 2026-07-23 — this section is superseded in part.</b> Three adversarial reviews (SEO strategy, engineering reality, opportunity cost) upheld the diagnosis but corrected the plan; the governing version now lives in <a href="https://github.com/NathanKrupa/aigranthelper/issues/1254">AG epic #1254</a>. Key corrections: <b>(1)</b> a Phase&nbsp;−1 reality gate — GSC indexation/impression baseline, demand check, and 502 ops spike <i>before</i> any template change (changing 3,439 pages first destroys the control group); <b>(2)</b> titles keep the application-intent words and add one number, canary-rolled to ~10% of pages — the original number-first pattern re-aimed us at the 990 query class where ProPublica is strongest; <b>(3)</b> the 2,500–4,000-word target is deleted as cargo cult — the spec is "render all data we already hold, zero authoring" (templated-table bloat recreates the doorway-page risk §3 warns about); <b>(4)</b> Phase&nbsp;0 gains a recrawl mechanism (one-shot IndexNow submit-all / lastmod bump — a template deploy otherwise sends Google no change signal); <b>(5)</b> Phase&nbsp;1 items are mostly <i>deltas</i> — Filing History, board, avg-grant, and a ProPublica 990 link already render today; the new work is median/range stats, officer-comp render, SSR-ing more grant rows, and UX-only facets (server-side facet URLs are a crawl trap); <b>(6)</b> KPI is organic-attributed signups, not positions; freshness stamps bind only to pipeline timestamps; the GSC benchmark is automated, never a manual cadence. FAQPage markup goes but the visible Q&amp;A text stays (it feeds the AI-answer channel). Off-page/link outreach stays deferred with the marketing push per the 2026-07-05 stance.</div>
+
+<h2><span class="sec">§4 — THE PLAN</span>Four phases, ordered by leverage per unit effort <span style="font-size:13px; color:var(--warn); font-family:system-ui,sans-serif; font-weight:650;">(original — see red-team box above and AG#1254 for the operative version)</span></h2>
+
+<div class="phase">
+  <div class="phase-head"><span class="phase-num">0</span><span class="phase-title">Metadata layer — template-level, all 3,439 pages at once</span><span class="phase-when">Days · 1–2 PRs</span></div>
+  <ol>
+    <li><b>Number-forward titles.</b> <code>seo_metadata.py</code> → <code>"{Name} Grants | {City}, {ST} | ${total_giving} Given ({fy_year})"</code> with graceful fallbacks when financials are absent. <span class="why">Every ranking competitor leads with place + dollars + year.</span></li>
+    <li><b>Rebuild meta descriptions fact-first</b> — "provided $X in grants in FY20XX; assets $Y; funds A, B, C; accepts unsolicited applications" — and fix the truncator to drop trailing conjunctions/stopwords. <span class="why">Kills the dangling-"and" SERP snippet.</span></li>
+    <li><b>Canonical override on detail pages:</b> emit <code>get_absolute_url()</code>, not <code>request.build_absolute_uri</code>; paginated params canonicalize to page 1.</li>
+    <li><b>Fix the social card:</b> og:description = the real meta description; twitter:title/description page-specific, not site boilerplate.</li>
+    <li><b>Swap structured data:</b> drop FAQPage; keep Organization (EIN, sameAs → own site + ProPublica); add BreadcrumbList; add WebPage with <code>dateModified</code> from the enrichment timestamp we already compute for the Last-Modified header.</li>
+    <li><b>Visible freshness stamp:</b> "IRS 990-PF data through FY20XX · enrichment updated &lt;date&gt;" in a <code>&lt;time&gt;</code> element near the top. <span class="why">Instrumentl and ProPublica both surface this; we already have the timestamps.</span></li>
+  </ol>
+</div>
+
+<div class="phase">
+  <div class="phase-head"><span class="phase-num">1</span><span class="phase-title">Content depth — toward the 2,500–4,000-word data benchmark</span><span class="phase-when">Weeks</span></div>
+  <ol>
+    <li><b>Serve ungated what they blur:</b> average / median / range grant size, full grantee list with year + state facets, contact block. <span class="why">Instrumentl blurs these behind 12 CTAs; GrantStation paywalls them. This is the differentiator — say so on-page.</span></li>
+    <li><b>Multi-year financial table</b> (ProPublica-style: assets, giving, revenue by fiscal year) expanding the existing Filing History section; link out to 990 PDFs (ProPublica hosts them — outbound links to authority cost nothing).</li>
+    <li><b>Key people / board</b> — already rendered; make sure names are crawlable text and add officer-compensation years where the 990 data has them.</li>
+    <li><b>Synthesized application guidance stays the value-add.</b> Under the scaled-content policy, this enrichment prose is precisely what makes our pages "more than restated feed data" — keep it above the tables, not instead of them.</li>
+  </ol>
+</div>
+
+<div class="phase">
+  <div class="phase-head"><span class="phase-num">2</span><span class="phase-title">Taxonomy web — the Cause IQ lesson</span><span class="phase-when">Weeks, parallel to 1</span></div>
+  <ol>
+    <li><b>Deepen the hubs we already have</b> (<code>/foundations/&lt;state&gt;/</code>, category pages): every indexable profile reachable from ≥2 hub paths with real crawlable pagination, counts, and intro copy; hubs link profiles, profiles link back (visible breadcrumbs matching the BreadcrumbList markup).</li>
+    <li><b>Add focus-area list pages</b> (from enrichment program-area data — "Foundations funding health care access in PA") once hub plumbing is proven. <span class="why">These are the pages that can rank for non-brand queries no profile page can.</span></li>
+    <li><b>Metro-level hubs</b> only if state+category shows traction — Cause IQ runs them, but they're multiplier, not foundation.</li>
+  </ol>
+</div>
+
+<div class="phase">
+  <div class="phase-head"><span class="phase-num">3</span><span class="phase-title">Scale governance &amp; measurement</span><span class="phase-when">Ongoing</span></div>
+  <ol>
+    <li><b>Hold the noindex quality bar</b> while growing 3,400 → 100k. Stage the rollout; watch GSC "Discovered – currently not indexed" as the crawl-budget canary on a young domain.</li>
+    <li><b>Chase the 502s</b> — transient 5xx at the edge/origin throttles crawl on exactly the domain-age profile that can least afford it.</li>
+    <li><b>Benchmark a fixed query basket</b> (the 7 research foundations × "grants" / "grant application" / "990") in GSC monthly; we never systematically enumerated today's SERPs — capture position-zero state before Phase 0 ships so the delta is measurable.</li>
+  </ol>
+</div>
+
+<h3>What we deliberately are not doing</h3>
+<ul>
+  <li>No FAQPage or ProfilePage markup (deprecated / invalid).</li>
+  <li>No bulk-indexing the 133k thin shells to chase scale — that's the scaled-content-abuse profile on a young domain.</li>
+  <li>No gating. Ungated correctness is the moat the incumbents structurally can't copy without breaking their business model.</li>
+</ul>
+
+<h2><span class="sec">§5 — HONEST LIMITS</span>Caveats from verification</h2>
+<ul>
+  <li><b>Domain authority is the unmeasured co-factor.</b> ProPublica ranks with a boilerplate meta description; on-page parity will not beat DR 90 for head terms. The plan's payoff window is mid-tail and long-tail first.</li>
+  <li><b>Cause IQ's per-foundation profile pages were never verified</b> (Cloudflare bot wall); its evidence is a Wayback capture of one taxonomy hub.</li>
+  <li><b>No full SERP enumeration survived verification</b> — only one live 990-query check. Phase 3's query-basket benchmark closes this hole.</li>
+  <li>One claim was refuted and excluded: our pages are <i>not</i> deeper than Instrumentl's grant-program pages — the openness advantage is real, the depth advantage is not (yet).</li>
+</ul>
+
+<p class="footnote">Sources: live fetches 2026-07-23 of aigranthelper.com, projects.propublica.org, instrumentl.com, grantstation.com, grantmakers.io; Wayback capture of causeiq.com (2026-05-13); Google Search Central spam policies, gen-AI content guidance, FAQ/ProfilePage structured-data docs. Full verified findings with per-claim votes: <code>scratchpad/research-findings.md</code> (session scratchpad). Internal code audit: apps/research/services/seo_metadata.py, templates/research/detail.html, apps/research/sitemaps.py, apps/seo/.</p>
+</main>

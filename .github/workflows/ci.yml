@@ -1,0 +1,55 @@
+# ABOUTME: Minimal CI watchdog — architectural errors + the test suite.
+# ABOUTME: Local gates stay primary; this catches what a missing hook install lets through.
+
+name: CI
+
+# The commit-time gate (.githooks/pre-commit) is the primary defence, but it is
+# bypassable with --no-verify and absent entirely for a clone that has not run
+# scripts/dev/install_hooks.sh. This workflow is the watchdog behind it.
+#
+# Deliberately NOT wired as a required status check: the estate's pre-launch
+# posture is local gates primary, CI as watchdog. Promote it to required when
+# there is revenue to protect.
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+# A second push to the same branch makes the first run's answer irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v8.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+
+      - name: Install dependencies
+        # Pinned to the floor declared by requires-python (>=3.12) rather than
+        # the newer interpreter used locally: CI's job is to catch a change
+        # that quietly requires something the declared floor cannot run.
+        run: uv sync --extra dev --python 3.12
+
+      - name: gaudi (architectural errors)
+        # Mirrors the pre-commit gate's severity. Scope differs on purpose —
+        # the hook checks changed files for speed, CI checks the tree, so a
+        # file that regressed without being touched still surfaces here.
+        # gaudi.toml excludes .claude/worktrees/, which a CI checkout does not
+        # have anyway; the exclude matters for local runs.
+        run: uv run gaudi check . --severity error --exit-code
+
+      - name: pytest
+        run: uv run pytest -q
