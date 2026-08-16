@@ -230,6 +230,8 @@ The strictest-linter rule survives for everything a formatter does *not* normali
 
 OverSteward itself has no formatter gate to exclude — ruff is not installed here and its `pyproject.toml` block is vestigial config; the pre-commit gates are gaudi and the secret scan. If ruff is ever installed in OverSteward, it takes the same `extend-exclude`.
 
+**The exclusion lands in the same diff as the family's first deploy to a repo — before that repo's gates ever run on the file.** Deploy-then-exclude is drift already committed: the target's formatter rewrites the copy in the deploy commit itself, the family audit reports `stale`/`diverged` from the first hash check, and the follow-up "fix" PR re-copies bytes that were correct the first time. A deploy PR for a canonical member into a repo with a formatter gate is therefore incomplete unless it also carries that repo's `extend-exclude` (or equivalent) entry — the same same-diff rule as the inert-controls doctrine in `pr-workflow.md`. Recurred five times before promotion (AG#1427, AG#1462, GS#2045, GS#2100).
+
 #### The formatted bytes must be the committed bytes (OS#78)
 
 Checking formatting locally burns a verify cycle every time a freshly-written file is unformatted (AG#669, GS#1175), so local verify **applies** `ruff format` instead. Applying it alone opens a worse hole, which broke an AG promote on 2026-08-01: commit → verify applies formatting → the marker is written at HEAD → the rewrite sits unstaged → push ships the *committed* (unformatted) bytes → CI's `ruff format --check` fails on a locally-green tree. The marker certified a commit whose bytes nobody verified.
