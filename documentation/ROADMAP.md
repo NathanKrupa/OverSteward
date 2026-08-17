@@ -377,6 +377,98 @@ Heavy delivery between 2026-04-15 and 2026-05-07. Center of gravity moved here.
 
 ---
 
+## §3.9 Mid-August 2026 — telling "down" from "quiet" (reconciled 2026-08-17)
+
+> Third dream-produced pass. The week's through-line was **closing the gap
+> between a clean report and a healthy estate**: Sentry inbox zero coexisted for
+> two days with a CRASHED embedding service (no error event, no finding), a
+> silently dead CI watchdog let a poisoned-index commit gut `master`, and a
+> valid fast-forward pull rewrote the wrong trunk three times in one evening.
+> Each got the same treatment as kaizen/sentry before it — a deterministic
+> instrument whose exit codes distinguish "I measured nothing wrong" from "I
+> could not look."
+
+### Shipped (2026-08-11 → 08-17)
+
+- **The liveness sweep is the third session-start pass** (OS#353 → PR #354).
+  `service_liveness.py` reads every `registry.yaml` context carrying a
+  `railway:` block and reports services that are down or unclassifiable —
+  because a crashed Railway service emits **no Sentry issue at all**, and
+  GrantSpider's `embedding` sat CRASHED for two days behind a clean triage
+  sweep. A clean result names the count it checked ("all 20 accounted for");
+  a project that cannot be read fails the whole sweep.
+- **Trunk discipline became mechanical** (PR #346, #347, #348). `git pull
+  <remote> <ref>` merges into whatever branch is *checked out* — a valid
+  fast-forward, exit 0, no warning — which moved grantspider's `main` onto a
+  staging commit three times in one evening. Now: `guard_trunk_pull.py`
+  refuses the dangerous shape on a protected branch (defence in depth);
+  `sync_repos.py` reads `primary_branch` from registry.yaml, repairs a
+  stranded trunk when provably lossless (`git rev-list <branch> --not
+  --remotes`), and runs nightly; and the doctrine "the primary checkout tracks
+  what production runs — not the repo's default branch" is written down with
+  the AG/GS table. Rollout to the remaining repos is OS#350.
+- **The master tree was gutted and restored** (PR #366; OS#365 closed). PR
+  #361's poisoned-index commit shipped a silent mass deletion of the tracked
+  tree, and the CI watchdog that should have caught it was itself dead —
+  GitHub Actions had silently stopped consuming events, so PR #361 got no CI
+  run despite healthy triggers. The tree was restored and the
+  read-git-status-unfiltered / compare-changedFiles-to-intent habit entered
+  memory. The GIT_* scrub that PR #361 carried (hook-exported `GIT_DIR`
+  hijacking `git -C`) survived the restore; its test residue is OS#363.
+- **Inert controls entered doctrine** (PR #351, then PR #368). A guard the
+  passing state shares with the forgotten state is not a control: fail closed
+  and force a recorded decision in the same diff (grantspider#2101), and a
+  prohibition is inert while the same document still prescribes the forbidden
+  form (OS#297). The kaizen pass then promoted its 5×-recurrence cousin:
+  a canonical byte-copy family's formatter exclusion lands **in the same diff
+  as the family's first deploy**, never as a follow-up.
+- **The byte-copy family audit got honest about its own blind spots** (OS#357
+  → PR #359; OS#355 → PR #356). Fiscus is now tracked in the family (two venv
+  captures had gone undetected because the doctor was never deployed there),
+  a dead `local_path` reports as drift rather than silently vanishing from
+  the audit, and the credential-hygiene hook allow-lists the loopback
+  test-bench URL shapes it had blocked five measured times in GS.
+- **Sphere I context (GS/AG, for the gap table):** the fiscal-synopsis arc
+  promoted to GS `main` and its prod migration applied under the delegated
+  arm; the promote→apply gap crashed the daemon-watchdog and the fix shipped
+  same-day (GS PR#2263 — `tolerate_behind` for the watchdog entrypoint only;
+  DB-ahead stays a hard refusal everywhere). The NTEE backfill closed **by
+  vacuity** — the joinable cohort was already drained, and the remaining
+  1.33M uncoded grants are structurally uncodable or absent from a BMF
+  snapshot that may be filtered (GS#2256). AG's pin-bump bot was caught
+  regenerating the model mirror under pip against a uv.lock world (AG#1579
+  ruling: regenerate under the lock; Django 6.1 held for Nathan), and the
+  Grant Studio ↔ Applications bridge was filed (AG#1583). The locked
+  fiscal-synopsis sample PDF is committed as the format reference (PR #367).
+
+### Corrections to the §3.8 watch-list
+
+| §3.8 row | Correction as of 2026-08-17 |
+|---|---|
+| Dream flagged-set integrity (OS#334) | still open, and now measured twice — OS#345 adds that finalize crashes outright on pre-refactor holds |
+| Guard family estate-wide (OS#304, #192, #182, #272) | one new member (`guard_trunk_pull`, PR #347) born OverSteward-only like the rest; rollout is OS#350 |
+| Tool-registry drift guard (OS#274) | widened into OS#358 — 4 registries months stale, the generator family drifted to 5 distinct hashes, no automated cadence |
+| Agent-card rot mechanism (OS#328, #270) | unchanged, and OS#360 adds a rotted doctrine row (the branch table said AG's default is `main`; it is `staging`) |
+| Kaizen input quality (OS#329, #352) | unchanged — and OS#352's degraded-detector confidence gap remains open against the exit-2 law |
+| All other rows | carried unchanged (OS#232, #324, #327, #323, #318, #322, #220/#222, #229, #193) |
+
+### Started, not yet landed (August 17 watch-list)
+
+| Item | Where | State |
+|---|---|---|
+| Dispatch subagents hang on settings.json writes | OS#364 | hook-registration work must become operator-only |
+| GIT_DIR-exported test failures | OS#363 | 18 OverSteward-local tests fail; no gate exercises the class |
+| Canonical test_worktree_guard gaudi debt | OS#362 | +5 findings over fiscus's copy — clean at source, then converge |
+| Branch-table doctrine rot | OS#360 | AG default branch is `staging`, docs say `main` |
+| Tool-registry regeneration estate-wide | OS#358 | subsumes OS#274 context: stale registries + drifted generators + no cadence |
+| guard_trunk_pull rollout | OS#350 | OverSteward-only, like every guard at birth |
+| Checkout sweep wedged by untracked file | OS#349 | permanent wedge, no override path |
+| Dream flagged-set integrity | OS#334, #345 | the migration round-trip drops holds; finalize crashes on legacy holds |
+| GrantSpiderFilingAssets B2 bucket | (operator) | account key cannot create buckets; blocks the 130k synopsis render batch |
+| Django 6.1 decision | AG#1579 residue | mirror regenerates under the lock now; the bump itself held for Nathan |
+
+---
+
 ## §4 In flight
 
 Active or partially-shipped items as of 2026-05-07.
@@ -482,4 +574,4 @@ Captured in `IDEA_STORE.md` from gstack research and conversational drift. None 
 - If §2-§3 grow past readable length, extract to a `documentation/changelog.md` and keep this doc thin.
 - This doc is the single answer to "what are we trying to do, what's done, what's next?" If it can't answer that in under 60 seconds of reading, it's grown past its purpose — restructure rather than expand.
 
-*Last updated: 2026-08-10 (August reconciliation — §3.8 added; the session-start drains, kaizen and Sentry triage, and the worktree/guard family's hardened form).*
+*Last updated: 2026-08-17 (mid-August reconciliation — §3.9 added; the liveness sweep, trunk discipline made mechanical, the master-tree restore, and inert-control doctrine).*
