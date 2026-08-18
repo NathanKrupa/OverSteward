@@ -34,3 +34,11 @@ shapes recur; both pass every test and change no behaviour.
   Before calling a supervisor deployed, verify all three: the code is merged,
   the host runs it on schedule, and a forced failure visibly alerts
   (oversteward#118, #244, #271, #351)
+- **A comment asserting an invariant is part of the security surface.** Prose
+  that declares an exemption safe ("this path never receives user input", "the
+  fixture makes this impossible") suppresses the very scrutiny that would catch
+  its violation — every later reader, including the one adding tests, stops
+  checking there. When you write or meet such a comment: either the claim is
+  enforced by a test or a guard, or the comment must say it is *unverified*.
+  Touching code whose safety comment you rely on obliges you to re-verify the
+  claim, not cite it (oversteward#295, aigranthelper#1441, #1555, fiscus#102)
