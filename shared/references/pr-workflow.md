@@ -27,3 +27,10 @@ shapes recur; both pass every test and change no behaviour.
   and every deployed byte-copy of it — for the form you just forbade. An agent
   following the surviving instruction reproduces the bug the rule was written to
   stop (oversteward#297)
+- **A merged watchdog is not a live watchdog.** Detection code, its host install
+  (the timer / cron / hook that actually runs it), and the instrumentation the
+  probe reads are three separate deliveries — merging the first while assuming
+  the other two is how a monitor reports the same silence as a healthy estate.
+  Before calling a supervisor deployed, verify all three: the code is merged,
+  the host runs it on schedule, and a forced failure visibly alerts
+  (oversteward#118, #244, #271, #351)
