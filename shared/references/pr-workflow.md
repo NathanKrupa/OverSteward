@@ -42,3 +42,10 @@ shapes recur; both pass every test and change no behaviour.
   enforced by a test or a guard, or the comment must say it is *unverified*.
   Touching code whose safety comment you rely on obliges you to re-verify the
   claim, not cite it (oversteward#295, aigranthelper#1441, #1555, fiscus#102)
+- **A regression test that was never seen red is not a regression test.** A new
+  test can pass against the pre-fix code and still read like a guard — two of
+  the four in oversteward#312 did. Running the *suite* red proves only that
+  some test bites; a passing neighbour hides the vacuous one. Before the fix
+  lands, run **each new test individually** against the unfixed code and watch
+  it fail for the stated reason; one that passes either way is decoration
+  (oversteward#312, grantspider#1999, #2220)
