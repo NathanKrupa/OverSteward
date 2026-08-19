@@ -3,13 +3,15 @@
 # ABOUTME: "Operator Steps" project so they never get lost in a session log.
 """CLI: add, list, and complete operator steps in Todoist.
 
-Doctrine (OS#, 2026-08-19, Nathan's order): whenever a session surfaces a step
-only Nathan can perform — a secret to mint, a settings paste, a dashboard
-click, an approval — it MUST also be pushed here, and marked done when the
-step is verified complete. The session log is not a to-do list.
+Doctrine (Nathan's order, 2026-08-19): whenever a session surfaces a step only
+Nathan can perform — a secret to mint, a settings paste, a dashboard click, an
+approval — it MUST also be pushed here, and marked done when the step is
+verified complete. The session log is not a to-do list.
 
-The token is read in-process from the ai-assistants context's .env
-(`TODOIST_API_KEY`), the one place it is provisioned; never printed.
+Stdlib-only (urllib), like every canonical shared script, so it runs from any
+repo's venv or bare python3. The token is read in-process from the
+ai-assistants context's .env (`TODOIST_API_KEY`), the one place it is
+provisioned; never printed.
 
 Usage:
     operator_steps.py add "Paste the autoMode block into settings.json" \
@@ -21,14 +23,11 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import sys
-
-import requests
-
-try:
-    from dotenv import dotenv_values
-except ImportError:  # pragma: no cover - environment guard, not logic
-    sys.exit("python-dotenv required (run via a project venv that has it)")
+import urllib.error
+import urllib.parse
+import urllib.request
 
 _TOKEN_ENV_PATH = "/home/natha/ai-assistants/.env"
 _TOKEN_KEY = "TODOIST_API_KEY"
@@ -37,59 +36,73 @@ _PROJECT_NAME = "Operator Steps"
 _TIMEOUT = 15
 
 
-def _headers() -> dict[str, str]:
-    token = (dotenv_values(_TOKEN_ENV_PATH).get(_TOKEN_KEY) or "").strip()
-    if not token:
-        sys.exit(f"{_TOKEN_KEY} not found in {_TOKEN_ENV_PATH}")
-    return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+def _token() -> str:
+    """Parse the .env in-process; only the one key is read, nothing printed."""
+    try:
+        with open(_TOKEN_ENV_PATH, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if line.startswith(f"{_TOKEN_KEY}="):
+                    return line.split("=", 1)[1].strip().strip("'\"")
+    except OSError as exc:
+        sys.exit(f"cannot read {_TOKEN_ENV_PATH}: {exc}")
+    sys.exit(f"{_TOKEN_KEY} not found in {_TOKEN_ENV_PATH}")
 
 
-def _project_id(headers: dict[str, str]) -> str:
-    resp = requests.get(f"{_API}/projects", headers=headers, timeout=_TIMEOUT)
-    resp.raise_for_status()
-    payload = resp.json()
-    rows = payload.get("results", payload if isinstance(payload, list) else [])
-    for project in rows:
+def _request(method: str, path: str, body: dict | None = None, query: dict | None = None):
+    url = f"{_API}{path}"
+    if query:
+        url += "?" + urllib.parse.urlencode(query)
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(
+        url,
+        data=data,
+        method=method,
+        headers={
+            "Authorization": f"Bearer {_token()}",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
+            raw = resp.read()
+    except urllib.error.HTTPError as exc:
+        sys.exit(f"Todoist {method} {path} failed: HTTP {exc.code} {exc.reason}")
+    except urllib.error.URLError as exc:
+        sys.exit(f"Todoist unreachable: {exc.reason}")
+    return json.loads(raw) if raw else {}
+
+
+def _rows(payload) -> list[dict]:
+    """v1 endpoints wrap collections as {"results": [...]}; tolerate both shapes."""
+    if isinstance(payload, dict):
+        return payload.get("results", [])
+    return payload
+
+
+def _project_id() -> str:
+    for project in _rows(_request("GET", "/projects")):
         if project.get("name") == _PROJECT_NAME:
             return project["id"]
-    resp = requests.post(
-        f"{_API}/projects",
-        headers=headers,
-        json={"name": _PROJECT_NAME, "color": "red"},
-        timeout=_TIMEOUT,
-    )
-    resp.raise_for_status()
-    return resp.json()["id"]
+    return _request("POST", "/projects", body={"name": _PROJECT_NAME, "color": "red"})["id"]
 
 
 def cmd_add(args: argparse.Namespace) -> None:
-    headers = _headers()
     body: dict[str, object] = {
         "content": args.content,
-        "project_id": _project_id(headers),
+        "project_id": _project_id(),
         "priority": args.priority,
     }
     if args.description:
         body["description"] = args.description
     if args.due:
         body["due_string"] = args.due
-    resp = requests.post(f"{_API}/tasks", headers=headers, json=body, timeout=_TIMEOUT)
-    resp.raise_for_status()
-    task = resp.json()
+    task = _request("POST", "/tasks", body=body)
     print(f"added {task['id']}: {task['content']}")
 
 
 def cmd_list(_: argparse.Namespace) -> None:
-    headers = _headers()
-    resp = requests.get(
-        f"{_API}/tasks",
-        headers=headers,
-        params={"project_id": _project_id(headers)},
-        timeout=_TIMEOUT,
-    )
-    resp.raise_for_status()
-    payload = resp.json()
-    rows = payload.get("results", payload if isinstance(payload, list) else [])
+    rows = _rows(_request("GET", "/tasks", query={"project_id": _project_id()}))
     if not rows:
         print("no open operator steps")
         return
@@ -99,10 +112,7 @@ def cmd_list(_: argparse.Namespace) -> None:
 
 
 def cmd_done(args: argparse.Namespace) -> None:
-    resp = requests.post(
-        f"{_API}/tasks/{args.task_id}/close", headers=_headers(), timeout=_TIMEOUT
-    )
-    resp.raise_for_status()
+    _request("POST", f"/tasks/{args.task_id}/close")
     print(f"done {args.task_id}")
 
 
