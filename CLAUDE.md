@@ -355,6 +355,24 @@ Adding a Railway project to the sweep is one block in `registry.yaml`:
       environment: production
 ```
 
+## Operator steps go to Todoist, never only the session log (Nathan's order, 2026-08-19)
+
+Whenever a session surfaces a step only Nathan can perform — a secret to mint,
+a settings paste, a dashboard click, an approval, a TTY-gated command — push it
+to his Todoist "Operator Steps" project **in the same breath as telling him**:
+
+```bash
+.venv/bin/python scripts/operator_steps.py add "<short imperative>" \
+    --description "<the full instructions, self-contained>" [--due <when>]
+.venv/bin/python scripts/operator_steps.py list   # session-start: what does Nathan owe?
+.venv/bin/python scripts/operator_steps.py done <task-id>   # ONLY after verifying the step landed
+```
+
+The description must be self-contained — Nathan acts from his phone without the
+session log. Mark `done` only on verified completion (the notify job went green,
+the endpoint answers, the setting took), never on his say-so alone. Check
+`list` at session start alongside the kaizen/Sentry/liveness sweeps.
+
 ## Tool Registry
 
 **When looking for a CLI tool, script, or entry point — read `data/tool_registry.md` first.**
