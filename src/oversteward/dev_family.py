@@ -21,6 +21,7 @@ ABSENT_REFERENCED = "absent-but-doctrine-referenced"
 HOOK_MEMBERS = frozenset(
     {
         "guard_main_worktree.py",
+        "guard_metered_api.py",
         "guard_neon.py",
         "guard_shared_venv.py",
         "check_destructive_command.py",
