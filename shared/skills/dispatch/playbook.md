@@ -1,4 +1,4 @@
-# Dispatch Playbook — Universal Rules (v2.0)
+# Dispatch Playbook — Universal Rules (v2.1)
 
 Shared reference for all `<repo>-dev` subagents. Each subagent layers repo-specific context on top of this.
 
@@ -32,7 +32,7 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
 
 ### Pre-flight
 
-1. **Concurrency check.** Scan repo for open PRs with branch pattern `^(fix|feat|ci|refactor|cleanup)/issue-<n>-`. If a PR matching THIS issue number exists as a draft (STOPPED_FOR_INPUT re-dispatch case), remember its branch name for step 6. If any OTHER agent PR is open on the repo with ANY issue number, STOP — "another agent in flight, refusing to race."
+1. **Concurrency check.** Scan repo for open PRs with branch pattern `^(fix|feat|docs|ci|refactor|cleanup)/issue-<n>-`. If a PR matching THIS issue number exists as a draft (STOPPED_FOR_INPUT re-dispatch case), remember its branch name for step 6. If any OTHER agent PR is open on the repo with ANY issue number, STOP — "another agent in flight, refusing to race."
 2. **Branch collision recovery.** Compute the target branch name `<type>/issue-<n>-<slug>`. Check if it exists on origin:
    - **Not present** → proceed.
    - **Present, 0 commits ahead of default branch** (orphan from failed attempt) → delete it: `git push origin --delete <branch>`. Note the cleanup in final report. Proceed.
@@ -170,6 +170,7 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
         - Verified-pre-existing failures: capture them in your final YAML's `tests:` field with specific test IDs, and link to the documented flake (memory entry, project CLAUDE.md, or a tracking issue).
         - New failures (cannot be reproduced on origin or have no documented flake): STOP and report `STOPPED_FOR_INPUT`. Do NOT merge a PR that introduces failures, even if CI is disabled and auto-merge would let it through.
     3. **Report full-suite results in the final YAML.** "Isolated 50/50 passed" is incomplete — a missing full-suite count is a yellow flag.
+10.5. **Prove each new regression test red against the unfixed code.** A green suite says *some* test bites; it never says *yours* does. Run **each** new test on its own against the pre-fix code — `git stash` is forbidden, so get the unfixed code the sanctioned way: stand up the `.baseline` worktree from the "baseline-comparison snapshot" pattern, `cp` your new test file into it, and run that one test there — and watch it fail *for the reason you wrote it for*. A new test that passes either way is decoration, not a guard, and must be rewritten before you push. Record the red-then-green evidence in the PR body (test ID → the failure it produced). If the change is genuinely test-free (docs, doctrine, config), say so in the PR body rather than skipping the line silently. Full rule: `~/.claude/shared/references/pr-workflow.md` § Inert controls (oversteward#312, grantspider#1999, #2220).
 11. **Run lint locally** using the repo's exact lint command (SCOPED TO THE SAME PATHS CI USES — not the whole repo). Fix anything flagged.
 11a. **Code-quality ratchet self-check.** If the repo ships a project-level ratchet (Types-ratchet, Gaudi-ratchet, SMELL-003 ratchet, boy-scout per-file check, or equivalent), run it locally against your worktree BEFORE pushing, using **the repo's documented ratchet command** (e.g. aigranthelper `.venv/bin/gaudi ratchet --check`, fiscus `uv run python scripts/boy_scout_check.py --base main`). Rules:
 
@@ -197,6 +198,14 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
     PATH="$PWD/.venv/bin:$PATH" git commit -m "<type>: <desc> (#<issue>)"
     ```
     This is a `PATH` prefix on the commit only — NOT `--no-verify`, NOT `core.hooksPath` tampering. The hook still runs in full; you are only making its interpreter findable. Never disable or skip the hook (see Non-negotiables).
+13.5. **Write the trajectory note — before the PR opens, not after.** The global PR workflow mandates one for *every* PR (`~/.claude/shared/references/pr-workflow.md`), and a dispatched PR is not exempt: the trajectory corpus is the input artifact the kaizen detector and the review-fork subagent read, so a dispatch that skips it silently deletes exactly the PRs an agent worked from the estate's own feedback loop.
+
+    Write it at `<worktree-path>/documentation/trajectories/<YYYY-MM-DD>-PR<N>.md`, following the schema in OverSteward `documentation/trajectories/TEMPLATE.md` — frontmatter, then *Context*, *Trajectory*, *What worked*, *What didn't*, *What was learned*, *Tools*, *Open threads*, with every lesson bullet carrying its leading `[category]` tag. Fill it from what actually happened this run: the dead ends, the gate that surprised you, the assumption that turned out wrong. A note that only restates the diff is worthless to the detector — the *cost* and the *remedy* lines are the payload.
+
+    **The PR number is not known yet, so predict it and correct it.** Read the next number (`gh pr list --repo <owner>/<repo> --state all --limit 1 --json number --jq '.[0].number'`, then add 1) and name the file with it. After step 15 returns the real number, if it differs: `git mv` the file to the correct name, fix the `pr:` frontmatter line, commit, and push to the same branch. Do this before the PR merges — a mis-numbered note is harder to find later than a missing one.
+
+    If the repo carries no `documentation/trajectories/` directory, create it and copy the OverSteward template in alongside your note. Commit the note with the rest of the work (`git add <path>`) so step 14 pushes it.
+
 14. **Push.** `git push -u origin <target-branch>`.
 15. **Open or update PR.**
     - New: `gh pr create --base <default-branch> --title "..." --body "Closes #<n>\n..."` (use repo PR template).
@@ -256,6 +265,62 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
 ### Final
 
 20. **Emit structured report** (see format below). This is your final message and IS the result returned to the session — make it the last thing you output.
+
+## Reconciliation with the global PR workflow
+
+`~/.claude/shared/references/pr-workflow.md` is the estate-wide PR checklist and it
+binds dispatch too. This playbook is its dispatch-specific expansion, not a
+replacement — so every mandate there is either honored by a step above or is a
+**deliberate** difference recorded here. Nothing is silently dropped. Keep this
+list current: adding a step above without updating this section, or changing the
+global workflow without reconciling it here, reintroduces the exact gap
+oversteward#375 fixed.
+
+**Honored by a step above:**
+
+| Global mandate | Where |
+| --- | --- |
+| One PR = one logical change; split if it outgrows the description | step 12 (coherence audit), §8.5, step 9's in-flight breadth recount |
+| Never commit directly to `main`/`master` | steps 5 + 13 — work only ever lands on `<type>/issue-<n>-<slug>` in a worktree branched from `origin/<default-branch>` |
+| Never use `--admin` to bypass CI | Non-negotiables |
+| Draft PRs for exploration | Intent-Capture Protocol, step 3 |
+| Write a trajectory note before opening the PR | step 13.5 |
+| A regression test never seen red is not a regression test | step 10.5 |
+
+**Doctrine to apply while implementing (step 9), not separate steps:**
+
+- **A guard that can be satisfied by doing nothing is inert.** If the control you
+  are adding produces identical output whether the case was handled or never
+  noticed, it is decoration. Fail closed and force a recorded decision in the
+  same diff.
+- **A prohibition is inert while the same document still prescribes the forbidden
+  form.** When your change forbids a pattern, `git grep` the *whole* document —
+  and **every deployed byte-copy of it** — for the form you just forbade, and fix
+  each occurrence in the same PR. (In this repo that means the `shared/<x>/` ↔
+  `.claude/<x>/` pair; see the repo agent's byte-copy rules.)
+- **A merged watchdog is not a live watchdog.** Detection code, the host install
+  that runs it on a schedule, and the instrumentation it reads are three separate
+  deliveries. If your issue's acceptance covers only the first, say so explicitly
+  in the PR body rather than reporting the monitor as deployed.
+- **A comment asserting an invariant is part of the security surface.** If you
+  write or rely on prose declaring an exemption safe, either a test or a guard
+  enforces the claim, or the comment must say it is unverified.
+
+**Deliberate differences:**
+
+- **Branch naming.** The global workflow says `feat/short-description`. Dispatch
+  uses `<type>/issue-<n>-<slug>` — the `issue-<n>-` infix is load-bearing, because
+  the step-1 concurrency check and the step-2 collision recovery both key off it
+  to detect a sibling agent racing on the same issue. The type vocabulary is the
+  global one (`feat`, `fix`, `docs`) plus `ci`, `refactor`, `cleanup`.
+- **"Scope first" — stated to the issue, not to Nathan.** The global workflow asks
+  for a stated branch name, PR title and 1-3 scope bullets before writing code. A
+  dispatch agent has no interactive turn in which to state them: the issue's
+  Acceptance section *is* the pre-agreed scope, step 8 refuses to start without
+  one, and step 12.1's file-to-acceptance mapping re-checks it before the PR
+  opens. If the acceptance is too vague to serve as that statement, that is a
+  step-8 bail-out, not a thing to improvise past.
+- **`gh pr list` as the task board** is operator-facing status, not an agent step.
 
 ## Intent-Capture Protocol (when ambiguity hits mid-work)
 
@@ -332,7 +397,7 @@ lightweight template alone is fine.
    )"`
 
 2. `gh issue edit <n> --remove-label agent-in-progress --add-label needs-input --repo <owner>/<repo>`
-3. If any commits exist in the worktree: push as a **draft** PR so context isn't lost. `gh pr create --draft --base <default-branch> --title "[WIP] <issue title> (#<n>)" --body "Waiting on input — see issue comments."`
+3. If any commits exist in the worktree: push as a **draft** PR so context isn't lost. `gh pr create --draft --base <default-branch> --title "[WIP] <issue title> (#<n>)" --body "Waiting on input — see issue comments."` The step-13.5 trajectory note is **deliberately not required here** — the work is suspended, not shipped, and the note is written from a completed trajectory. The re-dispatch that marks this draft ready (step 15) writes it then, covering the whole run including this stop.
 4. Remove the worktree (step 19).
 5. Emit final report with `final_state: STOPPED_FOR_INPUT` and the question text.
 6. Exit. Do not guess.
