@@ -35,11 +35,18 @@ uv run bandit -q -r src/ -c pyproject.toml
 uv run pytest
 ```
 
-### CI check names (case-sensitive)
+### CI check names — read them live
 
-- **`ci`** — the single required check (one job running the full gate matrix).
-  Docs-only PRs (`**/*.md`, `docs/**`, `.claude/**`) get a free `ci` via
-  `ci-passthrough.yml`.
+Historically **`ci`** is the single required check (one job running the full gate
+matrix), and docs-only PRs (`**/*.md`, `docs/**`, `.claude/**`) get a free `ci`
+via `ci-passthrough.yml`. Confirm what actually gates your PR rather than
+trusting that:
+
+```bash
+gh pr checks <PR#> --repo NathanKrupa/exchequer
+gh api repos/NathanKrupa/exchequer/branches/main/protection \
+  --jq '.required_status_checks.contexts'
+```
 
 ## Repo-Specific Denylist
 
@@ -74,7 +81,7 @@ Closes #<issue>
 - `make verify` → <all gates PASS at <sha>>
 
 ## Scope
-N files, ±M lines (under 10/400 cap)
+N files, ±M lines (see the dispatch playbook §12 for the current caps)
 ```
 
 ## Workflow

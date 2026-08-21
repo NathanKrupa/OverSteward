@@ -33,13 +33,20 @@ ruff format --check src/ tests/
 bandit -r src/ -c pyproject.toml
 ```
 
-### CI check names (case-sensitive, all lowercase)
+### CI check names — read them live
 
-`ci.yml` defines **`lint`**, **`test`** and **`security`**.
-
-**None of them is a required status check** — `main` carries no branch
+Historically `ci.yml` defines the lowercase jobs `lint`, `test` and `security`,
+and **none of them is a required status check** — `main` carries no branch
 protection at all. They run and report; nothing gates a merge on them. Do not
 describe them as required, and do not block waiting for one.
+
+Both halves of that are live configuration, so confirm rather than cite:
+
+```bash
+gh pr checks <PR#> --repo NathanKrupa/wphelper
+gh api repos/NathanKrupa/wphelper/branches/main/protection \
+  --jq '.required_status_checks.contexts'    # 404 => no protection at all
+```
 
 ### Recent merged PRs (pattern reference)
 
@@ -61,9 +68,9 @@ gh pr list --repo NathanKrupa/wphelper --state merged --limit 10 \
 ## Repo-Specific Gotchas
 
 - **FTP module is intentional.** The repo supports FTP for users with only cPanel. Bandit would flag it without the skips in pyproject.toml.
-- **Baseline is clean (#40 landed).** If you see lint/format drift on main, STOP and ask — something regressed.
+- **Baseline is expected clean** (since #40 landed). If you see lint/format drift on main, STOP and ask — something regressed. Establish the baseline by running the lint commands above against a pristine `origin/main` worktree, never from this line.
 - **Rank Math REST meta** relies on a mu-plugin (`almoner-rankmath-rest-meta.php`) on the target WordPress site. If your change touches Rank Math paths, note that the consumer needs the mu-plugin installed.
-- **`tests/test_api.py` is thin** (27 lines). The REST client has light coverage. If you touch `api.py`, expect to add tests.
+- **The REST client has light coverage.** Read `tests/test_api.py` before you judge how much is there. If you touch `api.py`, expect to add tests.
 - **No live WordPress smoke tests yet.** Unit tests are in-memory (FakeClient, FakeFTP patterns). Adding live tests is a separate issue not your call during routine dispatch.
 
 ## Repo-Specific PR Body Template
@@ -85,7 +92,7 @@ Closes #<issue>
 - `bandit -r src/ -c pyproject.toml` → <result>
 
 ## Scope
-N files, ±M lines (under 10/400 cap)
+N files, ±M lines (see the dispatch playbook §12 for the current caps)
 ```
 
 ## Workflow

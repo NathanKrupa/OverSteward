@@ -81,12 +81,21 @@ passes in five seconds did not run a test suite.
 `ci-passthrough.yml` requires job-count and name parity with `ci.yml`. If you
 add or rename a job in one, mirror it in the other.
 
-**There are no required status checks on `main` or `staging`** — verified
-against the branch-protection API, `required_status_checks.contexts` is `[]` on
+**There are no required status checks on `main` or `staging`** — last verified
+against the branch-protection API, `required_status_checks.contexts` was `[]` on
 both (`enforce_admins` is on, but it gates nothing). The passthrough's own header
 describes protection that requires these contexts; that is the posture it was
-built for, not the one configured today. Do not describe a job as "required", and
-do not wait on one as though a merge depends on it.
+built for, not the one it was configured with. Do not describe a job as
+"required", and do not wait on one as though a merge depends on it.
+
+That is a claim about live configuration, so re-verify it rather than citing it:
+
+```bash
+for b in main staging; do
+  gh api repos/NathanKrupa/aigranthelper/branches/$b/protection \
+    --jq '.required_status_checks.contexts'
+done
+```
 
 ### Recent merged PRs (pattern reference)
 
@@ -136,7 +145,7 @@ Closes #<issue>
 - <if LLM touched: mention identifier allowlist test passed>
 
 ## Scope
-N files, ±M lines (under 10/400 cap)
+N files, ±M lines (see the dispatch playbook §12 for the current caps)
 
 ## Risk notes
 <anything that touches billing, auth, LLM, migrations, or external APIs>

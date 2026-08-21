@@ -60,8 +60,13 @@ The **pre-push hooks** are the real gate, and they run locally on every push:
 ruff + format, pyright, gaudi-errors, boy-scout, promotion-lesson, pytest. If a
 push is rejected, that is the gate speaking — fix it rather than looking to CI.
 
-The jobs `ci.yml` defines, for when it is dispatched by hand: `lint`,
-`typecheck`, `test`, `gaudi`, `boy-scout`, `promotion-lesson`.
+For the jobs `ci.yml` defines when it is dispatched by hand, read the workflow —
+a job list restated here rots the moment one is added or renamed:
+
+```bash
+gh api repos/NathanKrupa/Fiscus/contents/.github/workflows/ci.yml \
+  --jq '.content' | base64 -d | grep -E '^  [a-z-]+:'
+```
 
 ### Recent merged PRs (pattern reference)
 
@@ -182,7 +187,7 @@ Closes #<issue>
 - (if applicable) `uv run python scripts/promotion_lesson_check.py` → <result>
 
 ## Scope
-N files, ±M lines (under 10/400 cap)
+N files, ±M lines (see the dispatch playbook §12 for the current caps)
 ```
 
 ## Workflow

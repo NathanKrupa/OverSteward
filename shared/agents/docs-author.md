@@ -52,8 +52,9 @@ code, or against the running site. If you cannot verify it, cut it and say so in
 report.
 
 Hardcoded numbers rot the same way. `/help/getting-started/` and `/help/finding-funders/`
-both claim "136,000+ foundations" in customer-facing prose. Verify such a figure against
-the live system or write around it.
+both claim a foundation count in customer-facing prose. Verify any such figure against
+the live system before you repeat it, or write around it — a count in prose is wrong
+within weeks and reads as authoritative anyway.
 
 ## Storage format: Markdown, and why it matters to you
 
@@ -107,8 +108,9 @@ Procedure:
    `git log --oneline <previous-main>..origin/main` — and the PR bodies. You are looking
    for anything a *user* could notice: renamed controls, moved pages, new fields, changed
    flows, removed features. Ignore refactors and internal work.
-2. **Map changes to articles.** Which of the ten articles claims something that is no
-   longer true? Grep article bodies for the affected control or route name.
+2. **Map changes to articles.** Which published article claims something that is no
+   longer true? Grep article bodies for the affected control or route name. Enumerate
+   the articles from the database — never from a count written down here.
 3. **Verify before rewriting.** Confirm against the code or the live site that the change
    is real and that your replacement description is accurate. A drift pass that
    introduces a hallucination is worse than one that runs late.
