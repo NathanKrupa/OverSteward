@@ -22,6 +22,26 @@ repos:
         types: [python]
         pass_filenames: true
         exclude: ^\.claude/
+      - id: trajectory-tags
+        name: trajectory-note tags (category + promote — new notes only)
+        description: >
+          Assert every lesson bullet in a trajectory note's three capture
+          sections carries a `[category]`, and every "What was learned" bullet
+          a routable `→ promote:` target. Both drive downstream routing: an
+          untagged bullet resolves to `uncategorized` and lands in the "Other"
+          bucket, and an untagged `promote:` drops out of the promotion
+          worklist entirely (OS#329, #325).
+
+          Scope is whatever pre-commit passes — exactly the notes this commit
+          adds or modifies. That is what makes the gate forward-looking: the
+          legacy corpus is never handed in, so nothing has to retro-tag it.
+
+          `files` matches the dated note filename only, so TEMPLATE.md and any
+          other markdown under the directory are left alone.
+        entry: python scripts/lint/trajectory_tags.py
+        language: system
+        files: ^documentation/trajectories/\d{4}-\d{2}-\d{2}-.*\.md$
+        pass_filenames: true
       - id: secret-scan
         name: secret-scan gate (gitleaks, redacted)
         # Bare `python`, not `uv run python`. A worktree's .venv is a symlink
