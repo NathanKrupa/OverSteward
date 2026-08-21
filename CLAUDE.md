@@ -80,6 +80,25 @@ syncs) or disable the sync explicitly: `uv run --no-sync <cmd>`, or
 a shared-venv worktree's `.envrc`, so a direnv session is covered without
 thinking about it.
 
+**Prove imports resolve to the worktree before trusting any gate run there.**
+The shared venv's editable `.pth` points at the primary checkout, so without
+`PYTHONPATH=<worktree>/src` every gate — pytest, gaudi, a schema dump — silently
+measures the wrong tree: false reds against invisible edits, or worse, false
+greens on a breaking change the gate never saw. `new-session.sh` writes the
+export into `.envrc`, but that fires only under direnv — a plain shell (and
+every dispatch agent) must export it itself, with an **absolute** path (a
+`$PWD`-based export goes stale across `cd`/session resets), and prove
+resolution before the first gate and after any directory change:
+
+```bash
+.venv/bin/python -c "import oversteward; print(oversteward.__file__)"
+```
+
+Recurred 7× across OS/AG/GS (OS#109, OS#330, GS#2079, GS#2100, AG#1131) before
+the probe became reflex. AG adds a twist: its cross-repo editable siblings are
+MetaPathFinder installs that `PYTHONPATH` cannot shadow — there, reinstall the
+siblings into the worktree's own venv instead.
+
 **Tear the worktree down through the doctor, never blind.** A shared venv or a
 docker compose project can have captured the worktree's path weeks earlier, and
 the removal is what detonates it:
