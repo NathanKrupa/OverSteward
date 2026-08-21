@@ -312,6 +312,15 @@ exits **2** when the pattern report is empty over a large corpus. That is a
 broken instrument, not a quiet backlog — surface it rather than reporting a
 clean morning.
 
+**A confident count is only believable when the detector is measuring.**
+`kaizen next` reads the `clustering` block Fiscus emits (mode + degraded) and
+prints it above the item: a degraded lexical fallback gets a **DEGRADED** banner
+and every count marked `UNMEASURED`, an explicitly-requested lexical run gets
+the same mark without the banner, and a report carrying no such block gets a
+caveat that it predates mode reporting. Degraded stays **exit 0** — the
+fallback still surfaces real lessons — so rank by reading the cluster's members,
+never by the number alone (OS#352).
+
 ## Session start — the Sentry triage sweep (OS#338)
 
 **Alongside the kaizen pass, sweep the Sentry queue.** Run `/sentry-triage`
