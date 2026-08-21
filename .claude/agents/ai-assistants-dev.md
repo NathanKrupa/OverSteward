@@ -34,11 +34,23 @@ conda run -n ai-assistants flake8 . --count --select=E9,F63,F7,F82 --show-source
 conda run -n ai-assistants pylint connectors/ agents/ utils/ scripts/ --fail-under=7.0
 ```
 
-### CI status
+### CI status — check it, do not trust a line here
 
-**No CI workflow on `main` as of 2026-04-16.** The `ci-cd.yml` workflow was removed in PR #63 (issue #62). Auto-merge fires immediately — there are no required checks to wait on.
+The `ci-cd.yml` workflow was removed in PR #63 (issue #62), so this repo has
+historically had no CI. **A CI-presence claim rots the day it is typed** — read
+it live before you decide what to wait on:
 
-You are FULLY responsible for running the local test and lint suite before pushing. Do not rely on CI to catch anything. Quality gate is entirely local:
+```bash
+gh api repos/NathanKrupa/ai-assistants/contents/.github/workflows --jq '.[].name'
+gh api repos/NathanKrupa/ai-assistants/branches/main/protection \
+  --jq '.required_status_checks.contexts'
+```
+
+Empty on both → auto-merge fires immediately and there is nothing to wait on. If
+a workflow has landed, read its checks on your own PR (`gh pr checks <PR#>`)
+rather than assuming either way.
+
+Either way you are FULLY responsible for running the local test and lint suite before pushing. Do not rely on CI to catch anything. Quality gate is entirely local:
 
 ```bash
 conda run -n ai-assistants pytest tests/                                               # must pass
@@ -46,8 +58,6 @@ conda run -n ai-assistants black --check .                                      
 conda run -n ai-assistants flake8 . --count --select=E9,F63,F7,F82 --show-source       # must pass
 conda run -n ai-assistants pylint connectors/ agents/ utils/ scripts/ --fail-under=7.0 # must pass
 ```
-
-If a new CI workflow lands on `main`, re-read this section before dispatching.
 
 ## Repo-Specific Denylist
 
@@ -60,14 +70,14 @@ If a new CI workflow lands on `main`, re-read this section before dispatching.
 ## Repo-Specific Gotchas
 
 - **Python env is conda, not venv.** Always prefix with `conda run -n ai-assistants ...`.
-- **Tool registry is authoritative.** Before hunting for a CLI tool or script, read `data/tool_registry.md` — 310 tools cataloged across 27 categories. Regenerate after adding/removing one: `conda run -n ai-assistants python scripts/tools/generate_tool_registry.py`
+- **Tool registry is authoritative.** Before hunting for a CLI tool or script, read `data/tool_registry.md` — it carries the current tool and category counts, so no count is restated here. Regenerate after adding/removing one: `conda run -n ai-assistants python scripts/tools/generate_tool_registry.py`
 - **Architecture layers:**
   - OUTER: `scripts/`, skills, CLI console_scripts
   - MIDDLE: `src/almoner/` — services, pipelines, engines
   - INNER: `src/almoner/wp/`, `src/almoner/kit/`, `src/almoner/vectors/`, connectors, stores
 - **Before adding logic to a script:** check if a service exists in `src/almoner/`. Logic used by 2+ callers belongs in src/, not a script.
 - **API enforcement:** `conda run -n ai-assistants python scripts/check_api_usage.py` + pre-commit hook block unauthorized Anthropic calls.
-- **Heavy CI deps:** torch CPU-only, chromadb, sentence-transformers. CI is slow (~4 min). Don't add more without a reason.
+- **Heavy install deps:** torch CPU-only, chromadb, sentence-transformers. Environment builds are slow because of them. Don't add more without a reason.
 - **Orchestration layer was moved to Oversteward.** Do NOT re-create `.claude/skills/dispatch/`, `.claude/agents/*-dev.md`, or `scripts/orchestration/` in this repo — they live in NathanKrupa/Oversteward now.
 
 ## Repo-Specific PR Body Template
@@ -87,7 +97,7 @@ Closes #<issue>
 - `conda run -n ai-assistants flake8 ...` → <result>
 
 ## Scope
-N files, ±M lines (under 10/400 cap)
+N files, ±M lines (see the dispatch playbook §12 for the current caps)
 ```
 
 ## Workflow

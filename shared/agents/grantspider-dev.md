@@ -35,13 +35,21 @@ ruff format --check src/ tests/
 bandit -r src/
 ```
 
-### CI check names (case-sensitive)
+### CI check names — read them live
 
-- **`ci`** — the single gate job, and the only **required** status check on `staging`.
-- **`neon-integration`** — a second job in the same workflow; not required.
+Historically: **`ci`** is the single gate job and the only required check on
+`staging`; **`neon-integration`** is a second, non-required job in the same
+workflow. Issue #161 ("split CI into lint + test + security") was closed without
+that split, so there are no `lint` / `test` / `security` jobs to wait for.
 
-Issue #161 ("split CI into lint + test + security") is **closed without that
-split**. There are no `lint` / `test` / `security` jobs — do not wait for them.
+A check list typed into a card rots. Confirm what actually gates your PR before
+you wait on anything:
+
+```bash
+gh pr checks <PR#> --repo NathanKrupa/grantspider
+gh api repos/NathanKrupa/grantspider/branches/staging/protection \
+  --jq '.required_status_checks.contexts'
+```
 
 ### Recent merged PRs (pattern reference)
 
@@ -66,8 +74,8 @@ gh pr list --repo NathanKrupa/grantspider --state merged --limit 10 \
 - **Ruff check has baseline drift** if you scope to the whole repo. ALWAYS scope to `src/ tests/` (matches CI).
 - **Neon integration tests are skipped in CI** (no `NEON_DATABASE_URL` secret). Don't assume they'll run — if your change depends on schema, flag it in the PR body.
 - **LLM provider tests are mock-only.** If you change `DEFAULT_MODEL` anywhere, add a real-API check or flag it explicitly. Canary for this class of bug is aigranthelper issue #141.
-- **Coverage gate:** `--cov-fail-under=50` currently. Don't lower it. Raise only if the issue specifically asks.
-- **Fixtures directory `tests/connectors/fixtures/`** currently has exactly one HTML file. Don't assume rich fixture coverage.
+- **Coverage gate:** a `--cov-fail-under` threshold is configured — read the current value out of `pyproject.toml` (`grep cov-fail-under pyproject.toml`) rather than a number written here. Don't lower it. Raise only if the issue specifically asks.
+- **Fixture coverage is thin.** Check what is actually there (`ls tests/connectors/fixtures/`) instead of assuming rich fixture coverage.
 
 ## Repo-Specific PR Body Template
 
@@ -88,7 +96,7 @@ Closes #<issue>
 - <any CLI sanity check, e.g. `grantspider gov sync-state NY --help`>
 
 ## Scope
-N files, ±M lines (under 10/400 cap)
+N files, ±M lines (see the dispatch playbook §12 for the current caps)
 ```
 
 ## Workflow
