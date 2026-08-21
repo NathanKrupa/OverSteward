@@ -16,6 +16,7 @@ from oversteward.dream.promotion import (
     format_packet,
     parse_promote_target,
     probe_due,
+    read_clustering_status,
     read_last_run,
     read_run_history,
     record_run,
@@ -275,6 +276,61 @@ def test_verify_report_refuses_a_report_with_no_corpus_signal_at_all() -> None:
     """
     with pytest.raises(FalseGreenError):
         verify_report_is_measurable({"recurring_drag": [], "candidate_lessons": []})
+
+
+# --- clustering provenance (OS#352 / Fiscus #119) ---------------------------
+
+
+def test_read_clustering_status_reads_a_semantic_report() -> None:
+    status = read_clustering_status({"clustering": {"mode": "semantic", "degraded": False}})
+
+    assert status.reported
+    assert status.mode == "semantic"
+    assert status.degraded is False
+    assert status.measured
+
+
+def test_read_clustering_status_reads_the_degraded_lexical_fallback() -> None:
+    status = read_clustering_status({"clustering": {"mode": "lexical", "degraded": True}})
+
+    assert status.degraded is True
+    assert status.lexical
+    assert not status.measured
+
+
+def test_read_clustering_status_keeps_requested_lexical_distinct_from_a_fallback() -> None:
+    """`--no-semantic` is an operator choice, not a degradation — but still unmeasured."""
+    status = read_clustering_status({"clustering": {"mode": "lexical", "degraded": False}})
+
+    assert status.degraded is False
+    assert status.lexical
+    assert not status.measured
+
+
+def test_read_clustering_status_reports_an_absent_block_as_unknown() -> None:
+    """A report from a fiscus predating #119 says nothing — which is not "semantic"."""
+    status = read_clustering_status({"candidate_lessons": []})
+
+    assert status.reported is False
+    assert status.mode is None
+    assert status.degraded is False
+    assert not status.measured
+
+
+def test_read_clustering_status_treats_a_malformed_block_as_unknown() -> None:
+    """"Could not read the mode" must land on the unknown branch, never on measured."""
+    assert not read_clustering_status({"clustering": "semantic"}).reported
+    assert not read_clustering_status({"clustering": {"degraded": False}}).reported
+    assert not read_clustering_status({"clustering": {"mode": 7}}).reported
+
+
+def test_read_clustering_status_does_not_call_an_unfamiliar_mode_measured() -> None:
+    status = read_clustering_status({"clustering": {"mode": "hierarchical", "degraded": False}})
+
+    assert status.reported
+    assert status.mode == "hierarchical"
+    assert not status.measured
+    assert not status.lexical
 
 
 # --- run ledger -------------------------------------------------------------

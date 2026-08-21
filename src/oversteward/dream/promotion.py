@@ -53,6 +53,15 @@ MEASURABLE_CORPUS_NOTES = 50
 #: Recurrence at or above which a cluster is worth a promotion decision.
 MIN_RECURRENCE = 3
 
+#: The key Fiscus stamps a report with to declare how its clusters were computed
+#: (Fiscus #119) — `{"clustering": {"mode": "semantic"|"lexical", "degraded": bool}}`.
+CLUSTERING_KEY = "clustering"
+
+#: Clustering engines a report can name. `semantic` groups by embedded meaning;
+#: `lexical` groups by shared wording and invents recurrence out of phrasing.
+SEMANTIC_MODE = "semantic"
+LEXICAL_MODE = "lexical"
+
 #: Worklist cap. A promotion pass that proposes forty changes gets deferred
 #: whole; one that proposes a dozen gets done.
 DEFAULT_CAP = 12
@@ -212,6 +221,58 @@ def verify_report_is_measurable(
             "clean bill of health (see Fiscus #101). Refusing to report an "
             "empty promotion worklist as good news."
         )
+
+
+@dataclass(frozen=True)
+class ClusteringStatus:
+    """How a pattern report's clusters were computed, as the report itself declares it.
+
+    Three states, and they must stay three (OS#352). A report clustered by
+    embedded meaning carries counts that were *measured*. A report clustered by
+    shared wording carries counts the phrasing invented — six bullets about
+    unrelated lessons, glued by the word "inert". A report that declares nothing
+    is *unknown*, which is neither, and must never be optimistically read as the
+    first.
+
+    ``degraded`` is Fiscus's own word for the fallback case — lexical clustering
+    that was fallen back to rather than asked for. It is not derivable from
+    ``mode``, which is why the producer sends both.
+    """
+
+    mode: str | None
+    degraded: bool
+    reported: bool
+
+    @property
+    def lexical(self) -> bool:
+        """True when the report says its clusters came from wording, not meaning."""
+        return self.mode == LEXICAL_MODE
+
+    @property
+    def measured(self) -> bool:
+        """True only when the report positively declares the semantic path ran.
+
+        An absent, malformed or unfamiliar mode is not measured. Silence about
+        the instrument is never evidence that the instrument was working.
+        """
+        return self.reported and self.mode == SEMANTIC_MODE
+
+
+def read_clustering_status(report: dict) -> ClusteringStatus:
+    """The clustering provenance a report declares, or an explicit *unknown*.
+
+    Reads the ``clustering`` block Fiscus #119 added to both report shapes. A
+    block that is missing, is not an object, or names no string ``mode`` reads
+    as unreported — "could not read the mode" lands beside "the report predates
+    mode reporting", and neither lands on measured.
+    """
+    block = report.get(CLUSTERING_KEY)
+    if not isinstance(block, dict):
+        return ClusteringStatus(mode=None, degraded=False, reported=False)
+    mode = block.get("mode")
+    if not isinstance(mode, str) or not mode:
+        return ClusteringStatus(mode=None, degraded=False, reported=False)
+    return ClusteringStatus(mode=mode, degraded=bool(block.get("degraded")), reported=True)
 
 
 def _dominant_target(cluster: dict) -> str:
