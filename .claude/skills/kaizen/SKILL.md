@@ -40,10 +40,29 @@ $KAIZEN next --report /tmp/kaizen/patterns.json --issues /tmp/kaizen/issues.json
 
 **Exit codes carry meaning — do not collapse them.**
 
-- **0** — a measured result. One item, or an honest "nothing queued".
+- **0** — a measured result. One item, or an honest "nothing queued". A
+  **degraded** report also exits 0, and says so loudly above the item (below).
 - **2** — the detector is broken, *not* a clean backlog. Stop and surface it.
   An empty queue reported as good news is the exact failure this pass exists to
   correct (Fiscus #101, which answered "no patterns detected" over 425 notes).
+
+**Read the banner before you read the count (OS#352).** `kaizen next` prints
+the report's clustering provenance — the `clustering` block Fiscus #119 emits —
+above the item, and marks the counts accordingly:
+
+| the report says | what prints | what the count is worth |
+|---|---|---|
+| `mode: semantic, degraded: false` | nothing — the healthy path is unchanged | measured recurrence |
+| `mode: lexical, degraded: true` | **DEGRADED** banner — the `embeddings` extra was absent and the fallback engaged | a lexical artifact: `6x recurrence (UNMEASURED — …)` |
+| `mode: lexical, degraded: false` | a lexical-clustering note — the mode was *asked for*, not fallen back to | still an artifact, marked `UNMEASURED` |
+| no `clustering` block | a caveat: the report predates mode reporting | unknown — it may be a lexical artifact |
+
+Degraded is **loud, not fatal**: the fallback still surfaces genuine lessons, so
+the pass proceeds — but rank it by reading the cluster's members, not by the
+number. A degraded run once served a confident *"5x recurrence"* whose five
+members were five unrelated lessons glued by shared wording (OS#352). To fix
+the mode rather than caveat it, install the extra in the fiscus checkout:
+`uv sync --extra dev --extra embeddings`.
 
 ## Step 3 — fix it, then get on with the day
 

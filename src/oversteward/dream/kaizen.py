@@ -41,7 +41,11 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
-from oversteward.dream.promotion import PromotionCandidate, verify_report_is_measurable
+from oversteward.dream.promotion import (
+    ClusteringStatus,
+    PromotionCandidate,
+    verify_report_is_measurable,
+)
 
 #: Terminal verdicts remove an item from the queue; `deferred` does not.
 VERDICTS: tuple[str, ...] = ("promoted", "declined", "deferred")
@@ -213,26 +217,102 @@ def next_item(queue: list[KaizenItem]) -> KaizenItem | None:
     return queue[0] if queue else None
 
 
-def format_next(item: KaizenItem | None, *, queue_size: int) -> str:
-    """The session-start surface: one item, its evidence, and what remains behind it."""
-    if item is None:
-        return (
-            "**Nothing queued.** No unresolved kaizen item — every surfaced cluster and\n"
-            "every `kaizen`-labelled issue has been ruled on. The pattern report was\n"
-            "verified non-empty first, so this is a measured backlog rather than a\n"
-            "silent instrument failure.\n"
-        )
+#: What a lexically-clustered count is worth, said in the count's own place.
+UNMEASURED_HINT = "read the cluster members before trusting the rank"
 
-    remaining = max(0, queue_size - 1)
-    # Recurrence leads, because it is the whole argument for fixing this one
-    # first. A filed finding has no count and says so rather than showing 0.
-    recurrence = f"{item.count}x recurrence" if item.count else "filed finding"
-    lines = [
-        "# Kaizen — this session's item",
+
+#: The fallback engaged: nobody asked for lexical clustering and it ran anyway.
+DEGRADED_BANNER: tuple[str, ...] = (
+    "> **DEGRADED — the pattern detector fell back to lexical clustering.**",
+    "> Semantic clustering was unavailable (the fiscus `embeddings` extra is not",
+    "> installed), so clusters were grouped by shared wording rather than by",
+    "> meaning. Every recurrence count below is a lexical artifact, **not a",
+    f"> measurement** — {UNMEASURED_HINT}.",
+    "",
+)
+
+#: Lexical clustering that was asked for. Honest, and still not a measurement.
+LEXICAL_REQUESTED_NOTICE: tuple[str, ...] = (
+    "> **Lexical clustering (explicitly requested).** Clusters were grouped by",
+    "> shared wording rather than by meaning, so the recurrence counts below are",
+    f"> not measurements — {UNMEASURED_HINT}.",
+    "",
+)
+
+#: The report predates Fiscus #119. Unknown — which is not "semantic".
+UNREPORTED_MODE_NOTICE: tuple[str, ...] = (
+    "> **This report does not report its clustering mode.** It predates the",
+    "> `clustering` block (Fiscus #119), so the counts below may be lexical",
+    "> artifacts rather than measured recurrence. Rebuild it with a current",
+    "> fiscus to know which.",
+    "",
+)
+
+
+def _unfamiliar_mode_notice(mode: str | None) -> list[str]:
+    """A mode this consumer has no opinion about is disclosed, never trusted."""
+    return [
+        f"> **Unfamiliar clustering mode `{mode}`.** This consumer knows",
+        "> `semantic` and `lexical` only, so it cannot certify the counts below as",
+        f"> measured — {UNMEASURED_HINT}.",
         "",
+    ]
+
+
+def clustering_notice(clustering: ClusteringStatus | None) -> list[str]:
+    """The lines that must sit *above* the item, given how the report was clustered.
+
+    Empty for a semantic report and for a run with no report at all — there is
+    nothing to disclose. Every other state discloses something, because the
+    ranking this surface prints is only as good as the engine behind it, and a
+    degraded report is worse than an empty one: it looks like a working one
+    (OS#352).
+    """
+    if clustering is None or clustering.measured:
+        return []
+    if clustering.degraded:
+        return list(DEGRADED_BANNER)
+    if clustering.lexical:
+        return list(LEXICAL_REQUESTED_NOTICE)
+    if clustering.reported:
+        return _unfamiliar_mode_notice(clustering.mode)
+    return list(UNREPORTED_MODE_NOTICE)
+
+
+def _recurrence_label(item: KaizenItem, clustering: ClusteringStatus | None) -> str:
+    """The count, carrying its own provenance where the count is read.
+
+    A caveat parked at the top of the page is skimmed past; the mark belongs on
+    the number itself, because the number is what a session acts on.
+    """
+    if not item.count:
+        return "filed finding"
+    if clustering is not None and clustering.lexical:
+        fallback = "lexical fallback" if clustering.degraded else "lexical clustering"
+        return f"{item.count}x recurrence (UNMEASURED — {fallback}; {UNMEASURED_HINT})"
+    return f"{item.count}x recurrence"
+
+
+#: The measured-empty backlog. Its claim of measurement is about the *corpus*;
+#: any doubt about the clustering engine is disclosed by the notice above it.
+NOTHING_QUEUED: tuple[str, ...] = (
+    "**Nothing queued.** No unresolved kaizen item — every surfaced cluster and",
+    "every `kaizen`-labelled issue has been ruled on. The pattern report was",
+    "verified non-empty first, so this is a measured backlog rather than a",
+    "silent instrument failure.",
+    "",
+)
+
+
+def _item_lines(
+    item: KaizenItem, *, queue_size: int, clustering: ClusteringStatus | None
+) -> list[str]:
+    """One item, evidence first — recurrence leads because it is the whole argument."""
+    remaining = max(0, queue_size - 1)
+    return [
         f"## {item.title}",
         "",
-        f"- **{recurrence}** · reference: {item.reference or '—'}",
+        f"- **{_recurrence_label(item, clustering)}** · reference: {item.reference or '—'}",
         f"- source: `{item.source}` · target: `{item.target}`",
         f"- evidence: {item.detail}",
         f"- key: `{item.key}`",
@@ -244,4 +324,30 @@ def format_next(item: KaizenItem | None, *, queue_size: int) -> str:
         "follows. Record the outcome with `dream kaizen resolve`.",
         "",
     ]
-    return "\n".join(lines)
+
+
+def format_next(
+    item: KaizenItem | None,
+    *,
+    queue_size: int,
+    clustering: ClusteringStatus | None = None,
+) -> str:
+    """The session-start surface: one item, its evidence, and what remains behind it.
+
+    ``clustering`` is the provenance of the report the queue was built from
+    (:func:`oversteward.dream.promotion.read_clustering_status`). ``None`` means
+    no report was supplied at all, so there are no counted clusters to qualify.
+    The notice it produces sits *above* the item, because a caveat printed under
+    a confident number is read after the number has already been believed.
+    """
+    notice = clustering_notice(clustering)
+    if item is None:
+        return "\n".join([*notice, *NOTHING_QUEUED])
+    return "\n".join(
+        [
+            "# Kaizen — this session's item",
+            "",
+            *notice,
+            *_item_lines(item, queue_size=queue_size, clustering=clustering),
+        ]
+    )

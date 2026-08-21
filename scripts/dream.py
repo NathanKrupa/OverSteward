@@ -267,6 +267,11 @@ def _cmd_kaizen_next(args: argparse.Namespace) -> int:
 
     Exits 2 on a :class:`FalseGreenError` — same contract as `promotion packet`,
     so "nothing to fix" and "the detector is broken" never render the same.
+
+    A *degraded* report stays exit 0 and banners instead (OS#352): the fallback
+    still surfaces genuine lessons, so refusing it would cost more than the
+    coarse ranking does. Exit 2 stays reserved for an instrument that saw
+    nothing at all.
     """
     report = _read_json(args.report) if args.report else None
     try:
@@ -282,7 +287,12 @@ def _cmd_kaizen_next(args: argparse.Namespace) -> int:
         sys.stderr.write(f"{exc}\n")
         return 2
 
-    sys.stdout.write(kaizen.format_next(kaizen.next_item(queue), queue_size=len(queue)))
+    clustering = promotion.read_clustering_status(report) if report is not None else None
+    sys.stdout.write(
+        kaizen.format_next(
+            kaizen.next_item(queue), queue_size=len(queue), clustering=clustering
+        )
+    )
     return 0
 
 
