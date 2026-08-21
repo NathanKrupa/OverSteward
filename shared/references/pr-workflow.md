@@ -49,3 +49,42 @@ shapes recur; both pass every test and change no behaviour.
   lands, run **each new test individually** against the unfixed code and watch
   it fail for the stated reason; one that passes either way is decoration
   (oversteward#312, grantspider#1999, #2220)
+
+## False greens — a check that reports success must prove it can fail
+
+Ten false greens in eleven weeks: a gate, sweep or probe that passed while
+proving nothing, each caught by luck or by a later unrelated failure, none by
+design. A green is a *measurement*, and a measurement is only worth its
+sensitivity. These five rules make that sensitivity demonstrable.
+
+- **A new check ships with the fixture that makes it fail.** Green against live
+  data is not acceptance — it measures the data, not the check. The proof is
+  the negative fixture: make the check red on purpose, watch it fail for the
+  stated reason, and cite that fixture in the PR. The same duty is continuous
+  for anything that alerts — **a canary must assert it can alert on every run,
+  because silence is its failure mode** (oversteward#327)
+- **Never pipe a gate through `| tail` or `| head`.** The pipeline's exit status
+  is the *last* command's, so `make verify 2>&1 | tail -20` reports `tail`'s
+  success and a failing verify reads as a pass. This has bitten twice (`make
+  verify`, then `gaudi`). Redirect to a file and read it — `cmd > /tmp/out 2>&1;
+  rc=$?` — or check `${PIPESTATUS[0]}`. The prohibition covers any filter in the
+  final position, `tail` and `head` being the two that actually happened
+  (oversteward#327)
+- **A uniform result is a suspect result.** When a sweep reports the same
+  verdict for every subject, prove it visited distinct subjects before believing
+  it. A drift sweep over 16 repos read empty paths from `registry.yaml`,
+  resolved all of them against cwd, and printed OK sixteen times — a convincing
+  false green that had inspected nothing (oversteward#327)
+- **`rc=0` is not a pass on its own.** Some tools exit 0 on usage errors:
+  `gaudi check <a> <b>` rejects multiple paths on stderr and still exits 0, and
+  `gh pr edit --base` printed a deprecation warning while silently leaving the
+  base unchanged. For any tool not *known* to fail loudly, assert on the output
+  as well as the code (oversteward#327)
+- **A skip must not read as a pass.** "Found nothing" and "could not look" must
+  never print or exit the same — a scanner that skips silently when its backend
+  is missing certifies nothing while looking identical to a clean run
+  (`gitleaks --exit-code=0` on an empty report; `secret_scan.py --staged` with
+  no docker). Give the two outcomes different exit codes, as
+  `worktree_doctor.py sweep` (2 = could not look, 0 = measured answer) and
+  `scripts/lint/gaudi_check_files.py` (2 = gaudi absent) already do
+  (oversteward#327)
