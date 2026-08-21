@@ -23,10 +23,9 @@ Chronological narrative of the work — key decisions, dead-ends, pivots, scope
 adjustments. Not a diff log; the path taken and why. Should be readable months
 later by someone who wasn't there.
 
-> **Per-lesson `category`** (optional, back-compatible — an untagged bullet reads
-> as `uncategorized` downstream, so existing notes need no edits). Tag each lesson
-> bullet in the three capture sections below (*What worked*, *What didn't*, *What
-> was learned*) with one value from this fixed vocabulary, written as a leading
+> **Per-lesson `category` — required on every new note.** Tag each lesson bullet
+> in the three capture sections below (*What worked*, *What didn't*, *What was
+> learned*) with one value from this fixed vocabulary, written as a leading
 > `[category]`:
 >
 > - `design` — architecture, structure, layering, interface/seam decisions
@@ -36,6 +35,13 @@ later by someone who wasn't there.
 > - `outcome` — what shipped and its measured result or impact
 >
 > One note routinely mixes categories — tag each bullet on its own.
+>
+> **The tags are enforced at commit time**, by the `trajectory-tags` pre-commit
+> hook (`scripts/lint/trajectory_tags.py`, OS#329). It validates only the notes a
+> commit adds or modifies — notes written before the gate existed are exempt and
+> are never retro-tagged. An untagged bullet is not a style lapse: it resolves to
+> `uncategorized`, which drops it out of the analyzer's two headline sections,
+> and an untagged `promote:` removes it from the promotion worklist entirely.
 
 ## What worked
 
@@ -62,6 +68,12 @@ Capture: generalizable rules a future pickup in this surface should follow.
 Rule + brief why.
 Skip: restatements of what just happened.
 Format: `- [category] <rule> — <why> → promote: doctrine | memory | lessons.jsonl | none`
+
+`→ promote:` is **required on every bullet in this section**, and its target must
+be the **last thing on the bullet** (an optional full stop aside). The consumer's
+regex is end-anchored, so a target followed by more prose — `→ promote: memory,
+and then more` — is invisible downstream and the gate rejects it. Use `none` when
+the lesson genuinely shouldn't be promoted; that is a judgement, not a skip.
 
 - [design] Classify lessons at capture time, not read time — the author knows the lesson's intent, which keeps the downstream review deterministic → promote: doctrine.
 - …
