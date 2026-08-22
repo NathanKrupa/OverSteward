@@ -383,6 +383,23 @@ Adding a Railway project to the sweep is one block in `registry.yaml`:
       environment: production
 ```
 
+## Session start — the AG operator-queue sweep (OS#392)
+
+Alongside kaizen, Sentry and liveness, sweep what AG's users are waiting on —
+untriaged in-app feedback and visitor-reported data corrections, over the
+`/internal/ops/` seam (skill: `.claude/skills/ag-triage/`):
+
+```bash
+.venv/bin/python scripts/ag_ops_triage.py sweep
+```
+
+Same exit-code discipline, for the same reason: **0** is a measured answer (a
+queue, or a clean sweep that names every report's `scanned` count), **1** means
+the seam could not be read *or its contract drifted*, **2** means nothing was
+configured to look — the state today, until `OPS_REPORTS_TOKEN` and
+`OPS_VERDICTS_TOKEN` are minted. Record a verdict on every item, or the queue
+never drains.
+
 ## Operator steps go to Todoist, never only the session log (Nathan's order, 2026-08-19)
 
 Whenever a session surfaces a step only Nathan can perform — a secret to mint,
