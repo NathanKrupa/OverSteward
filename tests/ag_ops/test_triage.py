@@ -33,6 +33,7 @@ from .fakes import (
     clean_seam,
     computed_envelope,
     default_reports,
+    edge_blocked_seam,
     manifest,
     queue_envelope,
     recorded_result,
@@ -304,6 +305,17 @@ def test_an_unconfigured_producer_exits_two(cli, capsys) -> None:
 
     assert code == 2
     assert UNCONFIGURED_MESSAGE in capsys.readouterr().err
+
+
+def test_an_edge_blocked_sweep_exits_one_and_never_blames_the_token(cli, capsys) -> None:
+    """OS#394: a CDN 403 sent the operator to rotate a token that was never checked."""
+    code = cli.main(SWEEP, client_factory=edge_blocked_seam)
+
+    err = capsys.readouterr().err
+    assert code == 1
+    assert COULD_NOT_LOOK in err
+    assert "edge" in err
+    assert "token" not in err
 
 
 def test_a_missing_token_here_exits_two(cli, capsys) -> None:

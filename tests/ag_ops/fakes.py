@@ -214,6 +214,18 @@ def blind_seam() -> FakeSeam:
     return FakeSeam(fail_with=AgOpsUnavailableError(f"AG ops source unreadable (HTTP 503): {DEAD_SOURCE}"))
 
 
+def edge_blocked_seam() -> FakeSeam:
+    """A CDN answering in the producer's place — measured shape, OS#394."""
+    return FakeSeam(
+        fail_with=AgOpsUnavailableError(
+            "AG ops request was stopped before it reached the producer "
+            "(HTTP 403, text/plain; charset=UTF-8) (GET /internal/ops/reports/): "
+            "the body is not the producer's JSON envelope, so this is the edge (CDN/WAF) "
+            "answering, not aigranthelper — no credential was checked."
+        )
+    )
+
+
 def unconfigured_seam() -> FakeSeam:
     """A producer that has not been given its token — nothing configured to look."""
     return FakeSeam(fail_with=AgOpsConfigError(f"the producer is not configured (HTTP 503): {UNCONFIGURED_MESSAGE}"))
