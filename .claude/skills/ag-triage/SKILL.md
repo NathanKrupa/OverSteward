@@ -42,7 +42,10 @@ day it ships.
   A clean sweep always shows its working; a bare "ok" would be indistinguishable
   from a sweep that never asked.
 - **1** — could not look. The seam is down, timed out, throttled, answered a
-  problem-details 503 naming a dead source — **or its contract drifted**. The
+  problem-details 503 naming a dead source, **was stopped at the CDN edge**
+  (a 401/403/503 whose body is not the producer's JSON envelope never reached
+  Django, so it says nothing about our token — OS#394) — **or its contract
+  drifted**. The
   consumer pins the producer's `contract_version` major and asserts the envelope
   keys; a mismatch is a red exit naming what moved, never a best-effort read.
 - **2** — not configured to look. A token missing from OverSteward's `.env`, a

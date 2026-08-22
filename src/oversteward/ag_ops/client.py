@@ -19,6 +19,22 @@ The producer's two 503s are deliberately distinguishable and must stay so: an
 unprovisioned token answers ``{"error": ...}``, while a store that went dark
 answers RFC 9457 problem details naming the ``source``. Collapsing them would
 make an unconfigured estate look like a broken one — or worse, the reverse.
+
+**Not every answer comes from the producer.** ``www.aigranthelper.com`` sits
+behind Cloudflare, which blocks the default ``Python-urllib/3.x`` User-Agent at
+the edge with a 403 the application never sees (OS#394 — measured: ``error code:
+1010``, ``text/plain``). Hence the two rules below:
+
+- Every request announces :data:`USER_AGENT`, so the estate's own tooling is
+  identifiable at the edge rather than lumped in with scripted traffic.
+- **A verdict about our credential or the producer's own configuration
+  requires the producer's JSON envelope.** A 401/403/503 whose body does not
+  parse as a JSON object never reached Django, so it says nothing about our
+  token — reporting it as "credential rejected" sends the operator to rotate a
+  secret that was never checked. 404 is exempt: it makes no such claim, and
+  Django's own 404 page *is* HTML (measured against production, and pinned by
+  ``test_an_html_404_is_still_not_found...``), so requiring JSON there would
+  turn an honest "surface not mounted" into a false edge report.
 """
 
 from __future__ import annotations
@@ -41,6 +57,16 @@ BASE_URL_ENV = "AG_OPS_BASE_URL"
 
 DEFAULT_BASE_URL = "https://www.aigranthelper.com"
 DEFAULT_TIMEOUT = 30.0
+
+#: This tool's version, carried in :data:`USER_AGENT`. Bump it when the request
+#: shape changes in a way an edge rule or an access log should be able to tell
+#: apart — it is the estate's signature at AG's front door, not a wire contract.
+CLIENT_VERSION = "1.0"
+
+#: Sent on every request. urllib's default ``Python-urllib/3.x`` is blocked by
+#: Cloudflare before the application sees it (OS#394), so a real name here is
+#: what makes the tool reachable *and* what makes it identifiable in AG's logs.
+USER_AGENT = f"oversteward-ag-ops-triage/{CLIENT_VERSION}"
 
 MANIFEST_PATH = "/internal/ops/reports/"
 REPORT_PATH = "/internal/ops/reports/{name}/"
@@ -145,6 +171,7 @@ class AgOpsClient:
         )
         request.add_header("Authorization", f"Bearer {token}")
         request.add_header("Content-Type", "application/json")
+        request.add_header("User-Agent", USER_AGENT)
         where = f"({method} {path}): "
         try:
             with self._opener(request, timeout=self._timeout) as response:
@@ -174,6 +201,10 @@ def _from_http_error(exc: urllib.error.HTTPError, where: str) -> AgOpsUnavailabl
     ``where`` is the call site as a message prefix — never a credential.
     """
     body = _error_body(exc)
+    if exc.code == _HTTP_NOT_FOUND:
+        return AgOpsNotFoundError(f"AG ops has no such path (HTTP 404) {where}{_detail(body or {})}")
+    if body is None:
+        return _edge_interference(exc, where)
     if exc.code == _HTTP_UNAVAILABLE:
         return _from_unavailable(body, where)
     if exc.code in (_HTTP_UNAUTHORIZED, _HTTP_FORBIDDEN):
@@ -181,9 +212,29 @@ def _from_http_error(exc: urllib.error.HTTPError, where: str) -> AgOpsUnavailabl
             f"AG ops rejected our credential (HTTP {exc.code}) {where}"
             f"— the token in .env does not match the producer's setting."
         )
-    if exc.code == _HTTP_NOT_FOUND:
-        return AgOpsNotFoundError(f"AG ops has no such path (HTTP 404) {where}{_detail(body)}")
     return AgOpsUnavailableError(f"AG ops returned HTTP {exc.code} {where}{_detail(body)}")
+
+
+def _edge_interference(exc: urllib.error.HTTPError, where: str) -> AgOpsUnavailableError:
+    """The failure of something in front of the producer — a CDN, a proxy, a WAF.
+
+    Raised whenever a status that would otherwise be a verdict about our
+    credential or the producer's configuration arrives *without* the producer's
+    JSON envelope. Nothing was checked against our token, and the message says
+    so: the operator's next move is to look at the edge, not to rotate a secret.
+    """
+    return AgOpsUnavailableError(
+        f"AG ops request was stopped before it reached the producer "
+        f"(HTTP {exc.code}, {_content_type(exc)}) {where}"
+        f"the body is not the producer's JSON envelope, so this is the edge (CDN/WAF) "
+        f"answering, not aigranthelper — no credential was checked."
+    )
+
+
+def _content_type(exc: urllib.error.HTTPError) -> str:
+    """What the intercepting layer said it was sending, for a message to name."""
+    headers = getattr(exc, "headers", None)
+    return (headers.get("Content-Type", "") if headers else "") or "no content-type"
 
 
 def _from_unavailable(body: dict, where: str) -> AgOpsUnavailableError | AgOpsConfigError:
@@ -202,13 +253,19 @@ def _from_unavailable(body: dict, where: str) -> AgOpsUnavailableError | AgOpsCo
     return AgOpsUnavailableError(f"AG ops returned HTTP 503 with no diagnosis {where}")
 
 
-def _error_body(exc: urllib.error.HTTPError) -> dict:
-    """The failure body as a dict, or an empty one when it cannot be read."""
+def _error_body(exc: urllib.error.HTTPError) -> dict | None:
+    """The failure body as the producer's JSON object, or ``None`` when it is not one.
+
+    ``None`` is the load-bearing answer: it means whatever answered was not
+    speaking the producer's envelope, which is what :func:`_edge_interference`
+    exists to report. Collapsing it to ``{}`` is how an edge block became a
+    credential verdict (OS#394).
+    """
     try:
         payload = json.loads(exc.read())
     except (OSError, ValueError, AttributeError):
-        return {}
-    return payload if isinstance(payload, dict) else {}
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 def _detail(body: dict) -> str:

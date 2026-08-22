@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import email.message
 import io
 import json
 import urllib.error
@@ -14,6 +15,7 @@ from oversteward.ag_ops.client import (
     BASE_URL_ENV,
     DEFAULT_BASE_URL,
     REPORTS_TOKEN_ENV,
+    USER_AGENT,
     VERDICTS_TOKEN_ENV,
     AgOpsClient,
     AgOpsConfigError,
@@ -71,9 +73,16 @@ class _Failing:
         raise self._error
 
 
-def _http_error(code: int, body: dict | bytes) -> urllib.error.HTTPError:
+def _http_error(code: int, body: dict | bytes, content_type: str = "application/json") -> urllib.error.HTTPError:
     payload = body if isinstance(body, bytes) else json.dumps(body).encode()
-    return urllib.error.HTTPError(MANIFEST_URL, code, "err", {}, io.BytesIO(payload))
+    headers = email.message.Message()
+    headers["Content-Type"] = content_type
+    return urllib.error.HTTPError(MANIFEST_URL, code, "err", headers, io.BytesIO(payload))
+
+
+def _cloudflare_block(code: int = 403) -> urllib.error.HTTPError:
+    """What the CDN actually answered a default-User-Agent request with (OS#394)."""
+    return _http_error(code, b"error code: 1010", content_type="text/plain; charset=UTF-8")
 
 
 def _client(opener, *, reports_token: str = READ_TOKEN, verdicts_token: str = WRITE_TOKEN) -> AgOpsClient:
@@ -128,6 +137,26 @@ def test_post_verdicts_uses_the_write_token_and_the_batch_envelope() -> None:
     assert json.loads(request.data) == {"verdicts": items}
 
 
+# --- the User-Agent the edge lets through (OS#394) ---------------------------
+
+
+def test_every_request_announces_this_tools_user_agent() -> None:
+    """urllib's default UA is blocked by Cloudflare before the producer sees it."""
+    opener = _Opener(manifest(), {"report": "feedback_queue"}, {"recorded": 0})
+    client = _client(opener)
+    client.manifest()
+    client.report("feedback_queue")
+    client.post_verdicts([])
+
+    sent = [request.get_header("User-agent") for request in opener.requests]
+    assert sent == [USER_AGENT] * 3
+
+
+def test_the_user_agent_names_the_tool_and_its_version() -> None:
+    assert USER_AGENT.startswith("oversteward-ag-ops-triage/")
+    assert "urllib" not in USER_AGENT
+
+
 # --- the three-way error split ----------------------------------------------
 
 
@@ -169,10 +198,11 @@ def test_a_problem_details_503_is_an_outage_not_a_config_error() -> None:
     assert not isinstance(caught.value, AgOpsConfigError)
 
 
-def test_an_undiagnosed_503_reads_as_an_outage() -> None:
-    opener = _Failing(_http_error(503, b"<html>gateway</html>"))
+def test_an_undiagnosed_503_carrying_the_json_envelope_reads_as_an_outage() -> None:
+    """A producer-shaped body with neither diagnosis key is still the producer answering."""
+    opener = _Failing(_http_error(503, {}))
 
-    with pytest.raises(AgOpsUnavailableError):
+    with pytest.raises(AgOpsUnavailableError, match="no diagnosis"):
         _client(opener).manifest()
 
 
@@ -181,6 +211,78 @@ def test_a_rejected_credential_is_a_config_error() -> None:
 
     with pytest.raises(AgOpsConfigError, match="401"):
         _client(opener).manifest()
+
+
+# --- edge interference is never a credential verdict (OS#394) ----------------
+
+
+def test_a_cloudflare_403_is_could_not_look_never_a_credential_verdict() -> None:
+    """The measured production failure: text/plain 'error code: 1010' from the CDN."""
+    opener = _Failing(_cloudflare_block())
+
+    with pytest.raises(AgOpsUnavailableError) as caught:
+        _client(opener).manifest()
+    message = str(caught.value)
+    assert not isinstance(caught.value, AgOpsConfigError)
+    assert "edge" in message
+    assert "403" in message
+    assert "text/plain" in message
+    assert "token" not in message
+
+
+def test_a_non_json_401_is_edge_interference_not_a_rejected_credential() -> None:
+    opener = _Failing(_http_error(401, b"<html>Attention Required!</html>", content_type="text/html"))
+
+    with pytest.raises(AgOpsUnavailableError) as caught:
+        _client(opener).manifest()
+    assert not isinstance(caught.value, AgOpsConfigError)
+    assert "no credential was checked" in str(caught.value)
+
+
+def test_a_non_json_503_is_edge_interference_not_an_unconfigured_producer() -> None:
+    opener = _Failing(_http_error(503, b"<html>origin down</html>", content_type="text/html"))
+
+    with pytest.raises(AgOpsUnavailableError) as caught:
+        _client(opener).manifest()
+    assert not isinstance(caught.value, AgOpsConfigError)
+    assert "edge" in str(caught.value)
+
+
+def test_a_json_array_body_is_not_the_producers_envelope() -> None:
+    opener = _Failing(_http_error(403, b"[]"))
+
+    with pytest.raises(AgOpsUnavailableError) as caught:
+        _client(opener).manifest()
+    assert not isinstance(caught.value, AgOpsConfigError)
+
+
+def test_a_json_403_from_the_producer_is_still_a_credential_verdict() -> None:
+    """The correction must not over-reach: a real producer refusal still names the token."""
+    opener = _Failing(_http_error(403, {"error": "valid bearer token required"}))
+
+    with pytest.raises(AgOpsConfigError, match="token in .env"):
+        _client(opener).manifest()
+
+
+def test_an_html_404_is_still_not_found_so_a_pre_promote_sweep_says_not_mounted() -> None:
+    """Django's own 404 page is HTML (measured against production, OS#394).
+
+    404 is deliberately exempt from the JSON-envelope requirement: it asserts
+    nothing about our credential, so requiring the envelope here would turn an
+    honest "surface not mounted" into a false edge report.
+    """
+    opener = _Failing(_http_error(404, b"<!DOCTYPE html><html>Page not found</html>", content_type="text/html"))
+
+    with pytest.raises(AgOpsNotFoundError):
+        _client(opener).manifest()
+
+
+def test_no_edge_message_ever_carries_a_token() -> None:
+    opener = _Failing(_cloudflare_block())
+
+    with pytest.raises(AgOpsUnavailableError) as caught:
+        _client(opener).manifest()
+    assert READ_TOKEN not in str(caught.value)
 
 
 def test_a_throttled_caller_could_not_look() -> None:
