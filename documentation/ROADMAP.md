@@ -469,6 +469,102 @@ Heavy delivery between 2026-04-15 and 2026-05-07. Center of gravity moved here.
 
 ---
 
+## §3.10 Late August 2026 — the presses run and the seam goes live (reconciled 2026-08-24)
+
+> Fourth dream-produced pass. The week's through-line was **turning built
+> machinery into running production**: the 990-PF facsimile engine finished and
+> its 475k-filing drain launched, the 130k fiscal-synopsis corpus completed with
+> zero failures, the AG operator seam went from "tokens not minted" to live
+> verdicts in production, and the help-centre docs loop closed to a single
+> human act (Publish). Alongside it, the kaizen queue drained five items in one
+> sitting — the doctrine promotions of the month all trace to measured 4-5×
+> recurrences.
+
+### Shipped (2026-08-18 → 08-24)
+
+- **The kaizen quintet drained** (OS#375 → PR #383, OS#327 → PR #385, OS#328
+  → PR #387, OS#352 → PR #389 + Fiscus PR#120, OS#329 → PR #390). The
+  dispatch playbook now carries the trajectory-note step and a red-proof step;
+  "a check that reports success must prove it can fail" entered doctrine with
+  a self-audit issue (OS#384); agent cards state the command, not the number
+  (rot-resistant form; residue OS#388); `kaizen next` discloses degraded
+  clustering above the item and marks counts UNMEASURED; and trajectory
+  `[category]` + `promote:` tags are enforced at commit time, forward-only
+  (mutation-proven red 19 ways). Three sibling doctrine promotions rode the
+  same week from 4×-recurrence clusters: a merged watchdog is not a live
+  watchdog (PR #370), an invariant-asserting comment is security surface
+  (PR #371), a regression test never seen red is not a regression test
+  (PR #373).
+- **Operator steps became a Todoist channel** (PR #372) with the closed
+  add-then-verify-then-done loop, and the metered-API law got a fail-closed
+  guard (OS#376 → PR #377): `grantspider enrich` and friends refuse from a
+  Claude session unless explicitly armed.
+- **The AG operator seam is live end to end** (OS#392 → PR #393, fix #394 →
+  PR #395; producer epic AG#1719). `ag_ops_triage sweep` reads the
+  `/internal/ops/` reports with honest `scanned` counts; the first production
+  sweep surfaced Nathan's own beta comment, filed it (AG#1737), and recorded
+  `responded` through the live verdict endpoint — a measured zero on
+  re-sweep. The CLAUDE.md sentence describing exit-2-until-tokens-minted as
+  "the state today" is now stale (tokens minted; seam answering).
+- **The help-centre docs loop closed** (AG side, steered from here). Nathan
+  approved AG#1728 — merged help-draft prose auto-applies to CMS drafts on
+  promotion (PR#1732), revising the manual-only posture; the screenshot
+  harness became self-healing (seed entitlement per run + misroute-goes-red
+  PR#1718, viewport clamp PR#1724, per-route browser contexts PR#1727); the
+  admin's three-part "published" illusion was fixed (PR#1730). Publish remains
+  the one human act, by design. Account-and-billing draft held — its deletion
+  section states the opposite of the shipped flow (AG#1715).
+- **The 990-PF facsimile engine completed and the drain launched** (GS#2348
+  epic, all legs merged 08-21→08-22). The 1,000-filing canary measured
+  ~21 filings/min (965 rendered, 35 fidelity-guard refusals = 3.5%, filed
+  GS#2376-2378); the full 475,371-filing drain launched 08-23 from a staging
+  worktree (~16 days of laptop runtime, ~785 GB B2 ≈ $5/mo). One real bug
+  found on the way: the 200 MB buffered-body cap aborted every large TEOS
+  archive as a "transient" httpx_error — a deterministic failure wearing a
+  transient's coat (GS#2373 → PR#2374, streaming path).
+- **The fiscal-synopsis corpus finished**: 130,047/130,047 rendered to B2,
+  zero failures. Every foundation with a 990-PF extract has its branded
+  synopsis; the one remaining operator click is `RESEARCH_ASSETS_CDN_BASE_URL`
+  on the AG web service.
+- **Promotion discipline grew a closing step**: promote merge-commits are
+  never absorbed back, so the `main ⊆ staging` invariant reddens as promote
+  residue — the back-merge (tree-identical, verified) is now part of every GS
+  and AG promote (GS PR#2364, AG PR#1736). The Tuesday AG promote also
+  surfaced a self-poisoning staging smoke (demo-seeded org with an empty
+  Stripe customer re-captures the smoke user every run — AG#1738/#1739), and
+  a GitHub Actions billing outage was caught, funded, and verified green with
+  real runs.
+- **Sphere I measurement:** AG's Google indexation is at its pre-turn
+  baseline — 138 impressions/28d, 0 clicks, and 94 of the 97 surfacing
+  foundation pages are pre-#1663 thin-page residue rather than the 9,615-page
+  enriched cohort (sitemap re-cut submitted only 08-20). Checkpoint
+  mid-September: impressions should migrate onto enriched-cohort URLs.
+
+### Corrections to the §3.9 watch-list
+
+| §3.9 row | Correction as of 2026-08-24 |
+|---|---|
+| GrantSpiderFilingAssets B2 bucket | **resolved** — synopsis + facsimile PDFs share one B2 bucket; the 130k synopsis batch completed through it |
+| Kaizen input quality (OS#329, #352) | **both closed** — tag gate merged (PR #390), degraded-mode honesty merged (PR #389 + Fiscus PR#120) |
+| Agent-card rot mechanism (OS#328, #270) | OS#328 closed (PR #387); residue OS#388 (aigranthelper-dev `git stash` instruction) and OS#396 (docs-author card contradicts the #1728 world) |
+| Dispatch subagents hang on settings.json (OS#364) | carried; new sibling OS#391 (playbook names only one of the two tags the new gate enforces) |
+| All other rows | carried unchanged (OS#363, #362, #360, #358, #350, #349, #334/#345, Django 6.1) |
+
+### Started, not yet landed (August 24 watch-list)
+
+| Item | Where | State |
+|---|---|---|
+| 990-PF facsimile corpus drain | GS `filing_facsimiles` | in flight, newest-first; restarts must launch from the `facsimile-canary` worktree until the next staging→main promote carries PR#2374 |
+| AG#1443 — repoint `get_filing_history` to `filing_history_v` | AG | unblocked; the one dispatch that lights the download buttons for everything already rendered |
+| Fidelity-guard refusal classes | GS#2376-2378 | 3.5% of filings held; re-enter automatically once fixed |
+| Team-flow smoke state leak | AG#1738, #1739 | re-reds the staging smoke every run until dispatched |
+| Publish clicks | (operator) | getting-started + finding-funders drafts await the admin Publish action |
+| GSC cohort migration | (measurement) | mid-September checkpoint — enriched cohort should displace thin-page residue |
+| Telegraph operator watchdog | (unfiled intent) | the operator session can die silently; a systemd user-timer watchdog with a forced-failure test was designed but not filed |
+| docs-author card vs #1728 | OS#396 | card claims drafts "never go through a pull request" — PRs are now the draft write path |
+
+---
+
 ## §4 In flight
 
 Active or partially-shipped items as of 2026-05-07.
@@ -574,4 +670,4 @@ Captured in `IDEA_STORE.md` from gstack research and conversational drift. None 
 - If §2-§3 grow past readable length, extract to a `documentation/changelog.md` and keep this doc thin.
 - This doc is the single answer to "what are we trying to do, what's done, what's next?" If it can't answer that in under 60 seconds of reading, it's grown past its purpose — restructure rather than expand.
 
-*Last updated: 2026-08-17 (mid-August reconciliation — §3.9 added; the liveness sweep, trunk discipline made mechanical, the master-tree restore, and inert-control doctrine).*
+*Last updated: 2026-08-24 (late-August reconciliation — §3.10 added; the kaizen quintet, the live AG operator seam, the facsimile drain and synopsis completion, and the closed docs loop).*
