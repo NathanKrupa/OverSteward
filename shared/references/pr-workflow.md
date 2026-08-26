@@ -55,7 +55,7 @@ shapes recur; both pass every test and change no behaviour.
 Ten false greens in eleven weeks: a gate, sweep or probe that passed while
 proving nothing, each caught by luck or by a later unrelated failure, none by
 design. A green is a *measurement*, and a measurement is only worth its
-sensitivity. These five rules make that sensitivity demonstrable.
+sensitivity. These six rules make that sensitivity demonstrable.
 
 - **A new check ships with the fixture that makes it fail.** Green against live
   data is not acceptance — it measures the data, not the check. The proof is
@@ -88,3 +88,12 @@ sensitivity. These five rules make that sensitivity demonstrable.
   `worktree_doctor.py sweep` (2 = could not look, 0 = measured answer) and
   `scripts/lint/gaudi_check_files.py` (2 = gaudi absent) already do
   (oversteward#327)
+- **A gate that applies a fix must assert the fixed bytes are the ones being
+  certified.** A formatter, auto-fixer or generated file rewritten *during*
+  verify leaves the rewrite unstaged, so the marker is written at HEAD and the
+  push ships the unformatted bytes to CI — verify certifies committed bytes,
+  never the working tree. Applying alone converts a loud, cheap failure (a
+  burned verify cycle) into a quiet, expensive one. Assert the tracked tree
+  equals HEAD and fail *before* any marker is written; `require_formatted_commit.py`
+  and `format_staged.py` are the sanctioned members (oversteward#259,
+  aigranthelper#1444, grantspider#2028, #2100, #2103)
