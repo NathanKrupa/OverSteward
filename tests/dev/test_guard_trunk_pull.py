@@ -132,10 +132,54 @@ def test_backticked_prose_does_not_block():
     assert g.should_block(prose, current_branch="master") is False
 
 
-def test_quoted_refspec_is_not_a_pull():
-    assert g.pull_target("git pull origin 'staging'") is None
-
-
 def test_real_pull_still_caught_after_plausibility_filter():
     assert g.pull_target("git pull --ff-only origin staging") == "staging"
     assert g.should_block("git pull origin staging", current_branch="main") is True
+
+
+# --- command position: a pull inside quoted text is prose (OS#401) --------
+#
+# The guard scanned the raw command string, so a `gh issue comment` whose
+# heredoc BODY documented a pull was refused while sitting on a trunk branch.
+# The command is now lexed: a refspec counts only where the shell would run it.
+
+_HEREDOC_BODY_ABOUT_A_PULL = (
+    'gh issue comment 1 --body "$(cat <<\'EOF\'\n'
+    "Never do this on a trunk branch:\n"
+    "\n"
+    "git pull origin staging\n"
+    "EOF\n"
+    ')"'
+)
+
+
+def test_heredoc_body_documenting_a_pull_is_not_a_command():
+    assert g.pull_target(_HEREDOC_BODY_ABOUT_A_PULL) is None
+
+
+def test_heredoc_body_documenting_a_pull_does_not_block():
+    assert g.should_block(_HEREDOC_BODY_ABOUT_A_PULL, current_branch="master") is False
+
+
+def test_pull_inside_a_commit_message_is_not_a_command():
+    cmd = "git commit -m 'fetch first; git pull origin staging is wrong'"
+    assert g.pull_target(cmd) is None
+
+
+def test_quoted_separator_does_not_open_a_command_position():
+    assert g.pull_target('echo "; git pull origin staging"') is None
+
+
+def test_quoted_refspec_is_a_real_pull():
+    """Quoting a refspec does not make it prose — the shell runs it either way.
+
+    The plausibility filter now reads the *token*, after the lexer has removed
+    the quotes, so a quoted refspec is caught exactly like a bare one.
+    """
+    assert g.pull_target("git pull origin 'staging'") == "staging"
+    assert g.should_block("git pull origin 'staging'", current_branch="main") is True
+
+
+def test_unlexable_command_still_evaluated():
+    """An unbalanced quote cannot be lexed — fall back and still refuse."""
+    assert g.should_block('git pull origin staging "unclosed', current_branch="main") is True
