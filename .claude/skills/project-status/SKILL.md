@@ -78,7 +78,7 @@ All constants live at the top of `scripts/project_status.py`:
 |----------|---------|
 | `REPOS` | Sourced from `registry.yaml` via `scripts/registry.py` (every context with `dispatch_target: true`); `DISPLAY_ORDER` controls column order |
 | `SCOPING_SURFACE_THRESHOLD` | Below this `ready-for-agent` count, surface a scoping candidate |
-| `GH_LIMIT` | Per-query page cap (200) |
+| `GH_LIMIT` | Per-query page cap (500) |
 | `METRIC_WINDOW_DAYS` | Rolling window (days) for pipeline metrics (default 30) |
 | `STALE_QUESTION_HOURS` | Age at which a `needs-input` issue is flagged stale in the metrics block (default 48) |
 | `UNSCOPED_EXCLUDES` | Labels that disqualify an issue from the scoping fallback |
