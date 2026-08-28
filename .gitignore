@@ -79,3 +79,9 @@ SESSION_STATE.md
 
 # Repo-local scratch working dir (audit drafts, issue scratch) — not durable docs
 scratchpad/
+
+# sow run state (OS#408): the single-run lockfile, and the per-machine audit
+# trail / PR bodies / verify logs sow writes under reports/sow/. Runtime state,
+# like its data/ siblings above — the durable record is the sync PR itself.
+.sow.lock
+reports/sow/

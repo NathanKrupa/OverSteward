@@ -192,7 +192,7 @@ A second class of shared artifact lives at `oversteward/shared/scripts/` — Pyt
 | `format_staged.py` | `oversteward/shared/scripts/dev/format_staged.py` | `<repo>/scripts/dev/format_staged.py` | AG, GS (pre-commit format gate) |
 | `require_formatted_commit.py` | `oversteward/shared/scripts/dev/require_formatted_commit.py` | `<repo>/scripts/dev/require_formatted_commit.py` | AG, GS (verify-time format gate) |
 
-Phase-1 sync = byte-copy from source to each pickup repo (any dispatch target). Phase-2 sow.py will fold these into the same workflow as souls/personas. Per-repo configuration (e.g. `data/tool_registry.toml` for project-specific category names) lives in the consuming repo and is **not** managed by OverSteward — only the script itself is canonical.
+Sync of the `dev/` family is `scripts/sow.py` (OS#408) — it byte-copies canonical into each pickup repo as one PR per repo. The `tools/` and `workflows/` members above are still copied by hand. Per-repo configuration (e.g. `data/tool_registry.toml` for project-specific category names) lives in the consuming repo and is **not** managed by OverSteward — only the script itself is canonical.
 
 #### Deploy destinations are derived, not enumerated
 
@@ -395,28 +395,58 @@ conda run -n Oversteward python scripts/coordinator.py --apply
 
 ### Sow Safety Gates
 
-- Bail on dirty working tree.
-- No stacking — abort if OverSteward already has an open PR on the target.
-- Dry-run by default; explicit `--apply` flag to execute.
-- Never push to main — always create `oversteward/sync-YYYY-MM-DD` branch.
-- Lockfile during execution.
+`scripts/sow.py` is built (OS#408) and **scoped to the canonical
+`shared/scripts/dev/` byte-copy family**. Managed-block, soul, persona and
+settings writing stay deferred — six months after the contract was pinned no
+demand appeared for them, while the family drifted in all 8 repos with local
+checkouts.
 
-Formal pre-conditions, per-context contracts (including `soul_in_local` write rules), post-conditions, and rejected "convenient" behaviours: [documentation/sow-safety-gates.md](documentation/sow-safety-gates.md). This is the design contract sow must honor before any first real run.
+```bash
+.venv/bin/python scripts/sow.py                     # measure: print the plan, write nothing
+.venv/bin/python scripts/sow.py --only exchequer    # one context
+.venv/bin/python scripts/sow.py --apply             # one sync PR per context
+.venv/bin/python scripts/sow.py --apply --verify    # ... running each target's make verify first
+.venv/bin/python scripts/sow.py --apply --deploy-shared   # mirror shared/ to both Claude homes
+```
 
-### Deployment manifest & drift classification
+- Dry-run by default; explicit `--apply` to write (G8).
+- Never push to a trunk — a throwaway worktree off `origin/<branch>`, branch
+  `oversteward/sync-YYYY-MM-DD`, and a hard refusal to push the registry
+  `branch:` or any branch not matching `oversteward/sync-*`.
+- No stacking (G2), registered contexts only (G3), `skip_sow` refused (G4),
+  `.sow.lock` held for the run (G7).
+- **G9 — the target repo's own `ruff` must accept the copied bytes** before the
+  commit, run with `--force-exclude` from inside the worktree. An objection
+  means that repo never took the OS#241 exclusion, so its formatter would
+  rewrite the copy in the deploy commit itself. sow aborts that context and
+  prints the `extend-exclude` entries it needs; it never edits a consumer's
+  `pyproject.toml`. Five of seven sync attempts on 2026-08-28 stalled here.
+- Never a hook bypass, never a blind-staged tree, never auto-merge — sow stages
+  explicit paths and prints the `gh pr merge` line rather than merging.
+- Exit codes do not collapse: **0** measured (including "nothing to do", which
+  names the count checked), **1** a write step failed, **2** could not look.
+- One JSON line per context to `reports/sow/YYYY-MM-DD.jsonl` — timestamp,
+  context, action, members, old/new blob id, PR URL or abort reason.
 
-The current sow contract compares **canonical-now vs on-disk-now** (two-way). On a hash mismatch for a byte-copy file (skill, persona, hook), the only safe two-way action is to overwrite — but that silently discards a local edit if one exists, and it cannot tell *why* the file diverged. gbrain hit exactly this with `skillpack reference --apply-clean-hunks`: a two-way merge has no record of what was originally deployed, so it clobbers intentional local edits and accidental drift alike.
+Formal pre-conditions, per-context contracts, post-conditions, and rejected "convenient" behaviours: [documentation/sow-safety-gates.md](documentation/sow-safety-gates.md).
 
-OverSteward avoids this by recording a **deployment manifest** — the per-file SHA of every byte-copy artifact at the moment sow last deployed it (`reports/manifest.json`, keyed by `context → path → sha`). Drift detection then becomes **three-way** (deployed-baseline vs canonical-now vs on-disk-now) and classifies every managed path into one of four states:
+### Drift classification from canon history
 
-| State | Condition | Meaning | sow/sweep action |
+The deploy decision is **three-way**, never "overwrite on hash mismatch". A two-way compare cannot tell a copy that is merely behind from one that was deliberately edited downstream — identical hashes, opposite correct actions. gbrain hit exactly this with `skillpack reference --apply-clean-hunks`: with no record of what was originally deployed, it clobbered intentional local edits and accidental drift alike.
+
+The baseline is **canon's own git history**, not a recorded file. Every blob id a member has ever carried in this repo is what a downstream copy is measured against (`git log --format=%H -- shared/scripts/dev/<member>`, then `git rev-parse <commit>:<path>`). A blob id is a content address git assigns identically in every repository, so canon's history and a pickup repo's `origin` ref compare directly, without either side handing over its bytes.
+
+| State | Condition | Meaning | sow action |
 |---|---|---|---|
-| `identical` | on-disk == canonical | Up to date | No-op |
-| `stale` | on-disk == baseline, baseline != canonical | Canonical moved forward; repo untouched | Safe to redeploy |
-| `diverged` | on-disk != baseline **and** on-disk != canonical | Repo's copy was edited locally | **Flag, never silently overwrite.** Surface the diff; Nathan decides — a byte-copy ratchet-treaty violation to correct, or a deliberate downstream hotfix to promote back upstream |
-| `missing` | path absent on disk | Never deployed, or deleted downstream | Deploy (sow) / propose (sweep) |
+| `identical` | copy == canonical blob | Up to date | No-op |
+| `stale` | copy == **some** historical canon blob | Deployed from canon, left behind | Deploy |
+| `diverged` | copy matches **no** canon blob | Edited downstream | **Flag with the diff. Never write** |
+| `missing` | absent, and the repo's `CLAUDE.md` names it | Broken instruction | Deploy |
+| `absent-not-adopted` | absent, and nothing references it | Not adopted here | Leave alone |
 
-`sync-status` reports use this `identical / stale / diverged / missing` vocabulary directly. Only `diverged` ever requires human judgment; the other three are deterministic, fail-open, and zero-token (principle 9). The byte-copy ratchet treaty assumes *no* intentional local divergence in canonical files — the manifest is what lets OverSteward **detect and surface** a violation of that assumption instead of erasing the evidence. Full mechanics fold into the skill-file deployment contract in [documentation/sow-safety-gates.md](documentation/sow-safety-gates.md).
+Only `diverged` ever requires human judgment; the rest are deterministic and zero-token (principle 9). The byte-copy ratchet treaty assumes *no* intentional local divergence, and this classification is what lets OverSteward **surface** a violation of that assumption instead of erasing the evidence — measured 2026-08-28: 26 stale, 6 diverged, and every diverged one a real decision (two deliberate `.gitleaks.toml` allowlists, a consumer-formatter artefact, two OverSteward-local tests canon had to be promoted *from*).
+
+**A recorded deployment manifest was the earlier design, and is deliberately not built.** The pinned contract kept a per-file baseline at `reports/manifest.json`, keyed by `context → path → sha`. It was never created — and a first run against an absent baseline classifies every path `missing` and deploys over every deliberate downstream edit, which is precisely the failure the baseline existed to prevent. Canon history is a better baseline with no state to seed, no state to maintain, and no first-run hole. Full mechanics: [documentation/sow-safety-gates.md](documentation/sow-safety-gates.md).
 
 ### Sweep Strategy
 
@@ -579,11 +609,11 @@ All 8 local + remote contexts migrated. Canonical souls and personas deployed. 1
 - [x] Self-critique gate
 - [x] Tool registry generator (`scripts/tools/generate_tool_registry.py`)
 
-**Governance side (not yet built):**
-- [ ] `scripts/gather.py` — pull state from all repos
-- [ ] `scripts/diff.py` — structured change list (three-way: deployed-baseline vs canonical vs on-disk; classifies `identical / stale / diverged / missing`)
-- [ ] `reports/manifest.json` — per-file deployment baseline (`context → path → sha`) written by sow, read by diff/sweep/`sync-status`
-- [ ] `scripts/sow.py` — apply changes with safety gates
+**Governance side:**
+- [x] `scripts/gather.py` — pull state from all repos
+- [x] `scripts/diff.py` — structured change list; `--family` audits the canonical family against each repo's `origin` ref
+- [x] `scripts/sow.py` — deploy the canonical `shared/scripts/dev/` family as one PR per repo, with the safety gates (OS#408). Managed-block / soul / persona / settings writing remains deferred
+- [ ] `reports/manifest.json` — **not built, and deliberately so.** Canon's git history is the deployment baseline; see § "Drift classification from canon history"
 - [ ] `scripts/sweep.py` — stale persona skill cleanup
 - [ ] `scripts/coordinator.py` — orchestrator
 
@@ -612,5 +642,5 @@ All 8 local + remote contexts migrated. Canonical souls and personas deployed. 1
 
 ---
 
-*Document version: 2026-06-16*
-*Status: Governance Phase 1 complete; Orchestration Phase 2 active; Governance Phase 2 pending scope decision. gbrain learnings (deployment manifest, fail-open principle) folded in 2026-06-16.*
+*Document version: 2026-08-28*
+*Status: Governance Phase 1 complete; Orchestration Phase 2 active; Governance Phase 2 partially built — sow deploys the canonical `shared/scripts/dev/` family (OS#408); managed-block / soul / persona writing, sweep and coordinator remain deferred. gbrain's three-way-drift learning folded in 2026-06-16; its manifest substrate superseded by canon history 2026-08-28.*
