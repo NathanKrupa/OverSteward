@@ -1,133 +1,235 @@
-ABOUTME: Operational contract for scripts/sow.py — every pre-condition, invariant, post-condition the writer must honor.
-ABOUTME: sow is the riskiest operation in the OverSteward; this doc pins the design before implementation.
+ABOUTME: Operational contract for scripts/sow.py — every pre-condition, invariant, post-condition the writer honors.
+ABOUTME: sow is the riskiest operation in the OverSteward; this doc is the contract the implementation is tested against.
 
 # sow.py Safety Gates
 
-`scripts/sow.py` is the writer side of the governance pillar. It applies approved changes to managed CLAUDE.md blocks, deploys persona skills, and opens sync PRs. It is the riskiest script in the project: a bug can silently overwrite Nathan's hand-crafted instructions, erase persona variants, or produce an unreviewable sync PR.
+`scripts/sow.py` is the writer side of the governance pillar. It is the riskiest
+script in the project: a bug can silently overwrite a hand-crafted downstream
+edit, erase evidence of a ratchet-treaty breach, or push to a repo's trunk.
 
-This document is the **design contract** sow must honor. Implementation has not begun (stubs live in the repo). Before the first real sow run, every gate below must be in place and unit-tested.
+## Scope (narrowed, OS#408)
+
+**sow deploys the canonical `shared/scripts/dev/` byte-copy family, and nothing
+else.** One PR per target repo, proposing the members that are safe to write.
+
+Managed-block rewriting, soul and persona deployment, and `.claude/settings.json`
+sync are **deferred, not built** — six months after the contract was pinned no
+demand for them has appeared, while the family drifted in all 8 repos with local
+checkouts. The gate vocabulary below keeps room for them; the sections that
+described them are gone rather than left standing as a promise the code does not
+keep. `sweep.py` and `coordinator.py` remain unbuilt.
 
 ## Core principles
 
-1. **Propose, don't impose.** Every change goes through a PR. sow never pushes directly to a context's default branch.
-2. **Boundary is sacred.** The `[oversteward:managed]` / `[oversteward:managed:end]` marker pair is the *only* region sow may write. The `[oversteward:local]` block is read-only from sow's perspective.
-3. **Fail loud.** Any precondition failure aborts with a clear error to the report. Silent repair is never acceptable.
-4. **Dry-run first.** Default invocation produces a report with the diff; writing requires explicit `--apply`.
-5. **One run at a time.** Lockfile protects against concurrent sow invocations on the same machine.
+1. **Propose, don't impose.** Every change goes through a PR. sow never pushes
+   to a context's registry branch, and never merges — it prints the
+   `gh pr merge` line and stops.
+2. **Fail loud, per context.** Any pre-condition failure aborts *that context*
+   with a clear line in the report; the run continues with the rest. Silent
+   repair is never acceptable.
+3. **Dry-run first.** The default invocation measures and writes nothing.
+   Writing requires explicit `--apply`.
+4. **One run at a time.** `.sow.lock` in the OverSteward repo root, created
+   atomically (`O_EXCL`), protects against concurrent invocations on a machine.
+5. **Never a bypass.** `--no-verify`, `--force`, `--admin` and `git add -A`
+   appear nowhere in sow. Staging is by explicit path; a pre-commit hook that
+   objects is a finding, not an obstacle.
+
+## Drift classification — from canon's git history
+
+The deploy decision is **three-way**, never "overwrite on hash mismatch". A
+two-way comparison cannot tell a copy that is merely behind from one that was
+deliberately edited downstream — they have identical hashes and opposite correct
+actions. gbrain hit exactly this with `skillpack reference --apply-clean-hunks`.
+
+The baseline is **canon's own git history**, not a recorded manifest:
+
+```bash
+git log --format=%H -- shared/scripts/dev/<member>      # every commit that touched it
+git rev-parse <commit>:shared/scripts/dev/<member>      # the blob id at that commit
+```
+
+A blob id is a content address git assigns identically in every repository, so
+canon's history and a pickup repo's `origin` ref compare directly without either
+side handing over its bytes. sow reads the target's copy the same way
+(`git rev-parse origin/<branch>:<relpath>`) — never its working tree, which runs
+dozens-to-hundreds of commits stale and produced both false drift and false
+parity when `/sync-status` hashed it (OS#242).
+
+| State | Condition | Meaning | sow action |
+|---|---|---|---|
+| `identical` | copy == canonical blob | Up to date | No-op |
+| `stale` | copy == **some** historical canon blob | Deployed from canon, left behind | Deploy |
+| `diverged` | copy matches **no** canon blob | Edited downstream | **Flag with the diff. Never write.** |
+| `missing` | absent, and the repo's `CLAUDE.md` names the file | Broken instruction | Deploy |
+| `absent-not-adopted` | absent, and nothing references it | Not adopted here | Leave alone |
+
+Two consequences are load-bearing:
+
+- **`diverged` is never overwritten.** It is either a deliberate downstream
+  hotfix to promote upstream, or the evidence of a byte-copy ratchet-treaty
+  breach. Both are operator decisions; erasing the file erases the decision.
+  Measured on 2026-08-28: 26 stale, 6 diverged — and every diverged one was
+  real (two deliberate `.gitleaks.toml` allowlists, a consumer-formatter
+  artefact, and two OverSteward-local tests canon had to be promoted *from*).
+- **`absent` is not adopted.** sow is additive within a repo but never decides
+  that a repo should start carrying a member. Adoption is a registry decision.
+
+**Why not `reports/manifest.json`.** The pinned 2026-02 contract recorded a
+deployment baseline per file. That manifest was never created. A first run
+against an absent manifest classifies every path `missing` and deploys over
+every deliberate downstream edit — precisely the failure the manifest existed to
+prevent. Canon history is a better baseline with no state to seed, no state to
+maintain, and no first-run hole.
 
 ## Pre-conditions (enforced before any write)
 
 | Gate | Check | Failure action |
 |---|---|---|
-| **G1 — clean tree** | Target repo has no uncommitted or untracked changes on default branch | Abort; report "dirty tree on `<repo>`" |
-| **G2 — no stacked PR** | No open PR on target repo whose branch matches `oversteward/sync-*` | Abort; report "prior sync PR open on `<repo>`" |
-| **G3 — context registered** | Target id appears in `registry.yaml` | Abort; report "unknown context id" |
-| **G4 — not skip_sow** | Target context does not carry `skip_sow: true` | Refuse; report "context opts out of sow" |
-| **G5 — markers present** | Target CLAUDE.md contains both `[oversteward:managed]` and `[oversteward:managed:end]` markers on separate lines | Abort; report "markers missing — run bootstrap first" |
-| **G6 — local markers present** | Target CLAUDE.md contains `[oversteward:local]` and `[oversteward:local:end]` markers OR the file has no local block at all | Abort if local markers are malformed (one present, one missing) |
-| **G7 — lockfile** | `.sow.lock` in oversteward repo root can be acquired atomically | Abort; report "another sow run is in progress" |
-| **G8 — explicit apply** | `--apply` flag passed (implicit `--report-only` otherwise) | Produce dry-run report only; no writes |
+| **G1 — origin readable** | `origin/<registry branch>` can be read in the target checkout | `unreadable`; nothing is measured for that context (exit 2) |
+| **G2 — no stacked PR** | No open PR on the target whose branch matches `oversteward/sync-*` | Abort that context: "prior sync PR open". A `gh` that cannot answer is **also** a block — fails closed, never "no PR found" |
+| **G3 — context registered** | The id appears in `registry.yaml` | `unreadable`: "unknown context id" (exit 2) |
+| **G4 — not skip_sow** | The context does not carry `skip_sow: true` | Refuse; report "skipped by design" |
+| **G7 — lockfile** | `.sow.lock` in the OverSteward repo root acquired atomically (`O_EXCL`) | Abort the run: "another sow run is in progress" (exit 2) |
+| **G8 — explicit apply** | `--apply` passed | Dry-run report only; no writes anywhere |
+| **G9 — consumer format** | The **target repo's own** `ruff format --check --force-exclude` and `ruff check --force-exclude`, run inside the worktree on the copied `.py` files, raise no objection | Abort that context and print the `extend-exclude` entries plus `force-exclude = true` that repo needs |
 
-A sow invocation runs G1–G8 as a batch **per target context**. A single failed gate on one context does not abort the entire run; it abortst that context and continues, collecting failures into the final report.
+G1–G4 and G8 are decided in the pure planner and are reportable without touching
+anything. G7 is acquired by the CLI before the plan is built. G9 can only run
+once the bytes are in the worktree, so it runs there — before the commit.
 
-## Per-context content contracts
+**G1 replaces the pinned contract's clean-tree check.** sow no longer checks out
+a branch in the resident tree, so cleanliness is structural: the worktree is
+created from `origin/<branch>` and destroyed after the push. What can still fail
+is the *read*, and that is what G1 measures.
 
-### Managed-block contract
+**G9 is new (OS#408), and it is not optional.** A canonical member landing in a
+repo that never took the OS#241 formatter exclusion is rewritten by that repo's
+own formatter in the deploy commit itself — the copy arrives already drifted and
+the family audit flags it from the first hash check. Five of seven sync attempts
+on 2026-08-28 stalled on exactly this. sow **never edits a consumer's
+`pyproject.toml`**; it names what that repo's own PR owes and aborts.
 
-When rewriting the managed block, sow MUST:
+**G5 / G6 (managed-block markers) are unallocated** while managed-block writing
+is out of scope. The numbers are reserved rather than reused, so a future
+implementation and the historical record stay legible.
 
-- Preserve the opening and closing marker lines byte-for-byte.
-- Replace every line between them with the newly composed content.
-- Composed content order: soul import (if any), personas_always_on imports (one per line), trailing newline.
-- Update the `synced: YYYY-MM-DD` attribute inside the opening marker to today's UTC date.
+## Deployment contract
 
-Sow MUST NOT:
+For every member of canonical `shared/scripts/dev/`:
 
-- Write anything outside the marker pair.
-- Emit a soul import when `soul_in_local: true` on the target context (see [registry-schema.md](registry-schema.md) for precise semantics).
-- Include personas from `personas_available` in the managed block (those deploy as skill files, not @file imports).
+- **Source:** `shared/scripts/dev/<member>`
+- **Destination:** derived from the name, never a per-member table —
+  a leading `.` deploys to the repo root, a registered hook to
+  `.claude/hooks/`, `test_*.py` to `tests/dev/`, everything else to
+  `scripts/dev/`. `src/oversteward/dev_family.py` encodes exactly this.
+- **Deploy decision:** the classification table above. Only `stale` and
+  `missing` are ever written.
+- **Byte-identity is asserted**, not assumed: every copy is compared against its
+  source after writing, and a mismatch aborts the context.
 
-### Local-block contract
-
-- Read-only. sow MUST NOT open the file with write intent if the only planned change is inside the local block.
-- If the local block is missing entirely, that is permitted — the context has nothing local-specific. Not an error.
-
-### Skill-file deployment
-
-For `skills_always_on` listed on the target context:
-
-- Source: `shared/skills/<name>.md`
-- Destination: `<context_repo>/<skills_path>/<name>.md`
-- Deploy decision is **three-way**, not "overwrite on hash mismatch". sow compares the on-disk SHA against both the canonical source SHA and the deployment baseline recorded in `reports/manifest.json` (`context → path → sha`), and acts per the classification table in OVERSTEWARD.md § "Deployment manifest & drift classification":
-  - `identical` (on-disk == canonical) → skip (no-op).
-  - `stale` (on-disk == baseline, baseline != canonical) → copy + git add; update the manifest entry to the new SHA.
-  - `missing` (no file on disk) → copy + git add; write the manifest entry.
-  - `diverged` (on-disk != baseline **and** on-disk != canonical) → **abort this path with a flagged diff in the report. sow MUST NOT overwrite a diverged file.** A diverged byte-copy means the downstream was edited after the last deploy; silently overwriting it would destroy a possible deliberate hotfix and erase the only evidence of a ratchet-treaty violation. Resolution is a conscious operator decision (promote upstream, or restore canonical), never inline.
-- On a brain-new context with no manifest entries, every path is `missing` — the first deploy seeds the baseline.
-
-Sow MUST NOT delete skill files that were previously deployed but are no longer in `skills_always_on` — that is sweep's job. Sow is additive.
-
-### Persona skill-file deployment
-
-For `personas_available` listed on the target context:
-
-- Source: `shared/personas/<name>.md`
-- Destination: `<context_repo>/<skills_path>/persona-<name>.md` (the `persona-` prefix is the ownership signal for sweep)
-- Same hash-short-circuit rule as skills.
+sow MUST NOT delete a member that is no longer canonical — that is sweep's job.
+sow is additive.
 
 ## Branch and PR contract
 
 | Step | Behaviour |
 |---|---|
-| Branch creation | `git checkout -b oversteward/sync-YYYY-MM-DD` on target repo from its default branch |
-| Commit message | `oversteward sync: <summary of what changed>` with Co-Authored-By trailer |
-| Push | `git push -u origin oversteward/sync-YYYY-MM-DD` — never to the default branch |
-| PR | Opened via `gh pr create` with the dry-run report as the body |
-| Auto-merge | **Never.** Nathan reviews and merges manually. |
+| Fetch | `git fetch origin <branch>` in the target checkout. Refs only |
+| Worktree | `git worktree add -B oversteward/sync-YYYY-MM-DD <tmpdir> origin/<branch>` — a throwaway worktree, **never** a branch checkout in the resident tree |
+| Copy | Byte-copy each deployable member; compare the written bytes against the source |
+| Stage | `git add -- <explicit paths>`. Never `git add -A` |
+| Commit | `oversteward sync: N canonical family member(s) (<date>)`, with the per-context report as the message body and a `Co-Authored-By` trailer. Hooks run |
+| Verify (opt-in) | With `--verify`: symlink the target's `.venv` into the worktree and run its `make verify`, redirected to a file under `reports/sow/`. The file is read; a failure aborts the context and names the log. Never `\| tail` |
+| Push | `push_sync_branch()` — refuses any branch not matching `oversteward/sync-*`, and refuses the registry `branch:` outright |
+| PR | `gh pr create --base <registry branch> --body-file <report>` |
+| Teardown | `git worktree remove` then `git worktree prune`; the temp holder is removed |
+| Auto-merge | **Never.** sow prints the `gh pr merge` line; Nathan reviews and merges |
 
-## Post-conditions (verified after each target)
+**Why a worktree.** The pinned contract said `git checkout -b` on the target
+repo. That predates the session-worktree discipline: `guard_main_worktree.py`
+now refuses that exact command in a primary worktree, and it would yank the
+branch out from under whatever the operator has open. The worktree is cut from
+`origin`, so it also satisfies the old G1 structurally.
 
-| Check | Action if failed |
+**`--verify` is opt-in** because three repos (AG, GS, exchequer) gate push on a
+`.verify-marker` while the rest have no `make verify` at all. Without the flag,
+a pre-push refusal aborts that context with the hook's own message — sow never
+answers a hook by bypassing it.
+
+## Audit trail and exit codes
+
+Every applied run appends one JSON line per context to
+`reports/sow/YYYY-MM-DD.jsonl`: `timestamp`, `context_id`, `action`, `members`,
+the old and new blob id per member, and `pr_url` or the abort `reason`. Dates and
+timestamps come from `datetime.now(tz=UTC)`.
+
+Exit codes carry meaning and must not be collapsed:
+
+| Code | Meaning |
 |---|---|
-| Local working tree clean after sow's writes are committed | Abort remaining targets; flag for manual cleanup |
-| PR URL captured in final report | Retry PR creation once; then abort |
-| Lockfile released | If release fails, next run's G7 will detect and require manual intervention |
+| **0** | A measured answer — a plan was printed, or an apply ran. "Nothing to do" is 0 **and says so in words**, naming the count of members it checked |
+| **1** | A write step sow attempted failed (a G9 objection, a failed commit / verify / push / PR) |
+| **2** | It could not look — no registry, no canonical family, the lock held, an unreadable origin, an unknown context id |
+
+An aborted write outranks an unreadable context, because the operator asked for
+a write and did not get one; the report names both either way. A run with any
+unreadable context prints `NOT MEASURED` rather than "nothing to do" — "I found
+nothing" and "I could not look" never print the same.
 
 ## Failure modes the design rejects
 
-The following "convenient" behaviours are explicitly forbidden because past incidents or adjacent projects have taught us they produce drift or data loss:
+- **Silent overwrite of a diverged copy** — aborts that path and flags the diff.
+  A two-way "canonical wins" overwrite would erase a deliberate downstream edit
+  and the evidence of a ratchet-treaty breach (gbrain's `--apply-clean-hunks`).
+- **`git commit --no-verify`** — pre-commit hooks run. sow fixes, never bypasses.
+- **Deploy-then-exclude** — a canonical member must not land in a repo whose
+  formatter would rewrite it (G9). The exclusion is that repo's PR, not sow's.
+- **Merge conflict auto-resolution** — the worktree is cut from `origin`, so
+  there is nothing to conflict with; any git refusal aborts that context.
+- **Multi-context single PR** — one PR per target context. Batching hides
+  per-context review.
+- **Retrying on auth failure** — one attempt per target, aborting with the
+  diagnostic.
+- **Auto-merge** — never. Several targets disallow it anyway.
 
-- **Silent marker repair** — if markers are malformed, sow aborts. Repair is a conscious, bootstrap-time operation, never inline.
-- **`git commit --no-verify`** — pre-commit hooks (linters, secret scanners) run. sow must fix issues, never bypass.
-- **Merge conflict auto-resolution** — if branch creation or checkout produces conflicts, sow aborts. The operator resolves.
-- **Multi-context single PR** — one PR per target context. Batching PRs hides per-context review.
-- **Retrying on auth failure** — one attempt per target. Auth errors abort that target with a clear diagnostic.
-- **Silent overwrite of a diverged byte-copy** — if an on-disk skill/persona/hook file matches neither its deployment baseline nor canonical, sow aborts that path and flags the diff. A two-way "canonical wins" overwrite would erase a deliberate downstream edit and the evidence of a ratchet-treaty breach (gbrain's `--apply-clean-hunks` lesson). Resolution is an operator decision.
+## Testing requirements
 
-## Testing requirements (before first real run)
+Every gate has a pass test and a failure test with injected fakes — no network,
+no `gh`, and no git at all for the gate and classification tests. G7 is covered
+by two concurrent holders. Beyond gates, `tests/test_sow.py` covers:
 
-Each gate (G1–G8) must have a unit test covering (a) the pass path and (b) each failure path.
-
-Beyond gates, integration tests must cover:
-
-- Round-trip: given a context with a known managed block, sow produces an identical block when nothing in the registry changed (no-op preserves bytes).
-- `soul_in_local: true`: managed block never contains the soul @file import.
-- `skip_sow: true`: context is skipped, no git activity on that repo.
-- Lockfile: two concurrent invocations — the second aborts cleanly.
-- Manifest classification: each of `identical / stale / missing` deploys correctly and updates the baseline; `diverged` aborts the path with a flagged diff and writes nothing.
-- First-deploy seeding: a context with no manifest entries treats every path as `missing` and records baselines after a successful apply.
-
-These tests belong in `tests/test_sow.py` when implementation begins.
+- Each classification (`identical`, `stale` against an older canon blob,
+  `diverged`, `missing`, `absent-not-adopted`), each seen red first.
+- End-to-end on temp git repos: a canon repo with two committed generations of a
+  member, and a pickup repo with a real bare `origin`. `--apply` produces one
+  commit on `oversteward/sync-<date>` carrying byte-identical copies, leaves the
+  diverged member untouched, writes one audit line, and **does not move the
+  fixture's default branch**.
+- A dry run writes nothing at all — no branch, no PR, no audit file.
+- sow passes no bypass flag: no `--no-verify`, `-n`, `--force`, or `-A` reaches
+  any git invocation.
+- `--deploy-shared` skips `inbox.md` and `__pycache__`, never deletes a
+  target-only file, and reports an absent home as unreachable rather than
+  creating it.
 
 ## Known risks (restated)
 
-1. **Private-repo branch protection.** On GitHub Free tier, private repos cannot enforce branch protection. sow discipline alone prevents direct-to-main pushes. A buggy sow in apply mode could still land on a protected-in-intent branch. Mitigation: hard-coded refusal to push to any branch whose name matches the registry's `branch:` field.
-2. **`soul_in_local` drift.** If Nathan later edits the local-block soul variant, sow has no drift detection — the managed block stays in sync while the local block silently diverges. Drift detection is a separate tool (planned) and is explicitly out of sow's scope.
-3. **Concurrent humans.** Nathan running `git commit` on a context while sow holds the repo open can race. sow uses short-lived git operations to minimize window; true concurrency safety requires repo-level locking (not implemented).
+1. **Private-repo branch protection.** On GitHub Free, private repos cannot
+   enforce branch protection. `push_sync_branch()`'s hard refusal is the whole
+   protection the target's trunk has against a buggy sow — which is why it is a
+   raise, not a log line, and has both a pass and a fail test.
+2. **Concurrent humans.** Nathan committing in a target repo while sow holds a
+   worktree open can race. sow's git operations are short-lived and confined to
+   the worktree; true repo-level locking is not implemented.
+3. **Blob-history horizon.** A copy deployed from a canon commit that was later
+   rewritten out of history reads as `diverged`. That is the safe direction —
+   it flags rather than overwrites — but it will occasionally ask the operator
+   about a file nobody edited.
 
 ## Related
 
-- `OVERSTEWARD.md` — project overview; sync workflow description
-- [registry-schema.md](registry-schema.md) — schema that sow reads as input
-- `scripts/registry.py` — canonical registry reader
-- `scripts/sow.py` — target of this contract; currently stubbed
+- `OVERSTEWARD.md` — § Sow Safety Gates, § Drift classification from canon history
+- [registry-schema.md](registry-schema.md) — `skip_sow`, `branch`, `local_path`
+- `src/oversteward/dev_family.py` — the family and its deploy-path derivation
+- `scripts/diff.py` — the read-only audit sow's classification extends

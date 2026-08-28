@@ -41,17 +41,23 @@ Pure comparison. Takes gather state + registry expectations, emits structured ch
 
 Runs gather + diff; presents drift across contexts in human-readable form. No writes. Governance's equivalent of `/project-status`.
 
-### H2-6 — DEFER `sow.py`
+### H2-6 — DEFER `sow.py` — **TRIGGER FIRED 2026-08-28 (OS#408)**
 
 Hold until a concrete sync task lands that manual sync can't absorb. Forcing-function gate on build effort. H2-1 (cross-repo settings parity) is the most likely trigger.
+
+**Fired.** The trigger was not H2-1 but the canonical family itself: on 2026-08-28 it had drifted in **all 8 repos with local checkouts — 34 drifted/missing rows**, untouched since June, because a manual sync is too expensive to run casually. The sync that did happen (OS#401/#402) took ~3 hours, needed a hand-built script in the session scratchpad, stalled on consumer-side gates in five of seven first attempts, and required every drift's *direction* to be classified by hand. That is "cannot absorb" in practice: the work is not done rather than done manually. Built in OS#408, scoped to the byte-copy family only.
 
 ---
 
 ## Horizon 3 — Compounding Capabilities (trigger-gated)
 
-### H3-1 — Governance sow bundle
+### H3-1 — Governance sow bundle — **PARTIALLY BUILT 2026-08-28 (OS#408)**
 
 Build `sow.py` + `sweep.py` + `coordinator.py` together when H2-6 trigger fires.
+
+**Built:** `sow.py`, scoped to the canonical `shared/scripts/dev/` byte-copy family — three-way classification from canon's git history, gates G1–G4/G7/G8 plus a new G9 (the target repo's own `ruff` must accept the copied bytes), a throwaway worktree off `origin/<branch>`, one PR per context, never auto-merged, and the JSONL audit trail below. `--deploy-shared` mirrors `shared/` to both Claude homes.
+
+**Still deferred:** the managed-block / soul / persona / `settings.json` write surface (the marker-boundary gates below), `sweep.py`, and `coordinator.py`. No demand for them appeared in the six months the contract sat pinned; they are re-triggered the same way H2-6 was — by a concrete task manual work cannot absorb.
 
 **sow.py safety gates (design pinned in H1-3):**
 - CAN write inside `<!-- [oversteward:managed] -->` blocks only

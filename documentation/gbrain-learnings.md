@@ -30,14 +30,22 @@ vs local) with no record of what was originally deployed, so it clobbers intenti
 local edits and accidental drift alike. OverSteward's sow contract had the same shape:
 canonical-vs-on-disk, overwrite on mismatch.
 
-Fix: a **deployment manifest** (`reports/manifest.json`, `context → path → sha`) turns
-drift detection **three-way** (deployed-baseline vs canonical-now vs on-disk-now) and
-classifies every byte-copy path as `identical / stale / diverged / missing`. Only
-`diverged` needs human judgment; the rest are deterministic. The manifest is what lets
-the byte-copy ratchet treaty **detect** a violation instead of erasing its evidence.
+Fix: turn drift detection **three-way** — a recorded baseline as well as canonical-now
+and the copy-now — and classify every byte-copy path as
+`identical / stale / diverged / missing`. Only `diverged` needs human judgment; the rest
+are deterministic. The baseline is what lets the byte-copy ratchet treaty **detect** a
+violation instead of erasing its evidence.
 
-- Design: OVERSTEWARD.md § "Deployment manifest & drift classification"
-- Operational contract: [sow-safety-gates.md](sow-safety-gates.md) § "Skill-file deployment"
+**The baseline is canon's git history, not the `reports/manifest.json` this section
+originally proposed (superseded 2026-08-28, OS#408).** The manifest was never created,
+and a first run against an absent one classifies every path `missing` and deploys over
+every deliberate downstream edit — the exact failure it existed to prevent. Canon's own
+history needs no state to seed and no state to maintain: a copy equal to any blob the
+member has ever carried is `stale`, one equal to none is `diverged`. The three-way
+lesson stands; only its substrate changed.
+
+- Design: OVERSTEWARD.md § "Drift classification from canon history"
+- Operational contract: [sow-safety-gates.md](sow-safety-gates.md) § "Drift classification — from canon history"
 - `sync-status` adopts the `identical / stale / diverged / missing` report vocabulary.
 
 ### 2. Deterministic, fail-open, zero-token mechanics (Tier 1)
