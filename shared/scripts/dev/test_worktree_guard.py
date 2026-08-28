@@ -38,11 +38,18 @@ def guard():
 _PRIMARY_GIT_DIR = "/repo/.git"
 _LINKED_GIT_DIR = "/repo/.git/worktrees/foo"
 _OVERRIDE_VARS = ("CLAUDE_ALLOW_MAIN_GIT", "GS_ALLOW_MAIN_GIT")
+_REMOTE_ENV_VAR = "CLAUDE_CODE_REMOTE_ENVIRONMENT_TYPE"
+_STAND_DOWN_VARS = (*_OVERRIDE_VARS, _REMOTE_ENV_VAR)
 
 
 def _clear_overrides(monkeypatch) -> None:
-    """Drop any ambient override so the inline-assignment path is what is tested."""
-    for var in _OVERRIDE_VARS:
+    """Drop every ambient stand-down so the command under test is what decides.
+
+    Covers the overrides and the remote-container environment type: a session
+    that happens to carry either would otherwise turn a blocking assertion
+    green for a reason the test never named.
+    """
+    for var in _STAND_DOWN_VARS:
         monkeypatch.delenv(var, raising=False)
 
 
@@ -112,17 +119,15 @@ def test_file_restore_with_path_after_double_dash(guard):
     assert guard.is_branch_switch("git checkout HEAD -- path/to/file") is False
 
 
-def test_quoted_substitution_char_is_an_accepted_false_positive(guard):
-    """A regex cannot see quotes, so a quoted separator reads as a real one.
+def test_quoted_separator_char_is_not_a_command(guard):
+    """A separator inside quotes is text the shell hands on as one argument.
 
-    Already true of ``;``/``|``/``&`` before substitution chars were added: the
-    anchor recognises a command position, not a *shell-parsed* command position.
-    Adding a backtick and ``(`` extends that accepted cost to those two
-    characters. Ordinary quoted mentions (``echo "git checkout main"``) stay
-    clean because they carry no separator at all.
+    The command is lexed rather than pattern-matched, so a quoted ``;`` or
+    ``(`` stays inside its token instead of opening a command position. This
+    is the shape that refused a ``gh issue`` body three times on 2026-08-28.
     """
-    assert guard.is_branch_switch('echo "; git checkout main"') is True
-    assert guard.is_branch_switch('echo "(git checkout main)"') is True
+    assert guard.is_branch_switch('echo "; git checkout main"') is False
+    assert guard.is_branch_switch('echo "(git checkout main)"') is False
 
 
 # ---------------------------------------------------------------------------
@@ -255,3 +260,128 @@ def test_main_allows_status_and_commit_in_main(guard, monkeypatch):
 def test_main_allows_switch_in_linked_worktree(guard, monkeypatch):
     cmd = "git checkout main"
     assert _run_main(guard, monkeypatch, cmd, _LINKED_GIT_DIR) == 0
+
+
+# ---------------------------------------------------------------------------
+# Command position — a git verb inside quoted text is data, not an invocation
+# (OS#401). The command is lexed, so a verb counts only where the shell would
+# run it. Each fixture below was seen red against the pre-tokenising guard.
+# ---------------------------------------------------------------------------
+
+# The exact shape refused three times on 2026-08-28 while filing OS#401: a
+# ``gh issue create`` whose heredoc BODY discusses the guard. No git command
+# runs, or could run — the verbs are prose inside a quoted command substitution.
+_HEREDOC_BODY_ABOUT_THE_GUARD = (
+    'gh issue create --title "guard false positive" --body "$(cat <<\'EOF\'\n'
+    "The guard scans the raw command string, so every `git checkout` /\n"
+    "`git switch` mentioned in a body is refused. Reproduction:\n"
+    "\n"
+    "git checkout -b feat/x\n"
+    "EOF\n"
+    ')"'
+)
+
+
+def test_heredoc_body_mentioning_a_git_verb_is_not_a_command(guard):
+    """(d) The heredoc-body false positive this issue exists to remove."""
+    assert guard.is_branch_switch(_HEREDOC_BODY_ABOUT_THE_GUARD) is False
+
+
+def test_main_allows_a_heredoc_body_mentioning_a_git_verb(guard, monkeypatch):
+    """(d) End to end — the operator's ``gh issue create`` must not be refused."""
+    _clear_overrides(monkeypatch)
+    assert _run_main(guard, monkeypatch, _HEREDOC_BODY_ABOUT_THE_GUARD, _PRIMARY_GIT_DIR) == 0
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        # A message, a PR body, a doc line — the verb is an argument, never argv[0].
+        "git commit -m 'do not git checkout main here'",
+        'gh pr create --body "first git switch main, then rebase"',
+        'printf "%s\\n" "git checkout -b feat/x"',
+        # The red ones: a shell separator *inside* the quoted argument used to
+        # read as a real command position, so the message text refused itself.
+        "git commit -m 'fetch first; git checkout main'",
+        'gh pr create --body "steps: (git switch main) then merge"',
+    ],
+)
+def test_git_verb_inside_an_argument_is_not_a_command(guard, cmd):
+    assert guard.is_branch_switch(cmd) is False
+
+
+def test_bare_switch_is_still_refused(guard, monkeypatch):
+    """(c) Tokenising must not loosen the control — a real switch still blocks.
+
+    The unquoted form is a non-regression assertion (green before and after).
+    The quoted-verb form is the red one: the pre-tokenising regex required the
+    verb to follow ``git`` literally, so ``git "switch" x`` slipped past it
+    while the shell runs it exactly like the bare form.
+    """
+    _clear_overrides(monkeypatch)
+    assert guard.is_branch_switch("git switch x") is True
+    assert guard.is_branch_switch('git "switch" x') is True
+    assert _run_main(guard, monkeypatch, "git switch x", _PRIMARY_GIT_DIR) == 2
+    assert _run_main(guard, monkeypatch, 'git "switch" x', _PRIMARY_GIT_DIR) == 2
+
+
+def test_unlexable_command_still_refuses(guard):
+    """An unbalanced quote cannot be lexed — err toward refusing, never allowing."""
+    assert guard.is_branch_switch('git checkout main "unclosed') is True
+
+
+# ---------------------------------------------------------------------------
+# Remote-container stand-down (OS#401 problem 1)
+#
+# A Claude Code web container is a plain ``.git`` clone with the branch already
+# checked out, so ``in_main_worktree`` classifies it as the primary checkout and
+# refuses every switch. The hazard the guard exists for — parallel sessions
+# sharing one local tree — does not exist there: the container IS the isolation.
+# The stand-down keys on the harness-set environment type and nothing else.
+# ---------------------------------------------------------------------------
+
+
+def test_remote_container_recognised_by_its_exact_value(guard):
+    """(b) The one value that stands the guard down."""
+    assert guard.in_remote_container({_REMOTE_ENV_VAR: "cloud_default"}) is True
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["", "local", "cloud", "CLOUD_DEFAULT", "cloud_default_x", " cloud_default", "1"],
+)
+def test_other_environment_type_values_stay_armed(guard, value):
+    """(b) Anything but the exact remote value leaves the guard fully armed."""
+    assert guard.in_remote_container({_REMOTE_ENV_VAR: value}) is False
+
+
+def test_absent_environment_type_stays_armed(guard):
+    """(a) The variable unset is the local case — fully armed."""
+    assert guard.in_remote_container({}) is False
+
+
+def test_stand_down_never_keys_on_the_override_var(guard):
+    """The remote stand-down must not be reachable through CLAUDE_ALLOW_MAIN_GIT."""
+    assert guard.in_remote_container({"CLAUDE_ALLOW_MAIN_GIT": "1"}) is False
+    assert guard.in_remote_container({"CLAUDE_ALLOW_MAIN_GIT": "cloud_default"}) is False
+    assert guard.in_remote_container({"GS_ALLOW_MAIN_GIT": "cloud_default"}) is False
+
+
+def test_main_still_blocks_locally_with_the_variable_unset(guard, monkeypatch):
+    """(a) The local refusal is unchanged when the remote variable is absent."""
+    _clear_overrides(monkeypatch)
+    assert _run_main(guard, monkeypatch, "git checkout main", _PRIMARY_GIT_DIR) == 2
+
+
+def test_main_still_blocks_locally_on_a_foreign_variable_value(guard, monkeypatch):
+    """(b) A non-remote value must not buy a stand-down."""
+    _clear_overrides(monkeypatch)
+    monkeypatch.setenv(_REMOTE_ENV_VAR, "local")
+    assert _run_main(guard, monkeypatch, "git checkout main", _PRIMARY_GIT_DIR) == 2
+
+
+def test_main_stands_down_in_a_remote_container(guard, monkeypatch):
+    """(b) In the container the plain ``.git`` clone is no longer refused."""
+    _clear_overrides(monkeypatch)
+    monkeypatch.setenv(_REMOTE_ENV_VAR, "cloud_default")
+    assert _run_main(guard, monkeypatch, "git checkout main", _PRIMARY_GIT_DIR) == 0
