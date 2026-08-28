@@ -81,6 +81,8 @@ class TestDeployedRelpath:
         assert deployed_relpath("guard_neon.py") == ".claude/hooks/guard_neon.py"
         assert deployed_relpath("guard_shared_venv.py") == ".claude/hooks/guard_shared_venv.py"
         assert deployed_relpath("guard_metered_api.py") == ".claude/hooks/guard_metered_api.py"
+        assert deployed_relpath("guard_trunk_pull.py") == ".claude/hooks/guard_trunk_pull.py"
+        assert deployed_relpath("check_destructive_command.py") == ".claude/hooks/check_destructive_command.py"
 
     def test_test_members_deploy_into_tests_dev(self):
         assert deployed_relpath("test_worktree_guard.py") == "tests/dev/test_worktree_guard.py"

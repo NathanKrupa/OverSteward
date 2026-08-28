@@ -455,3 +455,19 @@ def test_allows_mutation_in_primary_checkout(guard, tmp_path):
 
 def test_allows_mutation_outside_a_git_tree(guard):
     assert guard.blocked_venv("uv sync", "") is None
+
+
+# ---------------------------------------------------------------------------
+# The deployed hook is a byte-copy of the canonical source — drift between the
+# two means the tests above vouch for a file nothing actually runs.
+# ---------------------------------------------------------------------------
+
+
+def test_deployed_hook_matches_the_canonical_source():
+    repo = Path(__file__).resolve().parents[2]
+    hook = "guard_shared_venv.py"
+    canonical = repo / "shared" / "scripts" / "dev" / hook
+    if not canonical.exists():
+        pytest.skip("only the canonical repo carries shared/scripts/dev/")
+    deployed = repo / ".claude" / "hooks" / hook
+    assert deployed.read_bytes() == canonical.read_bytes()
