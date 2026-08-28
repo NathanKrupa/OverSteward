@@ -467,5 +467,7 @@ def test_deployed_hook_matches_the_canonical_source():
     repo = Path(__file__).resolve().parents[2]
     hook = "guard_shared_venv.py"
     canonical = repo / "shared" / "scripts" / "dev" / hook
+    if not canonical.exists():
+        pytest.skip("only the canonical repo carries shared/scripts/dev/")
     deployed = repo / ".claude" / "hooks" / hook
     assert deployed.read_bytes() == canonical.read_bytes()
