@@ -19,15 +19,13 @@ Two decision classes, checked in this priority order:
 
 2. **Destructive-but-sometimes-legitimate (``ask`` — confirm gate).**
    Encodes the pattern table of ``shared/skills/careful.md``: file-system
-
-Encodes the pattern table of ``shared/skills/careful.md``: file-system
-destruction (``rm -rf`` on non-artifacts, ``shred``/``wipe``), hard-to-reverse
-git (``push --force``, ``reset --hard``, ``clean -fd``, ``branch -D``,
-whole-tree discard, rebase), destructive SQL (``DROP``/``TRUNCATE``/``DELETE``
-without ``WHERE``, ``manage.py flush``), container/infra teardown
-(``docker system prune -a``, ``docker volume rm``, ``kubectl delete``), and
-package-management footguns (``pip install`` outside a venv, ``npm install
--g``).
+   destruction (``rm`` of a tree that is not a build artifact, ``shred``/
+   ``wipe``), hard-to-reverse git (force push, hard reset, ``clean -f``,
+   ``branch -D``, whole-tree discard, rebase), destructive SQL
+   (``DROP``/``TRUNCATE``/``DELETE`` without ``WHERE``, ``manage.py flush``),
+   container/infra teardown (``docker system prune -a``, ``docker volume rm``,
+   ``kubectl delete``), and package-management footguns (``pip install``
+   outside a venv, ``npm install -g``).
 
 On a class-2 match the hook does NOT hard-deny — ``careful.md`` is a confirm
 gate, not a wall. It emits an ``ask`` permission decision on stdout with a
@@ -35,16 +33,35 @@ structured risk explanation. Claude Code surfaces that as a confirmation prompt:
 in an interactive session Nathan approves or rejects; in an autonomous/operator
 context an unanswered ``ask`` blocks the command. Both match the intent.
 
-``careful.md``'s Safe Exceptions (``rm -rf node_modules|dist|build|...``,
-``git stash``, ``git branch -d``, ``docker system prune`` without ``-a``) pass
-through cleanly — exit 0, no prompt.
+``careful.md``'s Safe Exceptions (build-artifact deletes, ``git stash``,
+``git branch -d``, ``docker system prune`` without ``-a``) pass through cleanly
+— exit 0, no prompt.
 
-Command detection is anchored at a shell-command position (start of line, after
-a ``; & |`` separator, or after a `` ` ``/``(`` substitution opener, allowing a
-leading run of ``VAR=value`` env assignments) so quoted mentions in
-``echo``/``printf``/test data do not false-positive. ``guard_main_worktree.py``
-carries a byte-identical DUPLICATE of that anchoring — not a shared import —
-so a change to it lands in only one guard unless made in both.
+**Both tiers decide from lexed argv, not from the raw command string** (OS#402).
+A command counts only where the shell would run it, and a flag counts only where
+the shell would pass it. That fixes two opposite defects of the pattern scan it
+replaces:
+
+* Prose stopped being a command. A ``gh issue comment`` whose heredoc body
+  merely *documents* a dangerous command produced a hard ``deny`` an operator
+  could not approve past — the body is one argument token after lexing.
+* A quoted flag started being a flag. ``git commit -m msg "--no-verify"`` and
+  a force-delete whose flags are quoted are real invocations the raw scan read
+  as text and let through. Masking quoted regions — the cheap fix for the
+  first defect — would have deepened this one, which is why it was not taken.
+
+Lexing is stricter in two further ways. A leading wrapper (``env``,
+``command``, ``exec``, ``sudo``, ``nohup``, ``time``) is stripped, so
+``env git commit --no-verify`` is the ``git`` invocation it really is. And the
+script argument of ``sh -c`` / ``bash -c`` is analysed as a command in its own
+right, so quoted text that the shell *will* execute is not mistaken for the
+inert quoted text this rewrite deliberately stands down on.
+
+Text with an unbalanced quote cannot be lexed. That is text no shell would run
+either, but the safe direction for a guard is to evaluate it rather than wave
+it through, so the quote characters are dropped and the result lexed again —
+the stricter reading, in which anything hidden by the broken quoting is read as
+a command.
 
 Decision logic is split into pure functions so it is unit-tested without a
 shell. This is an estate-canonical byte-copy (ratchet treaty): improve here and
@@ -55,42 +72,271 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 import sys
 
 # ---------------------------------------------------------------------------
-# Command-position anchoring.
+# Shell lexing — a command counts only where the shell would run it.
 #
-# A command sits at start-of-line, after a shell separator, or after a
-# substitution/grouping opener (a backtick or ``(``, which covers `` `cmd` ``,
-# ``$(cmd)`` and ``(cmd)``) — optionally preceded by a run of ``VAR=value`` env
-# assignments. Anchoring here — rather than matching a bare substring — is what
-# keeps quoted mentions (``echo "rm -rf /"``) and test data from
-# false-positiving.
-#
-# A closing ``)`` is deliberately NOT a separator: a group's closer is always
-# followed by a real separator before the next command, so adding it would buy
-# nothing and only widen the quoted-text false-positive surface.
-#
-# DUPLICATE — ``guard_main_worktree.py`` carries a byte-identical copy of these
-# three lines. They are NOT shared: nothing imports them across the two hooks,
-# because both are standalone byte-copies deployed into other repos'
-# ``.claude/hooks/`` where a sibling import would not resolve. Any change here
-# must be made in BOTH files or only one guard gets it.
+# DUPLICATE — ``guard_main_worktree.py``, ``guard_shared_venv.py`` and
+# ``guard_trunk_pull.py`` carry byte-identical copies of this lexer
+# (``_SEPARATORS``, ``_BACKTICK``, ``_ASSIGNMENT`` and the four functions
+# below). It is NOT shared: each hook is a standalone byte-copy deployed into
+# other repos' ``.claude/hooks/``, where a sibling import would not resolve. A
+# change here must be made in all four — ``tests/dev/test_hook_lexer_drift.py``
+# is what notices when it was not.
 # ---------------------------------------------------------------------------
-_SEP = r"(?:^|[\n;&|`(])\s*"  # start-of-line, shell separator, or substitution opener
-_ASSIGN = r"(?:\w+=\S+\s+)*"  # a leading run of ``VAR=value`` env assignments
-_AT_CMD = _SEP + _ASSIGN
 
-# An argument list ends at a shell separator OR at a substitution/grouping
-# delimiter: a closing backtick or paren belongs to the shell, not to the
-# argument beside it. Used only where individual arguments are inspected
-# (``rm`` targets, ``git add`` paths) — never for the flag scans, which must
-# keep reading past a ``$(...)`` to find a trailing ``--no-verify``.
-_ARG_RUN = r"[^\n;&|`()]*"
+# Tokens that end one simple command and start the next, so the token after
+# them sits in command position. Grouping and substitution parens count.
+_SEPARATORS = frozenset({";", ";;", "&", "&&", "|", "||", "|&", "(", ")", "{", "}"})
 
-# Build-artifact directories that ``rm -rf`` may target without a prompt
-# (careful.md Safe Exceptions). Matched as whole path segments so a stray
-# ``rm -rf build_prod_data`` is NOT treated as the safe ``build``.
+# A backtick opens or closes a command substitution, so it ends one simple
+# command and starts another exactly as ``;`` does. Unlike the separators
+# above it never arrives as a token of its own: it is not shell punctuation to
+# the lexer, so ``rm -rf x`` in backticks lexes as ["`rm", "-rf", "x`"] and the
+# split has to be made on the token's own text.
+_BACKTICK = "`"
+
+# A leading ``VAR=value`` on a command sets that command's environment; it does
+# not displace the command position, so a run of them is skipped over.
+_ASSIGNMENT = re.compile(r"[A-Za-z_]\w*=")
+
+
+def _lex(text: str) -> list[str] | None:
+    """``text`` as shell tokens, or None if a quote is left open."""
+    lexer = shlex.shlex(text, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    try:
+        return list(lexer)
+    except ValueError:
+        return None
+
+
+def _token_runs(command: str) -> list[list[str]] | None:
+    """Tokens of ``command``, one run per line, so a newline ends a command.
+
+    A quote still open at end of line means the quoting spans lines — a
+    heredoc, a multi-line PR body — so the whole command is lexed as one unit
+    instead, keeping that quoted text a single token rather than reading its
+    contents as commands. None means no lexing succeeded at all.
+    """
+    runs: list[list[str]] = []
+    for line in command.splitlines():
+        tokens = _lex(line)
+        if tokens is None:
+            whole = _lex(command)
+            return None if whole is None else [whole]
+        runs.append(tokens)
+    return runs
+
+
+def _simple_commands(tokens: list[str]) -> list[list[str]]:
+    """``tokens`` split at shell separators — one argv per simple command.
+
+    Backticks separate too, and are split out of the token that carries them
+    (see :data:`_BACKTICK`). A *quoted* backtick survives that split as prose:
+    the lexer has already collapsed ``echo "`rm -rf x`"`` to the single token
+    ```rm -rf x```, whose interior spaces are inside the token, so splitting it
+    yields the one word ``rm -rf x`` — never the multi-word ``rm`` argv the
+    destructive rules match.
+
+    Environment assignments already collected in the enclosing command carry
+    into the substitution, so an explicit override written outside a backtick
+    still reads as that command's override instead of being stranded in the
+    outer argv.
+    """
+    argvs: list[list[str]] = [[]]
+
+    def _open_command() -> None:
+        """Start the next argv, inheriting the current one's assignments."""
+        carried, _ = _split_assignments(argvs[-1])
+        argvs.append(list(carried))
+
+    for token in tokens:
+        if token in _SEPARATORS:
+            argvs.append([])
+        elif _BACKTICK in token:
+            for index, fragment in enumerate(token.split(_BACKTICK)):
+                if index:
+                    _open_command()
+                if fragment:
+                    argvs[-1].append(fragment)
+        else:
+            argvs[-1].append(token)
+    return [argv for argv in argvs if argv]
+
+
+def _split_assignments(argv: list[str]) -> tuple[list[str], list[str]]:
+    """``argv`` as (its leading environment assignments, the command it runs)."""
+    index = 0
+    while index < len(argv) and _ASSIGNMENT.match(argv[index]):
+        index += 1
+    return argv[:index], argv[index:]
+
+
+def _invocations(command: str) -> list[tuple[list[str], list[str]]] | None:
+    """Every simple command in ``command`` as (env assignments, argv).
+
+    None means the text could not be lexed, which callers treat as
+    un-analysable rather than as safe.
+    """
+    runs = _token_runs(command)
+    if runs is None:
+        return None
+    return [
+        _split_assignments(argv) for tokens in runs for argv in _simple_commands(tokens)
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Unlexable fallback, wrappers, and nested shells.
+# ---------------------------------------------------------------------------
+
+# Quote characters, dropped when the text as written cannot be lexed at all.
+_QUOTE_CHARS = str.maketrans("", "", "\"'")
+
+# A leading word that runs another command rather than being one. Stripping it
+# exposes the real invocation, so ``env git commit --no-verify`` is the ``git``
+# command the shell will run and not an ``env`` the rules do not know.
+_WRAPPERS = frozenset({"env", "command", "exec", "sudo", "nohup", "time", "builtin"})
+# Wrapper options that consume the token after them as their value, so the
+# wrapped program sits one token further along (``sudo -u nathan rm ...``,
+# ``env -u NAME ...``). Without this the value reads as the program and the
+# real command is never inspected.
+_WRAPPER_VALUE_FLAGS = frozenset({"-u", "-g", "-p", "-C", "-h", "-r", "-t", "-T", "-U", "-S"})
+
+# ``sh -c '<script>'`` hands the shell text to execute. That text IS a command,
+# so it is analysed as one — otherwise standing down on quoted text (the whole
+# point of lexing) would open a bypass for the one quoted form that does run.
+_SHELLS = frozenset({"sh", "bash", "zsh", "dash", "ksh"})
+_SCRIPT_FLAGS = frozenset({"-c", "-lc", "-ic", "-xc"})
+_MAX_SHELL_DEPTH = 3
+
+
+def _basename(token: str) -> str:
+    """The final path segment of ``token`` — ``/usr/bin/rm`` is still ``rm``."""
+    return token.rsplit("/", 1)[-1]
+
+
+def _command_name(argv: list[str]) -> str:
+    """The program ``argv`` runs, path stripped."""
+    return _basename(argv[0]) if argv else ""
+
+
+def _unwrap(argv: list[str]) -> list[str]:
+    """``argv`` with any leading wrapper words and their options removed."""
+    while argv and _command_name(argv) in _WRAPPERS:
+        rest = argv[1:]
+        while rest and (_ASSIGNMENT.match(rest[0]) or rest[0].startswith("-")):
+            consumed = 2 if rest[0] in _WRAPPER_VALUE_FLAGS and len(rest) > 1 else 1
+            rest = rest[consumed:]
+        argv = rest
+    return argv
+
+
+def _shell_script(argv: list[str]) -> str | None:
+    """The script text ``argv`` hands to a shell to execute, or None."""
+    if _command_name(argv) not in _SHELLS:
+        return None
+    for index, token in enumerate(argv[1:], start=1):
+        if token in _SCRIPT_FLAGS and index + 1 < len(argv):
+            return argv[index + 1]
+    return None
+
+
+def _fallback_invocations(command: str) -> list[tuple[list[str], list[str]]]:
+    """Argv for text no lexer accepts — quotes dropped so nothing hides in them.
+
+    An unbalanced quote is text no shell would run either, but the safe
+    direction for a guard is to evaluate it rather than wave it through. With
+    the quote characters removed the same lexer usually succeeds, and anything
+    that was hiding inside the broken quoting reads as a command instead of an
+    argument. Whitespace splitting is the last resort, for text even that
+    cannot lex.
+    """
+    stripped = command.translate(_QUOTE_CHARS)
+    invocations = _invocations(stripped)
+    if invocations is not None:
+        return invocations
+    return [
+        _split_assignments(line.split())
+        for line in stripped.splitlines()
+        if line.split()
+    ]
+
+
+def _expand(argvs: list[list[str]], depth: int) -> list[list[str]]:
+    """``argvs`` unwrapped, plus the argv of any script handed to a shell."""
+    expanded: list[list[str]] = []
+    for raw in argvs:
+        argv = _unwrap(raw)
+        if not argv:
+            continue
+        expanded.append(argv)
+        script = _shell_script(argv)
+        if script is not None and depth < _MAX_SHELL_DEPTH:
+            expanded.extend(_expand(_argvs_of(script), depth + 1))
+    return expanded
+
+
+def _argvs_of(command: str) -> list[list[str]]:
+    """The argv of every simple command in ``command``, before expansion."""
+    invocations = _invocations(command)
+    if invocations is None:
+        invocations = _fallback_invocations(command)
+    return [argv for _assignments, argv in invocations]
+
+
+def _all_argvs(command: str) -> list[list[str]]:
+    """Every command the shell would run, as argv the rules can inspect."""
+    return _expand(_argvs_of(command), depth=0)
+
+
+# ---------------------------------------------------------------------------
+# Argument inspection helpers, shared by both rule tables.
+# ---------------------------------------------------------------------------
+
+
+def _short_flags(argv: list[str]) -> str:
+    """Every letter carried by a short-option token in ``argv``."""
+    letters = []
+    for token in argv[1:]:
+        if token.startswith("-") and not token.startswith("--") and len(token) > 1:
+            letters.append(token[1:])
+    return "".join(letters)
+
+
+def _has_short_flag(argv: list[str], letter: str) -> bool:
+    """True if a short option in ``argv`` carries ``letter`` (case-sensitive)."""
+    return letter in _short_flags(argv)
+
+
+def _operands(argv: list[str]) -> list[str]:
+    """The non-flag arguments of ``argv`` — its targets."""
+    return [token for token in argv[1:] if token != "--" and not token.startswith("-")]
+
+
+def _is_verb(argv: list[str], program: str, *verbs: str) -> bool:
+    """True if ``argv`` runs ``program`` with ``verbs`` as its leading words."""
+    if _command_name(argv) != program:
+        return False
+    return argv[1 : 1 + len(verbs)] == list(verbs)
+
+
+# Program and option names the rule tables repeat.
+_GIT = "git"
+_FORCE_FLAG = "--force"
+_INSTALL_VERB = "install"
+
+
+# ---------------------------------------------------------------------------
+# Class 2 — destructive-but-sometimes-legitimate detectors (``ask``).
+# ---------------------------------------------------------------------------
+
+# Build-artifact directories that a recursive delete may target without a
+# prompt (careful.md Safe Exceptions). Matched as whole path segments so a
+# stray ``build_prod_data`` is NOT treated as the safe ``build``.
 _SAFE_RM_TARGETS = (
     "node_modules",
     "dist",
@@ -100,176 +346,265 @@ _SAFE_RM_TARGETS = (
     ".mypy_cache",
 )
 # ``*.egg-info`` is a glob rather than a fixed name.
-_SAFE_EGG_INFO = re.compile(r"(?:^|[\s/])[\w.-]*\.egg-info/?\s*$")
+_SAFE_EGG_INFO = re.compile(r"^[\w.-]*\.egg-info$")
 
 
-def _rm_targets(command: str) -> list[str]:
-    """Return the non-flag arguments of a leading ``rm`` command, or []."""
-    m = re.search(_AT_CMD + r"rm\b(?P<args>" + _ARG_RUN + r")", command)
-    if not m:
-        return []
-    args = m.group("args").split()
-    return [a for a in args if not a.startswith("-")]
-
-
-def _all_safe_rm_targets(command: str) -> bool:
-    """True if every ``rm`` target is a recognized build artifact.
+def _all_safe_rm_targets(argv: list[str]) -> bool:
+    """True if every target of this ``rm`` is a recognized build artifact.
 
     An ``rm`` with no explicit target (e.g. a bare glob resolved by the shell)
     is not classifiable as safe here — callers only reach this after deciding a
     prompt is otherwise warranted, so unknown → not-safe (fall through to ask).
     """
-    targets = _rm_targets(command)
+    targets = _operands(argv)
     if not targets:
         return False
-    for t in targets:
-        stripped = t.rstrip("/")
+    for target in targets:
+        stripped = target.rstrip("/")
         if stripped.startswith("./"):
             stripped = stripped[2:]
         if stripped in _SAFE_RM_TARGETS:
             continue
-        if _SAFE_EGG_INFO.search(t):
+        if _SAFE_EGG_INFO.match(_basename(stripped)):
             continue
         return False
     return True
 
 
-# ---------------------------------------------------------------------------
-# Destructive pattern detectors. Each entry is (category, regex, risk phrase).
-# Detectors are checked in order; the FIRST match wins the prompt so the risk
-# message names the most specific concern.
-# ---------------------------------------------------------------------------
+def _is_rm(argv: list[str]) -> bool:
+    """True if ``argv`` runs ``rm``."""
+    return _command_name(argv) == "rm"
 
-# File system --------------------------------------------------------------
-# A combined short flag carrying BOTH r/R and f (``-rf``, ``-fr``, ``-Rf``), or
-# the two given separately (``-r -f``). ``[rR]`` and ``f`` in one ``-xxx`` token.
-_RM_RF = re.compile(
-    _AT_CMD + r"rm\s+(?:-\w*[rR]\w*f\w*\b|-\w*f\w*[rR]\w*\b|-[rR]\b[^\n;&|]*\s-\w*f)"
+
+def _rm_recursive(argv: list[str]) -> bool:
+    """True if this ``rm`` was asked to descend into directories."""
+    return _has_short_flag(argv, "r") or _has_short_flag(argv, "R") or "--recursive" in argv
+
+
+def _rm_forced(argv: list[str]) -> bool:
+    """True if this ``rm`` was asked to suppress every confirmation."""
+    return _has_short_flag(argv, "f") or _FORCE_FLAG in argv
+
+
+def _rm_destructive(argv: list[str]) -> bool:
+    """A forced recursive delete that is NOT confined to build artifacts."""
+    return (
+        _is_rm(argv)
+        and _rm_recursive(argv)
+        and _rm_forced(argv)
+        and not _all_safe_rm_targets(argv)
+    )
+
+
+def _rm_r_destructive(argv: list[str]) -> bool:
+    """A recursive delete that is NOT confined to build artifacts."""
+    return _is_rm(argv) and _rm_recursive(argv) and not _all_safe_rm_targets(argv)
+
+
+def _rm_glob(argv: list[str]) -> bool:
+    """An ``rm`` whose targets are chosen by an unexpanded glob."""
+    return _is_rm(argv) and any("*" in operand for operand in _operands(argv))
+
+
+def _shred(argv: list[str]) -> bool:
+    """A tool whose whole purpose is unrecoverable destruction."""
+    return _command_name(argv) in {"shred", "wipe"}
+
+
+def _git_push_force(argv: list[str]) -> bool:
+    """A push that overwrites remote history (``--force-with-lease`` is safe)."""
+    return _is_verb(argv, _GIT, "push") and (
+        _FORCE_FLAG in argv[2:] or "-f" in argv[2:]
+    )
+
+
+def _git_reset_hard(argv: list[str]) -> bool:
+    return _is_verb(argv, _GIT, "reset") and "--hard" in argv[2:]
+
+
+def _git_clean_force(argv: list[str]) -> bool:
+    return _is_verb(argv, _GIT, "clean") and (
+        _has_short_flag(argv, "f") or _FORCE_FLAG in argv[2:]
+    )
+
+
+def _git_branch_force_delete(argv: list[str]) -> bool:
+    return _is_verb(argv, _GIT, "branch") and "-D" in argv[2:]
+
+
+def _git_discard_all(argv: list[str]) -> bool:
+    """``git checkout .`` / ``git restore .`` — the whole working tree."""
+    return (
+        _command_name(argv) == _GIT
+        and argv[1:2] in (["checkout"], ["restore"])
+        and "." in argv[2:]
+    )
+
+
+def _git_rebase(argv: list[str]) -> bool:
+    return _is_verb(argv, _GIT, "rebase")
+
+
+def _docker_prune_all(argv: list[str]) -> bool:
+    return _is_verb(argv, "docker", "system", "prune") and (
+        _has_short_flag(argv, "a") or "--all" in argv[3:]
+    )
+
+
+def _docker_volume_rm(argv: list[str]) -> bool:
+    return _is_verb(argv, "docker", "volume", "rm")
+
+
+def _kubectl_delete(argv: list[str]) -> bool:
+    return _is_verb(argv, "kubectl", "delete")
+
+
+def _npm_install_global(argv: list[str]) -> bool:
+    return (
+        _command_name(argv) == "npm"
+        and argv[1:2] in ([_INSTALL_VERB], ["i"])
+        and (_has_short_flag(argv, "g") or "--global" in argv[2:])
+    )
+
+
+# ``pip``/``pip3`` directly, or ``python -m pip``.
+_PIP_NAME = re.compile(r"pip[0-9.]*")
+_PYTHON_NAME = re.compile(r"python[0-9.]*")
+# A path that places the interpreter inside an isolated environment.
+_VENV_PIP_PATH = re.compile(r"(?:\.?venv|virtualenv|env)/bin/pip")
+
+
+def _is_pip_install(argv: list[str]) -> bool:
+    """True if ``argv`` installs a package with pip."""
+    name = _command_name(argv)
+    if _PIP_NAME.fullmatch(name) and _INSTALL_VERB in argv[1:]:
+        return True
+    return bool(
+        _PYTHON_NAME.fullmatch(name)
+        and argv[1:3] == ["-m", "pip"]
+        and _INSTALL_VERB in argv[3:]
+    )
+
+
+def _pip_outside_venv(argv: list[str]) -> bool:
+    """True if a ``pip install`` runs and no venv marker is present.
+
+    careful.md flags ``pip install`` OUTSIDE a virtual environment. An
+    explicitly venv-qualified invocation (``.venv/bin/pip``, ``uv pip``,
+    ``pipx``, a ``--user`` install) is in-scope of an isolated environment and
+    passes through. A venv-managing front end (``uv``, ``poetry`` ...) is
+    ``argv[0]`` in its own right, so pip is not the program being run and this
+    detector never fires on it. Heuristic and conservative: when unsure, ask.
+    """
+    if not _is_pip_install(argv):
+        return False
+    if _VENV_PIP_PATH.search(argv[0]):
+        return False
+    return "--user" not in argv
+
+
+# Database ------------------------------------------------------------------
+# A pure text search/print tool leading a command treats SQL keywords as DATA,
+# not a statement to run. When such a tool runs and NO database client appears
+# anywhere in the command, the SQL detectors stand down (``grep 'DROP TABLE'
+# migrations/`` is not a destructive op).
+_TEXT_TOOLS = frozenset(
+    {
+        "grep", "egrep", "fgrep", "rg", "ack", "cat", "less", "more",
+        "head", "tail", "awk", "sed", "echo", "printf",
+    }
 )
-# Recursive without force (``rm -r``/``-R``) — a still-destructive tree delete.
-_RM_R = re.compile(_AT_CMD + r"rm\s+-\w*[rR]\w*\b")
-_RM_GLOB = re.compile(_AT_CMD + r"rm\b[^\n;&|]*\*")
-_SHRED = re.compile(_AT_CMD + r"(?:shred|wipe)\b")
-
-# Git — hard to reverse ----------------------------------------------------
-_GIT_PUSH_FORCE = re.compile(_AT_CMD + r"git\s+push\b[^\n;&|]*(?:--force(?!-with-lease)\b|(?<!\w)-f\b)")
-_GIT_RESET_HARD = re.compile(_AT_CMD + r"git\s+reset\b[^\n;&|]*--hard\b")
-_GIT_CLEAN = re.compile(_AT_CMD + r"git\s+clean\b[^\n;&|]*-\w*f")
-_GIT_BRANCH_FORCE = re.compile(_AT_CMD + r"git\s+branch\b[^\n;&|]*(?<!\w)-D\b")
-_GIT_DISCARD_ALL = re.compile(
-    _AT_CMD + r"git\s+(?:checkout|restore)\b[^\n;&|]*?(?:--\s+\.|\s\.)\s*(?:$|[;&|])"
+# A database client anywhere in the command — as the program run, or as an
+# argument to one (``docker exec -it db psql`` is a real shape). This is a
+# *suppressor's escape clause*, not a detector: a miss here does not lose one
+# detection, it inverts the verdict on a command the shell is about to run
+# (OS#307). So it is read across every token of every command, not just argv[0].
+_DB_CLIENTS = frozenset(
+    {
+        "psql", "mysql", "sqlite", "sqlite3", "mongo", "redis-cli",
+        "clickhouse-client", "dbshell", "db_scratch", "alembic",
+    }
 )
-_GIT_REBASE = re.compile(_AT_CMD + r"git\s+rebase\b")
+# Clients spelled as two words. Each pair is (program, subcommand).
+_DB_CLIENT_PAIRS = (("cockroach", "sql"), ("db", "scratch"), ("manage.py", "dbshell"))
 
-# Database -----------------------------------------------------------------
-# A pure text search/print tool at command position (``grep``, ``rg``, ``cat``,
-# ``head`` ...) treats SQL keywords as DATA, not a statement to run. When such a
-# tool leads the command and NO database client verb appears, the SQL detectors
-# stand down (a ``grep 'DROP TABLE' migrations/`` is not a destructive op).
-_TEXT_TOOL_LEAD = re.compile(
-    _AT_CMD + r"(?:grep|egrep|fgrep|rg|ack|cat|less|more|head|tail|awk|sed|echo|printf)\b"
-)
-# Deliberately broader than ``_SEP``: this one keeps ``\s``, because the client
-# need not be at command position — ``docker exec -it db psql`` is a real shape.
-# It carries the substitution openers for the opposite reason to every detector
-# in this file. ``_DB_CLIENT`` is a *suppressor's escape clause*, so a miss here
-# does not lose one detection — it inverts the verdict, and the SQL detectors
-# stand down on a command the shell is about to run (OS#307).
-_DB_CLIENT = re.compile(
-    r"(?:^|[\s;&|`(])(?:psql|mysql|sqlite3?|mongo|redis-cli|clickhouse-client|"
-    r"cockroach\s+sql|dbshell|db\s+scratch|db_scratch|manage\.py\s+dbshell|alembic)\b"
-)
+_SQL_DROP_TRUNCATE = re.compile(r"\b(?:DROP\s+(?:TABLE|DATABASE)|TRUNCATE)\b", re.IGNORECASE)
 
 
-def _is_sql_data_only(command: str) -> bool:
+def _statement(argv: list[str]) -> str:
+    """``argv`` rejoined as the text the SQL detectors read.
+
+    The tokens are one command's real arguments, so a quoted statement is
+    rejoined exactly as it was written and a mention inside some *other*
+    command's argument cannot bleed into it.
+    """
+    return " ".join(argv)
+
+
+def _runs_db_client(argvs: list[list[str]]) -> bool:
+    """True if any token of any command names a database client."""
+    for argv in argvs:
+        words = [_basename(token) for token in argv]
+        for index, word in enumerate(words):
+            if word in _DB_CLIENTS:
+                return True
+            if (word, *words[index + 1 : index + 2]) in _DB_CLIENT_PAIRS:
+                return True
+    return False
+
+
+def _is_sql_data_only(argvs: list[list[str]]) -> bool:
     """True if SQL keywords here are inert data (text tool, no DB client).
 
     The ``not`` is what makes this the one place where a *narrow* pattern is the
     unsafe direction. Everywhere else a missed match means one command is not
     flagged; here it means the guard concludes the SQL is being printed.
     """
-    return bool(_TEXT_TOOL_LEAD.search(command)) and not _DB_CLIENT.search(command)
+    leads_with_text_tool = any(_command_name(argv) in _TEXT_TOOLS for argv in argvs)
+    return leads_with_text_tool and not _runs_db_client(argvs)
 
 
-_SQL_DROP_TRUNCATE = re.compile(r"\b(?:DROP\s+(?:TABLE|DATABASE)|TRUNCATE)\b", re.IGNORECASE)
-_SQL_DELETE_NO_WHERE = re.compile(
-    r"\bDELETE\s+FROM\s+[\w.\"'`]+\s*(?:;|$)", re.IGNORECASE
-)
-_MANAGE_FLUSH = re.compile(_AT_CMD + r"(?:python[0-9.]*\s+)?(?:\S*)?manage\.py\s+flush\b")
-
-# Container / infrastructure ----------------------------------------------
-_DOCKER_PRUNE_ALL = re.compile(_AT_CMD + r"docker\s+system\s+prune\b[^\n;&|]*-\w*a")
-_DOCKER_VOLUME_RM = re.compile(_AT_CMD + r"docker\s+volume\s+rm\b")
-_KUBECTL_DELETE = re.compile(_AT_CMD + r"kubectl\s+delete\b")
-
-# Package management -------------------------------------------------------
-_NPM_INSTALL_GLOBAL = re.compile(
-    _AT_CMD + r"npm\s+(?:install|i)\b[^\n;&|]*(?:(?<!\w)-g\b|--global\b)"
-)
-_PIP_INSTALL = re.compile(_AT_CMD + r"(?:python[0-9.]*\s+-m\s+)?pip[0-9.]*\s+install\b")
-
-
-def _sql_delete_without_where(command: str) -> bool:
+def _sql_delete_without_where(statement: str) -> bool:
     """True if a ``DELETE FROM <table>`` has no ``WHERE`` clause before its end."""
-    for m in re.finditer(r"\bDELETE\s+FROM\s+[\w.\"'`]+", command, re.IGNORECASE):
-        tail = command[m.end():]
+    for match in re.finditer(r"\bDELETE\s+FROM\s+[\w.\"'`]+", statement, re.IGNORECASE):
+        tail = statement[match.end():]
         # The statement ends at the next ``;`` (or end of string).
         stmt_end = tail.find(";")
-        stmt = tail if stmt_end == -1 else tail[:stmt_end]
-        if not re.search(r"\bWHERE\b", stmt, re.IGNORECASE):
+        clause = tail if stmt_end == -1 else tail[:stmt_end]
+        if not re.search(r"\bWHERE\b", clause, re.IGNORECASE):
             return True
     return False
 
 
-def _pip_outside_venv(command: str) -> bool:
-    """True if a ``pip install`` runs and no venv marker is present.
-
-    careful.md flags ``pip install`` OUTSIDE a virtual environment. We treat an
-    explicit venv-qualified invocation (``uv pip install``, ``.venv/bin/pip``,
-    ``python -m pip`` inside an activated venv marker, ``pipx``) as in-scope of a
-    venv and pass it through. Heuristic and conservative: when unsure, ask.
-    """
-    if not _PIP_INSTALL.search(command):
-        return False
-    # Qualified paths / tools that imply an isolated environment.
-    if re.search(r"(?:\.?venv|virtualenv|env)/bin/pip", command):
-        return False
-    if re.search(r"(?:^|[\s;&|])(?:uv|pipx|poetry|pdm|hatch)\s+", command):
-        return False
-    if "--user" in command:
-        return False
-    return True
-
-
-# Each rule's detector is a predicate over the command string alone. Regex-only
-# detectors are built by ``_matches(pattern)``, which closes over the compiled
-# regex; the two detectors that need extra context (rm's safe-artifact
-# exemption, the SQL data-vs-execution distinction) are named predicates that
-# also close over their regex. This keeps the rule table one column narrower and
-# every predicate a uniform ``str -> bool``.
-def _matches(pattern: re.Pattern[str]) -> "object":
-    """Build a command-only predicate that fires when ``pattern`` matches."""
-    return lambda command: bool(pattern.search(command))
-
-
-def _rm_destructive(command: str) -> bool:
-    """An ``rm -rf`` match that is NOT confined to build artifacts."""
-    return bool(_RM_RF.search(command)) and not _all_safe_rm_targets(command)
-
-
-def _rm_r_destructive(command: str) -> bool:
-    """An ``rm -r`` match that is NOT confined to build artifacts."""
-    return bool(_RM_R.search(command)) and not _all_safe_rm_targets(command)
-
-
-def _drop_truncate_exec(command: str) -> bool:
+def _drop_truncate_exec(argvs: list[list[str]]) -> bool:
     """A DROP/TRUNCATE actually executed (not searched/printed as text)."""
-    return bool(_SQL_DROP_TRUNCATE.search(command)) and not _is_sql_data_only(command)
+    if _is_sql_data_only(argvs):
+        return False
+    return any(_SQL_DROP_TRUNCATE.search(_statement(argv)) for argv in argvs)
 
 
-def _delete_no_where(command: str) -> bool:
+def _delete_no_where(argvs: list[list[str]]) -> bool:
     """A ``DELETE FROM`` with no ``WHERE`` clause, executed (not inert text)."""
-    return _sql_delete_without_where(command) and not _is_sql_data_only(command)
+    if _is_sql_data_only(argvs):
+        return False
+    return any(_sql_delete_without_where(_statement(argv)) for argv in argvs)
+
+
+def _manage_flush(argv: list[str]) -> bool:
+    """``manage.py flush`` — Django's delete-every-row command."""
+    for index, token in enumerate(argv):
+        if _basename(token) == "manage.py" and argv[index + 1 : index + 2] == ["flush"]:
+            return True
+    return False
+
+
+# Each rule's detector is a predicate over every argv in the command. Most
+# rules read one command at a time, so ``_any_argv`` lifts a single-argv
+# predicate into that shape; the SQL rules need the whole command (a client in
+# one pipeline stage governs SQL written in another) and take it directly.
+def _any_argv(predicate: object) -> "object":
+    """Lift a per-argv predicate to one over every argv in the command."""
+    return lambda argvs: any(predicate(argv) for argv in argvs)  # type: ignore[operator]
 
 
 # The rule table, in priority order — the FIRST matching rule wins the prompt so
@@ -277,47 +612,49 @@ def _delete_no_where(command: str) -> bool:
 # ``(category, predicate, risk)``. careful.md's pattern table maps 1:1 here.
 _RULES: tuple[tuple[str, object, str], ...] = (
     # File system
-    ("rm -rf", _rm_destructive,
+    ("rm -rf", _any_argv(_rm_destructive),
      "recursively force-deletes files that are not recognized build artifacts"),
-    ("shred/wipe", _matches(_SHRED), "securely and irreversibly destroys file data"),
-    ("rm -r", _rm_r_destructive, "recursively deletes a directory tree"),
-    ("rm glob", _matches(_RM_GLOB),
+    ("shred/wipe", _any_argv(_shred), "securely and irreversibly destroys file data"),
+    ("rm -r", _any_argv(_rm_r_destructive), "recursively deletes a directory tree"),
+    ("rm glob", _any_argv(_rm_glob),
      "deletes files matched by a glob — potentially many, unreviewed"),
     # Git — hard to reverse
-    ("git push --force", _matches(_GIT_PUSH_FORCE),
+    ("git push --force", _any_argv(_git_push_force),
      "overwrites remote history and can clobber others' commits"),
-    ("git reset --hard", _matches(_GIT_RESET_HARD),
+    ("git reset --hard", _any_argv(_git_reset_hard),
      "discards all uncommitted changes and moves the branch pointer"),
-    ("git clean -f", _matches(_GIT_CLEAN),
+    ("git clean -f", _any_argv(_git_clean_force),
      "permanently deletes untracked files (drafts, notes, artifacts)"),
-    ("git branch -D", _matches(_GIT_BRANCH_FORCE),
+    ("git branch -D", _any_argv(_git_branch_force_delete),
      "force-deletes a branch even if it holds unmerged commits"),
-    ("git checkout/restore .", _matches(_GIT_DISCARD_ALL), "discards ALL working-tree changes"),
-    ("git rebase", _matches(_GIT_REBASE),
+    ("git checkout/restore .", _any_argv(_git_discard_all),
+     "discards ALL working-tree changes"),
+    ("git rebase", _any_argv(_git_rebase),
      "rewrites commit history — dangerous on a shared branch"),
     # Database
     ("DROP/TRUNCATE", _drop_truncate_exec,
      "drops or truncates a table or database — irreversible data loss"),
     ("DELETE without WHERE", _delete_no_where, "deletes every row in the table"),
-    ("manage.py flush", _matches(_MANAGE_FLUSH), "deletes all data from the database"),
+    ("manage.py flush", _any_argv(_manage_flush), "deletes all data from the database"),
     # Container / infrastructure
-    ("docker system prune -a", _matches(_DOCKER_PRUNE_ALL),
+    ("docker system prune -a", _any_argv(_docker_prune_all),
      "removes all unused images, not just dangling ones"),
-    ("docker volume rm", _matches(_DOCKER_VOLUME_RM),
+    ("docker volume rm", _any_argv(_docker_volume_rm),
      "destroys a data volume — persisted data is lost"),
-    ("kubectl delete", _matches(_KUBECTL_DELETE), "tears down a live cluster resource"),
+    ("kubectl delete", _any_argv(_kubectl_delete), "tears down a live cluster resource"),
     # Package management
-    ("npm install -g", _matches(_NPM_INSTALL_GLOBAL),
+    ("npm install -g", _any_argv(_npm_install_global),
      "installs a project tool globally, polluting the system environment"),
-    ("pip install outside a venv", _pip_outside_venv,
+    ("pip install outside a venv", _any_argv(_pip_outside_venv),
      "installs into the system/base Python instead of a virtual environment"),
 )
 
 
 def _match(command: str) -> tuple[str, str] | None:
     """Return (category, risk) for the first destructive pattern matched."""
+    argvs = _all_argvs(command)
     for category, predicate, risk in _RULES:
-        if predicate(command):  # type: ignore[operator]
+        if predicate(argvs):  # type: ignore[operator]
             return (category, risk)
     return None
 
@@ -332,23 +669,11 @@ def _match(command: str) -> tuple[str, str] | None:
 # destructive-pattern match can never downgrade the decision to ``ask``.
 # ---------------------------------------------------------------------------
 
-# ``--no-verify`` / ``-n`` on commit skips the pre-commit/commit-msg hooks;
-# ``--no-gpg-sign`` skips signing. Anchored to a leading ``git``.
-_GIT_NO_VERIFY = re.compile(_AT_CMD + r"git\b[^\n;&|]*\s--no-verify\b")
-_GIT_NO_GPG_SIGN = re.compile(_AT_CMD + r"git\b[^\n;&|]*\s--no-gpg-sign\b")
-# ``--admin`` on ``gh pr merge`` (or git) bypasses branch-protection/CI gates.
-_ADMIN_FLAG = re.compile(_AT_CMD + r"(?:gh|git)\b[^\n;&|]*\s--admin\b")
-# ``core.hooksPath`` redirected to /dev/null or emptied disables all hooks.
-# Matches ``git ... -c core.hooksPath=/dev/null`` and ``git config
-# core.hooksPath ''`` (value = /dev/null, empty string, or nothing).
-_HOOKSPATH_NEUTERED = re.compile(
-    r"core\.hooksPath\s*(?:=|\s)\s*(?P<val>/dev/null\b|''|\"\"|(?=[\s;&|]|$))",
-    re.IGNORECASE,
-)
-# ``git add -A`` / ``git add --all`` / ``git add .`` — blind whole-tree staging.
-_GIT_ADD_ALL = re.compile(
-    _AT_CMD + r"git\s+add\b[^\n;&|]*(?:(?<!\w)-A\b|--all\b|(?<!\S)\.(?=\s|$|[;&|]))"
-)
+# The git config key whose neutering disables every repository hook, and the
+# values that neuter it. Read only inside a ``git`` invocation: a mention in
+# some other command's argument is text, and only git applies the setting.
+_HOOKSPATH_KEY = "core.hookspath"
+_NEUTERED_VALUES = frozenset({"", "/dev/null"})
 
 # Secret files that must never be staged. A placeholder dotenv (``.env.example``
 # and friends) carries no real values and is legitimately committed — carved
@@ -359,50 +684,101 @@ _SECRET_PLACEHOLDER_SUFFIXES = (".example", ".sample", ".template", ".dist")
 _SECRET_ARG = re.compile(
     r"(?:^|/)(?:\.env(?:\.[\w.-]+)?|[\w.-]*\.pem|[\w.-]*\.key|credentials[\w.-]*)$"
 )
-_GIT_ADD_LEAD = re.compile(_AT_CMD + r"git\s+add\b(?P<args>" + _ARG_RUN + r")")
+
+
+def _is_git(argv: list[str]) -> bool:
+    """True if ``argv`` runs git."""
+    return _command_name(argv) == _GIT
+
+
+def _git_flag(argv: list[str], flag: str) -> bool:
+    """True if ``argv`` is a git command carrying ``flag`` as a real argument.
+
+    The flag has to be a token of its own. A flag *named* inside a commit
+    message or a PR body is one word of that argument, never an argument.
+    """
+    return _is_git(argv) and flag in argv[1:]
+
+
+def _git_no_verify(argv: list[str]) -> bool:
+    return _git_flag(argv, "--no-verify")
+
+
+def _git_no_gpg_sign(argv: list[str]) -> bool:
+    return _git_flag(argv, "--no-gpg-sign")
+
+
+def _admin_bypass(argv: list[str]) -> bool:
+    """``--admin`` on gh or git — a branch-protection / required-check bypass."""
+    return _command_name(argv) in {"gh", _GIT} and "--admin" in argv[1:]
+
+
+def _hookspath_neutered(argv: list[str]) -> bool:
+    """A git command that points ``core.hooksPath`` at nothing."""
+    if not _is_git(argv):
+        return False
+    for index, token in enumerate(argv[1:], start=1):
+        key, separator, value = token.partition("=")
+        if key.lower() != _HOOKSPATH_KEY:
+            continue
+        if separator:
+            return value in _NEUTERED_VALUES
+        following = argv[index + 1 : index + 2]
+        return not following or following[0] in _NEUTERED_VALUES
+    return False
+
+
+def _git_add_all(argv: list[str]) -> bool:
+    """``git add -A`` / ``--all`` / ``.`` — blind whole-tree staging."""
+    if not _is_verb(argv, _GIT, "add"):
+        return False
+    return any(token in {"-A", "--all", "."} for token in argv[2:])
 
 
 def _is_placeholder_dotenv(arg: str) -> bool:
     """True for ``.env.example`` / ``.sample`` / ``.template`` / ``.dist``."""
-    base = arg.rsplit("/", 1)[-1]
+    base = _basename(arg)
     return any(base.endswith(sfx) for sfx in _SECRET_PLACEHOLDER_SUFFIXES)
 
 
-def _stages_secret_file(command: str) -> bool:
-    """True if a ``git add`` names a real secret file (placeholders exempt)."""
-    m = _GIT_ADD_LEAD.search(command)
-    if not m:
+def _stages_secret(argv: list[str]) -> bool:
+    """True if this ``git add`` names a real secret file (placeholders exempt)."""
+    if not _is_verb(argv, _GIT, "add"):
         return False
-    for arg in m.group("args").split():
-        if arg.startswith("-"):
-            continue
-        if _SECRET_ARG.search(arg) and not _is_placeholder_dotenv(arg):
-            return True
-    return False
+    return any(
+        _SECRET_ARG.search(arg) and not _is_placeholder_dotenv(arg)
+        for arg in _operands(argv)[1:]
+    )
+
+
+def _stages_secret_file(command: str) -> bool:
+    """True if any ``git add`` in ``command`` names a real secret file."""
+    return any(_stages_secret(argv) for argv in _all_argvs(command))
 
 
 # Evasion rule table, in priority order. Each row is ``(category, predicate,
 # reason)`` where ``reason`` completes "This ..." in the deny message.
 _EVASION_RULES: tuple[tuple[str, object, str], ...] = (
-    ("git --no-verify", _matches(_GIT_NO_VERIFY),
+    ("git --no-verify", _any_argv(_git_no_verify),
      "bypasses the pre-commit / commit-msg hooks that guard every commit"),
-    ("git --no-gpg-sign", _matches(_GIT_NO_GPG_SIGN),
+    ("git --no-gpg-sign", _any_argv(_git_no_gpg_sign),
      "skips commit signing, defeating provenance verification"),
-    ("--admin bypass", _matches(_ADMIN_FLAG),
+    ("--admin bypass", _any_argv(_admin_bypass),
      "bypasses branch-protection and required-check gates"),
-    ("core.hooksPath disabled", _matches(_HOOKSPATH_NEUTERED),
+    ("core.hooksPath disabled", _any_argv(_hookspath_neutered),
      "redirects git's hooks path to nothing, disabling all repository hooks"),
-    ("git add -A / .", _matches(_GIT_ADD_ALL),
+    ("git add -A / .", _any_argv(_git_add_all),
      "blind-stages the entire working tree instead of explicit paths"),
-    ("git add of a secret file", _stages_secret_file,
+    ("git add of a secret file", _any_argv(_stages_secret),
      "stages a secret file (.env / *.pem / *.key / credentials*) into a commit"),
 )
 
 
 def _match_hook_evasion(command: str) -> tuple[str, str] | None:
     """Return (category, reason) for the first hook-evasion pattern matched."""
+    argvs = _all_argvs(command)
     for category, predicate, reason in _EVASION_RULES:
-        if predicate(command):  # type: ignore[operator]
+        if predicate(argvs):  # type: ignore[operator]
             return (category, reason)
     return None
 

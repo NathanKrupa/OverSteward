@@ -259,17 +259,18 @@ def test_delete_with_where_passes(hook):
     assert hook._match("psql -c 'DELETE FROM users WHERE id = 1'") is None
 
 
-def test_quoted_substitution_char_is_an_accepted_false_positive(hook):
-    """A regex cannot see quotes, so a quoted separator reads as a real one.
+def test_quoted_separator_char_is_not_a_command(hook):
+    """A separator inside quotes is text the shell hands on as one argument.
 
-    Already true of ``;``/``|``/``&`` before substitution chars were added: the
-    anchor recognises a command position, not a *shell-parsed* command position.
-    Adding a backtick and ``(`` extends that accepted cost to those two
-    characters. The common quoted mentions (``echo "rm -rf /"``) stay clean
-    because they carry no separator at all.
+    The command is lexed rather than pattern-matched, so a quoted ``;`` or
+    ``(`` stays inside its token instead of opening a command position. The
+    assertions are inverted from the regex era, when the anchor recognised a
+    command position rather than a *shell-parsed* one and this cost was
+    accepted. It is the shape that hard-denied an operator's issue body
+    (OS#402), so it is no longer acceptable.
     """
-    assert hook._match('echo "; rm -rf /"') is not None
-    assert hook._match('echo "(rm -rf /tmp)"') is not None
+    assert hook._match('echo "; rm -rf /"') is None
+    assert hook._match('echo "(rm -rf /tmp)"') is None
 
 
 # ---------------------------------------------------------------------------
@@ -482,6 +483,159 @@ def test_empty_command_ignored():
     proc = _run_hook(_payload(_BASH, ""))
     assert proc.returncode == 0
     assert proc.stdout.strip() == ""
+
+# ---------------------------------------------------------------------------
+# Lexed argv — a command counts only where the shell would run it, and a flag
+# counts only where the shell would pass it (OS#402). Every fixture below was
+# run individually against the pre-tokenising hook and seen red there.
+# ---------------------------------------------------------------------------
+
+# The exact shape from OS#402: a `gh issue comment` whose heredoc BODY merely
+# documents dangerous commands. Nothing runs, or could run — the verbs are prose
+# inside a quoted command substitution. The old raw scan answered `deny` on it,
+# which an operator cannot approve past.
+_HEREDOC_BODY_DOCUMENTING_COMMANDS = (
+    'gh issue comment 1 --body "$(cat <<\'EOF\'\n'
+    "Do not run these in the primary checkout:\n"
+    "\n"
+    "rm -rf /some/tree\n"
+    "git rebase -i main\n"
+    "git commit --no-verify\n"
+    "EOF\n"
+    ')"'
+)
+
+
+def test_heredoc_body_documenting_commands_is_not_an_evasion(hook):
+    """Red before: the body's `--no-verify` produced a hard deny."""
+    assert hook._match_hook_evasion(_HEREDOC_BODY_DOCUMENTING_COMMANDS) is None
+
+
+def test_heredoc_body_documenting_commands_is_not_destructive(hook):
+    """Red before: the body's `rm -rf` produced an ask."""
+    assert hook._match(_HEREDOC_BODY_DOCUMENTING_COMMANDS) is None
+
+
+def test_heredoc_body_documenting_commands_emits_no_decision():
+    """End to end — the operator's `gh issue comment` must produce no output."""
+    proc = _run_hook(_payload(_BASH, _HEREDOC_BODY_DOCUMENTING_COMMANDS))
+    assert proc.returncode == 0
+    assert proc.stdout.strip() == ""
+
+
+def test_quoted_bypass_flag_is_still_a_flag(hook):
+    """Red before: quoting the flag hid it from the raw scan entirely."""
+    result = hook._match_hook_evasion('git commit -m msg "--no-verify"')
+    assert result is not None
+    assert result[0] == _NO_VERIFY
+
+
+def test_quoted_bypass_flag_denies_end_to_end():
+    proc = _run_hook(_payload(_BASH, 'git commit -m msg "--no-verify"'))
+    assert proc.returncode == 0
+    assert _hso(proc)[_DECISION] == _DENY
+
+
+def test_quoted_destructive_flag_is_still_a_flag(hook):
+    """Red before: `rm "-rf" /important/tree` deleted a tree unprompted."""
+    result = hook._match('rm "-rf" /important/tree')
+    assert result is not None
+    assert result[0] == _RM_RF
+
+
+def test_quoted_destructive_flag_asks_end_to_end():
+    proc = _run_hook(_payload(_BASH, 'rm "-rf" /important/tree'))
+    assert proc.returncode == 0
+    assert _hso(proc)[_DECISION] == _ASK
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        # A message, a PR body, a doc line — the flag is one word of an
+        # argument, never an argument.
+        "git commit -m 'stop passing --no-verify to git'",
+        'gh pr create --body "never merge with --admin"',
+        'printf "%s\\n" "git add -A"',
+        # The red ones: a shell separator *inside* the quoted argument used to
+        # open a command position, so the message text denied itself.
+        "git commit -m 'commit; git commit --no-verify'",
+        'gh pr create --body "steps: (git add -A) then push"',
+    ],
+)
+def test_evasion_flag_inside_an_argument_is_not_an_invocation(hook, cmd):
+    assert hook._match_hook_evasion(cmd) is None
+
+
+def test_unlexable_evasion_still_denies(hook):
+    """An unbalanced quote cannot be lexed — err toward refusing, never allowing."""
+    assert hook._match_hook_evasion('git commit --no-verify -m "unclosed') is not None
+
+
+def test_unlexable_destructive_still_asks(hook):
+    assert hook._match('rm -rf /important/tree "unclosed') is not None
+
+
+def test_unlexable_input_decides_end_to_end():
+    proc = _run_hook(_payload(_BASH, 'git commit --no-verify -m "unclosed'))
+    assert proc.returncode == 0
+    assert _hso(proc)[_DECISION] == _DENY
+
+
+# ---------------------------------------------------------------------------
+# Red team — evasion shapes the raw scan missed, closed by reading argv.
+# Each was run individually against the pre-tokenising hook and seen red.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("cmd", "expected_category"),
+    [
+        # A wrapper word in front of git: the shell still runs git.
+        ("env git commit --no-verify -m x", _NO_VERIFY),
+        ("command git commit --no-verify -m x", _NO_VERIFY),
+        ("exec git commit --no-verify -m x", _NO_VERIFY),
+        ("env FOO=1 git commit --no-verify -m x", _NO_VERIFY),
+        ("env -u GIT_DIR git commit --no-verify -m x", _NO_VERIFY),
+        ("env git add -A", _ADD_ALL),
+        # A config override before the verb.
+        ("git -c user.name=x commit --no-verify -m y", _NO_VERIFY),
+        ("git -c core.hooksPath=/dev/null commit", _HOOKSPATH),
+        # Text a shell is told to execute is a command, not a quoted mention.
+        ("bash -c 'git commit --no-verify -m x'", _NO_VERIFY),
+        ('sh -c "git add -A"', _ADD_ALL),
+        # An absolute path is still the same program.
+        ("/usr/bin/git commit --no-verify -m x", _NO_VERIFY),
+    ],
+)
+def test_red_team_evasion_shapes_are_denied(hook, cmd, expected_category):
+    result = hook._match_hook_evasion(cmd)
+    assert result is not None, f"expected an evasion match for {cmd!r}"
+    assert result[0] == expected_category
+
+
+@pytest.mark.parametrize(
+    ("cmd", "expected_category"),
+    [
+        ("env rm -rf /important/tree", _RM_RF),
+        ("sudo rm -rf /important/tree", _RM_RF),
+        ("sudo -u nathan rm -rf /important/tree", _RM_RF),
+        ("bash -c 'rm -rf /important/tree'", _RM_RF),
+        ("/bin/rm -rf /important/tree", _RM_RF),
+        ("rm --recursive --force /important/tree", _RM_RF),
+        ("/usr/bin/git reset --hard HEAD~3", _RESET_HARD),
+    ],
+)
+def test_red_team_destructive_shapes_still_ask(hook, cmd, expected_category):
+    result = hook._match(cmd)
+    assert result is not None, f"expected a match for {cmd!r}"
+    assert result[0] == expected_category
+
+
+def test_wrapper_stripping_does_not_invent_a_command(hook):
+    """A wrapper in front of a benign command stays benign."""
+    assert hook._match("env DEBUG=1 pytest tests/") is None
+    assert hook._match_hook_evasion("env git status") is None
 
 
 # ---------------------------------------------------------------------------

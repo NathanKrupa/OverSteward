@@ -195,9 +195,11 @@ def _invocations(command: str) -> list[tuple[list[str], list[str]]] | None:
 # safe direction for a guard is to refuse rather than to wave it through, so the
 # original command-position regex stays as the fallback for that one case.
 #
-# DUPLICATE — ``check_destructive_command.py`` carries a byte-identical copy of
-# these three lines. They are NOT shared, for the same reason as the lexer
-# above. Any change here must be made in BOTH files or only one guard gets it.
+# DUPLICATE — ``guard_trunk_pull.py`` carries a byte-identical copy of these
+# three lines. They are NOT shared, for the same reason as the lexer above. Any
+# change here must be made in BOTH files or only one guard gets it.
+# ``check_destructive_command.py`` no longer carries them: its fallback drops
+# the quote characters and lexes again, which needs no command-position regex.
 # ---------------------------------------------------------------------------
 _SEP = r"(?:^|[\n;&|`(])\s*"  # start-of-line, shell separator, or substitution opener
 _ASSIGN = r"(?:\w+=\S+\s+)*"  # a run of ``VAR=value`` env assignments
