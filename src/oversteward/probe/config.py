@@ -28,8 +28,9 @@ class CloudflareZone:
     api_token: str
 
 
-def cloudflare_from_env() -> CloudflareZone:
-    zone_id = os.environ.get(CLOUDFLARE_ZONE_VAR, "").strip()
+def cloudflare_from_env(zone_id: str = "") -> CloudflareZone:
+    """The zone from ``zone_id`` (a zone id is public) or the environment; the token only from the environment."""
+    zone_id = (zone_id or os.environ.get(CLOUDFLARE_ZONE_VAR, "")).strip()
     api_token = os.environ.get(CLOUDFLARE_TOKEN_VAR, "").strip()
     missing = [n for n, v in ((CLOUDFLARE_ZONE_VAR, zone_id), (CLOUDFLARE_TOKEN_VAR, api_token)) if not v]
     if missing:

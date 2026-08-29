@@ -4,13 +4,15 @@
 
 """Install the steward-probe skip rule on a Cloudflare zone.
 
-Needs ``CLOUDFLARE_ZONE_ID`` + ``CLOUDFLARE_API_TOKEN`` (Zone → WAF → Edit; the
-consumer repo's ``.env``) and ``STEWARD_PROBE_TOKEN`` (OverSteward's ``.env``).
-Chain the sanctioned runner so neither value touches a command line — the
-first env-file wins on conflict, so name the consumer's first:
+Needs ``CLOUDFLARE_API_TOKEN`` (Zone → WAF → Edit; the consumer repo's
+``.env``) and ``STEWARD_PROBE_TOKEN`` (OverSteward's ``.env``), plus the zone
+id — ``--zone-id`` or ``CLOUDFLARE_ZONE_ID`` (a zone id is public, so it may
+sit on the command line). Chain the sanctioned runner so neither token touches
+a command line — the first env-file wins on conflict, so name the consumer's
+first:
 
     scripts/dev/with_test_env.py --env-file ../aigranthelper/.env -- \\
-        scripts/dev/with_test_env.py -- scripts/dev/install_probe_rule.py
+        scripts/dev/with_test_env.py -- scripts/dev/install_probe_rule.py --zone-id <id>
 
 Idempotent: re-run after rotating ``STEWARD_PROBE_TOKEN``.
 
@@ -21,6 +23,7 @@ Idempotent: re-run after rotating ``STEWARD_PROBE_TOKEN``.
 
 from __future__ import annotations
 
+import argparse
 import sys
 
 from oversteward.probe.config import ProbeConfigError, cloudflare_from_env, probe_token_from_env
@@ -31,9 +34,12 @@ EXIT_COULD_NOT_LOOK = 1
 EXIT_MISCONFIGURED = 2
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("--zone-id", default="", help="Cloudflare zone id (else CLOUDFLARE_ZONE_ID)")
+    args = parser.parse_args(argv)
     try:
-        zone = cloudflare_from_env()
+        zone = cloudflare_from_env(args.zone_id)
         probe_token = probe_token_from_env()
     except ProbeConfigError as error:
         print(f"misconfigured: {error}", file=sys.stderr)
