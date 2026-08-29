@@ -18,7 +18,12 @@ from html import unescape
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from oversteward.probe.models import MITIGATED_HEADER, PROBE_HEADER, ProbeResult
+from oversteward.probe.models import (
+    CACHE_STATUS_HEADER,
+    MITIGATED_HEADER,
+    PROBE_HEADER,
+    ProbeResult,
+)
 
 _TIMEOUT_SECONDS = 30
 _TITLE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
@@ -48,6 +53,7 @@ def fetch(url: str, token: str, *, transport: Transport = urlopen) -> ProbeResul
             status=error.code,
             title=_title_of(error.read() or b""),
             challenged=(error.headers.get(MITIGATED_HEADER) or "").lower() == "challenge",
+            cache_status=(error.headers.get(CACHE_STATUS_HEADER) or "").upper(),
         )
     body = response.read()
     return ProbeResult(
@@ -55,4 +61,5 @@ def fetch(url: str, token: str, *, transport: Transport = urlopen) -> ProbeResul
         status=response.status,
         title=_title_of(body),
         challenged=(response.getheader(MITIGATED_HEADER) or "").lower() == "challenge",
+        cache_status=(response.getheader(CACHE_STATUS_HEADER) or "").upper(),
     )

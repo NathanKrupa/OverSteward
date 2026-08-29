@@ -79,6 +79,16 @@ class TestResult:
         assert result.status == 404
         assert result.challenged is False
 
+    def test_the_cache_verdict_is_reported(self):
+        transport, _ = _transport_recording(
+            _Response(b"<title>x</title>", headers={"cf-cache-status": "hit"})
+        )
+        assert fetch(_URL, _TOKEN, transport=transport).cache_status == "HIT"
+
+    def test_no_cache_header_reports_empty(self):
+        transport, _ = _transport_recording(_Response(b""))
+        assert fetch(_URL, _TOKEN, transport=transport).cache_status == ""
+
     def test_a_page_without_a_title_reports_empty(self):
         transport, _ = _transport_recording(_Response(b"<html></html>"))
         assert fetch(_URL, _TOKEN, transport=transport).title == ""

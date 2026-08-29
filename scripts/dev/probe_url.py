@@ -44,7 +44,8 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_COULD_NOT_LOOK
 
     verdict = "CHALLENGED" if result.challenged else f"HTTP {result.status}"
-    print(f"{verdict}  {result.url}\n  title: {result.title or '(none)'}")
+    cache = f"  cache: {result.cache_status}" if result.cache_status else ""
+    print(f"{verdict}  {result.url}{cache}\n  title: {result.title or '(none)'}")
     if result.challenged or result.status != 200:
         return EXIT_MEASURED_FAILURE
     if args.expect_title and args.expect_title not in result.title:

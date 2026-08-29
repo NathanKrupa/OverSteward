@@ -49,12 +49,14 @@ class TestExpression:
 class TestEnsure:
     def test_creates_the_rule_first_when_absent(self):
         existing = [{"id": "r1", "action": "block", "description": "other"}]
-        transport, calls = _fake_transport(
-            [_entrypoint(existing), {"success": True, "errors": [], "result": {"id": "new"}}]
-        )
+        # Cloudflare answers a rule create with the whole ruleset, not the rule.
+        after = _entrypoint([{"id": "new", "description": RULE_DESCRIPTION}, *existing])
+        transport, calls = _fake_transport([_entrypoint(existing), after])
         outcome = ensure_skip_rule(_ZONE, _API, _TOKEN, transport=transport)
 
         assert outcome.action == "created"
+        assert outcome.rule_id == "new"
+        assert outcome.ruleset_id == _RULESET
         method, url, body = calls[1]
         assert method == "POST"
         assert url.endswith(f"/zones/{_ZONE}/rulesets/{_RULESET}/rules")

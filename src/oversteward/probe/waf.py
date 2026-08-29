@@ -112,5 +112,10 @@ def ensure_skip_rule(
 
     if rules:
         desired["position"] = {"before": rules[0]["id"]}
-    created = _call(transport, "POST", rules_url, api_token, desired)
+    # Cloudflare answers a rule create with the whole ruleset, not the rule.
+    updated_ruleset = _call(transport, "POST", rules_url, api_token, desired)
+    created = next(
+        (r for r in updated_ruleset.get("rules", []) if r.get("description") == RULE_DESCRIPTION),
+        {},
+    )
     return RuleOutcome("created", created.get("id", ""), ruleset_id)
