@@ -205,13 +205,15 @@ possibly unmerged.
 
 ## 7. OverSteward
 
-Only one runtime env-secret family: the Vintner reader DSNs. Everything else the
-control plane does (dispatch, dream, telegraph) rides estate-level CLI auth
-(§0) — deliberately no `ANTHROPIC_API_KEY` in this repo (Max subscription, not
-metered API). `.mcp.json` is empty by design (PR#198) — no MCP-held secrets.
+Two runtime env-secret families: the Vintner reader DSNs and the steward
+probe token. Everything else the control plane does (dispatch, dream,
+telegraph) rides estate-level CLI auth (§0) — deliberately no
+`ANTHROPIC_API_KEY` in this repo (Max subscription, not metered API).
+`.mcp.json` is empty by design (PR#198) — no MCP-held secrets.
 
 | Secret | Consumer | Regenerate | Apply / notes |
 |---|---|---|---|
+| `STEWARD_PROBE_TOKEN` | `src/oversteward/probe/config.py` → `scripts/dev/probe_url.py` (live-URL checks through Cloudflare's challenge) | in-process `secrets.token_urlsafe(32)` written straight into repo-root `.env` — never printed | Lives in **two** places that must agree: this `.env` and the Cloudflare WAF skip rule on each protected zone (AG today). Rotate = re-mint, then re-run `scripts/dev/install_probe_rule.py` per zone (needs that zone's `CLOUDFLARE_API_TOKEN`, Zone→WAF→Edit, from the consumer repo's `.env`). Anyone holding the token bypasses the foundation-tail challenge and rate limit, so treat it as a credential. |
 | `VINTNER_RESEARCH_DATABASE_URL` | `src/oversteward/vintner/reader.py` (sole `os.environ` touch, ARCH-020) → `/pipeline-status` | re-run `documentation/designs/vintner/provision_vintner_reader.grantspider.sql` as the **GS Neon owner** (Neon SQL console, top-to-bottom); rebuild the DSN with the new password | export in shell or repo-root `.env` (gitignored). Role sees only `vintner.*` views. |
 | `VINTNER_AG_DATABASE_URL` | ⚠ documented, **no code consumer yet** (Vintner AG adapter unbuilt) | `provision_vintner_reader.aigranthelper.sql` as the **AG Neon owner** | provision only when the adapter lands |
 
