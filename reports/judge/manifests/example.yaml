@@ -1,0 +1,41 @@
+# ABOUTME: Example manifest for scripts/page_judge.py — URL shapes, not a live round.
+# ABOUTME: Copy it, set the real host and real slugs, then run score and compare.
+#
+# The host below is a placeholder: the OPERATOR sets the real one before running.
+# The paths are the three page types the pre-launch pass exists to judge, taken
+# from AG's URL patterns:
+#   foundation   apps/research/urls.py  ^foundations/<st>/<slug>/$
+#   sector_hub   apps/research/urls.py  ^foundations/<st>/sector/<sector-slug>/$
+#   lead_page    apps/seo/urls.py        grants-for/<slug>/
+#
+# Judge TEMPLATES on samples (~5 URLs per page type), never the corpus — the
+# whole point is that no per-page LLM burn happens here.
+#
+#   scripts/dev/with_test_env.py -- .venv/bin/python scripts/page_judge.py \
+#       score reports/judge/manifests/example.yaml --budget-usd 1.00
+#
+# Writes reports/judge/<date>-<name>.md and .json.
+
+name: foundation-round-1
+
+# Per ordering; a pair therefore costs 2 x samples calls.
+samples: 3
+
+page_types:
+  foundation:
+    - https://app.aigranthelper.com/foundations/pa/example-foundation/
+    - https://app.aigranthelper.com/foundations/oh/example-family-trust/
+
+  sector_hub:
+    - https://app.aigranthelper.com/foundations/pa/sector/housing/
+    - https://app.aigranthelper.com/foundations/oh/sector/education/
+
+  lead_page:
+    - https://app.aigranthelper.com/grants-for/housing/
+    - https://app.aigranthelper.com/grants-for/education/
+
+# Head-to-head: each pair is judged in both orders, so position bias shows up as
+# an even split rather than a win.
+pairs:
+  - - https://app.aigranthelper.com/foundations/pa/sector/housing/
+    - https://app.aigranthelper.com/grants-for/housing/
