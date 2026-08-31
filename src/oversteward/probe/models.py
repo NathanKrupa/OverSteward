@@ -25,7 +25,9 @@ class ProbeResult:
 
     ``challenged`` is Cloudflare's own verdict (``cf-mitigated: challenge``),
     distinct from an ordinary 403 the origin might return. ``cache_status`` is
-    empty when the response did not pass through Cloudflare's cache.
+    empty when the response did not pass through Cloudflare's cache. ``body``
+    is the response decoded as UTF-8 with undecodable bytes replaced — a caller
+    that wants to read the page, not merely its status, reads it there.
     """
 
     url: str
@@ -33,3 +35,4 @@ class ProbeResult:
     title: str
     challenged: bool
     cache_status: str = ""
+    body: str = ""

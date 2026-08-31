@@ -92,3 +92,26 @@ class TestResult:
     def test_a_page_without_a_title_reports_empty(self):
         transport, _ = _transport_recording(_Response(b"<html></html>"))
         assert fetch(_URL, _TOKEN, transport=transport).title == ""
+
+
+class TestBody:
+    """The page's own text, so a caller can read the page and not just its status."""
+
+    def test_the_decoded_body_is_carried_back(self):
+        transport, _ = _transport_recording(_Response(b"<html><p>Real words.</p></html>"))
+        assert fetch(_URL, _TOKEN, transport=transport).body == "<html><p>Real words.</p></html>"
+
+    def test_undecodable_bytes_are_replaced_rather_than_raising(self):
+        transport, _ = _transport_recording(_Response(b"caf\xe9"))
+        assert fetch(_URL, _TOKEN, transport=transport).body == "caf�"
+
+    def test_an_error_response_carries_its_body_too(self):
+        error = HTTPError(
+            _URL,
+            403,
+            "Forbidden",
+            {"cf-mitigated": "challenge"},  # type: ignore[arg-type]
+            io.BytesIO(b"<title>Just a moment...</title>"),
+        )
+        transport, _ = _transport_recording(error)
+        assert fetch(_URL, _TOKEN, transport=transport).body == "<title>Just a moment...</title>"
