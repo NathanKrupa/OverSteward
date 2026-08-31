@@ -565,6 +565,151 @@ Heavy delivery between 2026-04-15 and 2026-05-07. Center of gravity moved here.
 
 ---
 
+## §3.11 End of August 2026 — the guards learn to lex, and Google grades the site (reconciled 2026-08-31)
+
+> Fifth dream-produced pass. Two through-lines. In OverSteward the **guard
+> family stopped reading prose as commands** — three hooks now decide from
+> lexed argv — and `sow.py`, held under the H2-5 forcing function since May,
+> was built the day a manual sync proved the gate had fired. Across the estate
+> the week closed with a **measured verdict from Google**: the §3.10
+> "mid-September checkpoint" was answered a fortnight early, and harshly — the
+> enriched foundation pages are crawled and declined, and the cohort AG could
+> actually win is structurally noindexed by its own gate. The self-poisoning
+> Stripe smoke that §3.10 flagged was root-caused to the docs harness and closed.
+
+### Shipped (2026-08-25 → 08-31)
+
+- **Kaizen promotion, 6× recurrence** (PR #398): a gate that applies a fix
+  (formatter, auto-fixer, generated file) must assert the tracked tree equals
+  HEAD *before* any verify marker is written — the mechanism had existed since
+  PR #259, the rule had not, and five PRs across three repos relearned it.
+  Companion decision: OS#400 (consolidate the six PreToolUse hooks into one
+  dispatcher) **declined on measurement** — the per-hook cost was not there.
+- **The guards decide from lexed argv.** `guard_main_worktree.py` and
+  `guard_trunk_pull.py` refused `gh issue create` bodies that merely
+  *mentioned* `git checkout` — five false refusals in one morning while filing
+  the defect itself (OS#401 → PR #403, which also stands the primary-checkout
+  classification down inside a Claude Code web container).
+  `check_destructive_command.py` was wrong in both directions — prose about a
+  dangerous command hard-denied, a quoted flag let through (OS#402 → PR #405;
+  the quote-masking shortcut deliberately not taken). The family sync that
+  followed found `guard_trunk_pull.py` missing from `dev_family.HOOK_MEMBERS`
+  (so `/sync-status --family` would report it absent forever), promoted two
+  OverSteward-local test files into canon after measuring drift direction
+  against canon's git history, and deployed the `sync-repos` systemd units
+  (PR #407; `.gitleaks.toml` canon question filed as OS#406). Residue: OS#409
+  — a quoted heredoc body containing an apostrophe makes the whole command
+  unlexable and the fallback refuses on prose. `/project-status` raised its
+  `gh` limit to 500 (PR #404).
+- **`sow.py` is built** (OS#408 → PR #411). The H2-5 forcing function fired on
+  2026-08-28 when the manual family sync could no longer be absorbed by hand.
+  Scoped to the canonical `shared/scripts/dev/` byte-copy family only; four
+  authorised contract deviations, each forced by what that sync measured —
+  canon's git history replaces the never-created `reports/manifest.json`, a
+  throwaway worktree off `origin/<branch>` replaces the branch checkout the
+  guard now refuses, a new G9 runs the *target repo's own* ruff inside the
+  worktree before committing, and `--verify` is opt-in. Propose-don't-impose
+  holds: one PR per context, JSONL audit trail, **never auto-merge**. Open for
+  Nathan: whether sow may auto-merge a green byte-copy PR.
+- **The steward probe** (PR #414) — a signed `x-steward-probe` header matched
+  by a first-position Cloudflare WAF Skip rule, so a session can see a live
+  `/foundations/*` page through the managed challenge without weakening it or
+  impersonating a client. `probe_url.py` exits 0/1/2 (200 / challenged-or-
+  other, measured / token unset, could not look) and reads `cf-mitigated` so a
+  challenge and an origin 403 are different findings. Red proven live before
+  the rule, green after Nathan installed it (an operator step — the classifier
+  refuses the two-repo secrets chain in-session). Motivation was the Mellon
+  page fix (GS#2440) ending with the data verified and the page unverifiable
+  — "an unacceptable constraint". AG runbook sibling AG#1819.
+- **AG Stripe smoke: root-caused and closed** (steered from here, 08-30). The
+  dominant driver was never the team-flow invite of §3.10: `Docs Refresh` runs
+  on **every push to `main`**, captures against staging with seeding on, and
+  its teardown parked the smoke account in "Riverside Community Food Bank
+  (demo)" — plan=pro, no Stripe customer — in the tenant DB staging and prod
+  share. The pricing CTA branched on plan, the portal correctly refused an
+  empty customer and bounced to `/pricing/`, and the smoke timed out waiting
+  for stripe.com on every run since 08-26; nothing raised, so Sentry was
+  silent. The red-team ordered the fix: harness restores a *declared* home org
+  and the smoke asserts its precondition with a named "state leak" diagnosis
+  (AG#1830) **before** the product fix (portal only with a Stripe customer,
+  AG#1833 — which also closed the comped beta cohort's silent
+  'Switch to Consultant' bounce, a revenue leak), plus the onboarding watchdog
+  skipping demo orgs (AG#1834). Promoted via AG#1827 and AG#1835 with
+  back-merges #1831/#1837; the post-merge Docs Refresh restored the account by
+  itself, and the `main` smoke's pricing test went green for the first time
+  since 08-26. AG#1777 closed with evidence; residual `main` red is the Gannett
+  filing-download box (AG#1832).
+- **Crash recovery, 2026-08-30.** A WSL host reboot took the facsimile drain,
+  its supervisor and four sessions with it. Segment 3's 7,507 rendered rows
+  were written back to Neon early with the service's idempotent `write_back`,
+  the supervisor relaunched at 30k segments (its default of 1,000 does not
+  match the in-flight manifest), and ten merged worktrees across OS/GS/AG were
+  torn down through the doctor; two AG worktrees holding real uncommitted work
+  (`admins-critical-alerts`, `consultant-149`) were left in place.
+- **Sphere I measurement — the checkpoint answered early.** Half-month
+  impressions: May-b 12,253 → Jun 3,066 / 2,023 → Jul 530 / 130 → Aug 48 / 66,
+  clicks 170 → 0. The May traffic came from 9,568 *thin* pages (~1.7
+  impressions each, long-tail funder names) that the 07-03 noindex gate
+  removed on purpose; the 8,018 enriched foundations did not inherit the
+  index — of 42 URLs inspected, 1 indexed (the homepage), 28 unknown to
+  Google, 13 "Crawled – currently not indexed" including Ford, RWJ and
+  MacArthur, crawled the day before after manual requests and still declined.
+  Sitemap: 133,240 URLs submitted 08-20, 0 indexed. Cloudflare is innocent —
+  Googlebot's crawls succeed (AG#1795 can close on evidence). Then the
+  structural finding: the indexability gate admits only *website-derived*
+  enrichment, so a foundation enters the sitemap only if it has a website —
+  the exact cohort where ProPublica, Candid and its own site already win —
+  while the **11,997 mid-tier, no-website, accepts-applications foundations**
+  (9,664 with ≥10 grants on file) for which an AG page would be the web's
+  primary source can never pass. Keyword Planner went live the same night
+  (Google Ads OAuth minted in GCP `the-almoner-analytics`): "grants for
+  nonprofits" 8,100/mo, schools 5,400, libraries 2,900; the "how to get
+  funding for a nonprofit" cluster ~11k/mo; state cells register in 89 of 500;
+  funder-name demand is aggregate (~4.6/mo/name). **Nathan's ruling: Google
+  Search is AG's first mega customer** — organic traffic through great tools,
+  no ad budget, the prompt generator is not the tool to co-opt. AG#1838–#1841
+  filed and the SEO issues re-sequenced; AG#1309 (recrawl mechanism, PR #1842)
+  and AG#1710 (state × sector hubs, PR #1843) merged the same night.
+- **Sphere II — Special Angel** (wphelper client): Homepage 2 built in WPBakery
+  notation and published for iteration, palette taken through two approval
+  rounds via the thealmoner.com proof pages (Kelly now reviews alongside
+  Suzanne), Slider Revolution mobile and preloader fixes handed over as
+  operator steps, and the site-wide recolour scoped to five theme fields plus
+  ~20 hard-coded colours.
+
+### Corrections to the §3.10 watch-list
+
+| §3.10 row | Correction as of 2026-08-31 |
+|---|---|
+| 990-PF facsimile corpus drain | **in flight, relaunched from the primary checkout after the 08-30 reboot** — 95,504 facsimiles across 82,323 foundations (163.7 GB); TY2026 98.8%, TY2025 97.8% done, TY2024 ~31% after segment 3; ~11–12 days of continuous running to the five-year depth, the laptop staying awake being the one real risk |
+| AG#1443 — repoint `get_filing_history` | carried; now sequenced behind the winnable-surface work (Phase 2 freshness in the SEO plan) |
+| Fidelity-guard refusal classes (GS#2376-2378) | carried — ~2% of renders, re-attempted each pass; whether they get a renderer issue now or after the pass is still undecided |
+| Team-flow smoke state leak (AG#1738, #1739) | **root-caused and fixed** — the driver was `Docs Refresh`, not the invite flow; #1739's diagnosis was half-wrong (no hang, no empty-customer Stripe call); #1777 closed |
+| Publish clicks | no new evidence this week; carried |
+| GSC cohort migration | **checkpoint answered early, negatively** — the enriched cohort did not displace the residue; it is crawled-and-declined, and the premise of the §3.10 row (and of epic AG#1254's baseline) is revised in Shipped above |
+| Telegraph operator watchdog | carried, still unfiled |
+| docs-author card vs #1728 (OS#396) | carried, open |
+
+### Started, not yet landed (August 31 watch-list)
+
+| Item | Where | State |
+|---|---|---|
+| AG SEO chain #1838 → #1839 → #1840 → #1334 | AG | dispatching sequentially through the night of 08-30/31, per Nathan's order; then dream, then fiscus |
+| Second-tier indexability gate (no-website mid-tier cohort) | AG (#1838–#1841 set) | filed; must be an explicit allowlist tier with a 990-quality bar, phased in ~2,000-page batches on the GSC indexation-ratio canary (#1663's lesson) |
+| Weekly indexation-ratio sampler (50 sitemap URLs → coverage histogram) | (intent — verify it is among #1838–#1841) | the KPI instrument; impressions are lagging at this scale |
+| SEO instruments' permanent home | `~/.claude/tmp/seo-tools/` | working scripts parked in a perishable location; housekeeping issue filed on AG |
+| Lead pages versioned / A/B-tested without a PR per change | AG | Nathan's ask; capability check found only the #1304 canary machinery and the CMS article path |
+| Pricing tier for under-$1M nonprofits | (Nathan's ruling) | parked — cuts against the locked $149+seat Consultant lane; decide after traffic exists |
+| `sow.py` auto-merge of green byte-copy PRs | (Nathan's ruling) | parked |
+| AG staging DB separation | AG STAGING_WORKFLOW § Railway | standing hazard — `Docs Refresh` still mutates prod tenant rows on every merge to `main` |
+| Guard lexer apostrophe residual | OS#409 | open |
+| `guard_main_worktree` resolves the primary from `CLAUDE_PROJECT_DIR` | (unfiled intent) | refuses safe `git -C <linked-worktree>` switches from another repo's session; second recurrence 08-30 |
+| Dream engine: finalize leaves `MEMORY_FULL.md` + untracked in-session memories unstaged; Standing Orders budget refused four consecutive runs | (unfiled intent) | hand follow-up commit every run; worth one engine issue |
+| Memory contradiction awaiting a ruling | steward-memory | the 2026-07-05 "SEO deprioritised until product is professional-grade" stance is reversed by the 08-30 thesis; retire it with `dream.py supersede` |
+| Two AG worktrees with uncommitted work | `admins-critical-alerts`, `consultant-149` | left in place; decide commit / stash / drop with Nathan |
+
+---
+
 ## §4 In flight
 
 Active or partially-shipped items as of 2026-05-07.
@@ -670,4 +815,4 @@ Captured in `IDEA_STORE.md` from gstack research and conversational drift. None 
 - If §2-§3 grow past readable length, extract to a `documentation/changelog.md` and keep this doc thin.
 - This doc is the single answer to "what are we trying to do, what's done, what's next?" If it can't answer that in under 60 seconds of reading, it's grown past its purpose — restructure rather than expand.
 
-*Last updated: 2026-08-24 (late-August reconciliation — §3.10 added; the kaizen quintet, the live AG operator seam, the facsimile drain and synopsis completion, and the closed docs loop).*
+*Last updated: 2026-08-31 (end-of-August reconciliation — §3.11 added; the lexed-argv guard family, sow.py built, the steward probe, the Stripe smoke root cause, and Google's measured verdict on the enriched pages).*
