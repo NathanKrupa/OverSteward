@@ -55,7 +55,7 @@ shapes recur; both pass every test and change no behaviour.
 Ten false greens in eleven weeks: a gate, sweep or probe that passed while
 proving nothing, each caught by luck or by a later unrelated failure, none by
 design. A green is a *measurement*, and a measurement is only worth its
-sensitivity. These six rules make that sensitivity demonstrable.
+sensitivity. These seven rules make that sensitivity demonstrable.
 
 - **A new check ships with the fixture that makes it fail.** Green against live
   data is not acceptance — it measures the data, not the check. The proof is
@@ -97,3 +97,15 @@ sensitivity. These six rules make that sensitivity demonstrable.
   equals HEAD and fail *before* any marker is written; `require_formatted_commit.py`
   and `format_staged.py` are the sanctioned members (oversteward#259,
   aigranthelper#1444, grantspider#2028, #2100, #2103)
+- **A gate run in a worktree certifies whichever tree Python imports — prove
+  it is the worktree.** The shared `.venv`'s editable `.pth` points at the
+  primary checkout, so without an **absolute** `PYTHONPATH=<worktree>/src`
+  every gate — pytest, gaudi, a schema dump — silently measures the primary
+  tree: false reds against invisible edits, or false greens on a breaking
+  change the gate never saw. Before the first gate and after any `cd`, print
+  the resolved path and read it:
+  `.venv/bin/python -c "import <pkg>; print(<pkg>.__file__)"`. Ten recurrences
+  across three repos before the probe became reflex (oversteward#330,
+  aigranthelper#1131, #1444, grantspider#1960). A repo whose cross-repo
+  siblings are MetaPathFinder installs (aigranthelper) must reinstall them into
+  the worktree's own venv instead — `PYTHONPATH` cannot shadow those
