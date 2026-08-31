@@ -32,8 +32,14 @@ _USER_AGENT = "OverSteward-probe/1 (+https://github.com/NathanKrupa/OverSteward)
 Transport = Callable[[Request, int], object]
 
 
-def _title_of(body: bytes) -> str:
-    match = _TITLE.search(body.decode("utf-8", errors="replace"))
+def _decode(body: bytes) -> str:
+    """The response as text. Undecodable bytes are replaced, never raised on —
+    a mis-encoded page is still a page the caller came to read."""
+    return body.decode("utf-8", errors="replace")
+
+
+def _title_of(text: str) -> str:
+    match = _TITLE.search(text)
     return unescape(match.group(1)).strip() if match else ""
 
 
@@ -48,18 +54,21 @@ def fetch(url: str, token: str, *, transport: Transport = urlopen) -> ProbeResul
     try:
         response = transport(request, timeout=_TIMEOUT_SECONDS)
     except HTTPError as error:
+        text = _decode(error.read() or b"")
         return ProbeResult(
             url=url,
             status=error.code,
-            title=_title_of(error.read() or b""),
+            title=_title_of(text),
             challenged=(error.headers.get(MITIGATED_HEADER) or "").lower() == "challenge",
             cache_status=(error.headers.get(CACHE_STATUS_HEADER) or "").upper(),
+            body=text,
         )
-    body = response.read()
+    text = _decode(response.read())
     return ProbeResult(
         url=url,
         status=response.status,
-        title=_title_of(body),
+        title=_title_of(text),
         challenged=(response.getheader(MITIGATED_HEADER) or "").lower() == "challenge",
         cache_status=(response.getheader(CACHE_STATUS_HEADER) or "").upper(),
+        body=text,
     )
