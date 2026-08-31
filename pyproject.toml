@@ -8,6 +8,9 @@ license = {text = "Proprietary"}
 readme = "OVERSTEWARD.md"
 
 dependencies = [
+    # The page-judge quality-rater pass (OS#417). Declared here, not optional:
+    # scripts/page_judge.py is a first-class entry point of this repo.
+    "google-genai>=2.20",
     "python-dotenv>=1.0",
     "pyyaml>=6.0",
 ]
@@ -33,6 +36,13 @@ packages = ["src/oversteward"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+# Integration tests spend real money against a live API, so an ordinary suite
+# run must never reach them. Deselection prints as "deselected", never as a
+# pass — run them deliberately with `-m integration`.
+addopts = ["-m", "not integration"]
+markers = [
+    "integration: hits a live external API; key-gated and excluded from the default run",
+]
 
 [tool.ruff]
 target-version = "py312"
