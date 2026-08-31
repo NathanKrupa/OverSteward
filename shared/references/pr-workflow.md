@@ -48,7 +48,15 @@ shapes recur; both pass every test and change no behaviour.
   some test bites; a passing neighbour hides the vacuous one. Before the fix
   lands, run **each new test individually** against the unfixed code and watch
   it fail for the stated reason; one that passes either way is decoration
-  (oversteward#312, grantspider#1999, #2220)
+  (oversteward#312, grantspider#1999, #2220). And the reason matters: a test
+  that is red only because its import does not exist yet proves the *module* is
+  new, not that the guard bites — an ImportError red is the weakest signal and
+  must not be reported as seen-red without more. After the implementation
+  exists, **mutate it** (invert the guard, move the check after the call,
+  delete the filter) and re-run each new test: the ones that stay green are
+  pins or decoration, not guards, and must be rewritten or declared as
+  invariant pins in the PR body (11x across AG/GS/OS: oversteward#389, #390,
+  #403, #418, aigranthelper#1776, #1778)
 
 ## False greens — a check that reports success must prove it can fail
 
