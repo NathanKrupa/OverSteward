@@ -171,14 +171,13 @@ def compare_manifest(
 ) -> CompareReport:
     """Judge every pair in both orders, ``samples`` times each, and tally.
 
-    ``ground_truth`` is already resolved — url to facts — for the same reason
-    :func:`score_manifest` takes it resolved: a fixture path that does not exist
-    has to fail before the first call, not partway through a billed run. A pair
-    is judged against facts only when **both** its URLs have them.
+    ``ground_truth`` arrives resolved — url to facts — for the same reason
+    :func:`score_manifest` takes it resolved. A pair is judged against facts
+    only when **both** its URLs have them.
     """
     facts_by_url = ground_truth or {}
     _refuse_asymmetric_truth(manifest.pairs, facts_by_url)
-    tallies = [
+    tallies = tuple(
         _tally_pair(
             judge,
             (read_page(fetch_page, a), read_page(fetch_page, b)),
@@ -187,12 +186,9 @@ def compare_manifest(
             _pair_facts(a, b, facts_by_url),
         )
         for a, b in manifest.pairs
-    ]
+    )
     return CompareReport(
-        name=manifest.name,
-        tallies=tuple(tallies),
-        usage=budget.usage,
-        rubric=manifest.rubric,
+        name=manifest.name, tallies=tallies, usage=budget.usage, rubric=manifest.rubric
     )
 
 

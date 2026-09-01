@@ -27,6 +27,18 @@ _END = _CELL.rstrip() + "|"
 #: A page in a grounded table that carries no ground truth of its own.
 _UNSCORED = "—"
 
+#: The heading each per-pair and per-page detail block opens with.
+_H3 = "### "
+
+
+def _table(headers: tuple[str, ...], rows: list[tuple[str, ...]]) -> list[str]:
+    """A markdown table. The one place a row's punctuation is spelled out."""
+    return [
+        _ROW + _CELL.join(headers) + _END,
+        "| --- |" + " --- |" * (len(headers) - 1),
+        *[_ROW + _CELL.join(row) + _END for row in rows],
+    ]
+
 
 def score_json(report: ScoreReport) -> dict:
     """The machine-readable score report."""
@@ -47,7 +59,7 @@ def _page_json(scored: ScoredPage) -> dict:
         "title": scored.page.title,
         "mean": round(scored.score.mean, 2),
         "scores": {
-            name: {"score": dimension.score, "reason": dimension.reason}
+            name: _with_score(dimension.score, reason=dimension.reason)
             for name, dimension in scored.score.dimensions.items()
         },
     }
@@ -72,14 +84,12 @@ def _tally_json(tally: CompareTally) -> dict:
     payload = {
         "a": tally.a,
         "b": tally.b,
-        "a_wins": tally.a_wins,
-        "b_wins": tally.b_wins,
-        "ties": tally.ties,
+        **_wins_json(tally.a_wins, tally.b_wins, tally.ties),
         "samples": tally.samples,
     }
     if tally.per_question:
         payload["per_question"] = {
-            name: {"a_wins": q.a_wins, "b_wins": q.b_wins, "ties": q.ties}
+            name: _wins_json(q.a_wins, q.b_wins, q.ties)
             for name, q in tally.per_question.items()
         }
     if tally.groundedness:
@@ -87,13 +97,22 @@ def _tally_json(tally: CompareTally) -> dict:
     return payload
 
 
+def _wins_json(a_wins: int, b_wins: int, ties: int) -> dict:
+    """The one shape a count of preferences takes, whole pair or single question."""
+    return {"a_wins": a_wins, "b_wins": b_wins, "ties": ties}
+
+
 def _side_json(side: SideGroundedness) -> dict:
     """One side's reading. Kept whole: a difference of two scores is not a finding."""
     return {
         "url": side.url,
-        "score": side.score,
-        "unsupported_claims": list(side.unsupported_claims),
+        **_with_score(side.score, unsupported_claims=list(side.unsupported_claims)),
     }
+
+
+def _with_score(score: int, **rest) -> dict:
+    """A payload that leads with its 1-5 score — one dimension, or one side's reading."""
+    return {"score": score, **rest}
 
 
 def score_markdown(report: ScoreReport) -> str:
@@ -107,13 +126,8 @@ def score_markdown(report: ScoreReport) -> str:
     for page_type in dict.fromkeys(scored.page_type for scored in report.pages):
         group = [s for s in report.pages if s.page_type == page_type]
         columns = _columns(report.rubric, group)
-        lines += [f"## {page_type}", "", _header(columns), _divider(columns)]
-        for scored in group:
-            cells = _CELL.join(_cell(scored, name) for name in columns)
-            lines.append(
-                f"{_ROW}{scored.page.url}{_CELL}{cells}{_CELL}{scored.score.mean:.1f}{_END}"
-            )
-        lines.append("")
+        rows = [_score_row(scored, columns) for scored in group]
+        lines += [f"## {page_type}", "", *_table(("URL", *columns, "mean"), rows), ""]
         lines += _reason_lines(group)
     lines += _spend_lines(report.usage)
     return "\n".join(lines) + "\n"
@@ -125,12 +139,8 @@ def _columns(rubric: Rubric, group: list[ScoredPage]) -> tuple[str, ...]:
     return rubric.dimensions + ((GROUNDEDNESS,) if grounded else ())
 
 
-def _header(columns: tuple[str, ...]) -> str:
-    return f"{_ROW}URL{_CELL}" + _CELL.join(columns) + f"{_CELL}mean{_END}"
-
-
-def _divider(columns: tuple[str, ...]) -> str:
-    return "| --- |" + " --- |" * (len(columns) + 1)
+def _score_row(scored: ScoredPage, columns: tuple[str, ...]) -> tuple[str, ...]:
+    return (scored.page.url, *(_cell(scored, name) for name in columns), f"{scored.score.mean:.1f}")
 
 
 def _cell(scored: ScoredPage, name: str) -> str:
@@ -141,22 +151,19 @@ def _cell(scored: ScoredPage, name: str) -> str:
 
 def compare_markdown(report: CompareReport) -> str:
     """The tally table — every pair judged in both orders, so a sweep means something."""
+    rows = [
+        (t.a, t.b, str(t.a_wins), str(t.b_wins), str(t.ties), str(t.samples))
+        for t in report.tallies
+    ]
     lines = [
         f"# Page judge — {report.name} (pairwise)",
         "",
         f"Rubric: **{report.rubric.value}**. Each pair was judged in both orders and the "
         "swapped verdict mapped back, so an even split is what position bias looks like.",
         "",
-        _ROW + _CELL.join(("A", "B", "A wins", "B wins", "ties", "judgements")) + _END,
-        "| --- | --- | --- | --- | --- | --- |",
+        *_table(("A", "B", "A wins", "B wins", "ties", "judgements"), rows),
+        "",
     ]
-    for tally in report.tallies:
-        cells = _CELL.join(
-            str(value)
-            for value in (tally.a, tally.b, tally.a_wins, tally.b_wins, tally.ties, tally.samples)
-        )
-        lines.append(f"{_ROW}{cells}{_END}")
-    lines.append("")
     for tally in report.tallies:
         lines += _question_lines(tally)
         lines += _groundedness_lines(tally)
@@ -168,24 +175,19 @@ def _question_lines(tally: CompareTally) -> list[str]:
     """Which page answered each question better — the reading a single winner flattens."""
     if not tally.per_question:
         return []
-    lines = [
-        f"### {tally.a} vs {tally.b} — by question",
-        "",
-        _ROW + _CELL.join(("question", "A better", "B better", "tie")) + _END,
-        "| --- | --- | --- | --- |",
+    rows = [
+        (name, str(q.a_wins), str(q.b_wins), str(q.ties))
+        for name, q in tally.per_question.items()
     ]
-    for name, question in tally.per_question.items():
-        cells = _CELL.join(str(v) for v in (question.a_wins, question.b_wins, question.ties))
-        lines.append(f"{_ROW}{name}{_CELL}{cells}{_END}")
-    lines.append("")
-    return lines
+    header = ("question", "A better", "B better", "tie")
+    return [f"{_H3}{tally.a} vs {tally.b} — by question", "", *_table(header, rows), ""]
 
 
 def _groundedness_lines(tally: CompareTally) -> list[str]:
     """Both sides' readings, side by side and never subtracted from one another."""
     if not tally.groundedness:
         return []
-    lines = [f"### {tally.a} vs {tally.b} — groundedness", ""]
+    lines = [f"{_H3}{tally.a} vs {tally.b} — groundedness", ""]
     for side in tally.groundedness:
         lines += [f"**{side.url}** — {side.score}/5", ""]
         lines += _claim_lines(side.unsupported_claims)
@@ -195,7 +197,7 @@ def _groundedness_lines(tally: CompareTally) -> list[str]:
 def _reason_lines(group: list[ScoredPage]) -> list[str]:
     lines: list[str] = []
     for scored in group:
-        lines += [f"### {scored.page.title or scored.page.url}", "", f"<{scored.page.url}>", ""]
+        lines += [f"{_H3}{scored.page.title or scored.page.url}", "", f"<{scored.page.url}>", ""]
         for name, dimension in scored.score.dimensions.items():
             lines.append(f"- **{name}** {dimension.score}/5 — {dimension.reason}")
         lines.append("")

@@ -223,10 +223,13 @@ def compare_prompt(
         second_title=b.title,
         second_text=b.text[:MAX_PAGE_CHARS],
     )
-    if ground_truth is None:
-        return prompt
+    return prompt if ground_truth is None else prompt + _both_sides_facts(ground_truth)
+
+
+def _both_sides_facts(ground_truth: tuple[Mapping, Mapping]) -> str:
+    """The pairwise ground-truth block, each side under its own heading and key."""
     first_facts, second_facts = ground_truth
-    return prompt + _COMPARE_GROUND_TRUTH_BLOCK.format(
+    return _COMPARE_GROUND_TRUTH_BLOCK.format(
         first_facts=facts_json(first_facts),
         second_facts=facts_json(second_facts),
         first_key=FIRST_CLAIMS,
