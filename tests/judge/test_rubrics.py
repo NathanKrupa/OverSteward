@@ -25,7 +25,6 @@ import pytest
 from oversteward.judge.gemini import score_prompt
 from oversteward.judge.models import (
     GROUNDEDNESS,
-    SEEKER_QUESTIONS,
     JudgeReadError,
     PageText,
     Rubric,
@@ -133,13 +132,32 @@ class TestTheDesignRubricIsUnchanged:
 
 
 class TestTheSeekerRubric:
-    def test_the_seeker_prompt_asks_every_seeker_question(self):
+    @pytest.mark.parametrize(
+        "question",
+        [
+            "Can I apply?",
+            "What do they typically give?",
+            "Who do they fund, and are they like me?",
+            "When?",
+            "Where?",
+            "non-expert reader",
+        ],
+    )
+    def test_the_seeker_prompt_asks_every_seeker_question(self, question):
+        # Written out rather than read from SEEKER_QUESTIONS: a test that sources
+        # its expectation from the constant it checks moves whenever the constant
+        # does, and proves only that the prompt was built from something.
+        page = PageText(url=_URL, title="T", text="Body words.")
+
+        assert question in score_prompt(page, rubric=Rubric.SEEKER)
+
+    def test_the_seeker_prompt_names_every_seeker_dimension(self):
         page = PageText(url=_URL, title="T", text="Body words.")
 
         prompt = score_prompt(page, rubric=Rubric.SEEKER)
 
-        for name, question in SEEKER_QUESTIONS.items():
-            assert f"- {name}: {question}" in prompt
+        for name in Rubric.SEEKER.dimensions:
+            assert f"- {name}: " in prompt
 
     def test_a_seeker_manifest_scores_the_seeker_dimensions_and_the_report_names_the_rubric(
         self, tmp_path
