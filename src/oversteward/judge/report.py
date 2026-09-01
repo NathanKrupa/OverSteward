@@ -10,16 +10,16 @@ not on the page is a verdict nobody can budget the next round from.
 
 from __future__ import annotations
 
-from oversteward.judge.models import DIMENSIONS, Usage
-from oversteward.judge.service import CompareReport, ScoreReport
+from oversteward.judge.models import GROUNDEDNESS, Rubric, Usage
+from oversteward.judge.service import CompareReport, ScoredPage, ScoreReport
 
 #: Markdown table punctuation, named once so a column change is one edit.
 _CELL = " | "
 _ROW = "|" + _CELL
 _END = _CELL.rstrip() + "|"
 
-_SCORE_HEADER = f"{_ROW}URL{_CELL}" + _CELL.join(DIMENSIONS) + f"{_CELL}mean{_END}"
-_SCORE_DIVIDER = "| --- |" + " --- |" * (len(DIMENSIONS) + 1)
+#: A page in a grounded table that carries no ground truth of its own.
+_UNSCORED = "—"
 
 
 def score_json(report: ScoreReport) -> dict:
@@ -27,21 +27,27 @@ def score_json(report: ScoreReport) -> dict:
     return {
         "name": report.name,
         "kind": "score",
-        "pages": [
-            {
-                "url": scored.page.url,
-                "page_type": scored.page_type,
-                "title": scored.page.title,
-                "mean": round(scored.score.mean, 2),
-                "scores": {
-                    name: {"score": dimension.score, "reason": dimension.reason}
-                    for name, dimension in scored.score.dimensions.items()
-                },
-            }
-            for scored in report.pages
-        ],
+        "rubric": report.rubric.value,
+        "pages": [_page_json(scored) for scored in report.pages],
         "usage": _usage_json(report.usage),
     }
+
+
+def _page_json(scored: ScoredPage) -> dict:
+    """One page's scores, plus the unsupported claims when it was judged against facts."""
+    payload = {
+        "url": scored.page.url,
+        "page_type": scored.page_type,
+        "title": scored.page.title,
+        "mean": round(scored.score.mean, 2),
+        "scores": {
+            name: {"score": dimension.score, "reason": dimension.reason}
+            for name, dimension in scored.score.dimensions.items()
+        },
+    }
+    if GROUNDEDNESS in scored.score.scores:
+        payload["unsupported_claims"] = list(scored.score.unsupported_claims)
+    return payload
 
 
 def compare_json(report: CompareReport) -> dict:
@@ -66,18 +72,45 @@ def compare_json(report: CompareReport) -> dict:
 
 def score_markdown(report: ScoreReport) -> str:
     """One table per page type, then every reason, then the spend."""
-    lines = [f"# Page judge — {report.name}", "", "Scored 1-5, higher is better on every dimension.", ""]
+    lines = [
+        f"# Page judge — {report.name}",
+        "",
+        f"Rubric: **{report.rubric.value}**. Scored 1-5, higher is better on every dimension.",
+        "",
+    ]
     for page_type in dict.fromkeys(scored.page_type for scored in report.pages):
-        lines += [f"## {page_type}", "", _SCORE_HEADER, _SCORE_DIVIDER]
-        for scored in (s for s in report.pages if s.page_type == page_type):
-            cells = _CELL.join(str(scored.score.dimensions[name].score) for name in DIMENSIONS)
+        group = [s for s in report.pages if s.page_type == page_type]
+        columns = _columns(report.rubric, group)
+        lines += [f"## {page_type}", "", _header(columns), _divider(columns)]
+        for scored in group:
+            cells = _CELL.join(_cell(scored, name) for name in columns)
             lines.append(
                 f"{_ROW}{scored.page.url}{_CELL}{cells}{_CELL}{scored.score.mean:.1f}{_END}"
             )
         lines.append("")
-        lines += _reason_lines(report, page_type)
+        lines += _reason_lines(group)
     lines += _spend_lines(report.usage)
     return "\n".join(lines) + "\n"
+
+
+def _columns(rubric: Rubric, group: list[ScoredPage]) -> tuple[str, ...]:
+    """The rubric's dimensions, plus groundedness once any page in the group has it."""
+    grounded = any(GROUNDEDNESS in scored.score.scores for scored in group)
+    return rubric.dimensions + ((GROUNDEDNESS,) if grounded else ())
+
+
+def _header(columns: tuple[str, ...]) -> str:
+    return f"{_ROW}URL{_CELL}" + _CELL.join(columns) + f"{_CELL}mean{_END}"
+
+
+def _divider(columns: tuple[str, ...]) -> str:
+    return "| --- |" + " --- |" * (len(columns) + 1)
+
+
+def _cell(scored: ScoredPage, name: str) -> str:
+    """A page judged without ground truth leaves the column empty rather than scoring 5."""
+    dimension = scored.score.scores.get(name)
+    return _UNSCORED if dimension is None else str(dimension.score)
 
 
 def compare_markdown(report: CompareReport) -> str:
@@ -102,14 +135,23 @@ def compare_markdown(report: CompareReport) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _reason_lines(report: ScoreReport, page_type: str) -> list[str]:
+def _reason_lines(group: list[ScoredPage]) -> list[str]:
     lines: list[str] = []
-    for scored in (s for s in report.pages if s.page_type == page_type):
+    for scored in group:
         lines += [f"### {scored.page.title or scored.page.url}", "", f"<{scored.page.url}>", ""]
         for name, dimension in scored.score.dimensions.items():
             lines.append(f"- **{name}** {dimension.score}/5 — {dimension.reason}")
         lines.append("")
+        if GROUNDEDNESS in scored.score.scores:
+            lines += _claim_lines(scored.score.unsupported_claims)
     return lines
+
+
+def _claim_lines(claims: tuple[str, ...]) -> list[str]:
+    """The claims verbatim. The list is the finding; the score is only its length."""
+    if not claims:
+        return ["Unsupported claims: none — the ground truth supports every claim on the page.", ""]
+    return ["Unsupported claims:", "", *[f"- {claim}" for claim in claims], ""]
 
 
 def _spend_lines(usage: Usage) -> list[str]:

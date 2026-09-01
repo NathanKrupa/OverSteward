@@ -17,7 +17,7 @@ notice afterwards: a cap that reports the overspend it allowed is not a cap.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from oversteward.judge.extract import visible_text
@@ -27,9 +27,11 @@ from oversteward.judge.models import (
     JudgeReadError,
     Manifest,
     PageText,
+    Rubric,
     RubricScore,
     Usage,
     Winner,
+    facts_json,
     usage_for,
 )
 from oversteward.judge.protocol import Judge
@@ -105,6 +107,7 @@ class ScoreReport:
     name: str
     pages: tuple[ScoredPage, ...]
     usage: Usage
+    rubric: Rubric = Rubric.DESIGN
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,17 +122,40 @@ def score_manifest(
     fetch_page: FetchPage,
     manifest: Manifest,
     budget: Budget,
+    ground_truth: Mapping[str, Mapping] | None = None,
 ) -> ScoreReport:
-    """Rate every URL in the manifest, grouped by page type."""
+    """Rate every URL in the manifest, grouped by page type.
+
+    ``ground_truth`` is already resolved — url to facts — because a fixture path
+    that does not exist has to fail before the first call, not partway through a
+    billed run. A URL the operator supplied no facts for is judged on the rubric
+    alone; it never silently becomes a page with nothing to support it.
+    """
+    facts_by_url = ground_truth or {}
     scored: list[ScoredPage] = []
     for page_type, urls in manifest.page_types.items():
         for url in urls:
             page = read_page(fetch_page, url)
-            budget.check(len(page.text))
-            score, usage = judge.score(page)
+            facts = facts_by_url.get(url)
+            budget.check(len(page.text) + _facts_chars(facts))
+            score, usage = judge.score(page, rubric=manifest.rubric, ground_truth=facts)
             budget.record(usage)
             scored.append(ScoredPage(page_type=page_type, page=page, score=score))
-    return ScoreReport(name=manifest.name, pages=tuple(scored), usage=budget.usage)
+    return ScoreReport(
+        name=manifest.name,
+        pages=tuple(scored),
+        usage=budget.usage,
+        rubric=manifest.rubric,
+    )
+
+
+def _facts_chars(facts: Mapping | None) -> int:
+    """Ground truth rides in the same prompt, so it counts toward the estimate.
+
+    Rendered exactly as the prompt renders it: an estimate that charged for less
+    than the call actually sends would let a call through a cap it had not cleared.
+    """
+    return 0 if facts is None else len(facts_json(facts))
 
 
 def compare_manifest(
