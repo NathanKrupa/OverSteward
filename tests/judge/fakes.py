@@ -31,8 +31,10 @@ def dimension_payload(
 class FakeJudge:
     """A judge with a fixed opinion, which records every page it was shown.
 
-    ``compare`` always names the page shown *first*. A tally that reports a
-    sweep for one URL is therefore reporting position bias, not quality.
+    ``compare`` always names the page shown *first*, on every question. A tally
+    that reports a sweep for one URL is therefore reporting position bias, not
+    quality. ``claims_by_url`` is keyed by URL rather than by position, as a
+    real judge's reading is: a claim must follow its own page through the swap.
     """
 
     winner: Winner = Winner.FIRST
@@ -40,10 +42,14 @@ class FakeJudge:
     score_value: int = 3
     #: What this judge reports it could not support, whenever it is handed facts.
     unsupported_claims: tuple[str, ...] = ()
+    #: The same, per compared URL — what this judge says that page invented.
+    claims_by_url: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     scored: list[str] = field(default_factory=list)
     rubrics: list[Rubric] = field(default_factory=list)
     grounded: list[str] = field(default_factory=list)
     compared: list[tuple[str, str]] = field(default_factory=list)
+    compare_rubrics: list[Rubric] = field(default_factory=list)
+    compare_grounded: list[tuple[str, str]] = field(default_factory=list)
 
     @property
     def calls(self) -> int:
@@ -67,9 +73,29 @@ class FakeJudge:
         )
         return score, self.usage
 
-    def compare(self, a: PageText, b: PageText) -> tuple[Verdict, Usage]:
+    def compare(
+        self,
+        a: PageText,
+        b: PageText,
+        *,
+        rubric: Rubric = Rubric.DESIGN,
+        ground_truth: tuple[Mapping, Mapping] | None = None,
+    ) -> tuple[Verdict, Usage]:
         self.compared.append((a.url, b.url))
-        return Verdict(winner=self.winner, reason="fixed"), self.usage
+        self.compare_rubrics.append(rubric)
+        preferences = {}
+        if rubric is not Rubric.DESIGN:
+            preferences = dict.fromkeys(rubric.dimensions, self.winner)
+        if ground_truth is None:
+            return Verdict(winner=self.winner, reason="fixed", preferences=preferences), self.usage
+        self.compare_grounded.append((a.url, b.url))
+        return Verdict(
+            winner=self.winner,
+            reason="fixed",
+            preferences=preferences,
+            first_claims=tuple(self.claims_by_url.get(a.url, ())),
+            second_claims=tuple(self.claims_by_url.get(b.url, ())),
+        ), self.usage
 
 
 class FakeResponse:

@@ -18,7 +18,7 @@ notice afterwards: a cap that reports the overspend it allowed is not a cap.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from oversteward.judge.extract import visible_text
 from oversteward.judge.models import (
@@ -27,9 +27,12 @@ from oversteward.judge.models import (
     JudgeReadError,
     Manifest,
     PageText,
+    QuestionTally,
     Rubric,
     RubricScore,
+    SideGroundedness,
     Usage,
+    Verdict,
     Winner,
     facts_json,
     usage_for,
@@ -115,6 +118,7 @@ class CompareReport:
     name: str
     tallies: tuple[CompareTally, ...]
     usage: Usage
+    rubric: Rubric = Rubric.DESIGN
 
 
 def score_manifest(
@@ -163,33 +167,150 @@ def compare_manifest(
     fetch_page: FetchPage,
     manifest: Manifest,
     budget: Budget,
+    ground_truth: Mapping[str, Mapping] | None = None,
 ) -> CompareReport:
-    """Judge every pair in both orders, ``samples`` times each, and tally."""
+    """Judge every pair in both orders, ``samples`` times each, and tally.
+
+    ``ground_truth`` is already resolved — url to facts — for the same reason
+    :func:`score_manifest` takes it resolved: a fixture path that does not exist
+    has to fail before the first call, not partway through a billed run. A pair
+    is judged against facts only when **both** its URLs have them.
+    """
+    facts_by_url = ground_truth or {}
+    _refuse_asymmetric_truth(manifest.pairs, facts_by_url)
     tallies = [
-        _tally_pair(judge, read_page(fetch_page, a), read_page(fetch_page, b), manifest.samples, budget)
+        _tally_pair(
+            judge,
+            (read_page(fetch_page, a), read_page(fetch_page, b)),
+            manifest,
+            budget,
+            _pair_facts(a, b, facts_by_url),
+        )
         for a, b in manifest.pairs
     ]
-    return CompareReport(name=manifest.name, tallies=tuple(tallies), usage=budget.usage)
+    return CompareReport(
+        name=manifest.name,
+        tallies=tuple(tallies),
+        usage=budget.usage,
+        rubric=manifest.rubric,
+    )
 
 
-def _tally_pair(judge: Judge, a: PageText, b: PageText, samples: int, budget: Budget) -> CompareTally:
-    wins = {Winner.FIRST: 0, Winner.SECOND: 0, Winner.TIE: 0}
-    for _ in range(samples):
+def _refuse_asymmetric_truth(
+    pairs: tuple[tuple[str, str], ...],
+    facts_by_url: Mapping[str, Mapping],
+) -> None:
+    """A pair with facts for one side only is a misconfiguration, not a run.
+
+    Raised before the first page is fetched and long before the first call. The
+    checked page's inventions would be listed and the unchecked page credited
+    with none, so the variant that made things up could win the groundedness
+    reading by having no ground truth at all.
+    """
+    for a, b in pairs:
+        unchecked = [url for url in (a, b) if url not in facts_by_url]
+        if len(unchecked) == 1:
+            raise JudgeReadError(
+                f"the pair {a} vs {b} carries ground truth for one side only — {unchecked[0]} has "
+                "none. Supply facts for both sides or neither; no call was issued."
+            )
+
+
+def _pair_facts(a: str, b: str, facts_by_url: Mapping[str, Mapping]) -> tuple[Mapping, Mapping] | None:
+    """Both sides' facts, in pair order — or nothing, when the pair carries none."""
+    if a in facts_by_url and b in facts_by_url:
+        return (facts_by_url[a], facts_by_url[b])
+    return None
+
+
+def _tally_pair(
+    judge: Judge,
+    pair: tuple[PageText, PageText],
+    manifest: Manifest,
+    budget: Budget,
+    facts: tuple[Mapping, Mapping] | None,
+) -> CompareTally:
+    a, b = pair
+    counts = _PairCounts()
+    for _ in range(manifest.samples):
         for swapped in (False, True):
             first, second = (b, a) if swapped else (a, b)
-            budget.check(len(first.text) + len(second.text))
-            verdict, usage = judge.compare(first, second)
+            budget.check(len(first.text) + len(second.text) + _pair_facts_chars(facts))
+            verdict, usage = judge.compare(
+                first, second, rubric=manifest.rubric, ground_truth=_as_presented(facts, swapped)
+            )
             budget.record(usage)
             # The judge answered about presentation order; map it back to the pair.
-            wins[verdict.winner.flipped if swapped else verdict.winner] += 1
-    return CompareTally(
-        a=a.url,
-        b=b.url,
-        a_wins=wins[Winner.FIRST],
-        b_wins=wins[Winner.SECOND],
-        ties=wins[Winner.TIE],
-        samples=sum(wins.values()),
+            counts.add(verdict.flipped if swapped else verdict)
+    return counts.tally(a.url, b.url, grounded=facts is not None)
+
+
+def _as_presented(
+    facts: tuple[Mapping, Mapping] | None,
+    swapped: bool,
+) -> tuple[Mapping, Mapping] | None:
+    """The pair's facts in the order the pages are shown, so each side keeps its own."""
+    if facts is None:
+        return None
+    return (facts[1], facts[0]) if swapped else facts
+
+
+def _pair_facts_chars(facts: tuple[Mapping, Mapping] | None) -> int:
+    """Both sides' facts ride in the one prompt, so both count toward the estimate."""
+    return 0 if facts is None else sum(_facts_chars(side) for side in facts)
+
+
+@dataclass
+class _PairCounts:
+    """One pair's judgements, accumulated after each is mapped back to pair order."""
+
+    wins: dict[Winner, int] = field(default_factory=lambda: dict.fromkeys(Winner, 0))
+    per_question: dict[str, dict[Winner, int]] = field(default_factory=dict)
+    a_claims: list[str] = field(default_factory=list)
+    b_claims: list[str] = field(default_factory=list)
+
+    def add(self, verdict: Verdict) -> None:
+        self.wins[verdict.winner] += 1
+        for name, pick in verdict.preferences.items():
+            self.per_question.setdefault(name, dict.fromkeys(Winner, 0))[pick] += 1
+        _merge_claims(self.a_claims, verdict.first_claims)
+        _merge_claims(self.b_claims, verdict.second_claims)
+
+    def tally(self, a_url: str, b_url: str, *, grounded: bool) -> CompareTally:
+        return CompareTally(
+            a=a_url,
+            b=b_url,
+            a_wins=self.wins[Winner.FIRST],
+            b_wins=self.wins[Winner.SECOND],
+            ties=self.wins[Winner.TIE],
+            samples=sum(self.wins.values()),
+            per_question={name: _question_tally(c) for name, c in self.per_question.items()},
+            groundedness=(
+                (
+                    SideGroundedness(url=a_url, unsupported_claims=tuple(self.a_claims)),
+                    SideGroundedness(url=b_url, unsupported_claims=tuple(self.b_claims)),
+                )
+                if grounded
+                else ()
+            ),
+        )
+
+
+def _question_tally(counts: Mapping[Winner, int]) -> QuestionTally:
+    return QuestionTally(
+        a_wins=counts[Winner.FIRST], b_wins=counts[Winner.SECOND], ties=counts[Winner.TIE]
     )
+
+
+def _merge_claims(seen: list[str], claims: tuple[str, ...]) -> None:
+    """Union across orderings and samples, in the order the claims were first raised.
+
+    A claim the judge raised in one ordering and not the other is still a claim
+    an operator has to look at, so the readings are unioned rather than
+    intersected; a claim quoted identically twice is one finding, not two, or
+    the score would fall for repetition.
+    """
+    seen.extend(claim for claim in claims if claim not in seen)
 
 
 def read_page(fetch_page: FetchPage, url: str) -> PageText:

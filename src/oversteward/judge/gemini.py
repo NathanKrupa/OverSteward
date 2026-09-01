@@ -20,6 +20,8 @@ from collections.abc import Mapping
 from typing import Any
 
 from oversteward.judge.models import (
+    FIRST_CLAIMS,
+    SECOND_CLAIMS,
     JudgeReadError,
     PageText,
     Rubric,
@@ -96,6 +98,29 @@ PAGE TEXT:
 {text}
 """
 
+_SEEKER_COMPARE_PROMPT = """You are comparing two web pages on behalf of a grant
+seeker — someone running a small nonprofit who found them in a search and needs
+an answer they can act on, not an impression.
+
+For each question below, say which page answers it better for that reader:
+
+{rubric}
+
+Answer with JSON only, in exactly this shape — "first", "second" or "tie" for
+every question, then the overall preference and a one-line reason (at most 25
+words):
+
+{shape}
+
+=== FIRST PAGE ===
+TITLE: {first_title}
+{first_text}
+
+=== SECOND PAGE ===
+TITLE: {second_title}
+{second_text}
+"""
+
 #: Appended when the manifest supplied ground truth. It asks only for the list:
 #: an LLM asked to score its own groundedness rewards the page that sounds most
 #: confident, which is the fluent-fiction failure this dimension exists to catch.
@@ -109,6 +134,27 @@ of every factual claim the page makes that the ground truth above does not
 support. Quote each claim in at most 15 words. If every claim is supported,
 answer with an empty list. Do not score groundedness yourself — the list is the
 finding.
+"""
+
+#: The pairwise form of the same block. The two sides carry their own facts and
+#: their own list: a comparison that merged them would say which page invents
+#: more without ever saying what either one invented.
+_COMPARE_GROUND_TRUTH_BLOCK = """
+GROUND TRUTH — the only facts about each page's subject you may treat as supported.
+
+FOR THE FIRST PAGE:
+
+{first_facts}
+
+FOR THE SECOND PAGE:
+
+{second_facts}
+
+In addition to the JSON keys above, include "{first_key}" and "{second_key}":
+for each page, the list of factual claims that page makes which its own ground
+truth above does not support. Quote each claim in at most 15 words. If every
+claim is supported, answer with an empty list. Keep the two lists separate and
+do not score groundedness yourself — the lists are the finding.
 """
 
 
@@ -148,13 +194,43 @@ def _shape_line(names: tuple[str, ...]) -> str:
     return "{" + inner + "}"
 
 
-def compare_prompt(a: PageText, b: PageText) -> str:
-    """The head-to-head prompt. Positional: neither page is told it is "A"."""
-    return _COMPARE_PROMPT.format(
+def _preference_shape_line(names: tuple[str, ...]) -> str:
+    """The comparison's answer shape — one preference per question, then the overall one."""
+    inner = ", ".join(f'"{name}": "first"' for name in names)
+    return "{" + inner + ', "winner": "first", "reason": "..."}'
+
+
+def compare_prompt(
+    a: PageText,
+    b: PageText,
+    *,
+    rubric: Rubric = Rubric.DESIGN,
+    ground_truth: tuple[Mapping, Mapping] | None = None,
+) -> str:
+    """The head-to-head prompt. Positional: neither page is told it is "A".
+
+    The ``design`` prompt with no ground truth is frozen by a golden test — a
+    manifest that names no rubric compares with exactly the bytes every round to
+    date compared with. ``ground_truth`` is the facts for the two pages *in the
+    order presented*, so the caller that swaps the pages swaps these too.
+    """
+    template = _COMPARE_PROMPT if rubric is Rubric.DESIGN else _SEEKER_COMPARE_PROMPT
+    prompt = template.format(
+        rubric=_rubric_lines(rubric),
+        shape=_preference_shape_line(rubric.dimensions),
         first_title=a.title,
         first_text=a.text[:MAX_PAGE_CHARS],
         second_title=b.title,
         second_text=b.text[:MAX_PAGE_CHARS],
+    )
+    if ground_truth is None:
+        return prompt
+    first_facts, second_facts = ground_truth
+    return prompt + _COMPARE_GROUND_TRUTH_BLOCK.format(
+        first_facts=facts_json(first_facts),
+        second_facts=facts_json(second_facts),
+        first_key=FIRST_CLAIMS,
+        second_key=SECOND_CLAIMS,
     )
 
 
@@ -195,10 +271,24 @@ class GeminiJudge:
         )
         return score, usage
 
-    def compare(self, a: PageText, b: PageText) -> tuple[Verdict, Usage]:
-        """Prefer one of two pages *as presented* — the caller owns the ordering."""
-        payload, usage = _ask(self._client, self._model, compare_prompt(a, b))
-        return Verdict.from_payload(payload), usage
+    def compare(
+        self,
+        a: PageText,
+        b: PageText,
+        *,
+        rubric: Rubric = Rubric.DESIGN,
+        ground_truth: tuple[Mapping, Mapping] | None = None,
+    ) -> tuple[Verdict, Usage]:
+        """Prefer one of two pages *as presented* — the caller owns the ordering.
+
+        Under a rubric that asks per question the verdict carries one preference
+        each; when both pages arrive with facts it also carries what neither
+        page's own facts could support, one list per side.
+        """
+        prompt = compare_prompt(a, b, rubric=rubric, ground_truth=ground_truth)
+        payload, usage = _ask(self._client, self._model, prompt)
+        verdict = Verdict.from_payload(payload, rubric=rubric, grounded=ground_truth is not None)
+        return verdict, usage
 
 
 def _ask(client: Any, model: str, prompt: str) -> tuple[object, Usage]:

@@ -10,7 +10,13 @@ not on the page is a verdict nobody can budget the next round from.
 
 from __future__ import annotations
 
-from oversteward.judge.models import GROUNDEDNESS, Rubric, Usage
+from oversteward.judge.models import (
+    GROUNDEDNESS,
+    CompareTally,
+    Rubric,
+    SideGroundedness,
+    Usage,
+)
 from oversteward.judge.service import CompareReport, ScoredPage, ScoreReport
 
 #: Markdown table punctuation, named once so a column change is one edit.
@@ -55,18 +61,38 @@ def compare_json(report: CompareReport) -> dict:
     return {
         "name": report.name,
         "kind": "compare",
-        "tallies": [
-            {
-                "a": tally.a,
-                "b": tally.b,
-                "a_wins": tally.a_wins,
-                "b_wins": tally.b_wins,
-                "ties": tally.ties,
-                "samples": tally.samples,
-            }
-            for tally in report.tallies
-        ],
+        "rubric": report.rubric.value,
+        "tallies": [_tally_json(tally) for tally in report.tallies],
         "usage": _usage_json(report.usage),
+    }
+
+
+def _tally_json(tally: CompareTally) -> dict:
+    """One pair: the head-to-head count, then whatever the rubric and facts added."""
+    payload = {
+        "a": tally.a,
+        "b": tally.b,
+        "a_wins": tally.a_wins,
+        "b_wins": tally.b_wins,
+        "ties": tally.ties,
+        "samples": tally.samples,
+    }
+    if tally.per_question:
+        payload["per_question"] = {
+            name: {"a_wins": q.a_wins, "b_wins": q.b_wins, "ties": q.ties}
+            for name, q in tally.per_question.items()
+        }
+    if tally.groundedness:
+        payload["groundedness"] = [_side_json(side) for side in tally.groundedness]
+    return payload
+
+
+def _side_json(side: SideGroundedness) -> dict:
+    """One side's reading. Kept whole: a difference of two scores is not a finding."""
+    return {
+        "url": side.url,
+        "score": side.score,
+        "unsupported_claims": list(side.unsupported_claims),
     }
 
 
@@ -118,8 +144,8 @@ def compare_markdown(report: CompareReport) -> str:
     lines = [
         f"# Page judge — {report.name} (pairwise)",
         "",
-        "Each pair was judged in both orders and the swapped verdict mapped back, "
-        "so an even split is what position bias looks like.",
+        f"Rubric: **{report.rubric.value}**. Each pair was judged in both orders and the "
+        "swapped verdict mapped back, so an even split is what position bias looks like.",
         "",
         _ROW + _CELL.join(("A", "B", "A wins", "B wins", "ties", "judgements")) + _END,
         "| --- | --- | --- | --- | --- | --- |",
@@ -131,8 +157,39 @@ def compare_markdown(report: CompareReport) -> str:
         )
         lines.append(f"{_ROW}{cells}{_END}")
     lines.append("")
+    for tally in report.tallies:
+        lines += _question_lines(tally)
+        lines += _groundedness_lines(tally)
     lines += _spend_lines(report.usage)
     return "\n".join(lines) + "\n"
+
+
+def _question_lines(tally: CompareTally) -> list[str]:
+    """Which page answered each question better — the reading a single winner flattens."""
+    if not tally.per_question:
+        return []
+    lines = [
+        f"### {tally.a} vs {tally.b} — by question",
+        "",
+        _ROW + _CELL.join(("question", "A better", "B better", "tie")) + _END,
+        "| --- | --- | --- | --- |",
+    ]
+    for name, question in tally.per_question.items():
+        cells = _CELL.join(str(v) for v in (question.a_wins, question.b_wins, question.ties))
+        lines.append(f"{_ROW}{name}{_CELL}{cells}{_END}")
+    lines.append("")
+    return lines
+
+
+def _groundedness_lines(tally: CompareTally) -> list[str]:
+    """Both sides' readings, side by side and never subtracted from one another."""
+    if not tally.groundedness:
+        return []
+    lines = [f"### {tally.a} vs {tally.b} — groundedness", ""]
+    for side in tally.groundedness:
+        lines += [f"**{side.url}** — {side.score}/5", ""]
+        lines += _claim_lines(side.unsupported_claims)
+    return lines
 
 
 def _reason_lines(group: list[ScoredPage]) -> list[str]:
