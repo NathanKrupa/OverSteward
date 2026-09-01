@@ -6,9 +6,11 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 
+from collections.abc import Mapping
+
 from oversteward.judge.models import (
-    DIMENSIONS,
     PageText,
+    Rubric,
     RubricScore,
     Usage,
     Verdict,
@@ -16,9 +18,13 @@ from oversteward.judge.models import (
 )
 
 
-def dimension_payload(value: int = 4, reason: str = "ok") -> dict:
-    """The six-dimension mapping a rubric response carries."""
-    return {name: {"score": value, "reason": reason} for name in DIMENSIONS}
+def dimension_payload(
+    value: int = 4,
+    reason: str = "ok",
+    rubric: Rubric = Rubric.DESIGN,
+) -> dict:
+    """The per-dimension mapping a rubric response carries."""
+    return {name: {"score": value, "reason": reason} for name in rubric.dimensions}
 
 
 @dataclass
@@ -32,16 +38,34 @@ class FakeJudge:
     winner: Winner = Winner.FIRST
     usage: Usage = field(default_factory=lambda: Usage(1000, 100, 0.001125))
     score_value: int = 3
+    #: What this judge reports it could not support, whenever it is handed facts.
+    unsupported_claims: tuple[str, ...] = ()
     scored: list[str] = field(default_factory=list)
+    rubrics: list[Rubric] = field(default_factory=list)
+    grounded: list[str] = field(default_factory=list)
     compared: list[tuple[str, str]] = field(default_factory=list)
 
     @property
     def calls(self) -> int:
         return len(self.scored) + len(self.compared)
 
-    def score(self, page: PageText) -> tuple[RubricScore, Usage]:
+    def score(
+        self,
+        page: PageText,
+        *,
+        rubric: Rubric = Rubric.DESIGN,
+        ground_truth: Mapping | None = None,
+    ) -> tuple[RubricScore, Usage]:
         self.scored.append(page.url)
-        return RubricScore.from_payload(page.url, dimension_payload(self.score_value, "fixed")), self.usage
+        self.rubrics.append(rubric)
+        payload = dimension_payload(self.score_value, "fixed", rubric)
+        if ground_truth is not None:
+            self.grounded.append(page.url)
+            payload["unsupported_claims"] = list(self.unsupported_claims)
+        score = RubricScore.from_payload(
+            page.url, payload, rubric=rubric, grounded=ground_truth is not None
+        )
+        return score, self.usage
 
     def compare(self, a: PageText, b: PageText) -> tuple[Verdict, Usage]:
         self.compared.append((a.url, b.url))

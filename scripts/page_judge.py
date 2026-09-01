@@ -32,9 +32,17 @@ from pathlib import Path
 import yaml
 
 from oversteward.judge.config import JudgeConfigError, judge_from_env
-from oversteward.judge.models import JudgeReadError, manifest_from_mapping
+from oversteward.judge.ground_truth import resolve_ground_truth
+from oversteward.judge.models import JudgeReadError, Manifest, manifest_from_mapping
 from oversteward.judge.report import compare_json, compare_markdown, score_json, score_markdown
-from oversteward.judge.service import Budget, BudgetExceeded, compare_manifest, score_manifest
+from oversteward.judge.service import (
+    Budget,
+    BudgetExceeded,
+    CompareReport,
+    ScoreReport,
+    compare_manifest,
+    score_manifest,
+)
 from oversteward.probe.client import fetch
 from oversteward.probe.config import ProbeConfigError, probe_token_from_env
 
@@ -70,6 +78,20 @@ def _fail(message: str, code: int) -> int:
     return code
 
 
+def _judge_manifest(
+    command: str,
+    judge,
+    fetch_page: Callable,
+    manifest: Manifest,
+    budget: Budget,
+    ground_truth: dict,
+) -> ScoreReport | CompareReport:
+    """Run the command the operator named. Only ``score`` is judged against facts."""
+    if command == "score":
+        return score_manifest(judge, fetch_page, manifest, budget, ground_truth=ground_truth)
+    return compare_manifest(judge, fetch_page, manifest, budget)
+
+
 def _write(reports_dir: Path, name: str, markdown: str, payload: dict) -> Path:
     reports_dir.mkdir(parents=True, exist_ok=True)
     stem = f"{datetime.now(UTC):%Y-%m-%d}-{name}"
@@ -88,10 +110,19 @@ def main(
     reports_dir: Path = REPORTS_DIR,
 ) -> int:
     args = build_parser().parse_args(argv)
+    manifest_path = Path(args.manifest)
     manifest = manifest_from_mapping(
-        yaml.safe_load(Path(args.manifest).read_text(encoding="utf-8")) or {},
+        yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {},
         name=args.name,
     )
+    try:
+        # Resolved before the judge is even built: a fixture path that does not
+        # exist must cost an exit code, never a round of billed calls scored
+        # against facts that were never loaded.
+        ground_truth = resolve_ground_truth(manifest.ground_truth, manifest_path.resolve().parent)
+    except JudgeReadError as exc:
+        return _fail(f"could not read — {exc}", EXIT_COULD_NOT_LOOK)
+
     try:
         judge = judge_factory()
         token = token_factory()
@@ -99,9 +130,10 @@ def main(
         return _fail(f"could not look — {exc}", EXIT_MISCONFIGURED)
 
     budget = Budget(limit_usd=args.budget_usd)
-    run = score_manifest if args.command == "score" else compare_manifest
     try:
-        report = run(judge, lambda url: fetcher(url, token), manifest, budget)
+        report = _judge_manifest(
+            args.command, judge, lambda url: fetcher(url, token), manifest, budget, ground_truth
+        )
     except BudgetExceeded as exc:
         return _fail(f"budget stopped the run — {exc}", EXIT_COULD_NOT_LOOK)
     except JudgeReadError as exc:

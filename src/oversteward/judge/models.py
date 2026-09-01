@@ -11,8 +11,9 @@ is a rubric nobody can read a report from.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 #: The six dimensions, in the order a report renders them.
@@ -39,8 +40,85 @@ DIMENSION_QUESTIONS: Mapping[str, str] = {
     "without requiring a signup or another click?",
 }
 
+#: The seeker rubric's dimensions, in the order a report renders them: the five
+#: questions the demand research showed a grant seeker brings to Google, then
+#: whether a non-expert can read the answers off the page.
+SEEKER_DIMENSIONS: tuple[str, ...] = (
+    "can_i_apply",
+    "typical_giving",
+    "who_they_fund",
+    "when_to_apply",
+    "where_to_apply",
+    "clarity",
+)
+
+#: What each seeker dimension asks, verbatim, so the prompt and the report agree.
+SEEKER_QUESTIONS: Mapping[str, str] = {
+    "can_i_apply": "Can I apply? Does the page state plainly who is eligible, and whether "
+    "unsolicited applications are accepted at all?",
+    "typical_giving": "What do they typically give? Are grant sizes, total giving and what a "
+    "realistic ask looks like on the page?",
+    "who_they_fund": "Who do they fund, and are they like me? Are named grantees, causes and "
+    "organization sizes shown, so a reader can tell whether they resemble them?",
+    "when_to_apply": "When? Are deadlines, board meeting dates or the funder's own cycle stated, "
+    "with the year they apply to?",
+    "where_to_apply": "Where? Is the geography funded stated, and where an application actually "
+    "goes — address, portal or contact?",
+    "clarity": "Is all of that clear to a non-expert reader — someone running a small "
+    "nonprofit, not a professional grant writer?",
+}
+
+#: The dimension added to whichever rubric ran, when the manifest supplied ground
+#: truth. It is never in a rubric's own dimensions: the model does not score it.
+GROUNDEDNESS = "groundedness"
+
 _MIN_SCORE = 1
 _MAX_SCORE = 5
+
+
+class Rubric(StrEnum):
+    """Which questions a page is scored against.
+
+    ``design`` asks whether this is a good page. ``seeker`` asks whether it
+    answers the questions a grant seeker actually arrives with. They are two
+    instruments, not two settings, so every report names the one it ran.
+    """
+
+    DESIGN = "design"
+    SEEKER = "seeker"
+
+    @property
+    def dimensions(self) -> tuple[str, ...]:
+        """The dimensions this rubric scores, in render order."""
+        return DIMENSIONS if self is Rubric.DESIGN else SEEKER_DIMENSIONS
+
+    @property
+    def questions(self) -> Mapping[str, str]:
+        """What each of this rubric's dimensions asks."""
+        return DIMENSION_QUESTIONS if self is Rubric.DESIGN else SEEKER_QUESTIONS
+
+
+def groundedness_score(unsupported_claims: int) -> int:
+    """Map a count of unsupported claims onto the 1-5 scale — code, never the model.
+
+    An LLM asked "how grounded is this page" rewards the page that sounds most
+    confident, which is precisely the failure an enrichment A/B has to be
+    protected from. So the model is asked only to *list* what the ground truth
+    cannot support, and the arithmetic below turns that list into a score: no
+    unsupported claim is a 5, and each one costs a point down to the floor.
+    """
+    if unsupported_claims < 0:
+        raise ValueError("a count of unsupported claims cannot be negative")
+    return max(_MIN_SCORE, _MAX_SCORE - unsupported_claims)
+
+
+def facts_json(facts: Mapping) -> str:
+    """The one rendering of a ground-truth payload.
+
+    Named once because two callers must agree on it: the prompt that carries the
+    facts to the model, and the budget estimate that has to charge for them.
+    """
+    return json.dumps(facts, indent=2, sort_keys=True, default=str)
 
 #: https://ai.google.dev/gemini-api/docs/pricing as of 2026-08-31. These rates
 #: run through 2026-12-31 and double on 2027-01-01 — when that date passes,
@@ -101,30 +179,80 @@ class Dimension:
 
 @dataclass(frozen=True, slots=True)
 class RubricScore:
-    """The six dimensions for one page."""
+    """One page's scores, under whichever rubric asked the questions.
+
+    ``scores`` is keyed and ordered as the rubric renders, so a prompt and a
+    report walk the same sequence. ``unsupported_claims`` is empty for an
+    ungrounded run; for a grounded one it is the *finding*, and the
+    ``groundedness`` dimension is derived from its length rather than from the
+    model's own opinion of how grounded it was.
+    """
 
     url: str
-    intent_match: Dimension
-    eeat: Dimension
-    unique_ratio: Dimension
-    thin_smell: Dimension
-    readability: Dimension
-    answers_query: Dimension
+    scores: Mapping[str, Dimension]
+    rubric: Rubric = Rubric.DESIGN
+    unsupported_claims: tuple[str, ...] = ()
+
+    def __getattr__(self, name: str) -> Dimension:
+        """Read one dimension by name — ``score.thin_smell`` reads ``scores``."""
+        try:
+            return object.__getattribute__(self, "scores")[name]
+        except (AttributeError, KeyError):
+            raise AttributeError(name) from None
 
     @property
     def dimensions(self) -> dict[str, Dimension]:
-        return {name: getattr(self, name) for name in DIMENSIONS}
+        return dict(self.scores)
 
     @property
     def mean(self) -> float:
-        return sum(d.score for d in self.dimensions.values()) / len(DIMENSIONS)
+        return sum(d.score for d in self.scores.values()) / len(self.scores)
 
     @classmethod
-    def from_payload(cls, url: str, payload: object) -> RubricScore:
+    def from_payload(
+        cls,
+        url: str,
+        payload: object,
+        *,
+        rubric: Rubric = Rubric.DESIGN,
+        grounded: bool = False,
+    ) -> RubricScore:
         """Parse a judge's answer strictly — anything short of the full rubric is a read error."""
         if not isinstance(payload, Mapping):
             raise JudgeReadError(f"the judge answered {type(payload).__name__}, not a JSON object")
-        return cls(url=url, **{name: _dimension(payload, name) for name in DIMENSIONS})
+        scores = {name: _dimension(payload, name) for name in rubric.dimensions}
+        claims: tuple[str, ...] = ()
+        if grounded:
+            claims = _unsupported_claims(payload)
+            scores[GROUNDEDNESS] = Dimension(
+                score=groundedness_score(len(claims)),
+                reason=_groundedness_reason(len(claims)),
+            )
+        return cls(url=url, scores=scores, rubric=rubric, unsupported_claims=claims)
+
+
+def _unsupported_claims(payload: Mapping) -> tuple[str, ...]:
+    """The claims the ground truth could not support.
+
+    A missing list is a read error, never an empty one. Ground truth was
+    supplied, so "the judge found nothing" and "the judge said nothing" must not
+    both come out as a perfect groundedness score — that is the shape of a
+    check satisfied by doing nothing.
+    """
+    claims = payload.get("unsupported_claims")
+    if isinstance(claims, str) or not isinstance(claims, Sequence):
+        raise JudgeReadError(
+            "the judge's answer carries no unsupported_claims list, but ground truth was supplied "
+            "— an absent list cannot be read as a page whose every claim is supported"
+        )
+    return tuple(str(claim).strip() for claim in claims)
+
+
+def _groundedness_reason(count: int) -> str:
+    """The deterministic justification line — the claims themselves are the finding."""
+    if not count:
+        return "every factual claim on the page is supported by the ground truth"
+    return f"{count} claim(s) the ground truth does not support"
 
 
 def _dimension(payload: Mapping, name: str) -> Dimension:
@@ -206,6 +334,10 @@ class Manifest:
     samples: int
     page_types: Mapping[str, tuple[str, ...]]
     pairs: tuple[tuple[str, str], ...]
+    rubric: Rubric = Rubric.DESIGN
+    #: url -> the facts themselves, or a path to the JSON fixture holding them.
+    #: Unresolved on purpose: reading a path is I/O, which this module does not do.
+    ground_truth: Mapping[str, Mapping | str] = field(default_factory=dict)
 
 
 DEFAULT_SAMPLES = 3
@@ -214,8 +346,7 @@ DEFAULT_SAMPLES = 3
 def manifest_from_mapping(data: Mapping, *, name: str = "") -> Manifest:
     """Read a parsed YAML document into a :class:`Manifest`.
 
-    Every shape complaint is raised here, at the boundary the operator's file
-    crosses, so a malformed manifest names the key it came from.
+    Every shape complaint is raised here, at the operator's file boundary, naming its key.
     """
     samples = int(data.get("samples", DEFAULT_SAMPLES))
     if samples < 1:
@@ -225,6 +356,11 @@ def manifest_from_mapping(data: Mapping, *, name: str = "") -> Manifest:
         if isinstance(urls, str) or not isinstance(urls, Sequence):
             raise ValueError(f"page_types.{key} must be a list of URLs")
         page_types[str(key)] = tuple(str(url) for url in urls)
+    ground_truth: dict[str, Mapping | str] = {}
+    for url, entry in (data.get("ground_truth") or {}).items():
+        if not isinstance(entry, Mapping | str):
+            raise ValueError(f"ground_truth.{url} must be facts, or a path to a JSON file")
+        ground_truth[str(url)] = entry
     raw_pairs = data.get("pairs") or []
     if isinstance(raw_pairs, str) or not isinstance(raw_pairs, Sequence):
         raise ValueError("pairs must be a list")
@@ -233,25 +369,43 @@ def manifest_from_mapping(data: Mapping, *, name: str = "") -> Manifest:
         if isinstance(item, str) or not isinstance(item, Sequence) or len(item) != 2:
             raise ValueError("each entry of pairs must be exactly two URLs")
         pairs.append((str(item[0]), str(item[1])))
-    manifest_name = name or str(data.get("name", "unnamed"))
-    return Manifest(manifest_name, samples, page_types, tuple(pairs))
+    return Manifest(
+        name or str(data.get("name", "unnamed")), samples, page_types, tuple(pairs),
+        rubric=_rubric_of(data), ground_truth=ground_truth,
+    )
+
+
+def _rubric_of(data: Mapping) -> Rubric:
+    """The named rubric, defaulting to ``design`` so an old manifest is unchanged."""
+    raw = str(data.get("rubric", Rubric.DESIGN.value)).strip().lower()
+    try:
+        return Rubric(raw)
+    except ValueError:
+        known = ", ".join(rubric.value for rubric in Rubric)
+        raise ValueError(f"rubric must be one of {known}; got {raw!r}") from None
 
 
 __all__ = [
     "DIMENSIONS",
     "DIMENSION_QUESTIONS",
+    "GROUNDEDNESS",
     "INPUT_USD_PER_MTOK",
     "NO_USAGE",
     "OUTPUT_USD_PER_MTOK",
+    "SEEKER_DIMENSIONS",
+    "SEEKER_QUESTIONS",
     "CompareTally",
     "Dimension",
     "JudgeReadError",
     "Manifest",
     "PageText",
+    "Rubric",
     "RubricScore",
     "Usage",
     "Verdict",
     "Winner",
+    "facts_json",
+    "groundedness_score",
     "manifest_from_mapping",
     "usage_for",
 ]

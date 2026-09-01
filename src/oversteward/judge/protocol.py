@@ -3,9 +3,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Protocol
 
-from oversteward.judge.models import PageText, RubricScore, Usage, Verdict
+from oversteward.judge.models import PageText, Rubric, RubricScore, Usage, Verdict
 
 
 class Judge(Protocol):
@@ -16,8 +17,20 @@ class Judge(Protocol):
     caller made up afterwards.
     """
 
-    def score(self, page: PageText) -> tuple[RubricScore, Usage]:
-        """Rate ``page`` on the six rubric dimensions."""
+    def score(
+        self,
+        page: PageText,
+        *,
+        rubric: Rubric = Rubric.DESIGN,
+        ground_truth: Mapping | None = None,
+    ) -> tuple[RubricScore, Usage]:
+        """Rate ``page`` on ``rubric``'s dimensions.
+
+        ``ground_truth`` is the facts the page may be checked against. When it is
+        supplied the answer also carries the claims those facts cannot support,
+        and the groundedness score is derived from that list by the caller — the
+        judge is asked what it saw, never how grounded it thinks the page is.
+        """
         ...
 
     def compare(self, a: PageText, b: PageText) -> tuple[Verdict, Usage]:

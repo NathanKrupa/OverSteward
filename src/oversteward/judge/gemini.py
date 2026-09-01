@@ -16,15 +16,17 @@ malformed answer can never be mistaken for a low score.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from typing import Any
 
 from oversteward.judge.models import (
-    DIMENSION_QUESTIONS,
     JudgeReadError,
     PageText,
+    Rubric,
     RubricScore,
     Usage,
     Verdict,
+    facts_json,
     usage_for,
 )
 
@@ -36,8 +38,6 @@ DEFAULT_MODEL = "gemini-3.6-flash"
 MAX_PAGE_CHARS = 12_000
 
 _TEMPERATURE = 0.0
-
-_RUBRIC_LINES = "\n".join(f"- {name}: {question}" for name, question in DIMENSION_QUESTIONS.items())
 
 _SCORE_PROMPT = """You are a search quality rater assessing one web page.
 
@@ -76,14 +76,76 @@ TITLE: {second_title}
 """
 
 
-def score_prompt(page: PageText) -> str:
-    """The rubric prompt for one page, truncated to what a rater would read."""
-    return _SCORE_PROMPT.format(
-        rubric=_RUBRIC_LINES,
+_SEEKER_PROMPT = """You are assessing one web page on behalf of a grant seeker —
+someone running a small nonprofit who found this page in a search and needs an
+answer they can act on, not an impression.
+
+Score the page on each dimension from 1 to 5, where **5 is always best**:
+
+{rubric}
+
+Answer with JSON only, in exactly this shape, with a one-line reason per
+dimension (no more than 20 words each):
+
+{shape}
+
+TITLE: {title}
+URL: {url}
+
+PAGE TEXT:
+{text}
+"""
+
+#: Appended when the manifest supplied ground truth. It asks only for the list:
+#: an LLM asked to score its own groundedness rewards the page that sounds most
+#: confident, which is the fluent-fiction failure this dimension exists to catch.
+_GROUND_TRUTH_BLOCK = """
+GROUND TRUTH — the only facts about this subject you may treat as supported:
+
+{facts}
+
+In addition to the JSON keys above, include an "unsupported_claims" key: a list
+of every factual claim the page makes that the ground truth above does not
+support. Quote each claim in at most 15 words. If every claim is supported,
+answer with an empty list. Do not score groundedness yourself — the list is the
+finding.
+"""
+
+
+def score_prompt(
+    page: PageText,
+    *,
+    rubric: Rubric = Rubric.DESIGN,
+    ground_truth: Mapping | None = None,
+) -> str:
+    """The rubric prompt for one page, truncated to what a rater would read.
+
+    The ``design`` prompt with no ground truth is frozen by a golden test: every
+    round judged to date was scored against these exact bytes, so changing them
+    changes the instrument rather than tweaking it.
+    """
+    template = _SCORE_PROMPT if rubric is Rubric.DESIGN else _SEEKER_PROMPT
+    prompt = template.format(
+        rubric=_rubric_lines(rubric),
+        shape=_shape_line(rubric.dimensions),
         title=page.title,
         url=page.url,
         text=page.text[:MAX_PAGE_CHARS],
     )
+    if ground_truth is None:
+        return prompt
+    return prompt + _GROUND_TRUTH_BLOCK.format(facts=facts_json(ground_truth))
+
+
+def _rubric_lines(rubric: Rubric) -> str:
+    """One line per dimension, verbatim from the rubric the report will render."""
+    return "\n".join(f"- {name}: {question}" for name, question in rubric.questions.items())
+
+
+def _shape_line(names: tuple[str, ...]) -> str:
+    """The answer shape, generated from the dimensions rather than restated."""
+    inner = ", ".join(f'"{name}": {{"score": 3, "reason": "..."}}' for name in names)
+    return "{" + inner + "}"
 
 
 def compare_prompt(a: PageText, b: PageText) -> str:
@@ -118,10 +180,20 @@ class GeminiJudge:
         self._client = client if client is not None else _default_client(api_key)
         self._model = model
 
-    def score(self, page: PageText) -> tuple[RubricScore, Usage]:
-        """Rate one page on the six rubric dimensions."""
-        payload, usage = _ask(self._client, self._model, score_prompt(page))
-        return RubricScore.from_payload(page.url, payload), usage
+    def score(
+        self,
+        page: PageText,
+        *,
+        rubric: Rubric = Rubric.DESIGN,
+        ground_truth: Mapping | None = None,
+    ) -> tuple[RubricScore, Usage]:
+        """Rate one page on ``rubric``'s dimensions, against ground truth if supplied."""
+        prompt = score_prompt(page, rubric=rubric, ground_truth=ground_truth)
+        payload, usage = _ask(self._client, self._model, prompt)
+        score = RubricScore.from_payload(
+            page.url, payload, rubric=rubric, grounded=ground_truth is not None
+        )
+        return score, usage
 
     def compare(self, a: PageText, b: PageText) -> tuple[Verdict, Usage]:
         """Prefer one of two pages *as presented* — the caller owns the ordering."""
