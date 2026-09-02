@@ -24,6 +24,8 @@ from oversteward.gaudi_binary import gaudi_binary
 
 _GIT = "git"
 _GH = "gh"
+_HEAD = "HEAD"
+_DIFF = "diff"
 
 #: Distinguishes "work out where gaudi is" from "there is no gaudi" — the
 #: second must be expressible, or the could-not-look branch cannot be tested.
@@ -52,7 +54,7 @@ class ShellCollector:
         self._gaudi = gaudi_binary() if gaudi is _AUTODETECT else gaudi
 
     def _merge_base(self, base: str) -> str | None:
-        out = _run([_GIT, "merge-base", base, "HEAD"], self._root)
+        out = _run([_GIT, "merge-base", base, _HEAD], self._root)
         return out.strip() if out else None
 
     def diff(self, base: str) -> str | None:
@@ -60,13 +62,13 @@ class ShellCollector:
         point = self._merge_base(base)
         if point is None:
             return None
-        return _run([_GIT, "diff", "--no-color", point, "HEAD"], self._root)
+        return _run([_GIT, _DIFF, "--no-color", point, _HEAD], self._root)
 
     def changed_files(self, base: str) -> list[str] | None:
         point = self._merge_base(base)
         if point is None:
             return None
-        out = _run([_GIT, "diff", "--name-only", point, "HEAD"], self._root)
+        out = _run([_GIT, _DIFF, "--name-only", point, _HEAD], self._root)
         if out is None:
             return None
         return [line for line in out.splitlines() if line.strip()]
@@ -82,7 +84,7 @@ class ShellCollector:
         point = self._merge_base(base)
         if point is None:
             return None
-        out = _run([_GIT, "diff", "--diff-filter=D", "--name-only", point, "HEAD"], self._root)
+        out = _run([_GIT, _DIFF, "--diff-filter=D", "--name-only", point, _HEAD], self._root)
         if out is None:
             return None
         return [line for line in out.splitlines() if line.strip()]
