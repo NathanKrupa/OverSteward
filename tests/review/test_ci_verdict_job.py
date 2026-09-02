@@ -5,12 +5,19 @@ from __future__ import annotations
 
 import operator
 import os
+import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 import yaml
+
+from oversteward.review_verdict import (
+    EXIT_COULD_NOT_LOOK,
+    EXIT_NOT_APPLICABLE,
+    EXIT_OK,
+    EXIT_VIOLATIONS,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
@@ -172,7 +179,23 @@ def test_a_body_edit_does_not_re_run_the_whole_suite(workflow: dict) -> None:
 STEP_EXIT_FOR_GATE_EXIT = {0: 0, 1: 1, 2: 2, 3: 0}
 
 
-def _shell_argv(step: dict, script: Path) -> list[str]:
+@pytest.fixture
+def bash() -> str:
+    """The shell these tests execute the job's `run:` block with.
+
+    Requested by every test that spawns one, and by no other, so a machine
+    without bash skips exactly those and still runs the table assertions. A
+    skip that swallowed a real failure would be worse than the gap it covers,
+    which is why this resolves the interpreter rather than merely testing for
+    it: the tests below run the shell this fixture found.
+    """
+    found = shutil.which("bash")
+    if found is None:
+        pytest.skip("no bash on PATH — this test executes the job's own run: block")
+    return found
+
+
+def _shell_argv(step: dict, script: Path, bash: str) -> list[str]:
     """The runner's own interpreter for this step's `run:` block.
 
     The distinction is load-bearing rather than pedantic: the default shell is
@@ -183,9 +206,9 @@ def _shell_argv(step: dict, script: Path) -> list[str]:
     """
     shell = step.get("shell")
     if shell is None:
-        return ["bash", "--noprofile", "--norc", "-e", str(script)]
+        return [bash, "--noprofile", "--norc", "-e", str(script)]
     assert shell == "bash", f"unhandled `shell: {shell}` — extend this emulation"
-    return ["bash", "--noprofile", "--norc", "-e", "-o", "pipefail", str(script)]
+    return [bash, "--noprofile", "--norc", "-e", "-o", "pipefail", str(script)]
 
 
 def _stub_gate(root: Path, exit_code: int) -> None:
@@ -200,7 +223,9 @@ def _stub_gate(root: Path, exit_code: int) -> None:
     )
 
 
-def _run_step(step: dict, tmp_path: Path, gate_exit: int) -> subprocess.CompletedProcess:
+def _run_step(
+    step: dict, tmp_path: Path, gate_exit: int, bash: str
+) -> subprocess.CompletedProcess:
     """Execute the job's shell in a sandbox whose gate exits ``gate_exit``.
 
     Everything the block writes — `verdict.log`, the step summary — lands under
@@ -219,7 +244,7 @@ def _run_step(step: dict, tmp_path: Path, gate_exit: int) -> subprocess.Complete
         "GITHUB_STEP_SUMMARY": str(summary),
     }
     return subprocess.run(
-        _shell_argv(step, script),
+        _shell_argv(step, script, bash),
         cwd=tmp_path,
         env=env,
         capture_output=True,
@@ -235,9 +260,14 @@ class TestTheStepsExitCodeMapping:
         ("gate_exit", "step_exit"), sorted(STEP_EXIT_FOR_GATE_EXIT.items())
     )
     def test_the_step_reports(
-        self, gate_step: dict, tmp_path: Path, gate_exit: int, step_exit: int
+        self,
+        gate_step: dict,
+        tmp_path: Path,
+        bash: str,
+        gate_exit: int,
+        step_exit: int,
     ) -> None:
-        result = _run_step(gate_step, tmp_path, gate_exit)
+        result = _run_step(gate_step, tmp_path, gate_exit, bash)
         assert result.returncode == step_exit, (
             f"gate exited {gate_exit}; the CI step must report {step_exit}, "
             f"reported {result.returncode}\nstdout: {result.stdout}\n"
@@ -250,32 +280,62 @@ class TestTheStepsExitCodeMapping:
         values = set(STEP_EXIT_FOR_GATE_EXIT.values())
         assert 0 in values and values - {0}
 
-    def test_the_gate_actually_ran(self, gate_step: dict, tmp_path: Path) -> None:
+    def test_could_not_look_is_red_whatever_the_table_says(
+        self, gate_step: dict, tmp_path: Path, bash: str
+    ) -> None:
+        """OS#437's load-bearing arm, asserted independently of the table.
+
+        Exit 2 means the gate could not read the body at all — the API was
+        unreachable, nothing was judged. Reporting that green would certify
+        every PR a network blip touches, which is precisely the bite the
+        four-valued exit contract exists to prevent.
+
+        The parametrized case above pins this through STEP_EXIT_FOR_GATE_EXIT,
+        and a table is not a guard when one commit can edit the table and the
+        workflow arm together — `test_red_and_green_are_both_reachable` is
+        satisfied by the `1 -> 1` entry alone and would not notice. So the
+        property is asserted here against the executed step, reading nothing
+        from the table.
+        """
+        result = _run_step(gate_step, tmp_path, EXIT_COULD_NOT_LOOK, bash)
+        assert result.returncode != 0, (
+            "the gate exited 2 (could not look) and the CI step reported "
+            f"{result.returncode} — a green. A gate that could not look must "
+            "never print or exit what a clean run does (OS#437).\n"
+            f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+
+    def test_the_table_keeps_could_not_look_red(self) -> None:
+        """The same property, pinned in the table — so the paired edit reddens
+        both halves rather than sliding through on a consistent rename."""
+        assert STEP_EXIT_FOR_GATE_EXIT[EXIT_COULD_NOT_LOOK] != 0, (
+            "exit 2 is 'could not look', and it must map to a red step. A green "
+            "there certifies every PR an unreachable API touches (OS#437)."
+        )
+
+    def test_the_gate_actually_ran(
+        self, gate_step: dict, tmp_path: Path, bash: str
+    ) -> None:
         """Guards the parametrized cases against passing on a gate that was
         never invoked — a `case` arm matching a stale `rc` would look identical."""
-        result = _run_step(gate_step, tmp_path, 0)
+        result = _run_step(gate_step, tmp_path, 0, bash)
         assert "stub gate spoke, rc=0" in result.stdout
 
     def test_the_gates_words_reach_the_step_summary(
-        self, gate_step: dict, tmp_path: Path
+        self, gate_step: dict, tmp_path: Path, bash: str
     ) -> None:
         """The summary is where a human reads why a red is red."""
-        _run_step(gate_step, tmp_path, 1)
+        _run_step(gate_step, tmp_path, 1, bash)
         summary = (tmp_path / "step-summary.md").read_text(encoding="utf-8")
         assert "stub gate spoke, rc=1" in summary
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="the runner's shell is bash")
 def test_the_mapping_covers_every_code_the_gate_can_return() -> None:
     """A code the gate returns but the job never maps falls to `*)`, which is
-    correct only by accident. Assert the two sets are the same set."""
-    from oversteward.review_verdict import (
-        EXIT_COULD_NOT_LOOK,
-        EXIT_NOT_APPLICABLE,
-        EXIT_OK,
-        EXIT_VIOLATIONS,
-    )
+    correct only by accident. Assert the two sets are the same set.
 
+    Spawns no shell — it compares two Python objects — so it carries no skip.
+    """
     assert set(STEP_EXIT_FOR_GATE_EXIT) == {
         EXIT_OK,
         EXIT_VIOLATIONS,

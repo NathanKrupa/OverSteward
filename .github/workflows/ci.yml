@@ -110,13 +110,21 @@ jobs:
     # answers to a gate that is born red are merging past it or building a skip
     # label — both of which train the estate to ignore the gate permanently
     # (OS#437's own reasoning). So the gate is scoped by a single fixed instant,
-    # `GATE_LIVE_FROM` in src/oversteward/review_verdict.py: PRs opened at or
-    # before it exit 3 (NOT APPLICABLE, never 0) and are reported as unjudged.
+    # `GATE_LIVE_FROM` in src/oversteward/review_verdict.py.
+    #
+    # The exemption excuses an ABSENT verdict, never a present one (OS#444). It
+    # fires on exactly one shape — the body carries no verdict block AND the PR
+    # was opened at or before the cutoff — and only that case exits 3 (NOT
+    # APPLICABLE, never 0), reported as unjudged. A body that carries a verdict
+    # is judged whatever the PR's age: a predating PASS exits 0 and a predating
+    # BLOCK exits 1, because the exemption's own sentence, "Nothing was judged",
+    # has to stay true wherever it is printed.
+    #
     # Unlike a label, it is not per-PR, nobody can invoke it, moving it is
-    # recorded in that file's history, a unit test refuses it a future value,
-    # and it covers a set that only ever shrinks. PR#432 is the one merged PR
-    # whose verdict lives in a comment rather than the body; it predates the
-    # cutoff and is never re-judged.
+    # recorded in that file's history, a unit test refuses it a future value and
+    # pins its literal, and it covers a set that only ever shrinks. PR#432 is
+    # the one merged PR whose verdict lives in a comment rather than the body;
+    # it predates the cutoff and is never re-judged.
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
@@ -148,7 +156,7 @@ jobs:
             >> "$GITHUB_STEP_SUMMARY"
           case "$rc" in
             0) echo "::notice::reviewer verdict present and not blocking" ;;
-            3) echo "::notice::verdict gate not applicable — this PR predates it" ;;
+            3) echo "::notice::verdict gate not applicable — no verdict in the body, and this PR predates the gate" ;;
             2) echo "::error::could not read the PR body — this is not a pass"; exit 2 ;;
             *) exit "$rc" ;;
           esac
