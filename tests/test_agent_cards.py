@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -127,7 +128,22 @@ def _assertions_only(line: str) -> str:
     return _PLACEHOLDER.sub(" ", line)
 
 
-def _paragraphs(text: str) -> list[Paragraph]:
+def _numbered_lines(card: str) -> Iterator[tuple[int, str, bool]]:
+    """Each line, its number, and whether it is fenced code — which is never joined.
+
+    A fence delimiter yields as a blank line, so it ends the unit above it
+    without becoming prose of its own.
+    """
+    in_fence = False
+    for number, line in enumerate(card.splitlines(), start=1):
+        if _FENCE.match(line):
+            in_fence = not in_fence
+            yield number, "", False
+            continue
+        yield number, line.strip(), in_fence
+
+
+def _paragraphs(card: str) -> list[Paragraph]:
     """Card prose as logical units — wrapped lines joined, everything else apart.
 
     Every card is hard-wrapped, so a count and its noun routinely straddle a
@@ -138,47 +154,35 @@ def _paragraphs(text: str) -> list[Paragraph]:
     units: list[Paragraph] = []
     current: list[str] = []
     start = 0
-    in_fence = False
-
-    def flush() -> None:
-        nonlocal current
-        if current:
+    for number, line, fenced in _numbered_lines(card):
+        if current and (fenced or not line or _UNIT_BREAK.match(line)):
             units.append(Paragraph(start_line=start, text=" ".join(current)))
             current = []
-
-    for number, line in enumerate(text.splitlines(), start=1):
-        if _FENCE.match(line):
-            flush()
-            in_fence = not in_fence
+        if not line:
             continue
-        if in_fence:
-            flush()
-            units.append(Paragraph(start_line=number, text=line.strip()))
+        if fenced:
+            units.append(Paragraph(start_line=number, text=line))
             continue
-        if not line.strip():
-            flush()
-            continue
-        if _UNIT_BREAK.match(line):
-            flush()
         if not current:
             start = number
-        current.append(line.strip())
-    flush()
+        current.append(line)
+    if current:
+        units.append(Paragraph(start_line=start, text=" ".join(current)))
     return units
 
 
-def _volatile_findings(text: str) -> list[str]:
+def _volatile_findings(paragraph: str) -> list[str]:
     """Every shape that fires on one logical unit of card prose."""
-    cleaned = _assertions_only(text)
+    cleaned = _assertions_only(paragraph)
     return [shape for shape, pattern in VOLATILE_SHAPES.items() if pattern.search(cleaned)]
 
 
-def _volatile_findings_in(text: str) -> list[str]:
+def _volatile_findings_in(card: str) -> list[str]:
     """Each rotting claim in a card, named with the line its paragraph opens at."""
     return [
-        f"line {paragraph.start_line}: [{shape}] {paragraph.text[:160]}"
-        for paragraph in _paragraphs(text)
-        for shape in _volatile_findings(paragraph.text)
+        f"line {unit.start_line}: [{shape}] {unit.text[:160]}"
+        for unit in _paragraphs(card)
+        for shape in _volatile_findings(unit.text)
     ]
 
 
