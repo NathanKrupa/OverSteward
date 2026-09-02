@@ -1,0 +1,142 @@
+# ABOUTME: Reads the diff, the issue, the tests, the doctrine and the gaudi report for a review.
+# ABOUTME: Every probe answers None when it could not look, never an empty string that reads clean.
+
+"""The outside world, as review-input assembly is allowed to touch it (OS#428).
+
+One method per question, and every one of them returns ``None`` — never ``""``
+— when the answer could not be obtained. That distinction is the whole contract:
+`review_input` turns a ``None`` into an ``UNMEASURED`` section and exit 2, and an
+empty string into a measured empty answer. Collapsing the two is the false green
+this instrument exists to remove.
+
+Stdlib only. `gh` is invoked through the REST API rather than `gh issue view`
+because the GraphQL path 500s on Projects-classic in this org, which would make
+every issue read a silent could-not-look.
+"""
+
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+#: gaudi is resolved as the sibling of the running interpreter, never through
+#: PATH: `shutil.which` finds ~/.local/bin/gaudi, a different interpreter whose
+#: parser silently skips files it cannot read (OS#424). A gate that resolves a
+#: stranger's binary is measuring a stranger's opinion.
+_GAUDI_NAMES = ("gaudi", "gaudi.exe")
+
+_GIT = "git"
+_GH = "gh"
+
+
+def gaudi_binary(executable: str | None = None) -> Path | None:
+    """The gaudi beside the running interpreter, or None when it is not installed."""
+    bindir = Path(executable or sys.executable).resolve().parent
+    for name in _GAUDI_NAMES:
+        candidate = bindir / name
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _run(args: list[str], cwd: Path) -> str | None:
+    """Stdout of a successful command, or None. Never raises, never returns ''."""
+    try:
+        proc = subprocess.run(  # nosec B603 - fixed argv, no shell, no untrusted words
+            args, cwd=str(cwd), capture_output=True, text=True, check=False
+        )
+    except OSError:
+        return None
+    return proc.stdout if proc.returncode == 0 else None
+
+
+class ShellCollector:
+    """Answers the assembler's questions from one checkout, via git / gh / gaudi."""
+
+    def __init__(self, root: Path, *, gaudi: Path | None = None) -> None:
+        self._root = root
+        self._gaudi = gaudi if gaudi is not None else gaudi_binary()
+
+    def _merge_base(self, base: str) -> str | None:
+        out = _run([_GIT, "merge-base", base, "HEAD"], self._root)
+        return out.strip() if out else None
+
+    def diff(self, base: str) -> str | None:
+        """The branch's own changes — merge-base, so base-branch commits are excluded."""
+        point = self._merge_base(base)
+        if point is None:
+            return None
+        return _run([_GIT, "diff", "--no-color", point, "HEAD"], self._root)
+
+    def changed_files(self, base: str) -> list[str] | None:
+        point = self._merge_base(base)
+        if point is None:
+            return None
+        out = _run([_GIT, "diff", "--name-only", point, "HEAD"], self._root)
+        if out is None:
+            return None
+        return [line for line in out.splitlines() if line.strip()]
+
+    def issue_body(self, repo: str, number: int) -> str | None:
+        out = _run([_GH, "api", f"repos/{repo}/issues/{number}"], self._root)
+        if out is None:
+            return None
+        try:
+            payload = json.loads(out)
+        except json.JSONDecodeError:
+            return None
+        title = payload.get("title")
+        body = payload.get("body")
+        if title is None:
+            return None
+        return f"{title}\n\n{body or '(the issue has an empty body)'}"
+
+    def file_text(self, relpath: str) -> str | None:
+        path = self._root / relpath
+        try:
+            return path.read_text(encoding="utf-8")
+        except OSError:
+            # A test file deleted by the diff is a real and interesting state:
+            # the reviewer is told the path and that it is gone, not nothing.
+            return None
+
+    def claude_md(self) -> str | None:
+        try:
+            return (self._root / "CLAUDE.md").read_text(encoding="utf-8")
+        except OSError:
+            return None
+
+    def gaudi_json(self, relpaths: list[str]) -> str | None:
+        """One `gaudi check --severity warn --format json` per file, merged.
+
+        Per file because `gaudi check` takes a single positional path and exits
+        0 while rejecting a second one on stderr — a multi-path invocation would
+        return success having read nothing (`pr-workflow.md`: rc=0 is not a pass
+        on its own).
+        """
+        if self._gaudi is None:
+            return None
+        reports: dict[str, object] = {}
+        for relpath in relpaths:
+            out = _run(
+                [
+                    str(self._gaudi),
+                    "check",
+                    "--severity",
+                    "warn",
+                    "--format",
+                    "json",
+                    "--no-exit-code",
+                    relpath,
+                ],
+                self._root,
+            )
+            if out is None:
+                return None
+            try:
+                reports[relpath] = json.loads(out)
+            except json.JSONDecodeError:
+                return None
+        return json.dumps(reports, indent=2, sort_keys=True)
