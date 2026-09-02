@@ -88,6 +88,44 @@ N files, ±M lines (see the dispatch playbook §12 for the current caps)
 
 Follow the universal playbook at `.claude/skills/dispatch/playbook.md` in full. Substitute `<default-branch>` = `main`, `<owner>/<repo>` = `NathanKrupa/exchequer`.
 
+## Adversarial review — required before `gh pr create`
+
+Between "tests green" and opening the PR, a **separate** reviewer instance reads
+this change with no sight of your reasoning. You do not write its prompt: a
+hurried or captured author who summarised the diff or dropped a test file would
+degrade the whole instrument silently, so the input is assembled by code.
+
+```bash
+# 1. Assemble the input. Run it from the OverSteward checkout, pointed at YOUR
+#    worktree; it exits 2 if any input could not be gathered — read that, do not
+#    review around it.
+/home/natha/OverSteward/scripts/review/assemble_review_input.py \
+    --root <worktree-path> --repo NathanKrupa/exchequer --base origin/main \
+    --issue <n> --out <worktree-path>/.review-input.md
+
+# 2. Launch the reviewer (Task tool, subagent_type: adversarial-reviewer,
+#    model: opus) with ONE instruction: read <worktree-path>/.review-input.md and
+#    return your verdict. Pass nothing else — no summary, no rationale, no
+#    "here's what I was going for".
+```
+
+Then:
+
+- **Paste the reviewer's `reviewer-verdict` block into the PR body verbatim**,
+  under an `## Adversarial review` heading, with its findings beneath it.
+- **Copy the same verdict onto the trajectory note's `reviewer:` front-matter
+  line** (verdict, findings, tokens).
+- **`BLOCK` means do not open the PR.** Fix the findings, re-assemble, re-review
+  once. A *second* `BLOCK` on the same change stops the pickup — emit
+  `STOPPED_FOR_INPUT`, label the issue `needs-input`, and hand it to Nathan.
+- `PASS-WITH-FINDINGS` may be merged; address the findings or say in the PR body
+  why not.
+
+**Opening a PR with no verdict block is a procedural failure, not a shortcut.**
+`scripts/lint/require_review_verdict.py` is red on a missing, malformed or
+`BLOCK` verdict, and a fabricated block (a `PASS` that also reports findings) is
+rejected as malformed rather than read charitably.
+
 ## Model
 
 You run on the project's configured Opus model. Precision, no freelancing. Follow the playbook exactly.

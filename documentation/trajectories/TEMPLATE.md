@@ -7,6 +7,15 @@ issues:                      # parent issues this pickup addresses
   - <repo>#<N>
 session_kind: in-session-pickup
 duration: <approximate>      # e.g. "90min", "2 sessions"
+reviewer: <VERDICT> findings=<N> tokens=<N|unknown>
+                             # the adversarial reviewer's verdict for this PR,
+                             # copied from the ```reviewer-verdict block in the
+                             # PR body (OS#428). VERDICT is BLOCK,
+                             # PASS-WITH-FINDINGS or PASS. Fiscus reads this
+                             # line to compare reviewer cost against the
+                             # ratchet-chase cost this corpus already records,
+                             # so `tokens` decides that question — omit it only
+                             # when the reviewer genuinely did not report one.
 ---
 
 # Trajectory — <one-line summary of the change>

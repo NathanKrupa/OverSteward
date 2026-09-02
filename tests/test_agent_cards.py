@@ -86,6 +86,56 @@ def test_agent_cards_carry_no_hand_written_volatile_facts(card: Path) -> None:
     )
 
 
+DEV_CARD_GLOB = "*-dev.md"
+
+#: The reviewer only exists if every card that opens a PR runs it. A card that
+#: skips the step is not a card with a gap — it is a repo with no reviewer
+#: (OS#428: "added to every *-dev card in the same PR, or the reviewer is
+#: decoration").
+REVIEWER_STEP_MARKERS = (
+    "## Adversarial review",
+    "assemble_review_input.py",
+    "require_review_verdict.py",
+)
+
+
+def _dev_cards() -> list[Path]:
+    return sorted(CANONICAL_DIR.glob(DEV_CARD_GLOB)) + sorted(DEPLOYED_DIR.glob(DEV_CARD_GLOB))
+
+
+def test_there_are_dev_cards_to_check() -> None:
+    """A parametrized guard over an empty glob passes vacuously."""
+    assert _dev_cards()
+
+
+@pytest.mark.parametrize("card", _dev_cards(), ids=lambda p: f"{p.parent.name}/{p.name}")
+def test_every_dev_card_runs_the_adversarial_reviewer_before_opening_a_pr(card: Path) -> None:
+    text = card.read_text(encoding="utf-8")
+    missing = [marker for marker in REVIEWER_STEP_MARKERS if marker not in text]
+    assert not missing, (
+        f"{card.parent.name}/{card.name} does not run the adversarial reviewer "
+        f"(missing: {', '.join(missing)}). A dev card that opens a PR without a "
+        f"verdict makes the reviewer decoration — see shared/agents/adversarial-reviewer.md."
+    )
+
+
+@pytest.mark.parametrize("card", _dev_cards(), ids=lambda p: f"{p.parent.name}/{p.name}")
+def test_every_dev_card_states_that_a_block_stops_the_pickup(card: Path) -> None:
+    """A verdict that cannot stop anything is a report, not a gate."""
+    text = card.read_text(encoding="utf-8")
+    assert "`BLOCK` means do not open the PR" in text, (
+        f"{card.parent.name}/{card.name} names the reviewer but not its authority."
+    )
+
+
+def test_the_reviewer_card_itself_is_deployed_alongside_the_dev_cards() -> None:
+    """The cards reference an agent; the agent has to exist where they run."""
+    canonical = CANONICAL_DIR / "adversarial-reviewer.md"
+    deployed = DEPLOYED_DIR / "adversarial-reviewer.md"
+    assert canonical.is_file() and deployed.is_file()
+    assert canonical.read_bytes() == deployed.read_bytes()
+
+
 def test_oversteward_card_does_not_deny_the_ci_this_repo_has() -> None:
     """The card's CI-presence claim is checked against this repo, not against a memory."""
     workflows = sorted(WORKFLOW_DIR.glob("*.yml")) + sorted(WORKFLOW_DIR.glob("*.yaml"))
