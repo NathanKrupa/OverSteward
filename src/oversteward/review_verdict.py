@@ -20,10 +20,26 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import datetime
 
 EXIT_OK = 0
 EXIT_VIOLATIONS = 1
 EXIT_COULD_NOT_LOOK = 2
+EXIT_NOT_APPLICABLE = 3
+
+#: The instant the CI job that runs this gate was opened as a pull request
+#: (OS#437). A PR opened at or before it cannot have carried a verdict for a
+#: gate that did not yet exist, so the gate does not govern it.
+#:
+#: This is a cutoff, not a bypass, and the difference is the point. A bypass is
+#: per-PR and available to whoever wants it — a label, a magic phrase, a skip
+#: flag — so the cheapest response to a red gate is always to use it. A cutoff
+#: is one fixed instant that nobody can move without this file's history
+#: recording it, it grants nothing to any PR opened from now on, and it shrinks
+#: to nothing as the affected PRs merge. It is refused a future value by
+#: ``tests/review/test_verdict_gate_scope.py``, because a cutoff ahead of `now`
+#: exempts every PR that will ever exist.
+GATE_LIVE_FROM = "2026-09-02T02:30:00+00:00"
 
 BLOCK = "BLOCK"
 PASS = "PASS"
@@ -124,6 +140,23 @@ def parse_verdict(body: str) -> Verdict:
 
     _check_consistency(verdict, findings)
     return Verdict(verdict=verdict, findings=findings, tokens=tokens)
+
+
+def governs(created_at: str | None) -> bool:
+    """Whether this gate governs a PR opened at ``created_at`` (ISO 8601).
+
+    Fails closed. The exemption is granted only on a timestamp that could
+    actually be read *and* that is at or before :data:`GATE_LIVE_FROM`; an
+    absent, empty or unparseable one is governed, so "I could not tell how old
+    it is" can never widen into a bypass.
+    """
+    if not created_at:
+        return True
+    try:
+        opened = datetime.fromisoformat(created_at)
+    except ValueError:
+        return True
+    return opened > datetime.fromisoformat(GATE_LIVE_FROM)
 
 
 def judge(body: str | None) -> tuple[int, str]:

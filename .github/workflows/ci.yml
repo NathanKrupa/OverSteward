@@ -13,13 +13,21 @@ name: CI
 on:
   pull_request:
     branches: [master]
+    # `edited` is here for the reviewer-verdict job alone: the verdict is pasted
+    # into the body after the PR opens, and without a re-run on that edit the
+    # check stays red however good the verdict is — a check that cannot be
+    # turned green is one the estate learns to ignore. The other jobs opt out
+    # (`if:` below) so a body edit does not re-run the suite.
+    types: [opened, synchronize, reopened, edited]
   push:
     branches: [master]
   workflow_dispatch:
 
 # A second push to the same branch makes the first run's answer irrelevant.
+# Body edits get their own group, or editing the description would cancel an
+# in-flight test run for a code push that is still the current code.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref }}-${{ github.event.action == 'edited' && 'body' || 'code' }}
   cancel-in-progress: true
 
 permissions:
@@ -27,6 +35,8 @@ permissions:
 
 jobs:
   check:
+    # A body edit changes no code, so re-running the suite would buy nothing.
+    if: github.event.action != 'edited'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -55,6 +65,8 @@ jobs:
         run: uv run pytest -q
 
   reviewer-eval:
+    # A body edit changes no code, so re-running the suite would buy nothing.
+    if: github.event.action != 'edited'
     # Fires on any change to the reviewer's brief, its input assembly, or its
     # fixtures (OS#428 §6). It validates that the eval set is well-formed — it
     # does NOT run a reviewer and measures no recall, because doing so needs a
@@ -82,3 +94,61 @@ jobs:
         # The gate ships with the bodies that make it fail; assert here that it
         # still does, so a change loosening the parser cannot land quietly.
         run: uv run pytest -q tests/review/test_require_review_verdict.py
+
+  reviewer-verdict:
+    # Runs the shipped gate against THIS PR's body (OS#437). Red on a missing,
+    # malformed or BLOCK verdict; green on PASS / PASS-WITH-FINDINGS.
+    #
+    # Not a required status check, like everything else here — so a red is a
+    # loud signal that never blocks a merge. That is what lets exit 2 ("could
+    # not look", e.g. the API is unreachable) be reported honestly as a failure
+    # instead of being softened into a green: a green would certify every PR a
+    # network blip touches, and the estate has been bitten by exactly that.
+    #
+    # NON-RETROACTIVITY, and why it is not a bypass label. A PR opened before
+    # this job existed could not have carried a verdict for it, and the only
+    # answers to a gate that is born red are merging past it or building a skip
+    # label — both of which train the estate to ignore the gate permanently
+    # (OS#437's own reasoning). So the gate is scoped by a single fixed instant,
+    # `GATE_LIVE_FROM` in src/oversteward/review_verdict.py: PRs opened at or
+    # before it exit 3 (NOT APPLICABLE, never 0) and are reported as unjudged.
+    # Unlike a label, it is not per-PR, nobody can invoke it, moving it is
+    # recorded in that file's history, a unit test refuses it a future value,
+    # and it covers a set that only ever shrinks. PR#432 is the one merged PR
+    # whose verdict lives in a comment rather than the body; it predates the
+    # cutoff and is never re-judged.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+
+      # No uv, unlike the jobs above: the gate is stdlib-only by design and
+      # imports the package from this checkout's src/. Running it on the
+      # runner's own python keeps that property continuously true and keeps a
+      # job that re-runs on every body edit cheap. The gate's negative fixtures
+      # are exercised by the pytest step above, in the full environment.
+      - name: PR body carries a non-blocking reviewer verdict
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.number }}
+          PR_REPO: ${{ github.repository }}
+        run: |
+          set +e
+          python3 scripts/lint/require_review_verdict.py \
+            --pr "$PR_NUMBER" --repo "$PR_REPO" > verdict.log 2>&1
+          rc=$?
+          set -e
+          # Read the file rather than piping the gate: a `| tail` would report
+          # tail's exit status and a failing gate would read as a pass.
+          cat verdict.log
+          { echo '### Reviewer verdict'; echo; echo '```'; cat verdict.log; echo '```'; } \
+            >> "$GITHUB_STEP_SUMMARY"
+          case "$rc" in
+            0) echo "::notice::reviewer verdict present and not blocking" ;;
+            3) echo "::notice::verdict gate not applicable — this PR predates it" ;;
+            2) echo "::error::could not read the PR body — this is not a pass"; exit 2 ;;
+            *) exit "$rc" ;;
+          esac
