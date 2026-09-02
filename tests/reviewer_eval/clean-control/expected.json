@@ -1,0 +1,10 @@
+{
+  "catalogue_items": [],
+  "failure_class": "none",
+  "must_cite": [],
+  "must_mention": [],
+  "provenance": "synthetic negative control",
+  "reconstructed": true,
+  "verdict": "PASS",
+  "why": "A real behaviour change with tests that genuinely fail against the unfixed function: the parametrized cases all return '' before the fallback and 'untitled' after. The docstring states why, and claims nothing a test does not pin. A reviewer that blocks this is as useless as one that blocks nothing \u2014 this case is what proves the eval measures discrimination rather than pessimism."
+}

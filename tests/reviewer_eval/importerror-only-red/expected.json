@@ -1,0 +1,16 @@
+{
+  "catalogue_items": [
+    2
+  ],
+  "failure_class": "test-never-red",
+  "must_cite": [
+    "tests/services/test_quota.py"
+  ],
+  "must_mention": [
+    "export_rows"
+  ],
+  "provenance": "synthetic \u2014 the 11x class described in OS#428",
+  "reconstructed": true,
+  "verdict": "BLOCK",
+  "why": "Every test in the new module is red against the unfixed tree for one reason only: pkg.services.quota does not exist yet, so the import fails. An ImportError red proves the module is new, not that the guard bites. Nothing tests the line that actually changed behaviour \u2014 the check_quota call added to export_rows \u2014 so deleting that call leaves the suite green."
+}

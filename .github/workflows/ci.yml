@@ -53,3 +53,32 @@ jobs:
 
       - name: pytest
         run: uv run pytest -q
+
+  reviewer-eval:
+    # Fires on any change to the reviewer's brief, its input assembly, or its
+    # fixtures (OS#428 §6). It validates that the eval set is well-formed — it
+    # does NOT run a reviewer and measures no recall, because doing so needs a
+    # metered API key in a repository secret, which the estate's cost posture
+    # forbids. A green here means the fixtures parse; the full graded run is
+    # `run_reviewer_eval.py --grade`, by hand. Do not read this job as evidence
+    # the reviewer catches anything.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v8.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+
+      - name: Install dependencies
+        run: uv sync --extra dev --python 3.12
+
+      - name: reviewer eval fixtures are well-formed
+        run: uv run python scripts/review/run_reviewer_eval.py --validate
+
+      - name: verdict gate is red on each of its negative fixtures
+        # The gate ships with the bodies that make it fail; assert here that it
+        # still does, so a change loosening the parser cannot land quietly.
+        run: uv run pytest -q tests/review/test_require_review_verdict.py
