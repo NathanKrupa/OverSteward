@@ -34,15 +34,25 @@ pushing and report the results in the PR body:
 # In a worktree, invoke via .venv/bin/<tool> — NOT `uv run`, which re-points the
 # shared editable install at the worktree (see gotchas).
 .venv/bin/python -m pytest          # collects from tests/ AND shared/scripts/dev/
-.venv/bin/gaudi check src/ --severity warn --exit-code
+.venv/bin/gaudi check src/ --severity error --exit-code
 ```
 
 Gaudi is enforced at commit time by the `gaudi-errors` `pre-commit` hook, which
 runs `python scripts/lint/gaudi_check_files.py` — severity `error`, changed
-Python files only. The dispatch **playbook compares a gaudi baseline (origin) vs
-your worktree and only blocks on NEW findings** — follow it. `master` is not
-warn-clean; take the baseline from origin rather than trusting any count written
-here. `line-length = 100` (config only).
+Python files only.
+
+**The error tier is what gates.** `--exit-code` acts on errors alone, so pairing
+it with a warn minimum severity exits 0 with the warnings merely reported — a
+gate satisfied by doing nothing, which is no gate at all (OS#445). Warn-tier
+findings go to the adversarial reviewer instead, through
+`scripts/review/assemble_review_input.py`, which already runs the warn report
+over your changed files: they are questions for the reviewer to weigh, not
+defects to gate on.
+
+The dispatch **playbook compares a gaudi baseline (origin) vs your worktree and
+only blocks on NEW findings** — follow it. `master` is not warn-clean; take the
+baseline from origin rather than trusting any count written here.
+`line-length = 100` (config only).
 
 ### CI — this repo HAS CI
 
