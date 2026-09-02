@@ -1,0 +1,62 @@
+diff --git a/src/pkg/services/quota.py b/src/pkg/services/quota.py
+new file mode 100644
+index 0000000..aaaaaaa
+--- /dev/null
++++ b/src/pkg/services/quota.py
+@@ -0,0 +1,17 @@
++# ABOUTME: Enforces the per-organization monthly export quota.
++# ABOUTME: Called by the export view before any row is written.
++
++from __future__ import annotations
++
++DEFAULT_QUOTA = 100
++
++
++class QuotaExceeded(RuntimeError):
++    """The organization has spent its monthly export allowance."""
++
++
++def check_quota(used: int, limit: int = DEFAULT_QUOTA) -> None:
++    """Refuse an export once the allowance is spent."""
++    if used >= limit:
++        raise QuotaExceeded(f"{used} of {limit} exports used this month")
+diff --git a/src/pkg/views/export.py b/src/pkg/views/export.py
+index bbbbbbb..ccccccc 100644
+--- a/src/pkg/views/export.py
++++ b/src/pkg/views/export.py
+@@ -1,10 +1,12 @@
+ from __future__ import annotations
+
+ from pkg.models import Export
++from pkg.services.quota import check_quota
+
+
+ def export_rows(org, rows):
++    check_quota(org.exports_this_month)
+     for row in rows:
+         Export.objects.create(org=org, payload=row)
+     return len(rows)
+diff --git a/tests/services/test_quota.py b/tests/services/test_quota.py
+new file mode 100644
+index 0000000..ddddddd
+--- /dev/null
++++ b/tests/services/test_quota.py
+@@ -0,0 +1,19 @@
++from __future__ import annotations
++
++import pytest
++
++from pkg.services.quota import DEFAULT_QUOTA, QuotaExceeded, check_quota
++
++
++def test_under_the_quota_is_allowed():
++    check_quota(used=3)
++
++
++def test_at_the_quota_is_refused():
++    with pytest.raises(QuotaExceeded):
++        check_quota(used=DEFAULT_QUOTA)
++
++
++def test_the_default_quota_is_one_hundred():
++    assert DEFAULT_QUOTA == 100

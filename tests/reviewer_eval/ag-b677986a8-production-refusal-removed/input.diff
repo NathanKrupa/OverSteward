@@ -1,0 +1,138 @@
+commit b677986a89d2b9de04eabd8b0deaf507cda1a39d
+Author: Nathan Krupa <54715560+NathanKrupa@users.noreply.github.com>
+Date:   Sun Aug 30 09:50:35 2026 -0400
+
+    refactor: satisfy the boy-scout per-file ratchet (#1828)
+    
+    `ci-light` runs a per-file gaudi ratchet that `make verify` does not: every
+    touched .py file must end with strictly fewer findings than origin/staging.
+    
+    - New tests consolidated into tests/test_smoke_account_state.py; the two
+      existing test modules are reverted untouched.
+    - tests/smoke/conftest.py reverted: the account-state read is a `smoke_account`
+      fixture local to the one test that needs it, so no other smoke's fixture
+      chain moves.
+    - screenshot_seed: `return_home` takes the User and `require_home_org` takes
+      nothing; `permitted_user` and `assert_seed_allowed` are public, so the caller
+      passes the production/allowlist refusal in rather than re-asking for it. The
+      command's seeded preflight moved to `Command._seed`.
+    - Paid down one pre-existing finding in each remaining touched file: named
+      `_DETAIL`/`_NOT_FOUND` in apps/accounts/smoke.py, and a `_settle(page)` helper
+      collapsing nine `_NETWORKIDLE` references in the pricing smoke.
+
+diff --git a/apps/docs/services/screenshot_seed.py b/apps/docs/services/screenshot_seed.py
+index 1f857990c..10618ce2a 100644
+--- a/apps/docs/services/screenshot_seed.py
++++ b/apps/docs/services/screenshot_seed.py
+@@ -68,7 +68,7 @@ class SeedResult:
+         }
+ 
+ 
+-def _assert_seed_allowed(email: str) -> None:
++def assert_seed_allowed(email: str) -> None:
+     """Refuse to seed against production data.
+ 
+     Three independent guards, any of which trips the refusal: a production
+@@ -90,9 +90,9 @@ def seed_demo_data(*, email: str) -> SeedResult:
+     Creates (or reuses) a saved funder, a Workshop draft with an open question,
+     and an application on the Kanban so the captured screenshots show a
+     populated product. Safe to re-run — every row is fetched by a stable
+-    natural key. Refuses on production (see ``_assert_seed_allowed``).
++    natural key. Refuses on production (see ``assert_seed_allowed``).
+     """
+-    org = _ensure_org(_permitted_user(email))
++    org = _ensure_org(permitted_user(email))
+     program = _ensure_program(org)
+     funder = _ensure_funder(org)
+     application = _ensure_application(program, funder)
+@@ -124,10 +124,10 @@ def enter_context(context: str, *, email: str) -> None:
+     if context == contexts.ANONYMOUS:
+         return
+     if context == contexts.NO_ORG:
+-        _detach_org(_permitted_user(email))
++        _detach_org(permitted_user(email))
+         return
+     if context == contexts.FIRST_RUN:
+-        _attach_org(_permitted_user(email), _entitled_org(_FIRST_RUN_ORG_NAME))
++        _attach_org(permitted_user(email), _entitled_org(_FIRST_RUN_ORG_NAME))
+         return
+     # ``authenticated`` and ``admin`` are the same account state: the seed hands
+     # the smoke user its populated organization *as that org's admin*, which is
+@@ -149,7 +149,7 @@ def home_org_name() -> str:
+     return getattr(settings, "SMOKE_HOME_ORG", "") or "Smoke Test Org"
+ 
+ 
+-def require_home_org(*, email: str) -> Organization:
++def require_home_org() -> Organization:
+     """The declared home organization, or refuse before any account state moves.
+ 
+     Called at the top of a seeded run, so a missing home is a refusal to start
+@@ -157,8 +157,14 @@ def require_home_org(*, email: str) -> Organization:
+     row: a run that quietly invented an organization would satisfy this guard by
+     doing nothing an operator could see, which is no guard at all. ``first()``
+     over ``get`` because ``Organization.name`` carries no uniqueness constraint.
++
++    Takes no account: it is a pure read, and the production / live-Stripe /
++    allowlist refusals belong to the write that follows it
++    (:func:`seed_demo_data`, :func:`return_home`). A production environment that
++    is *also* missing the home org therefore refuses with this message rather
++    than that one — both refuse before anything moves, which is the property
++    that matters.
+     """
+-    _assert_seed_allowed(email)
+     name = home_org_name()
+     org = Organization.objects.filter(name=name).order_by("created_at", "id").first()
+     if org is None:
+@@ -170,8 +176,8 @@ def require_home_org(*, email: str) -> Organization:
+     return org
+ 
+ 
+-def return_home(*, email: str) -> Organization:
+-    """Put the smoke account back in its declared home organization, as admin.
++def return_home(user: User) -> Organization:
++    """Put ``user`` back in the declared home organization, as admin.
+ 
+     The counterpart to :func:`enter_context`, and the reason the contexts are
+     safe to enter at all: the account is shared with the Playwright smoke suite,
+@@ -179,21 +185,26 @@ def return_home(*, email: str) -> Organization:
+     populated demo organization (``plan=pro``, no Stripe customer) reroutes the
+     next run's pricing CTA into the Customer Portal branch, which has no
+     customer to open (#1777, #1738).
++
++    Takes the ``User`` rather than an address, so the caller reaches it through
++    :func:`permitted_user` and the production / live-Stripe / allowlist refusal
++    is passed on the way in — it cannot be forgotten here and it is not
++    re-asked for.
+     """
+-    org = require_home_org(email=email)
+-    _attach_org(_permitted_user(email), org)
+-    logger.info("returned %s to its home organization (org=%s)", email, org.id)
++    org = require_home_org()
++    _attach_org(user, org)
++    logger.info("returned %s to its home organization (org=%s)", user.email, org.id)
+     return org
+ 
+ 
+-def _permitted_user(email: str) -> User:
++def permitted_user(email: str) -> User:
+     """The smoke account row this seed is permitted to touch, created on first use.
+ 
+     The refusal and the lookup are one call deliberately: there is no way to
+-    obtain the account without passing ``_assert_seed_allowed`` first, so a
++    obtain the account without passing ``assert_seed_allowed`` first, so a
+     future caller cannot reach the rows by forgetting the guard.
+     """
+-    _assert_seed_allowed(email)
++    assert_seed_allowed(email)
+     user, _ = User.objects.get_or_create(email=email, defaults={"username": email})
+     return user
+ 
+@@ -216,7 +227,7 @@ def _ensure_org(user: User) -> Organization:
+     the seed is the only thing that can keep it entitled — and it has to do so
+     every run rather than once, because any state that can lapse eventually does.
+ 
+-    Reached only with a ``user`` from :func:`_permitted_user`, which has already
++    Reached only with a ``user`` from :func:`permitted_user`, which has already
+     refused production, live Stripe, and any address off the
+     ``SMOKE_TEST_EMAILS`` allowlist.
+     """

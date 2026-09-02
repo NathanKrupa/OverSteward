@@ -1,0 +1,42 @@
+diff --git a/scripts/ci/verify.sh b/scripts/ci/verify.sh
+index a1b2c3d..e4f5a6b 100755
+--- a/scripts/ci/verify.sh
++++ b/scripts/ci/verify.sh
+@@ -38,9 +38,11 @@ run_gate() {
+   echo "── $1 ──"
+ }
+
++# Keep the verify log readable — the suite prints thousands of lines and the
++# interesting part is always at the end.
+ run_gate "tests"
+-pytest -q
++pytest -q 2>&1 | tail -20
+ rc=$?
+ if [ "$rc" -ne 0 ]; then
+   echo "verify: tests failed"
+   exit 1
+diff --git a/Makefile b/Makefile
+index 1122334..5566778 100644
+--- a/Makefile
++++ b/Makefile
+@@ -21,7 +21,7 @@ ci-light:
+
+ .PHONY: verify
+ verify:
+-	bash scripts/ci/verify.sh
++	bash scripts/ci/verify.sh 2>&1 | tail -40
+
+ .PHONY: hooks
+ hooks:
+diff --git a/documentation/trajectories/2026-08-26-PR1763.md b/documentation/trajectories/2026-08-26-PR1763.md
+index 7777777..8888888 100644
+--- a/documentation/trajectories/2026-08-26-PR1763.md
++++ b/documentation/trajectories/2026-08-26-PR1763.md
+@@ -30,3 +30,7 @@
+ ## What worked
+
+ - [tooling] Redirected each gate's output to a file and read it back.
++
++## What didn't  (cost: trivial | minutes | hours | blocked)
++
++- [tooling][minutes] The verify log was unreadable at full length → remedy: trim it to the last 20 lines, which is where a failure always shows.

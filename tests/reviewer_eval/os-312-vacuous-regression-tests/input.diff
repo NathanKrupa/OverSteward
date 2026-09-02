@@ -1,0 +1,44 @@
+diff --git a/shared/scripts/dev/check_destructive_command.py b/shared/scripts/dev/check_destructive_command.py
+index 7331f6e..c3e7207 100755
+--- a/shared/scripts/dev/check_destructive_command.py
++++ b/shared/scripts/dev/check_destructive_command.py
+@@ -169,7 +169,7 @@ _TEXT_TOOL_LEAD = re.compile(
+     _AT_CMD + r"(?:grep|egrep|fgrep|rg|ack|cat|less|more|head|tail|awk|sed|echo|printf)\b"
+ )
+ _DB_CLIENT = re.compile(
+-    r"(?:^|[\s;&|])(?:psql|mysql|sqlite3?|mongo|redis-cli|clickhouse-client|"
++    r"(?:^|[\s;&|`(])(?:psql|mysql|sqlite3?|mongo|redis-cli|clickhouse-client|"
+     r"cockroach\s+sql|dbshell|db\s+scratch|db_scratch|manage\.py\s+dbshell|alembic)\b"
+ )
+
+diff --git a/tests/dev/test_check_destructive_command.py b/tests/dev/test_check_destructive_command.py
+index 60eabbf..11fc2a0 100644
+--- a/tests/dev/test_check_destructive_command.py
++++ b/tests/dev/test_check_destructive_command.py
+@@ -202,6 +202,26 @@ def test_sql_with_db_client_still_flagged(hook):
+     assert hook._match("echo 'TRUNCATE foo' | psql") is not None
+
+
++# A client inside a substitution is still a client (OS#307). `_DB_CLIENT` is a
++# suppressor's escape clause, not a detector: when it fails to see the client,
++# `_is_sql_data_only` concludes the SQL is being printed and the SQL detectors
++# stand down. A miss here inverts the verdict on a command the shell then runs.
++@pytest.mark.parametrize(
++    "cmd",
++    [
++        "echo 'DROP TABLE grants' ; psql -c 'DROP TABLE grants'",
++        "cat schema.sql ; dbshell",
++    ],
++)
++def test_a_client_in_a_substitution_does_not_suppress_the_sql(hook, cmd):
++    """Regression guard for the substitution-opener gap."""
++    assert hook._match(cmd) is not None
++
++
++def test_the_widened_class_still_matches_a_leading_client(hook):
++    assert hook._match("psql -c 'DROP TABLE grants'") is not None
++
++
+ def test_egg_info_not_confused_with_arbitrary_name(hook):
+     # A non-artifact directory that merely contains 'build' is not safe.
+     assert hook._match("rm -rf build_prod_data") is not None
