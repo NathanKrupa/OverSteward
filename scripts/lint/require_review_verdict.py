@@ -12,12 +12,18 @@ the *agent card* is what refuses to open a PR without a verdict, and this is the
 cheap deterministic check behind it, for the case where an author skipped the
 card.
 
-Exit codes are three-valued (`pr-workflow.md` § Inert controls):
+Exit codes are four-valued (`pr-workflow.md` § Inert controls) — no two outcomes
+share a code, because a skip that prints what a pass prints certifies nothing
+while looking like a clean run:
 
 * ``0`` — a well-formed ``PASS`` or ``PASS-WITH-FINDINGS``.
 * ``1`` — missing, malformed, or ``BLOCK``.
 * ``2`` — could not look: the body could not be fetched or read. Never 0, or a
   network blip certifies every PR it touches.
+* ``3`` — not applicable: the PR was opened at or before
+  :data:`~oversteward.review_verdict.GATE_LIVE_FROM`, so it predates the gate
+  (OS#437). Only reachable via ``--pr``, where a creation time exists to read;
+  ``--body-file`` is always judged.
 
 The negative fixtures live in ``tests/fixtures/review_verdict/`` and each one is
 run against this gate by ``tests/review/test_require_review_verdict.py`` — the
@@ -41,15 +47,22 @@ sys.path.insert(  # noqa: STRUCT-010
 
 from oversteward.review_verdict import (  # noqa: E402
     EXIT_COULD_NOT_LOOK,
+    EXIT_NOT_APPLICABLE,
     EXIT_OK,
+    GATE_LIVE_FROM,
+    governs,
     judge,
 )
 
 GATE = "review-verdict:"
 
 
-def _body_from_gh(repo: str, number: int) -> str | None:
-    """The PR body via the REST API — `gh pr view` 500s on Projects-classic here."""
+def _pull_request(repo: str, number: int) -> dict | None:
+    """One PR via the REST API — `gh pr view` 500s on Projects-classic here.
+
+    ``None`` means the call could not be made or its answer could not be read,
+    which is the caller's exit-2 case. It never means "an empty PR".
+    """
     try:
         proc = subprocess.run(  # nosec B603 - fixed argv, no shell
             ["gh", "api", f"repos/{repo}/pulls/{number}"],
@@ -62,9 +75,10 @@ def _body_from_gh(repo: str, number: int) -> str | None:
     if proc.returncode != 0:
         return None
     try:
-        return json.loads(proc.stdout).get("body") or ""
+        payload = json.loads(proc.stdout)
     except json.JSONDecodeError:
         return None
+    return payload if isinstance(payload, dict) else None
 
 
 def _parse(argv: list[str]) -> argparse.Namespace:
@@ -78,13 +92,23 @@ def _parse(argv: list[str]) -> argparse.Namespace:
 
 def main(argv: list[str]) -> int:
     args = _parse(argv)
+    created_at: str | None = None
     if args.body_file:
         try:
             body: str | None = Path(args.body_file).read_text(encoding="utf-8")
         except OSError:
             body = None
     else:
-        body = _body_from_gh(args.repo, args.pr)
+        pull = _pull_request(args.repo, args.pr)
+        body = None if pull is None else (pull.get("body") or "")
+        created_at = None if pull is None else pull.get("created_at")
+
+    if not governs(created_at):
+        sys.stdout.write(
+            f"{GATE} NOT APPLICABLE — this PR was opened at {created_at}, at or "
+            f"before the gate went live ({GATE_LIVE_FROM}). Nothing was judged.\n"
+        )
+        return EXIT_NOT_APPLICABLE
 
     code, message = judge(body)
     stream = sys.stdout if code == EXIT_OK else sys.stderr
