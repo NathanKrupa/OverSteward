@@ -45,6 +45,15 @@ DELETED_BY_THIS_DIFF = (
     "material this change removed from review. It no longer exists on the branch."
 )
 
+#: Names *why* an input is missing when the reason is that the deletion list
+#: itself could not be read. "Missing because this diff removed it" and
+#: "missing for a reason nobody can name" are different reviewable facts, and
+#: only the first licenses showing the base-branch version.
+DELETION_LIST_UNREADABLE = (
+    "The list of paths this diff deleted could not be read, so a file absent "
+    "from the working tree cannot be told from one the diff removed."
+)
+
 #: Section order is fixed so two runs over one tree render byte-identically.
 TEST_FILES_SECTION = "changed-test-files"
 GAUDI_SECTION = "gaudi-warn"
@@ -67,12 +76,16 @@ class Section:
     name: str
     body: str
     measured: bool
+    #: Why the probe could not answer, when it could not. An unmeasured body
+    #: is discarded at render time, so a reason held only in the body never
+    #: reaches the reviewer — and "missing" without "why" is not actionable.
+    reason: str = ""
 
     @property
     def rendered_body(self) -> str:
         """The body, or an explicit statement of absence — never a blank that reads as clean."""
         if not self.measured:
-            return COULD_NOT_LOOK
+            return f"{COULD_NOT_LOOK}\n\n{self.reason}" if self.reason else COULD_NOT_LOOK
         return self.body if self.body.strip() else "(empty — the probe answered with nothing)"
 
 
@@ -178,7 +191,9 @@ def _test_file_chunk(
     # Not in the working tree. That is reviewable material when the diff
     # deleted it — a deleted test is the one that could have failed — and an
     # unmeasured input when nobody can say why it is missing.
-    if deleted is not None and relpath in deleted:
+    if deleted is None:
+        return _labelled(relpath, f"{COULD_NOT_LOOK}\n{DELETION_LIST_UNREADABLE}"), False
+    if relpath in deleted:
         base_text = collector.file_text_at_base(base, relpath)
         if base_text is not None:
             body = f"{DELETED_BY_THIS_DIFF}\n\n{base_text}"
@@ -200,10 +215,15 @@ def _test_files_section(
             measured=True,
         )
     rendered = [_test_file_chunk(collector, base, path, deleted) for path in test_paths]
+    measured = all(obtained for _, obtained in rendered)
     return Section(
         name=TEST_FILES_SECTION,
         body="\n\n".join(chunk for chunk, _ in rendered),
-        measured=all(obtained for _, obtained in rendered),
+        measured=measured,
+        # An unmeasured body is discarded at render time, so the reason has to
+        # travel beside `measured` or the reviewer reads only that something
+        # was missing, never that the deletion list was the blind spot.
+        reason="" if measured or deleted is not None else DELETION_LIST_UNREADABLE,
     )
 
 
@@ -221,6 +241,28 @@ def _skipped_note(skipped: Sequence[str]) -> str:
     return (
         "\n\nSkipped by design — deleted by this diff, so there is no file to lint: "
         + ", ".join(skipped)
+    )
+
+
+#: Replaces the skipped-by-design note when the deletion list is unreadable.
+#: Nothing may be skipped as deleted then, because nothing can be shown to be.
+_DELETIONS_UNKNOWABLE_NOTE = (
+    "\n\nNothing above was skipped as deleted, and nothing could be: "
+    + DELETION_LIST_UNREADABLE
+    + " Every changed Python file was submitted to gaudi, so a file this diff "
+    "removed was read as absent rather than as clean."
+)
+
+
+def _gaudi_scope(
+    python_files: Sequence[str], deleted: frozenset[str] | None
+) -> tuple[list[str], str]:
+    """The files gaudi reads, and the note accounting for the ones it does not."""
+    if deleted is None:
+        return list(python_files), _DELETIONS_UNKNOWABLE_NOTE
+    return (
+        [path for path in python_files if path not in deleted],
+        _skipped_note([path for path in python_files if path in deleted]),
     )
 
 
@@ -245,10 +287,10 @@ def _gaudi_section(
         )
     # A deleted file has nothing to lint, and naming it as skipped is a
     # measurement; letting it poison the whole probe into COULD NOT LOOK would
-    # hide the findings on the files that do still exist.
-    gone = deleted or frozenset()
-    present = [path for path in python_files if path not in gone]
-    note = _skipped_note([path for path in python_files if path in gone])
+    # hide the findings on the files that do still exist. When the deletion
+    # list could not be read, no file may be named as skipped-by-design — the
+    # note says the skip reason is unknowable instead.
+    present, note = _gaudi_scope(python_files, deleted)
     if not present:
         return Section(
             name=GAUDI_SECTION,
@@ -279,10 +321,12 @@ def assemble(
     if changed is None:
         raise CouldNotLookError(f"could not list the files changed against {base!r}")
     changed = sorted(set(changed))
-    # None means the deletion list itself could not be read. It is kept
-    # distinct from "nothing was deleted": under None no missing file can be
-    # certified as deleted, so it renders COULD NOT LOOK rather than quietly
-    # borrowing the base version of a file that may never have been removed.
+    # None means the deletion list itself could not be read, which is not
+    # "nothing was deleted". Under None no missing file can be certified as
+    # deleted, so the base version is withheld and both sections name
+    # DELETION_LIST_UNREADABLE as the blind spot — pinned by
+    # TestAnUnreadableDeletionListNamesItselfRatherThanFoldingAway, because an
+    # unenforced comment is the distinction rotting quietly (OS#442).
     reported_deletions = collector.deleted_files(base)
     deleted = None if reported_deletions is None else frozenset(reported_deletions)
     sections = (

@@ -7,8 +7,11 @@ import pytest
 
 from oversteward.review_input import (
     COULD_NOT_LOOK,
+    DELETION_LIST_UNREADABLE,
     EXIT_COULD_NOT_LOOK,
     EXIT_OK,
+    GAUDI_SECTION,
+    TEST_FILES_SECTION,
     AssembledInput,
     CouldNotLookError,
     Section,
@@ -212,6 +215,61 @@ class TestMeasuredStillMeansMeasured:
         assert "UNMEASURED INPUTS: changed-test-files" in text
 
 
+class TestAnUnreadableDeletionListNamesItselfRatherThanFoldingAway:
+    """`None` and `frozenset()` must not produce the same document (OS#442).
+
+    The third state used to be inert: `_gaudi_section` folded it away with
+    `deleted or frozenset()`, and an empty set can never certify a missing
+    file as deleted, so the mutation `deleted = frozenset(reported or ())`
+    left every test green while the comment beside it claimed the distinction
+    was load-bearing. A comment asserting an invariant is part of the security
+    surface, so the claim is enforced here instead.
+    """
+
+    def test_a_missing_test_file_names_the_unreadable_deletion_list_as_the_reason(self):
+        result = _assemble(collector=_deleting_collector(deleted=None))
+        section = next(s for s in result.sections if s.name == TEST_FILES_SECTION)
+        assert not section.measured
+        assert DELETION_LIST_UNREADABLE in section.reason
+        assert exit_code_for(result) == EXIT_COULD_NOT_LOOK
+
+    def test_a_readable_deletion_list_never_blames_the_deletion_list(self):
+        # The same missing file, but the list was read and did not name it:
+        # the blind spot is the file, not the list, and saying otherwise would
+        # send the reviewer after the wrong thing.
+        collector = _Collector(changed=["tests/test_x.py"], file_bodies={}, deleted=[])
+        result = _assemble(collector=collector)
+        section = next(s for s in result.sections if s.name == TEST_FILES_SECTION)
+        assert not section.measured
+        assert DELETION_LIST_UNREADABLE not in section.reason
+        assert DELETION_LIST_UNREADABLE not in section.body
+
+    def test_the_reason_reaches_the_reviewer_and_not_only_the_section(self):
+        # An unmeasured section renders as COULD NOT LOOK, so a reason held
+        # only in the body is a reason the reviewer never sees.
+        text = render(_assemble(collector=_deleting_collector(deleted=None)))
+        assert DELETION_LIST_UNREADABLE in text
+
+    def test_the_base_version_is_withheld_because_no_deletion_was_established(self):
+        # Invariant pin: showing it would present a deletion this run never
+        # established as the reviewable act.
+        text = render(_assemble(collector=_deleting_collector(deleted=None)))
+        assert "test_a_blocked_url_never_reaches_httpx" not in text
+        assert "DELETED BY THIS DIFF" not in text
+
+    def test_gaudi_says_the_skip_reason_is_unknowable_rather_than_by_design(self):
+        result = _assemble(collector=_deleting_collector(deleted=None))
+        section = next(s for s in result.sections if s.name == GAUDI_SECTION)
+        assert DELETION_LIST_UNREADABLE in section.body
+        assert "skipped by design" not in section.body.lower()
+
+    def test_gaudi_skips_by_design_only_when_the_list_was_actually_read(self):
+        result = _assemble(collector=_deleting_collector())
+        section = next(s for s in result.sections if s.name == GAUDI_SECTION)
+        assert "Skipped by design" in section.body
+        assert DELETION_LIST_UNREADABLE not in section.body
+
+
 class TestAssemblyIsDeterministic:
     def test_two_runs_over_the_same_inputs_render_byte_identical(self):
         assert render(_assemble()) == render(_assemble())
@@ -305,6 +363,14 @@ class TestSection:
     def test_a_section_body_is_never_empty_so_a_blank_never_reads_as_absent(self):
         section = Section(name="issue", body="", measured=True)
         assert section.rendered_body.strip()
+
+    def test_an_unmeasured_section_states_its_reason_beside_could_not_look(self):
+        # "This input is missing" and "this input is missing because the
+        # deletion list could not be read" are different findings; only the
+        # second is actionable.
+        section = Section(name="x", body="", measured=False, reason="gaudi is not installed")
+        assert COULD_NOT_LOOK in section.rendered_body
+        assert "gaudi is not installed" in section.rendered_body
 
     def test_an_unmeasured_section_renders_could_not_look_even_carrying_a_body(self):
         # An unmeasured section can hold real text — the readable half of a
