@@ -30,10 +30,20 @@ _GAUDI_NAMES = ("gaudi", "gaudi.exe")
 _GIT = "git"
 _GH = "gh"
 
+#: Distinguishes "work out where gaudi is" from "there is no gaudi" — the
+#: second must be expressible, or the could-not-look branch cannot be tested.
+_AUTODETECT = object()
+
 
 def gaudi_binary(executable: str | None = None) -> Path | None:
-    """The gaudi beside the running interpreter, or None when it is not installed."""
-    bindir = Path(executable or sys.executable).resolve().parent
+    """The gaudi beside the running interpreter, or None when it is not installed.
+
+    The interpreter path is used as given, never ``resolve()``d: a venv's
+    ``bin/python`` is a symlink to a system interpreter, so resolving it walks
+    out of the venv into ``/usr/bin`` and finds no gaudi at all — the input
+    would go silently missing on every real venv.
+    """
+    bindir = Path(executable or sys.executable).parent
     for name in _GAUDI_NAMES:
         candidate = bindir / name
         if candidate.is_file():
@@ -55,9 +65,12 @@ def _run(args: list[str], cwd: Path) -> str | None:
 class ShellCollector:
     """Answers the assembler's questions from one checkout, via git / gh / gaudi."""
 
-    def __init__(self, root: Path, *, gaudi: Path | None = None) -> None:
+    def __init__(self, root: Path, *, gaudi: Path | None | object = _AUTODETECT) -> None:
         self._root = root
-        self._gaudi = gaudi if gaudi is not None else gaudi_binary()
+        # `gaudi=None` means "there is none" — a caller must be able to say
+        # that, or the absent-gaudi branch is unreachable from a test and the
+        # COULD-NOT-LOOK path ships unproven.
+        self._gaudi = gaudi_binary() if gaudi is _AUTODETECT else gaudi
 
     def _merge_base(self, base: str) -> str | None:
         out = _run([_GIT, "merge-base", base, "HEAD"], self._root)

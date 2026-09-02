@@ -56,6 +56,21 @@ class TestGaudiResolution:
         (bindir / "python").write_text("", encoding="utf-8")
         assert gaudi_binary(str(bindir / "python")) is None
 
+    def test_a_venv_whose_python_is_a_symlink_still_finds_its_own_gaudi(self, tmp_path):
+        # Every venv's `bin/python` is a symlink to a system interpreter, so
+        # resolving the *executable* walks out of the venv into /usr/bin and
+        # finds no gaudi at all — silently disabling the input the reviewer
+        # relies on. The bin directory is the thing to look in, not wherever
+        # the interpreter it points at happens to live.
+        system_bin = tmp_path / "usr" / "bin"
+        system_bin.mkdir(parents=True)
+        (system_bin / "python3.12").write_text("#!/bin/sh\n", encoding="utf-8")
+        venv_bin = tmp_path / "venv" / "bin"
+        venv_bin.mkdir(parents=True)
+        (venv_bin / "python").symlink_to(system_bin / "python3.12")
+        (venv_bin / "gaudi").write_text("#!/bin/sh\n", encoding="utf-8")
+        assert gaudi_binary(str(venv_bin / "python")) == venv_bin / "gaudi"
+
     def test_a_gaudi_elsewhere_on_path_is_never_adopted(self, tmp_path, monkeypatch):
         stranger = tmp_path / "elsewhere"
         stranger.mkdir()
