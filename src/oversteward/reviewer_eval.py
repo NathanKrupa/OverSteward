@@ -114,8 +114,19 @@ def _validate_case(case: Case) -> list[str]:
                 f"{case.name}: must_cite {path!r} does not appear in {DIFF_NAME}; "
                 "the reviewer is being asked to cite a file it will never see"
             )
+    for term in case.expected["must_mention"]:
+        if not str(term).strip():
+            problems.append(
+                f"{case.name}: a blank must_mention term matches every output, so it "
+                "is an expectation that can never fail"
+            )
     if case.expected_verdict == PASS and case.expected["must_cite"]:
         problems.append(f"{case.name}: a PASS control must not require citations")
+    if case.expected_verdict == PASS and case.expected["must_mention"]:
+        problems.append(
+            f"{case.name}: a PASS control must not require must_mention terms — there "
+            "is no defect for the reviewer to name"
+        )
     if case.expected_verdict != PASS and not case.expected["must_cite"]:
         problems.append(
             f"{case.name}: a known-bad case must name the file the reviewer has to cite, "
@@ -184,6 +195,23 @@ def grade_case(case: Case, reviewer_output: str | None) -> GradedCase:
             verdict.verdict,
             False,
             f"blocked, but never cited {', '.join(uncited)} — blocked for another reason",
+        )
+    # Citing the file proves the reviewer read it. The terms prove it found
+    # *this* defect there: a BLOCK on `safe_http.py` that never says SSRF has
+    # blocked the right file for the wrong reason, which the eval must score as
+    # a miss or it rewards a reviewer that objects to whatever it looked at.
+    spoken = reviewer_output.casefold()
+    unmentioned = [
+        term for term in case.expected["must_mention"] if str(term).casefold() not in spoken
+    ]
+    if unmentioned:
+        return GradedCase(
+            case.name,
+            case.expected_verdict,
+            verdict.verdict,
+            False,
+            f"blocked and cited the file, but never named {', '.join(unmentioned)} — "
+            "the defect it describes is a different one",
         )
     return GradedCase(case.name, case.expected_verdict, verdict.verdict, True, "caught")
 

@@ -15,8 +15,14 @@ blocks everything is as useless as one that blocks nothing (OS#428 §6).
 
 Each directory holds `input.diff` and `expected.json`. `expected.json` records
 the verdict, the catalogue items the reviewer should reach for, the paths it
-must cite, and — in `why` — the defect in prose, so a human grading a
-disagreement can settle it without re-deriving the history.
+must cite, the terms it must mention, and — in `why` — the defect in prose, so
+a human grading a disagreement can settle it without re-deriving the history.
+
+`must_cite` and `must_mention` are both graded, and they answer different
+questions. A citation proves the reviewer read the right file; a mention
+(`safe_get`, `SSRF`) proves it found *this* defect there rather than objecting
+to something else in the same file. A case whose reviewer blocks, cites and
+never names the terms scores as a miss.
 
 ## Provenance, and what "reconstructed" means
 
