@@ -43,39 +43,6 @@ def repo(tmp_path):
     return root
 
 
-@pytest.fixture
-def repo_deleting_a_test(tmp_path):
-    """A repo whose branch deletes a test module — the GS `b14cb9b4` shape.
-
-    The deleted test is the reviewable material: it is the thing that could
-    have failed, and the diff removed it. A probe that can only read the
-    working tree cannot see it at all.
-    """
-    root = tmp_path / "deleting"
-    root.mkdir()
-
-    def git(*args):
-        subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True)
-
-    git("init", "-q", "-b", "master")
-    git("config", "user.email", "t@example.com")
-    git("config", "user.name", "T")
-    (root / "CLAUDE.md").write_text("# doctrine\n", encoding="utf-8")
-    (root / "safe_http.py").write_text("def safe_get(url):\n    return check(url)\n", encoding="utf-8")
-    (root / "tests").mkdir()
-    (root / "tests" / "test_safe_http.py").write_text(
-        "def test_a_blocked_url_never_reaches_httpx():\n    assert False\n", encoding="utf-8"
-    )
-    git("add", "-A")
-    git("commit", "-qm", "base")
-    git("checkout", "-qb", "feature")
-    git("rm", "-q", "tests/test_safe_http.py")
-    (root / "safe_http.py").write_text("def safe_get(url):\n    return fetch(url)\n", encoding="utf-8")
-    git("add", "-A")
-    git("commit", "-qm", "drop the sink and its tests")
-    return root
-
-
 class TestGaudiResolution:
     def test_resolves_the_binary_beside_the_running_interpreter(self, tmp_path):
         bindir = tmp_path / "venv" / "bin"

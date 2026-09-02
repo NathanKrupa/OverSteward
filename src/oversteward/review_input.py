@@ -37,6 +37,14 @@ EXIT_COULD_NOT_LOOK = 2
 #: a reviewer transcript containing it names an input nobody actually checked.
 COULD_NOT_LOOK = "COULD NOT LOOK — this input was unavailable; do not treat it as clean."
 
+#: Precedes a file the diff deleted, whose body is the base-branch version. The
+#: deletion is the reviewable act, so the content must arrive labelled as gone
+#: rather than looking like code that still exists.
+DELETED_BY_THIS_DIFF = (
+    "DELETED BY THIS DIFF — the body below is the base-branch version, i.e. the "
+    "material this change removed from review. It no longer exists on the branch."
+)
+
 #: Section order is fixed so two runs over one tree render byte-identically.
 SECTION_ORDER = ("diff", "issue", "changed-test-files", "repo-doctrine", "gaudi-warn")
 
@@ -90,9 +98,13 @@ class Collector(Protocol):
 
     def changed_files(self, base: str) -> list[str] | None: ...
 
+    def deleted_files(self, base: str) -> list[str] | None: ...
+
     def issue_body(self, repo: str, number: int) -> str | None: ...
 
     def file_text(self, relpath: str) -> str | None: ...
+
+    def file_text_at_base(self, base: str, relpath: str) -> str | None: ...
 
     def claude_md(self) -> str | None: ...
 
@@ -149,7 +161,26 @@ def _issue_section(collector: Collector, repo: str, issue: int | None, no_issue:
     return Section(name="issue", body=f"{repo}#{issue}\n\n{body}", measured=True)
 
 
-def _test_files_section(collector: Collector, changed: Sequence[str]) -> Section:
+def _test_file_chunk(
+    collector: Collector, base: str, relpath: str, deleted: frozenset[str] | None
+) -> tuple[str, bool]:
+    """One file's rendering, and whether anything actually produced its content."""
+    text = collector.file_text(relpath)
+    if text is not None:
+        return f"----- {relpath} -----\n{text}", True
+    # Not in the working tree. That is reviewable material when the diff
+    # deleted it — a deleted test is the one that could have failed — and an
+    # unmeasured input when nobody can say why it is missing.
+    if deleted is not None and relpath in deleted:
+        base_text = collector.file_text_at_base(base, relpath)
+        if base_text is not None:
+            return f"----- {relpath} (deleted) -----\n{DELETED_BY_THIS_DIFF}\n\n{base_text}", True
+    return f"----- {relpath} -----\n{COULD_NOT_LOOK}", False
+
+
+def _test_files_section(
+    collector: Collector, base: str, changed: Sequence[str], deleted: frozenset[str] | None
+) -> Section:
     test_paths = [path for path in changed if is_test_path(path)]
     if not test_paths:
         return Section(
@@ -160,16 +191,11 @@ def _test_files_section(collector: Collector, changed: Sequence[str]) -> Section
             ),
             measured=True,
         )
-    chunks = []
-    for relpath in test_paths:
-        text = collector.file_text(relpath)
-        rendered = text if text is not None else COULD_NOT_LOOK
-        chunks.append(f"----- {relpath} -----\n{rendered}")
-    unreadable = any(collector.file_text(p) is None for p in test_paths)
+    rendered = [_test_file_chunk(collector, base, path, deleted) for path in test_paths]
     return Section(
         name="changed-test-files",
-        body="\n\n".join(chunks),
-        measured=not unreadable,
+        body="\n\n".join(chunk for chunk, _ in rendered),
+        measured=all(obtained for _, obtained in rendered),
     )
 
 
@@ -180,7 +206,9 @@ def _doctrine_section(collector: Collector) -> Section:
     return Section(name="repo-doctrine", body=text, measured=True)
 
 
-def _gaudi_section(collector: Collector, changed: Sequence[str]) -> Section:
+def _gaudi_section(
+    collector: Collector, changed: Sequence[str], deleted: frozenset[str] | None
+) -> Section:
     python_files = [path for path in changed if path.endswith(".py")]
     if not python_files:
         return Section(
@@ -188,15 +216,38 @@ def _gaudi_section(collector: Collector, changed: Sequence[str]) -> Section:
             body="This diff changes no Python files, so there is nothing for gaudi to read.",
             measured=True,
         )
-    report = collector.gaudi_json(list(python_files))
+    # A deleted file has nothing to lint, and naming it as skipped is a
+    # measurement; letting it poison the whole probe into COULD NOT LOOK would
+    # hide the findings on the files that do still exist.
+    gone = deleted or frozenset()
+    present = [path for path in python_files if path not in gone]
+    skipped = [path for path in python_files if path in gone]
+    note = (
+        "\n\nSkipped by design — deleted by this diff, so there is no file to lint: "
+        + ", ".join(skipped)
+        if skipped
+        else ""
+    )
+    if not present:
+        return Section(
+            name="gaudi-warn",
+            body=(
+                "Every Python file this diff touches was deleted by it, so gaudi has "
+                "nothing to read. The deleted sources are reproduced above where they "
+                "are test modules." + note
+            ),
+            measured=True,
+        )
+    report = collector.gaudi_json(present)
     if report is None:
         return Section(name="gaudi-warn", body=COULD_NOT_LOOK, measured=False)
     return Section(
         name="gaudi-warn",
         body=(
-            "gaudi check --severity warn --format json, per changed Python file.\n"
+            "gaudi check --severity warn --format json, per changed Python file that "
+            "still exists.\n"
             "A warn finding is a QUESTION, not a defect — report one only where it "
-            "hides a defect.\n\n" + report
+            "hides a defect.\n\n" + report + note
         ),
         measured=True,
     )
@@ -216,12 +267,18 @@ def assemble(
     if changed is None:
         raise CouldNotLookError(f"could not list the files changed against {base!r}")
     changed = sorted(set(changed))
+    # None means the deletion list itself could not be read. It is kept
+    # distinct from "nothing was deleted": under None no missing file can be
+    # certified as deleted, so it renders COULD NOT LOOK rather than quietly
+    # borrowing the base version of a file that may never have been removed.
+    reported_deletions = collector.deleted_files(base)
+    deleted = None if reported_deletions is None else frozenset(reported_deletions)
     sections = (
         diff,
         _issue_section(collector, repo, issue, no_issue),
-        _test_files_section(collector, changed),
+        _test_files_section(collector, base, changed, deleted),
         _doctrine_section(collector),
-        _gaudi_section(collector, changed),
+        _gaudi_section(collector, changed, deleted),
     )
     return AssembledInput(repo=repo, base=base, sections=sections)
 
