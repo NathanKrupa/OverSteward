@@ -190,10 +190,12 @@ def _test_file_chunk(
         return _labelled(relpath, text), True
     # Not in the working tree. That is reviewable material when the diff
     # deleted it — a deleted test is the one that could have failed — and an
-    # unmeasured input when nobody can say why it is missing.
-    if deleted is None:
-        return _labelled(relpath, f"{COULD_NOT_LOOK}\n{DELETION_LIST_UNREADABLE}"), False
-    if relpath in deleted:
+    # unmeasured input when nobody can say why it is missing. Under a `None`
+    # deletion list nothing can be certified as deleted, so this falls through
+    # to the unmeasured rendering; the *reason* is named once, by the section
+    # (`_test_files_section`), because an unmeasured body is discarded at
+    # render time and a second copy here would reach nobody.
+    if deleted is not None and relpath in deleted:
         base_text = collector.file_text_at_base(base, relpath)
         if base_text is not None:
             body = f"{DELETED_BY_THIS_DIFF}\n\n{base_text}"

@@ -97,13 +97,18 @@ CLEAN_PROSE = [
     # with no blank line above it.
     "- The hook has refused this shape since 2026\n"
     "- Cards that restate a count rot within weeks.",
-    # A fenced command and the prose after it are different units: joining
-    # them turns an argument into an inventory claim.
-    "Run the sweep yourself rather than trusting a number here:\n"
+    # Two lines of one fenced block, each an innocent command. A scanner that
+    # joined fenced lines would read "4 workflows" across the newline and
+    # flag a shell script as an inventory claim. The count sits at the end of
+    # one line and its noun at the start of the next with no fence delimiter
+    # between them — a delimiter in the middle would break the count-to-noun
+    # regex on its own and the fixture would prove nothing.
+    "Read the current count from the command, never from this card:\n"
     "```bash\n"
     "gh run list --limit 4\n"
+    "workflows=$(gh workflow list)\n"
     "```\n"
-    "workflows exist today; the command above is the answer, never this card.",
+    "Neither line above states anything about the estate.",
 ]
 
 #: Delimits a fenced block. Its lines are commands, not prose, so they are
