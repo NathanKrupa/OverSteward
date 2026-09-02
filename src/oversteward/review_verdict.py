@@ -27,9 +27,10 @@ EXIT_VIOLATIONS = 1
 EXIT_COULD_NOT_LOOK = 2
 EXIT_NOT_APPLICABLE = 3
 
-#: The instant the CI job that runs this gate was opened as a pull request
-#: (OS#437). A PR opened at or before it cannot have carried a verdict for a
-#: gate that did not yet exist, so the gate does not govern it.
+#: The instant the CI job that runs this gate was opened as a pull request —
+#: PR#443's own ``created_at`` (OS#437). A PR opened at or before it cannot have
+#: carried a verdict for a gate that did not yet exist, so the gate does not
+#: govern it.
 #:
 #: This is a cutoff, not a bypass, and the difference is the point. A bypass is
 #: per-PR and available to whoever wants it — a label, a magic phrase, a skip
@@ -39,7 +40,7 @@ EXIT_NOT_APPLICABLE = 3
 #: to nothing as the affected PRs merge. It is refused a future value by
 #: ``tests/review/test_verdict_gate_scope.py``, because a cutoff ahead of `now`
 #: exempts every PR that will ever exist.
-GATE_LIVE_FROM = "2026-09-02T02:30:00+00:00"
+GATE_LIVE_FROM = "2026-09-02T02:40:24+00:00"
 
 BLOCK = "BLOCK"
 PASS = "PASS"
