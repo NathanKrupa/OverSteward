@@ -32,13 +32,17 @@ EXIT_COULD_NOT_LOOK = 2
 DIFF_NAME = "input.diff"
 EXPECTED_NAME = "expected.json"
 
+#: Keys of `expected.json` that grading reads, named once so a rename is one edit.
+MUST_CITE = "must_cite"
+MUST_MENTION = "must_mention"
+
 _REQUIRED_KEYS = frozenset(
     {
         "verdict",
         "failure_class",
         "catalogue_items",
-        "must_cite",
-        "must_mention",
+        MUST_CITE,
+        MUST_MENTION,
         "provenance",
         "reconstructed",
         "why",
@@ -94,6 +98,22 @@ def load_cases(root: Path) -> list[Case]:
     return cases
 
 
+def _mention_problems(case: Case) -> list[str]:
+    """Everything wrong with a case's must_mention terms."""
+    problems = []
+    if any(not str(term).strip() for term in case.expected[MUST_MENTION]):
+        problems.append(
+            f"{case.name}: a blank must_mention term matches every output, so it is an "
+            "expectation that can never fail"
+        )
+    if case.expected_verdict == PASS and case.expected[MUST_MENTION]:
+        problems.append(
+            f"{case.name}: a PASS control must not require must_mention terms — there "
+            "is no defect for the reviewer to name"
+        )
+    return problems
+
+
 def _validate_case(case: Case) -> list[str]:
     problems = []
     missing = _REQUIRED_KEYS - set(case.expected)
@@ -108,15 +128,16 @@ def _validate_case(case: Case) -> list[str]:
         problems.append(f"{case.name}: {DIFF_NAME} is empty")
     if not str(case.expected["why"]).strip():
         problems.append(f"{case.name}: 'why' is empty — a case nobody can grade by hand")
-    for path in case.expected["must_cite"]:
+    for path in case.expected[MUST_CITE]:
         if path not in case.diff:
             problems.append(
                 f"{case.name}: must_cite {path!r} does not appear in {DIFF_NAME}; "
                 "the reviewer is being asked to cite a file it will never see"
             )
-    if case.expected_verdict == PASS and case.expected["must_cite"]:
+    problems.extend(_mention_problems(case))
+    if case.expected_verdict == PASS and case.expected[MUST_CITE]:
         problems.append(f"{case.name}: a PASS control must not require citations")
-    if case.expected_verdict != PASS and not case.expected["must_cite"]:
+    if case.expected_verdict != PASS and not case.expected[MUST_CITE]:
         problems.append(
             f"{case.name}: a known-bad case must name the file the reviewer has to cite, "
             "or 'caught it' cannot be distinguished from 'blocked something'"
@@ -152,6 +173,29 @@ class GradedCase:
     note: str
 
 
+def _shortfall(case: Case, reviewer_output: str) -> str:
+    """Why a BLOCK does not count as a catch, or "" when it does.
+
+    Citing the file proves the reviewer read the right one; naming the terms
+    proves it found *this* defect there. A block on ``safe_http.py`` that never
+    says SSRF blocked the right file for the wrong reason, and scoring it as a
+    catch would reward a reviewer that objects to whatever it happened to open.
+    """
+    uncited = [path for path in case.expected[MUST_CITE] if path not in reviewer_output]
+    if uncited:
+        return f"blocked, but never cited {', '.join(uncited)} — blocked for another reason"
+    spoken = reviewer_output.casefold()
+    unmentioned = [
+        term for term in case.expected[MUST_MENTION] if str(term).casefold() not in spoken
+    ]
+    if unmentioned:
+        return (
+            f"blocked and cited the file, but never named {', '.join(unmentioned)} — "
+            "the defect it describes is a different one"
+        )
+    return ""
+
+
 def grade_case(case: Case, reviewer_output: str | None) -> GradedCase:
     """Compare one reviewer output against the case's expectation."""
     if reviewer_output is None:
@@ -176,15 +220,9 @@ def grade_case(case: Case, reviewer_output: str | None) -> GradedCase:
             False,
             f"expected BLOCK, got {verdict.verdict}",
         )
-    uncited = [p for p in case.expected["must_cite"] if p not in reviewer_output]
-    if uncited:
-        return GradedCase(
-            case.name,
-            case.expected_verdict,
-            verdict.verdict,
-            False,
-            f"blocked, but never cited {', '.join(uncited)} — blocked for another reason",
-        )
+    shortfall = _shortfall(case, reviewer_output)
+    if shortfall:
+        return GradedCase(case.name, case.expected_verdict, verdict.verdict, False, shortfall)
     return GradedCase(case.name, case.expected_verdict, verdict.verdict, True, "caught")
 
 

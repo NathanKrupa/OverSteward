@@ -91,8 +91,11 @@ is violated, that is a finding.
    printing or exiting the same.
 6. **Hard-coded worktree or primary-checkout path.** Any absolute path into
    `/home/natha/<repo>` or a `.claude/worktrees/` directory in shipped code.
-7. **`sys.path` manipulation** outside the two sanctioned commit-time gate
-   shells, which carry a `# noqa: STRUCT-010` and a reason.
+7. **Unsanctioned `sys.path` manipulation.** A sanctioned one carries a
+   `# noqa: STRUCT-010` and a comment saying why the shell needs it; anything
+   else — a bare insert, an append in library code — is a defect. The
+   sanctioned set grows, so read it (`git grep -n "sys.path" -- '*.py'`) rather
+   than trusting a count written down anywhere, including here.
 8. **A secret or credential reaching stdout/stderr.** `source .env`, an
    assignment carrying a connection string, a printed settings object, an
    exception rendering a DSN.

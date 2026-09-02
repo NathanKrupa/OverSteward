@@ -127,6 +127,16 @@ class TestGaudiProbe:
         broken.chmod(0o755)
         assert ShellCollector(repo, gaudi=broken).gaudi_json(["keep.py"]) is None
 
+    def test_a_gaudi_that_prints_a_clean_report_and_still_fails_answers_none(self, repo, tmp_path):
+        # The failing stub above prints nothing, so it would pass even if the
+        # returncode were ignored entirely — the empty stdout is doing the
+        # work. Only a stub that emits a *valid, clean-looking* report and
+        # then exits nonzero proves the filter is the exit status.
+        lying = tmp_path / "lying-gaudi"
+        lying.write_text('#!/bin/sh\necho \'{"findings": []}\'\nexit 3\n', encoding="utf-8")
+        lying.chmod(0o755)
+        assert ShellCollector(repo, gaudi=lying).gaudi_json(["keep.py"]) is None
+
     def test_a_report_is_keyed_by_file_and_ordered_deterministically(self, repo, tmp_path):
         stub = tmp_path / "stub-gaudi"
         stub.write_text('#!/bin/sh\necho \'{"findings": []}\'\n', encoding="utf-8")
@@ -141,6 +151,35 @@ class TestGaudiProbe:
         noisy.write_text("#!/bin/sh\necho 'usage: gaudi check [OPTIONS]'\n", encoding="utf-8")
         noisy.chmod(0o755)
         assert ShellCollector(repo, gaudi=noisy).gaudi_json(["keep.py"]) is None
+
+
+class TestDeletionProbes:
+    def test_the_paths_the_branch_deleted_are_listed(self, repo_deleting_a_test):
+        collector = ShellCollector(repo_deleting_a_test)
+        assert collector.deleted_files("master") == ["tests/test_safe_http.py"]
+
+    def test_a_modified_file_is_not_reported_as_deleted(self, repo_deleting_a_test):
+        assert "safe_http.py" not in ShellCollector(repo_deleting_a_test).deleted_files("master")
+
+    def test_a_branch_deleting_nothing_answers_an_empty_list_not_none(self, repo):
+        assert ShellCollector(repo).deleted_files("master") == []
+
+    def test_an_unknown_base_ref_answers_none_rather_than_no_deletions(self, repo):
+        assert ShellCollector(repo).deleted_files("origin/no-such-branch") is None
+
+    def test_a_deleted_file_is_still_readable_at_the_base(self, repo_deleting_a_test):
+        collector = ShellCollector(repo_deleting_a_test)
+        assert collector.file_text("tests/test_safe_http.py") is None
+        base_text = collector.file_text_at_base("master", "tests/test_safe_http.py")
+        assert "test_a_blocked_url_never_reaches_httpx" in base_text
+
+    def test_a_path_that_never_existed_answers_none_at_the_base_too(self, repo_deleting_a_test):
+        collector = ShellCollector(repo_deleting_a_test)
+        assert collector.file_text_at_base("master", "tests/test_invented.py") is None
+
+    def test_an_unknown_base_ref_cannot_produce_a_base_version(self, repo_deleting_a_test):
+        collector = ShellCollector(repo_deleting_a_test)
+        assert collector.file_text_at_base("origin/nope", "tests/test_safe_http.py") is None
 
 
 class TestIssueProbe:

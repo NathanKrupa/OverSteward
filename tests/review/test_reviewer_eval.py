@@ -96,6 +96,13 @@ class TestValidate:
         case = Case(name="b", diff="x", expected={"verdict": BLOCK})
         assert any("missing" in p for p in validate([case]))
 
+    def test_a_pass_control_requiring_a_mention_is_refused(self):
+        control = _case("control", verdict=PASS, must_mention=["SSRF"])
+        assert any("must_mention" in p for p in validate([control]))
+
+    def test_a_blank_mention_term_is_refused_because_everything_contains_it(self):
+        assert any("must_mention" in p for p in validate([_case("b0", must_mention=["  "])]))
+
     def test_an_empty_why_is_refused_because_nobody_could_grade_it(self):
         assert any("why" in p for p in validate([_case("b0", why="  ")]))
 
@@ -130,6 +137,28 @@ class TestGrading:
     def test_blocking_the_clean_control_is_a_miss(self):
         control = _case("control", verdict=PASS)
         assert not grade_case(control, self._output(BLOCK, 3)).caught
+
+    def test_a_block_naming_the_file_but_none_of_the_terms_is_not_caught(self):
+        # Citing the file proves the reviewer looked at it; the terms prove it
+        # found the defect there rather than something else in the same file.
+        case = _case(must_mention=["safe_get", "SSRF"])
+        result = grade_case(case, self._output(BLOCK, 1))
+        assert not result.caught
+        assert "safe_get" in result.note
+
+    def test_a_block_naming_only_some_of_the_terms_is_not_caught(self):
+        case = _case(must_mention=["safe_get", "SSRF"])
+        result = grade_case(case, self._output(BLOCK, 1, body="tests/test_x.py drops safe_get"))
+        assert not result.caught
+        assert "SSRF" in result.note
+
+    def test_the_terms_are_matched_case_insensitively_because_prose_varies(self):
+        case = _case(must_mention=["SSRF"])
+        body = "tests/test_x.py — the ssrf check is gone"
+        assert grade_case(case, self._output(BLOCK, 1, body=body)).caught
+
+    def test_a_case_declaring_no_terms_is_graded_on_its_citations_alone(self):
+        assert grade_case(_case(must_mention=[]), self._output(BLOCK, 1)).caught
 
     def test_a_missing_result_is_a_miss_not_a_skip(self):
         assert not grade_case(_case(), None).caught
