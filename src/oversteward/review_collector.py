@@ -18,14 +18,9 @@ from __future__ import annotations
 
 import json
 import subprocess
-import sys
 from pathlib import Path
 
-#: gaudi is resolved as the sibling of the running interpreter, never through
-#: PATH: `shutil.which` finds ~/.local/bin/gaudi, a different interpreter whose
-#: parser silently skips files it cannot read (OS#424). A gate that resolves a
-#: stranger's binary is measuring a stranger's opinion.
-_GAUDI_NAMES = ("gaudi", "gaudi.exe")
+from oversteward.gaudi_binary import gaudi_binary
 
 _GIT = "git"
 _GH = "gh"
@@ -33,22 +28,6 @@ _GH = "gh"
 #: Distinguishes "work out where gaudi is" from "there is no gaudi" — the
 #: second must be expressible, or the could-not-look branch cannot be tested.
 _AUTODETECT = object()
-
-
-def gaudi_binary(executable: str | None = None) -> Path | None:
-    """The gaudi beside the running interpreter, or None when it is not installed.
-
-    The interpreter path is used as given, never ``resolve()``d: a venv's
-    ``bin/python`` is a symlink to a system interpreter, so resolving it walks
-    out of the venv into ``/usr/bin`` and finds no gaudi at all — the input
-    would go silently missing on every real venv.
-    """
-    bindir = Path(executable or sys.executable).parent
-    for name in _GAUDI_NAMES:
-        candidate = bindir / name
-        if candidate.is_file():
-            return candidate
-    return None
 
 
 def _run(args: list[str], cwd: Path) -> str | None:
