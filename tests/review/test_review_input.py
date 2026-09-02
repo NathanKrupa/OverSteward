@@ -114,6 +114,10 @@ class TestAssembleGathersEveryInput:
         assert "no test files" in tests_section.body.lower()
 
 
+#: The deleted module's test function, asserted on from several angles.
+DELETED_TEST_NAME = "test_a_blocked_url_never_reaches_httpx"
+
+
 def _deleting_collector(**overrides) -> _Collector:
     """A diff that deletes a test module — the GS `b14cb9b4` shape, and the flagship case.
 
@@ -136,7 +140,7 @@ class TestADeletedFileIsReviewableNotUnmeasurable:
     def test_the_deleted_test_is_rendered_from_its_base_version(self):
         result = _assemble(collector=_deleting_collector())
         section = next(s for s in result.sections if s.name == "changed-test-files")
-        assert "test_a_blocked_url_never_reaches_httpx" in section.body
+        assert DELETED_TEST_NAME in section.body
 
     def test_the_section_is_measured_because_the_content_was_actually_obtained(self):
         result = _assemble(collector=_deleting_collector())
@@ -157,7 +161,7 @@ class TestADeletedFileIsReviewableNotUnmeasurable:
         # The section body is only worth gathering if it reaches the reviewer;
         # a body discarded at render time is the same as never reading it.
         text = render(_assemble(collector=_deleting_collector()))
-        assert "test_a_blocked_url_never_reaches_httpx" in text
+        assert DELETED_TEST_NAME in text
         assert COULD_NOT_LOOK not in text
 
     def test_gaudi_reads_the_files_that_still_exist_and_skips_the_deleted_one(self):
@@ -254,7 +258,7 @@ class TestAnUnreadableDeletionListNamesItselfRatherThanFoldingAway:
         # Invariant pin: showing it would present a deletion this run never
         # established as the reviewable act.
         text = render(_assemble(collector=_deleting_collector(deleted=None)))
-        assert "test_a_blocked_url_never_reaches_httpx" not in text
+        assert DELETED_TEST_NAME not in text
         assert "DELETED BY THIS DIFF" not in text
 
     def test_gaudi_says_the_skip_reason_is_unknowable_rather_than_by_design(self):
