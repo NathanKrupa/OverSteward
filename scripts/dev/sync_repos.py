@@ -63,12 +63,24 @@ class RepoState:
         return bool(self.target_branch) and self.current_branch == self.target_branch
 
 
+#: Actions that mean "I could not look at this checkout at all". They are kept
+#: as distinct action values rather than being recognised by their reason text:
+#: classifying an outcome by string-matching its prose is precisely how a
+#: could-not-look gets filed as a deliberate skip (OS#384).
+ACTION_ABSENT = "absent"
+ACTION_UNREADABLE = "unreadable"
+_BLIND_ACTIONS = frozenset({ACTION_ABSENT, ACTION_UNREADABLE})
+
+EXIT_OK = 0
+EXIT_COULD_NOT_LOOK = 2
+
+
 @dataclass(frozen=True)
 class SyncPlan:
     """The decided action for one repo and the reason, for the report."""
 
     repo_id: str
-    action: str  # absent | current | ff | unshallow_ff | skip
+    action: str  # see the ACTION_* constants
     reason: str
 
 
@@ -82,9 +94,9 @@ def plan_sync(state: RepoState) -> SyncPlan:
     """
     rid = state.repo_id
     if not state.present:
-        return SyncPlan(rid, "absent", "no local checkout")
+        return SyncPlan(rid, ACTION_ABSENT, "no local checkout")
     if not state.target_branch:
-        return SyncPlan(rid, "skip", "could not determine origin default branch")
+        return SyncPlan(rid, ACTION_UNREADABLE, "could not determine origin default branch")
     if state.dirty > 0:
         return SyncPlan(rid, "skip", f"{state.dirty} uncommitted change(s) — left untouched")
     if not state.on_target:
@@ -260,6 +272,25 @@ def _render(results: list[tuple[SyncPlan, str]], *, apply: bool) -> str:
     return "\n".join(lines)
 
 
+def exit_code_for(plans: list[SyncPlan]) -> int:
+    """0 when every checkout was measured, 2 when any could not be looked at.
+
+    The deliberate skips — dirty tree, unpushed commits, off-target branch — are
+    *measured answers* and stay green. Reddening the nightly timer for those
+    would make it fire every time a developer had uncommitted work, and a
+    monitor that cries wolf gets muted, which is the failure this exists to
+    prevent rather than cause.
+
+    An empty result is could-not-look too: sixteen configured contexts and none
+    visited is the false green itself, not a clean estate.
+    """
+    if not plans:
+        return EXIT_COULD_NOT_LOOK
+    if any(plan.action in _BLIND_ACTIONS for plan in plans):
+        return EXIT_COULD_NOT_LOOK
+    return EXIT_OK
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Keep managed checkouts current with origin (auto-unshallow, ff-only, loud-skip)."
@@ -274,7 +305,23 @@ def main(argv: list[str] | None = None) -> int:
 
     results = sync_all(apply=not args.dry_run, only=args.only)
     print(_render(results, apply=not args.dry_run))
-    return 0
+
+    plans = [plan for plan, _ in results]
+    code = exit_code_for(plans)
+    if code != EXIT_OK:
+        blind = [p for p in plans if p.action in _BLIND_ACTIONS]
+        if blind:
+            for plan in blind:
+                print(
+                    f"  sync_repos: COULD NOT LOOK — {plan.repo_id}: {plan.reason}",
+                    file=sys.stderr,
+                )
+        else:
+            print(
+                "  sync_repos: COULD NOT LOOK — no checkouts were visited at all.",
+                file=sys.stderr,
+            )
+    return code
 
 
 if __name__ == "__main__":
