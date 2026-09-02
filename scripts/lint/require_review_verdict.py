@@ -20,10 +20,15 @@ while looking like a clean run:
 * ``1`` — missing, malformed, or ``BLOCK``.
 * ``2`` — could not look: the body could not be fetched or read. Never 0, or a
   network blip certifies every PR it touches.
-* ``3`` — not applicable: the PR was opened at or before
-  :data:`~oversteward.review_verdict.GATE_LIVE_FROM`, so it predates the gate
-  (OS#437). Only reachable via ``--pr``, where a creation time exists to read;
-  ``--body-file`` is always judged.
+* ``3`` — not applicable: the PR carries no verdict block at all *and* was
+  opened at or before :data:`~oversteward.review_verdict.GATE_LIVE_FROM`, so it
+  predates the gate (OS#437). Only reachable via ``--pr``, where a creation time
+  exists to read; ``--body-file`` is always judged.
+
+The body is judged before the cutoff is consulted (OS#444). Non-retroactivity
+excuses a verdict that is *absent*; a predating PR whose body carries an explicit
+``BLOCK`` still exits 1, and one carrying a well-formed ``PASS`` still exits 0 —
+otherwise the exemption's own sentence, "nothing was judged", would be false.
 
 The negative fixtures live in ``tests/fixtures/review_verdict/`` and each one is
 run against this gate by ``tests/review/test_require_review_verdict.py`` — the
@@ -49,9 +54,7 @@ from oversteward.review_verdict import (  # noqa: E402
     EXIT_COULD_NOT_LOOK,
     EXIT_NOT_APPLICABLE,
     EXIT_OK,
-    GATE_LIVE_FROM,
-    governs,
-    judge,
+    judge_pull_request,
 )
 
 GATE = "review-verdict:"
@@ -103,17 +106,12 @@ def main(argv: list[str]) -> int:
         body = None if pull is None else (pull.get("body") or "")
         created_at = None if pull is None else pull.get("created_at")
 
-    if not governs(created_at):
-        sys.stdout.write(
-            f"{GATE} NOT APPLICABLE — this PR was opened at {created_at}, at or "
-            f"before the gate went live ({GATE_LIVE_FROM}). Nothing was judged.\n"
-        )
-        return EXIT_NOT_APPLICABLE
-
-    code, message = judge(body)
-    stream = sys.stdout if code == EXIT_OK else sys.stderr
+    code, message = judge_pull_request(body, created_at)
+    stream = sys.stdout if code in (EXIT_OK, EXIT_NOT_APPLICABLE) else sys.stderr
     if code == EXIT_OK:
         stream.write(f"{GATE} {message} — verdict present and not blocking.\n")
+    elif code == EXIT_NOT_APPLICABLE:
+        stream.write(f"{GATE} NOT APPLICABLE — {message}\n")
     elif code == EXIT_COULD_NOT_LOOK:
         stream.write(f"{GATE} COULD NOT LOOK — {message}. This is not a pass.\n")
     else:

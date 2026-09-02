@@ -39,7 +39,9 @@ EXIT_NOT_APPLICABLE = 3
 #: recording it, it grants nothing to any PR opened from now on, and it shrinks
 #: to nothing as the affected PRs merge. It is refused a future value by
 #: ``tests/review/test_verdict_gate_scope.py``, because a cutoff ahead of `now`
-#: exempts every PR that will ever exist.
+#: exempts every PR that will ever exist — and pinned to this exact literal by
+#: the same file, because that future-value guard misses a move *forward inside
+#: the past*, which is the one direction that widens the exempt window (OS#444).
 GATE_LIVE_FROM = "2026-09-02T02:40:24+00:00"
 
 BLOCK = "BLOCK"
@@ -143,6 +145,16 @@ def parse_verdict(body: str) -> Verdict:
     return Verdict(verdict=verdict, findings=findings, tokens=tokens)
 
 
+def has_verdict_block(body: str) -> bool:
+    """Whether ``body`` carries a verdict block at all, well-formed or not.
+
+    The distinction non-retroactivity turns on: a PR that predates the gate can
+    be excused for carrying *no* verdict, but a block that is present has been
+    written by someone and must be read.
+    """
+    return _BLOCK_RE.search(body) is not None
+
+
 def governs(created_at: str | None) -> bool:
     """Whether this gate governs a PR opened at ``created_at`` (ISO 8601).
 
@@ -181,6 +193,32 @@ def judge(body: str | None) -> tuple[int, str]:
             "Fix them and re-review; a second BLOCK escalates to Nathan via needs-input."
         )
     return EXIT_OK, parsed.verdict
+
+
+def judge_pull_request(body: str | None, created_at: str | None) -> tuple[int, str]:
+    """An exit code and a sentence for one PR, given when the PR was opened.
+
+    Judging comes first and the cutoff is only a fallback, because
+    non-retroactivity exists to excuse an *absent* verdict — not to swallow a
+    present one. A PR opened before :data:`GATE_LIVE_FROM` whose body carries an
+    explicit ``BLOCK`` is refusing itself, and answering NOT APPLICABLE to that
+    would report a recorded refusal as an unjudged skip (OS#444).
+
+    So the exemption fires on exactly one shape: no verdict block in the body
+    *and* a creation time at or before the cutoff. Everything else is judged on
+    its merits, including a predating PR carrying a well-formed ``PASS`` — that
+    exits 0, the pass it is, because the NOT APPLICABLE message says "nothing
+    was judged" and that sentence has to stay true. A malformed block on a
+    predating PR is judged too: something was written, and the gate reads it.
+    """
+    code, message = judge(body)
+    absent = body is not None and not has_verdict_block(body)
+    if code == EXIT_VIOLATIONS and absent and not governs(created_at):
+        return EXIT_NOT_APPLICABLE, (
+            f"this PR was opened at {created_at}, at or before the gate went "
+            f"live ({GATE_LIVE_FROM}). Nothing was judged."
+        )
+    return code, message
 
 
 def render_template(

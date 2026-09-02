@@ -141,6 +141,48 @@ class TestAgainstAPullRequestBody:
         assert result.returncode == 3, f"{result.returncode}: {result.stdout}{result.stderr}"
         assert "NOT APPLICABLE" in result.stdout
 
+    def test_a_pr_predating_the_gate_with_a_block_verdict_is_still_red(
+        self, tmp_path: Path
+    ) -> None:
+        """Non-retroactivity excuses an absent verdict, never a present refusal.
+
+        Before OS#444 the cutoff was consulted first, so this exact payload —
+        an explicit BLOCK on a PR opened a day before the gate — exited 3 and
+        printed "Nothing was judged" over a review that had judged and refused.
+        """
+        env = _gh_stub(tmp_path, _payload("block.md", PREDATES))
+        result = _run("--pr", "1", env=env)
+        assert result.returncode == 1, (
+            f"expected exit 1, got {result.returncode}\n"
+            f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+        assert "BLOCK" in result.stderr
+
+    def test_a_pr_predating_the_gate_with_a_pass_verdict_is_green(
+        self, tmp_path: Path
+    ) -> None:
+        """A present, well-formed pass is reported as the pass it is, not as
+        an unjudged skip — the exemption's own message claims nothing was
+        judged, and here something was."""
+        env = _gh_stub(tmp_path, _payload("pass_with_findings.md", PREDATES))
+        result = _run("--pr", "1", env=env)
+        assert result.returncode == 0, (
+            f"expected exit 0, got {result.returncode}\n"
+            f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+
+    def test_a_pr_predating_the_gate_with_a_malformed_block_is_red(
+        self, tmp_path: Path
+    ) -> None:
+        """A block that exists but says nothing actionable was still written by
+        someone; only an *absent* verdict is excused."""
+        env = _gh_stub(tmp_path, _payload("unfilled_template.md", PREDATES))
+        result = _run("--pr", "1", env=env)
+        assert result.returncode == 1, (
+            f"expected exit 1, got {result.returncode}\n"
+            f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+
     def test_a_pr_carrying_no_creation_time_is_still_judged(
         self, tmp_path: Path
     ) -> None:

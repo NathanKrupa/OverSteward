@@ -12,6 +12,7 @@ from oversteward.review_verdict import (
     EXIT_VIOLATIONS,
     GATE_LIVE_FROM,
     governs,
+    judge_pull_request,
 )
 
 CUTOFF = datetime.fromisoformat(GATE_LIVE_FROM)
@@ -55,3 +56,62 @@ class TestTheCutoffCannotBecomeABypass:
     def test_not_applicable_never_shares_an_exit_code_with_another_outcome(self):
         """Predates-the-gate must not print or exit as a pass, or it is a skip."""
         assert EXIT_NOT_APPLICABLE not in {EXIT_OK, EXIT_VIOLATIONS, EXIT_COULD_NOT_LOOK}
+
+    def test_the_cutoff_literal_is_pinned(self):
+        """The future-value guard above misses the direction that matters.
+
+        Every PR opened after the cutoff is governed, so the exempt set is
+        `created_at <= GATE_LIVE_FROM` — and moving the literal *forward*, while
+        staying comfortably in the past, widens that set by exactly the distance
+        moved. The `<= now` assertion cannot see it: a cutoff moved from PR#443's
+        creation instant to yesterday evening is still in the past and still
+        passes, while silently exempting every PR opened in between (OS#444).
+
+        So the value is pinned, not merely bounded. Changing it is a deliberate
+        edit to this line, reviewed and recorded, which is the only property the
+        comment in review_verdict.py claims for it.
+        """
+        assert GATE_LIVE_FROM == "2026-09-02T02:40:24+00:00", (
+            "GATE_LIVE_FROM moved. It is PR#443's own created_at and nothing "
+            "else; a forward move widens the set of PRs the gate never judges."
+        )
+
+
+class TestJudgingComesBeforeTheCutoff:
+    """OS#444 — non-retroactivity excuses an absent verdict, not a present one."""
+
+    def _body(self, verdict: str, findings: int) -> str:
+        return (
+            "Closes #444\n\n"
+            "```reviewer-verdict\n"
+            f"verdict: {verdict}\nfindings: {findings}\ntokens: 100\n"
+            "```\n"
+        )
+
+    def test_a_predating_pr_with_a_block_verdict_is_still_a_violation(self):
+        code, _ = judge_pull_request(self._body("BLOCK", 1), _offset(days=-1))
+        assert code == EXIT_VIOLATIONS
+
+    def test_a_predating_pr_with_a_pass_verdict_is_the_pass_it_is(self):
+        code, _ = judge_pull_request(self._body("PASS", 0), _offset(days=-1))
+        assert code == EXIT_OK
+
+    def test_a_predating_pr_with_a_malformed_block_is_judged(self):
+        """A block was written; only an absent one is excused."""
+        code, _ = judge_pull_request(self._body("PASS", 3), _offset(days=-1))
+        assert code == EXIT_VIOLATIONS
+
+    def test_a_predating_pr_with_no_verdict_block_is_not_applicable(self):
+        code, message = judge_pull_request("no verdict here", _offset(days=-1))
+        assert code == EXIT_NOT_APPLICABLE
+        assert "Nothing was judged" in message
+
+    def test_a_governed_pr_with_no_verdict_block_is_a_violation(self):
+        code, _ = judge_pull_request("no verdict here", _offset(seconds=1))
+        assert code == EXIT_VIOLATIONS
+
+    def test_an_unreadable_body_is_could_not_look_whatever_its_age(self):
+        """Exit 2 outranks the exemption: a body nobody could read is not an
+        excused absence, it is an unanswered question."""
+        code, _ = judge_pull_request(None, _offset(days=-1))
+        assert code == EXIT_COULD_NOT_LOOK
