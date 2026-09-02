@@ -71,6 +71,29 @@ class ShellCollector:
             return None
         return [line for line in out.splitlines() if line.strip()]
 
+    def deleted_files(self, base: str) -> list[str] | None:
+        """The paths this branch removed, or None when that could not be established.
+
+        An empty list means "the branch deleted nothing" and None means "the
+        question could not be answered" — the assembler needs both, because a
+        file it cannot read is reviewable material when it was deleted and an
+        unmeasured input when nobody can say.
+        """
+        point = self._merge_base(base)
+        if point is None:
+            return None
+        out = _run([_GIT, "diff", "--diff-filter=D", "--name-only", point, "HEAD"], self._root)
+        if out is None:
+            return None
+        return [line for line in out.splitlines() if line.strip()]
+
+    def file_text_at_base(self, base: str, relpath: str) -> str | None:
+        """A file's content at the merge base — the only place a deleted file still exists."""
+        point = self._merge_base(base)
+        if point is None:
+            return None
+        return _run([_GIT, "show", f"{point}:{relpath}"], self._root)
+
     def issue_body(self, repo: str, number: int) -> str | None:
         out = _run([_GH, "api", f"repos/{repo}/issues/{number}"], self._root)
         if out is None:
@@ -90,8 +113,9 @@ class ShellCollector:
         try:
             return path.read_text(encoding="utf-8")
         except OSError:
-            # A test file deleted by the diff is a real and interesting state:
-            # the reviewer is told the path and that it is gone, not nothing.
+            # None means only "not in the working tree". Whether that is a
+            # deletion (reviewable — read it at the base) or a blind spot is
+            # `deleted_files`' question, never this one's.
             return None
 
     def claude_md(self) -> str | None:
