@@ -26,9 +26,14 @@ Usage::
     python scripts/dev/check_worktree_imports.py grantspider
     python scripts/dev/check_worktree_imports.py apps.research --root .
 
-Exits 0 when the package resolves inside the tree (or is not installed at all —
-absence is a different problem, not this one). Exits 1 on a mismatch, naming
-both paths and the fix.
+Exit codes are three-valued, because "the package is where it should be" and
+"there is no package to look at" are different answers:
+
+* ``0`` — the package resolves inside this tree. A measured pass.
+* ``1`` — mismatch: it resolves somewhere else, and every gate that imports it
+  is validating the wrong source.
+* ``2`` — could not look: the package is not importable, so nothing was
+  verified. This used to be ``0`` (OS#384).
 """
 
 from __future__ import annotations
@@ -37,6 +42,10 @@ import argparse
 import importlib.util
 import sys
 from pathlib import Path
+
+EXIT_OK = 0
+EXIT_MISMATCH = 1
+EXIT_COULD_NOT_LOOK = 2
 
 
 def _resolve_package_path(name: str) -> Path | None:
@@ -72,11 +81,20 @@ def main() -> int:
     found = _resolve_package_path(args.package)
 
     if found is None:
-        # Not installed / not importable. That is a real problem, but a
-        # different one — failing here would turn this guard into a second
-        # source of confusing red.
-        print(f"[worktree-imports] {args.package!r} is not importable — skipping check.")
-        return 0
+        # Not importable at all. This used to return 0 — identical to `ok:` —
+        # on the reasoning that absence is "a different problem". It is a
+        # *worse* one: this guard exists to prove the worktree's own `src/` is
+        # what resolves, and a package that cannot be imported is a stronger
+        # signal of a broken environment than the mismatch it looks for. Exit 2
+        # ("could not look"), which is neither the clean code nor the mismatch
+        # code, so a gate can tell the three apart (OS#384).
+        print(
+            f"[worktree-imports] COULD NOT LOOK: {args.package!r} is not importable, "
+            f"so nothing was verified about {root}.\n"
+            f"  Install the package, or export PYTHONPATH to this tree's source.",
+            file=sys.stderr,
+        )
+        return EXIT_COULD_NOT_LOOK
 
     if root in found.parents or found == root:
         print(f"[worktree-imports] ok: {args.package} → {found}")
