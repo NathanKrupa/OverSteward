@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -59,6 +60,17 @@ VOLATILE_EXEMPLARS = {
         "**`sys.path` manipulation** outside the two sanctioned commit-time gate",
         "the repo ships 47 tools",
         "all three dispatch agents read this first",
+        # The same claim as it is actually written in a card: hard-wrapped, so
+        # the count sits on one physical line and its noun on the next. A
+        # line-by-line scan finds nothing here, which is what made an innocent
+        # reflow enough to disarm the guard (OS#442, finding 1).
+        "**`sys.path` manipulation** outside the two sanctioned commit-time\n"
+        "gate shells is refused by the hook.",
+        # `shells?` had no exemplar of its own: every fixture that appeared to
+        # exercise it also matched via `gates?`, so deleting the alternation
+        # left the suite green. Here "shells" is the only countable within
+        # reach of the count, so the alternation is load-bearing.
+        "the two commit-time shells run on every commit",
     ],
     "asserted-approximate-timing": ["the sweep takes ~30s end to end"],
     "restated-playbook-cap": ["keep the diff under the 12/400 cap"],
@@ -71,7 +83,43 @@ CLEAN_PROSE = [
     "The verdict is three-valued, and a skip is not a pass.",
     "<one or two lines>",
     "- `<file>` — <what>",
+    # Wrapped prose that claims nothing: joining must widen what the guard can
+    # see without widening what it fires on.
+    "Every card is hard-wrapped prose, and a claim can straddle the wrap; a\n"
+    "scan that reads one physical line at a time never sees it.",
+    # Two paragraphs, each innocent. Joining across the blank line would
+    # manufacture "2026 Cards" out of a year and a following sentence.
+    "The estate has run this gate since 2026\n"
+    "\n"
+    "Cards that state a count instead of a command rot.",
+    # Two list items, each innocent. A bullet opens a new logical unit even
+    # with no blank line above it.
+    "- The hook has refused this shape since 2026\n"
+    "- Cards that restate a count rot within weeks.",
+    # A fenced command and the prose after it are different units: joining
+    # them turns an argument into an inventory claim.
+    "Run the sweep yourself rather than trusting a number here:\n"
+    "```bash\n"
+    "gh run list --limit 4\n"
+    "```\n"
+    "workflows exist today; the command above is the answer, never this card.",
 ]
+
+#: Delimits a fenced block. Its lines are commands, not prose, so they are
+#: scanned on their own and never joined to the paragraphs around them.
+_FENCE = re.compile(r"^\s*(?:```|~~~)")
+
+#: A heading or a list marker opens a new logical unit even with no blank line
+#: above it. Joining across one would invent a sentence neither line wrote.
+_UNIT_BREAK = re.compile(r"^\s*(?:#{1,6}\s|(?:[-*+]|\d+[.)])\s)")
+
+
+@dataclass(frozen=True)
+class Paragraph:
+    """One logical unit of card prose, and the physical line it opens at."""
+
+    start_line: int
+    text: str
 
 
 def _assertions_only(line: str) -> str:
@@ -79,10 +127,59 @@ def _assertions_only(line: str) -> str:
     return _PLACEHOLDER.sub(" ", line)
 
 
-def _volatile_findings(line: str) -> list[str]:
-    """Every shape that fires on one line of card prose."""
-    text = _assertions_only(line)
-    return [shape for shape, pattern in VOLATILE_SHAPES.items() if pattern.search(text)]
+def _paragraphs(text: str) -> list[Paragraph]:
+    """Card prose as logical units — wrapped lines joined, everything else apart.
+
+    Every card is hard-wrapped, so a count and its noun routinely straddle a
+    line break and a per-line scan sees neither half (OS#442). A blank line, a
+    fence delimiter, a heading and a list marker each end a unit, because
+    joining across one would fabricate a claim the card never made.
+    """
+    units: list[Paragraph] = []
+    current: list[str] = []
+    start = 0
+    in_fence = False
+
+    def flush() -> None:
+        nonlocal current
+        if current:
+            units.append(Paragraph(start_line=start, text=" ".join(current)))
+            current = []
+
+    for number, line in enumerate(text.splitlines(), start=1):
+        if _FENCE.match(line):
+            flush()
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            flush()
+            units.append(Paragraph(start_line=number, text=line.strip()))
+            continue
+        if not line.strip():
+            flush()
+            continue
+        if _UNIT_BREAK.match(line):
+            flush()
+        if not current:
+            start = number
+        current.append(line.strip())
+    flush()
+    return units
+
+
+def _volatile_findings(text: str) -> list[str]:
+    """Every shape that fires on one logical unit of card prose."""
+    cleaned = _assertions_only(text)
+    return [shape for shape, pattern in VOLATILE_SHAPES.items() if pattern.search(cleaned)]
+
+
+def _volatile_findings_in(text: str) -> list[str]:
+    """Each rotting claim in a card, named with the line its paragraph opens at."""
+    return [
+        f"line {paragraph.start_line}: [{shape}] {paragraph.text[:160]}"
+        for paragraph in _paragraphs(text)
+        for shape in _volatile_findings(paragraph.text)
+    ]
 
 
 def test_every_volatile_shape_has_an_exemplar_that_makes_it_fire() -> None:
@@ -95,7 +192,8 @@ def test_every_volatile_shape_has_an_exemplar_that_makes_it_fire() -> None:
     [(shape, text) for shape, texts in VOLATILE_EXEMPLARS.items() for text in texts],
 )
 def test_a_volatile_shape_catches_the_wording_that_shipped(shape: str, text: str) -> None:
-    assert VOLATILE_SHAPES[shape].search(_assertions_only(text)), (
+    findings = _volatile_findings_in(text)
+    assert any(f"[{shape}]" in finding for finding in findings), (
         f"[{shape}] no longer catches: {text}"
     )
 
@@ -103,7 +201,7 @@ def test_a_volatile_shape_catches_the_wording_that_shipped(shape: str, text: str
 @pytest.mark.parametrize("text", CLEAN_PROSE)
 def test_ordinary_card_prose_is_not_flagged(text: str) -> None:
     """A guard that cries wolf gets overridden reflexively."""
-    assert not _volatile_findings(text)
+    assert not _volatile_findings_in(text)
 
 
 # "OverSteward has no CI" misled at least two pickups (issue #328). The claim is
@@ -153,13 +251,10 @@ def test_canonical_and_deployed_cards_are_byte_identical(name: str) -> None:
 @pytest.mark.parametrize("card", _agent_cards(), ids=lambda p: f"{p.parent.name}/{p.name}")
 def test_agent_cards_carry_no_hand_written_volatile_facts(card: Path) -> None:
     """State the command that answers a derivable fact, never the answer."""
-    findings = [
-        f"line {number}: [{shape}] {line.strip()}"
-        for number, line in enumerate(card.read_text(encoding="utf-8").splitlines(), start=1)
-        for shape in _volatile_findings(line)
-    ]
+    findings = _volatile_findings_in(card.read_text(encoding="utf-8"))
     assert not findings, (
-        f"{card.parent.name}/{card.name} states a derivable fact that will rot:\n  "
+        f"{card.parent.name}/{card.name} states a derivable fact that will rot "
+        f"(line numbers name where the paragraph opens):\n  "
         + "\n  ".join(findings)
         + "\nReplace it with the command that answers it."
     )
