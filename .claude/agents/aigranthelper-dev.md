@@ -55,7 +55,7 @@ here on purpose — an absolute count typed into prose is wrong within weeks, an
 a stale one reads as authoritative. A large drop against the count the previous
 PR reported is the signal worth acting on.
 
-### CI jobs — two workflows, and a PR shows checks from both
+### CI jobs — a PR can show checks from more than one workflow
 
 **`ci.yml`** (workflow `CI`) — the real gates:
 

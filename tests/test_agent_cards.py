@@ -13,11 +13,29 @@ CANONICAL_DIR = REPO_ROOT / "shared" / "agents"
 DEPLOYED_DIR = REPO_ROOT / ".claude" / "agents"
 WORKFLOW_DIR = REPO_ROOT / ".github" / "workflows"
 
+# A count is volatile whether it is typed as a digit or spelled out: "the two
+# sanctioned gate shells" rots exactly as fast as "the 2 sanctioned gate
+# shells", and it is the spelled form that prose reaches for. "One" is left out
+# deliberately — "one PR = one logical change" is doctrine, not an inventory.
+_SPELLED_COUNT = "two|three|four|five|six|seven|eight|nine|ten|eleven|twelve"
+_COUNT = rf"(?:\d[\d,]*\+?|{_SPELLED_COUNT})"
+
+# Things the estate accumulates. Any of them counted in prose is a number that
+# was true on the day it was typed.
+_COUNTABLE = (
+    r"tools?|tests?|categories|articles|lines|files|shells?|scripts?|hooks?|"
+    r"agents?|cards?|skills?|repos?|repositories|gates?|checks?|workflows?|"
+    r"cases?|probes?|sections?|commands?|fixtures?|mutations?"
+)
+
 # Shapes that were true once and are wrong now. Each is a *derivable* fact — the
 # card must state the command that answers it, never the answer itself.
 VOLATILE_SHAPES = {
     "asserted-inventory-count": re.compile(
-        r"\b\d[\d,]*\+?\s+(?:tools?|tests?|categories|articles|lines|files)\b",
+        # Up to three words may sit between the count and the noun — the
+        # wording that shipped the false positive was "the two sanctioned
+        # commit-time gate shells".
+        rf"\b{_COUNT}\s+(?:[\w-]+\s+){{0,3}}(?:{_COUNTABLE})\b",
         re.IGNORECASE,
     ),
     "asserted-approximate-timing": re.compile(
@@ -25,6 +43,68 @@ VOLATILE_SHAPES = {
     ),
     "restated-playbook-cap": re.compile(r"\b\d+\s*/\s*\d+\s+cap\b"),
 }
+
+#: A template slot the author fills in. `<one or two lines>` instructs the
+#: author how long to write; it asserts nothing about the estate and cannot rot.
+_PLACEHOLDER = re.compile(r"<[^<>]{0,120}>")
+
+#: The fixture that makes each shape fire. A pattern nobody has watched catch
+#: anything is a pattern that may catch nothing (`pr-workflow.md` § False
+#: greens: a new check ships with the fixture that makes it fail).
+VOLATILE_EXEMPLARS = {
+    "asserted-inventory-count": [
+        # Verbatim from PR#432's brief. It taught every reviewer to flag three
+        # of this repo's own sanctioned shells, because the count was written
+        # down instead of derived (OS#440, verdict finding 2).
+        "**`sys.path` manipulation** outside the two sanctioned commit-time gate",
+        "the repo ships 47 tools",
+        "all three dispatch agents read this first",
+    ],
+    "asserted-approximate-timing": ["the sweep takes ~30s end to end"],
+    "restated-playbook-cap": ["keep the diff under the 12/400 cap"],
+}
+
+#: Prose that must stay legal, or the guard cries wolf and gets ignored.
+CLEAN_PROSE = [
+    "One PR = one logical change.",
+    "Read `git grep -n \"sys.path\" -- '*.py'` rather than trusting a count.",
+    "The verdict is three-valued, and a skip is not a pass.",
+    "<one or two lines>",
+    "- `<file>` — <what>",
+]
+
+
+def _assertions_only(line: str) -> str:
+    """The line with template placeholders removed, since a slot claims nothing."""
+    return _PLACEHOLDER.sub(" ", line)
+
+
+def _volatile_findings(line: str) -> list[str]:
+    """Every shape that fires on one line of card prose."""
+    text = _assertions_only(line)
+    return [shape for shape, pattern in VOLATILE_SHAPES.items() if pattern.search(text)]
+
+
+def test_every_volatile_shape_has_an_exemplar_that_makes_it_fire() -> None:
+    """A shape with no negative fixture is a guard nobody has proven can bite."""
+    assert set(VOLATILE_EXEMPLARS) == set(VOLATILE_SHAPES)
+
+
+@pytest.mark.parametrize(
+    ("shape", "text"),
+    [(shape, text) for shape, texts in VOLATILE_EXEMPLARS.items() for text in texts],
+)
+def test_a_volatile_shape_catches_the_wording_that_shipped(shape: str, text: str) -> None:
+    assert VOLATILE_SHAPES[shape].search(_assertions_only(text)), (
+        f"[{shape}] no longer catches: {text}"
+    )
+
+
+@pytest.mark.parametrize("text", CLEAN_PROSE)
+def test_ordinary_card_prose_is_not_flagged(text: str) -> None:
+    """A guard that cries wolf gets overridden reflexively."""
+    assert not _volatile_findings(text)
+
 
 # "OverSteward has no CI" misled at least two pickups (issue #328). The claim is
 # checkable against this repo, so the guard is derived rather than hand-listed.
@@ -76,8 +156,7 @@ def test_agent_cards_carry_no_hand_written_volatile_facts(card: Path) -> None:
     findings = [
         f"line {number}: [{shape}] {line.strip()}"
         for number, line in enumerate(card.read_text(encoding="utf-8").splitlines(), start=1)
-        for shape, pattern in VOLATILE_SHAPES.items()
-        if pattern.search(line)
+        for shape in _volatile_findings(line)
     ]
     assert not findings, (
         f"{card.parent.name}/{card.name} states a derivable fact that will rot:\n  "
