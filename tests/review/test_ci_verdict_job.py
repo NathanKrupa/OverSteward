@@ -32,6 +32,16 @@ def verdict_job(workflow: dict) -> dict:
     return workflow["jobs"][JOB]
 
 
+@pytest.fixture(scope="module")
+def gate_step(verdict_job: dict) -> dict:
+    """The one step in the job that runs the gate."""
+    steps = [s for s in verdict_job["steps"] if GATE_PATH in s.get("run", "")]
+    assert len(steps) == 1, (
+        f"expected exactly one step running the gate, got {len(steps)}"
+    )
+    return steps[0]
+
+
 def test_the_job_runs_the_gate_against_this_pull_request(verdict_job: dict) -> None:
     commands = "\n".join(step.get("run", "") for step in verdict_job["steps"])
     assert GATE_PATH in commands
@@ -162,12 +172,6 @@ def test_a_body_edit_does_not_re_run_the_whole_suite(workflow: dict) -> None:
 STEP_EXIT_FOR_GATE_EXIT = {0: 0, 1: 1, 2: 2, 3: 0}
 
 
-def _gate_step(verdict_job: dict) -> dict:
-    steps = [s for s in verdict_job["steps"] if GATE_PATH in s.get("run", "")]
-    assert len(steps) == 1, f"expected exactly one step running the gate, got {len(steps)}"
-    return steps[0]
-
-
 def _shell_argv(step: dict, script: Path) -> list[str]:
     """The runner's own interpreter for this step's `run:` block.
 
@@ -231,9 +235,9 @@ class TestTheStepsExitCodeMapping:
         ("gate_exit", "step_exit"), sorted(STEP_EXIT_FOR_GATE_EXIT.items())
     )
     def test_the_step_reports(
-        self, verdict_job: dict, tmp_path: Path, gate_exit: int, step_exit: int
+        self, gate_step: dict, tmp_path: Path, gate_exit: int, step_exit: int
     ) -> None:
-        result = _run_step(_gate_step(verdict_job), tmp_path, gate_exit)
+        result = _run_step(gate_step, tmp_path, gate_exit)
         assert result.returncode == step_exit, (
             f"gate exited {gate_exit}; the CI step must report {step_exit}, "
             f"reported {result.returncode}\nstdout: {result.stdout}\n"
@@ -246,17 +250,17 @@ class TestTheStepsExitCodeMapping:
         values = set(STEP_EXIT_FOR_GATE_EXIT.values())
         assert 0 in values and values - {0}
 
-    def test_the_gate_actually_ran(self, verdict_job: dict, tmp_path: Path) -> None:
+    def test_the_gate_actually_ran(self, gate_step: dict, tmp_path: Path) -> None:
         """Guards the parametrized cases against passing on a gate that was
         never invoked — a `case` arm matching a stale `rc` would look identical."""
-        result = _run_step(_gate_step(verdict_job), tmp_path, 0)
+        result = _run_step(gate_step, tmp_path, 0)
         assert "stub gate spoke, rc=0" in result.stdout
 
     def test_the_gates_words_reach_the_step_summary(
-        self, verdict_job: dict, tmp_path: Path
+        self, gate_step: dict, tmp_path: Path
     ) -> None:
         """The summary is where a human reads why a red is red."""
-        _run_step(_gate_step(verdict_job), tmp_path, 1)
+        _run_step(gate_step, tmp_path, 1)
         summary = (tmp_path / "step-summary.md").read_text(encoding="utf-8")
         assert "stub gate spoke, rc=1" in summary
 
