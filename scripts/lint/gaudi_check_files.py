@@ -15,8 +15,19 @@ Behaviour:
   * Filters input to ``*.py`` files (pre-commit ``types: [python]``
     already does this; the filter is defence-in-depth).
   * Runs ``gaudi check --severity error --exit-code FILE`` for each.
-  * Prints any error output verbatim. Exits 1 if any file produced an
-    error finding, else 0.
+  * Prints any error output verbatim.
+
+Exit codes, which are gaudi 0.3.0's own and must not be collapsed:
+
+  * ``0`` — every file was parsed and none carried an error finding.
+  * ``1`` — at least one file carried an error finding.
+  * ``2`` — at least one file could not be looked at: gaudi reported an
+    incomplete run (a file its parser skipped, a pack that failed to
+    load), or crashed, or is not installed beside this interpreter.
+
+``2`` outranks ``1``: a file nobody could read must not be reported as a
+finding, because fixing the findings would then turn the gate green while
+that file was still never parsed. Neither may read as a pass.
 """
 
 from __future__ import annotations
@@ -66,7 +77,7 @@ def main(argv: list[str]) -> int:
         return 0
 
     gaudi = _gaudi_binary()
-    any_failed = False
+    worst = 0
     for f in files:
         # Args are a resolved binary path + literal flags + filtered *.py
         # paths from pre-commit. No shell, no untrusted input — B603 is the
@@ -77,11 +88,16 @@ def main(argv: list[str]) -> int:
             text=True,
             check=False,
         )
-        if result.returncode != 0:
-            any_failed = True
-            sys.stdout.write(result.stdout)
-            sys.stderr.write(result.stderr)
-    return 1 if any_failed else 0
+        if result.returncode == 0:
+            continue
+        sys.stdout.write(result.stdout)
+        sys.stderr.write(result.stderr)
+        # Only gaudi's 1 means "looked, and found something". Its 2 means the
+        # run was incomplete, and anything else (a crash, a signal, a missing
+        # subcommand) means the same thing less politely. `max` is what makes
+        # the gate fail closed across files, whatever order they arrive in.
+        worst = max(worst, 1 if result.returncode == 1 else 2)
+    return worst
 
 
 if __name__ == "__main__":
