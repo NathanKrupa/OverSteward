@@ -96,7 +96,7 @@ def find_transcript(projects_root: Path, session_id: str) -> TranscriptMeta | No
     return None
 
 
-def _read_records(path: Path) -> list[dict[str, Any]]:
+def read_records(path: Path) -> list[dict[str, Any]]:
     """Parse a .jsonl transcript into a list of records, skipping malformed lines.
 
     Claude Code transcripts occasionally contain a partially-flushed final line;
@@ -159,7 +159,7 @@ def parse_transcript(path: Path) -> str:
     attachment, ai-title, etc.) are dropped — they carry no extraction signal.
     """
     sections: list[str] = []
-    for record in _read_records(path):
+    for record in read_records(path):
         message = record.get("message")
         if not isinstance(message, dict):
             continue
