@@ -41,8 +41,7 @@ esac
 """
 
 
-@pytest.fixture
-def gate_with_stub_gaudi(tmp_path):
+def _install_stub_gaudi(tmp_path):
     """A venv-shaped bin dir holding a real python and the stub gaudi.
 
     The gate resolves the gaudi beside its own interpreter (OS#424), so the
@@ -56,20 +55,60 @@ def gate_with_stub_gaudi(tmp_path):
     stub.write_text(_STUB_GAUDI, encoding="utf-8")
     stub.chmod(0o755)
 
-    def run(*names: str) -> subprocess.CompletedProcess[str]:
-        paths = []
-        for name in names:
-            target = tmp_path / name
-            target.write_text("VALUE = 1\n", encoding="utf-8")
-            paths.append(str(target))
+    def run(*args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            [str(venv_bin / "python3"), str(GATE), *paths],
+            [str(venv_bin / "python3"), str(GATE), *args],
             capture_output=True,
             text=True,
             check=False,
         )
 
     return run
+
+
+@pytest.fixture
+def gate_with_stub_gaudi(tmp_path):
+    """Runs the gate over files that exist, named by the outcome they provoke."""
+    run = _install_stub_gaudi(tmp_path)
+
+    def check(*names: str) -> subprocess.CompletedProcess[str]:
+        paths = []
+        for name in names:
+            target = tmp_path / name
+            target.write_text("VALUE = 1\n", encoding="utf-8")
+            paths.append(str(target))
+        return run(*paths)
+
+    return check
+
+
+@pytest.fixture
+def gate_over_raw_arguments(tmp_path):
+    """Runs the gate over arguments given verbatim — including ones that do not exist.
+
+    Separate from the fixture above precisely because that one creates every
+    file it names, which is the assumption these tests need to break.
+    """
+    run = _install_stub_gaudi(tmp_path)
+
+    class _Arguments:
+        root = tmp_path
+
+        @staticmethod
+        def existing(name: str) -> str:
+            target = tmp_path / name
+            target.write_text("VALUE = 1\n", encoding="utf-8")
+            return str(target)
+
+        @staticmethod
+        def absent(name: str) -> str:
+            return str(tmp_path / name)
+
+        @staticmethod
+        def check(*args: str) -> subprocess.CompletedProcess[str]:
+            return run(*args)
+
+    return _Arguments
 
 
 class TestExitCodePropagation:
@@ -108,3 +147,59 @@ class TestExitCodePropagation:
     def test_the_incomplete_output_is_not_swallowed(self, gate_with_stub_gaudi):
         result = gate_with_stub_gaudi("incomplete.py")
         assert "could not be parsed" in result.stderr
+
+
+class TestUnexaminableArguments:
+    """"Nothing was requested" and "I was handed a path I could not read" are
+    different answers, and the gate used to give 0 to both (OS#462 review)."""
+
+    def test_no_arguments_at_all_is_still_a_no_op(self, gate_over_raw_arguments):
+        """pre-commit passes the staged Python files; none staged is not a failure."""
+        assert gate_over_raw_arguments.check().returncode == 0
+
+    def test_a_path_that_does_not_exist_exits_2(self, gate_over_raw_arguments):
+        missing = gate_over_raw_arguments.absent("vanished.py")
+        result = gate_over_raw_arguments.check(missing)
+        assert result.returncode == 2, result.stdout + result.stderr
+
+    def test_a_path_that_does_not_exist_is_named(self, gate_over_raw_arguments):
+        """A gate that refuses silently is as useless as one that passes silently."""
+        missing = gate_over_raw_arguments.absent("vanished.py")
+        result = gate_over_raw_arguments.check(missing)
+        assert "vanished.py" in result.stderr
+
+    def test_a_non_python_argument_exits_2_and_is_named(self, gate_over_raw_arguments):
+        readme = gate_over_raw_arguments.existing("README.md")
+        result = gate_over_raw_arguments.check(readme)
+        assert result.returncode == 2, result.stdout + result.stderr
+        assert "README.md" in result.stderr
+
+    def test_a_directory_argument_exits_2(self, gate_over_raw_arguments):
+        """`.py` is not enough — a directory named like a module is not a file."""
+        directory = gate_over_raw_arguments.root / "package.py"
+        directory.mkdir()
+        result = gate_over_raw_arguments.check(str(directory))
+        assert result.returncode == 2, result.stdout + result.stderr
+
+    def test_an_unreadable_argument_outranks_a_clean_file(self, gate_over_raw_arguments):
+        """The clean file's 0 must not bury the argument nobody could read."""
+        result = gate_over_raw_arguments.check(
+            gate_over_raw_arguments.existing("clean.py"),
+            gate_over_raw_arguments.absent("vanished.py"),
+        )
+        assert result.returncode == 2, result.stdout + result.stderr
+
+    def test_an_unreadable_argument_outranks_a_finding(self, gate_over_raw_arguments):
+        result = gate_over_raw_arguments.check(
+            gate_over_raw_arguments.absent("vanished.py"),
+            gate_over_raw_arguments.existing("finding.py"),
+        )
+        assert result.returncode == 2, result.stdout + result.stderr
+
+    def test_the_checkable_files_are_still_checked(self, gate_over_raw_arguments):
+        """Refusing the bad argument must not silently skip the good ones."""
+        result = gate_over_raw_arguments.check(
+            gate_over_raw_arguments.absent("vanished.py"),
+            gate_over_raw_arguments.existing("finding.py"),
+        )
+        assert "STRUCT-010" in result.stdout
