@@ -59,7 +59,14 @@ jobs:
         # file that regressed without being touched still surfaces here.
         # gaudi.toml excludes .claude/worktrees/, which a CI checkout does not
         # have anyway; the exclude matters for local runs.
-        run: uv run gaudi check . --severity error --exit-code
+        #
+        # The version line is the proof that the version the lock resolved is
+        # the version that ran: a green check says nothing about *which* gaudi
+        # produced it, and a linter silently a release behind is how a rule
+        # added upstream goes unenforced here for months.
+        run: |
+          uv run gaudi --version
+          uv run gaudi check . --severity error --exit-code
 
       - name: pytest
         run: uv run pytest -q

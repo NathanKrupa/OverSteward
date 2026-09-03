@@ -17,7 +17,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "gaudi-linter>=0.2.0",
+    "gaudi-linter>=0.3.0",
     "pre-commit>=3.0",
     "pytest>=8.0",
 ]
