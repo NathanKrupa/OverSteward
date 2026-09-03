@@ -96,24 +96,29 @@ def find_transcript(projects_root: Path, session_id: str) -> TranscriptMeta | No
     return None
 
 
-def _read_records(path: Path) -> list[dict[str, Any]]:
+def read_records(path: Path) -> list[dict[str, Any]]:
     """Parse a .jsonl transcript into a list of records, skipping malformed lines.
 
     Claude Code transcripts occasionally contain a partially-flushed final line;
-    a malformed line is skipped rather than aborting the whole read.
+    a malformed line is skipped rather than aborting the whole read. A file that
+    cannot be opened or decoded at all yields an empty list, so a caller counts
+    it as unreadable instead of losing the rest of the corpus to a traceback.
     """
     records: list[dict[str, Any]] = []
-    with path.open(encoding="utf-8") as handle:
-        for line in handle:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                record = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(record, dict):
-                records.append(record)
+    try:
+        with path.open(encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(record, dict):
+                    records.append(record)
+    except (OSError, UnicodeDecodeError):
+        return []
     return records
 
 
@@ -159,7 +164,7 @@ def parse_transcript(path: Path) -> str:
     attachment, ai-title, etc.) are dropped — they carry no extraction signal.
     """
     sections: list[str] = []
-    for record in _read_records(path):
+    for record in read_records(path):
         message = record.get("message")
         if not isinstance(message, dict):
             continue
