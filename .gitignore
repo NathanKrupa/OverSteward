@@ -85,3 +85,6 @@ scratchpad/
 # like its data/ siblings above — the durable record is the sync PR itself.
 .sow.lock
 reports/sow/
+
+# Skill-miner drafts are review artifacts copied out of transcripts; never tracked.
+reports/skill-drafts/

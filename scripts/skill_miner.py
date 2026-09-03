@@ -51,9 +51,17 @@ def main(argv: list[str] | None = None) -> int:
     if result.sessions_scanned == 0:
         print(f"no transcripts found under {args.projects_root} (repo={args.repo or 'any'})", file=sys.stderr)
         return 2
+    if result.sessions_unreadable == result.sessions_scanned:
+        print(
+            f"could not read any of {result.sessions_scanned} transcripts under {args.projects_root}",
+            file=sys.stderr,
+        )
+        return 1
 
     candidates = result.candidates[: args.limit]
     print(f"sessions scanned: {result.sessions_scanned}")
+    if result.sessions_unreadable:
+        print(f"sessions unreadable: {result.sessions_unreadable}")
     print(f"runs scanned: {result.runs_scanned}")
     print(f"candidates: {len(result.candidates)} (writing {len(candidates)})")
     for candidate in candidates:

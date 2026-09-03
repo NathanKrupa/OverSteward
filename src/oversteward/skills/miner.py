@@ -35,6 +35,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
+from oversteward.dream.extract import matched_secret
 from oversteward.dream.transcripts import enumerate_transcripts, read_records
 
 #: Programs whose arguments are objects, never verbs — no subcommand is kept for them.
@@ -362,11 +363,22 @@ def extract_runs(
 
 @dataclass(frozen=True)
 class StepExample:
-    """The most common concrete form of one step across its supporting sessions."""
+    """The most common concrete form of one step across its supporting sessions.
+
+    ``withheld`` is True when every concrete command seen for the step matched a
+    credential pattern; ``command`` is then empty. A transcript is the one
+    place a secret is guaranteed to have been typed, so the draft carries the
+    signature and nothing else — never a redacted copy.
+    """
 
     signature: str
     command: str
     description: str
+    withheld: bool = False
+
+
+def _is_clean(text: str) -> bool:
+    return matched_secret(text) is None
 
 
 @dataclass(frozen=True)
@@ -404,11 +416,20 @@ def _best_examples(
 ) -> tuple[StepExample, ...]:
     examples: list[StepExample] = []
     for index, signature in enumerate(signatures):
-        commands = Counter(occ[index].command for occ in occurrences)
-        command = commands.most_common(1)[0][0]
-        descriptions = Counter(occ[index].description for occ in occurrences if occ[index].description)
+        commands = Counter(occ[index].command for occ in occurrences if _is_clean(occ[index].command))
+        descriptions = Counter(
+            occ[index].description
+            for occ in occurrences
+            if occ[index].description and _is_clean(occ[index].description)
+        )
         description = descriptions.most_common(1)[0][0] if descriptions else ""
-        examples.append(StepExample(signature=signature, command=command, description=description))
+        if commands:
+            command, withheld = commands.most_common(1)[0][0], False
+        else:
+            command, withheld = "", True
+        examples.append(
+            StepExample(signature=signature, command=command, description=description, withheld=withheld)
+        )
     return tuple(examples)
 
 
@@ -514,6 +535,10 @@ def render_draft(candidate: SkillCandidate, *, covered_by: tuple[str, ...] = ())
     lines += ["", "## Steps", ""]
     for index, example in enumerate(candidate.examples, start=1):
         title = example.description or example.signature
+        if example.withheld:
+            body = f"   `{example.signature}` — command withheld: every form seen matched a credential pattern"
+            lines += [f"{index}. {title}", "", body, ""]
+            continue
         lines += [f"{index}. {title}", "", "   ```bash", f"   {example.command}", "   ```", ""]
     return "\n".join(lines).rstrip() + "\n"
 
@@ -553,7 +578,11 @@ def write_drafts(
 
 @dataclass(frozen=True)
 class MiningResult:
+    """``sessions_unreadable`` counts transcripts that yielded no record at all —
+    a corpus that could not be read, which must never report as a clean measurement."""
+
     sessions_scanned: int
+    sessions_unreadable: int
     runs_scanned: int
     candidates: list[SkillCandidate]
 
@@ -574,7 +603,17 @@ def mine_projects_root(
     if since_mtime is not None:
         metas = [m for m in metas if m.mtime >= since_mtime]
     runs: list[list[CommandCall]] = []
+    unreadable = 0
     for meta in metas:
-        runs.extend(extract_runs(read_records(meta.path), session_id=meta.session_id, repo=meta.repo))
+        records = read_records(meta.path)
+        if not records:
+            unreadable += 1
+            continue
+        runs.extend(extract_runs(records, session_id=meta.session_id, repo=meta.repo))
     candidates = mine_candidates(runs, min_sessions=min_sessions, min_len=min_len, max_len=max_len)
-    return MiningResult(sessions_scanned=len(metas), runs_scanned=len(runs), candidates=candidates)
+    return MiningResult(
+        sessions_scanned=len(metas),
+        sessions_unreadable=unreadable,
+        runs_scanned=len(runs),
+        candidates=candidates,
+    )

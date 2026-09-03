@@ -243,6 +243,36 @@ def test_candidate_examples_take_the_most_common_concrete_command() -> None:
     assert found[0].examples[0].description == "run git"
 
 
+SECRET_CMD = 'PGPASSWORD=hunter2xyz psql "postgresql://owner:npg_S3cr3tPw@ep-fake.neon.tech/db" -c "select 1"'
+
+
+def test_candidate_examples_skip_commands_that_match_a_credential_pattern() -> None:
+    runs = _runs_for(
+        {
+            "a": [[SECRET_CMD, "git status"]],
+            "b": [[SECRET_CMD, "git status"]],
+            "c": [["psql -c 'select 1'", "git status"]],
+        }
+    )
+    found = mine_candidates(runs, min_sessions=2, min_len=2, max_len=5)
+    step = found[0].examples[0]
+    assert step.command == "psql -c 'select 1'"
+    assert step.withheld is False
+
+
+def test_candidate_step_is_withheld_when_every_form_carries_a_secret() -> None:
+    runs = _runs_for({"a": [[SECRET_CMD, "git status"]], "b": [[SECRET_CMD, "git status"]]})
+    found = mine_candidates(runs, min_sessions=2, min_len=2, max_len=5)
+    step = found[0].examples[0]
+    assert step.withheld is True
+    assert step.command == ""
+    text = render_draft(found[0])
+    assert "withheld" in text
+    assert "hunter2" not in text
+    assert "npg_S3cr3tPw" not in text
+    assert "git status" in text
+
+
 # ---- coverage by existing skills -------------------------------------------------
 
 
@@ -326,6 +356,81 @@ def test_mine_projects_root_filters_by_repo(tmp_path: Path) -> None:
     only_gs = mine_projects_root(root, repo="grantspider", min_sessions=1, min_len=2, max_len=5)
     assert only_gs.sessions_scanned == 1
     assert only_gs.candidates[0].sessions == ("s3",)
+
+
+def test_mine_projects_root_since_mtime_skips_older_transcripts(tmp_path: Path) -> None:
+    import os
+
+    root = _projects_root(tmp_path)
+    old = root / "-home-natha-OverSteward" / "s1.jsonl"
+    os.utime(old, (1_000_000, 1_000_000))
+    result = mine_projects_root(root, repo=None, min_sessions=1, min_len=2, max_len=5, since_mtime=2_000_000)
+    assert result.sessions_scanned == 2
+    assert result.candidates[0].sessions == ("s2", "s3")
+
+
+def test_mine_projects_root_counts_unreadable_transcripts(tmp_path: Path) -> None:
+    root = tmp_path / "projects"
+    project = root / "-home-natha-OverSteward"
+    project.mkdir(parents=True)
+    (project / "broken.jsonl").write_text('{"broken\n')
+    _write_session(project, "good", _session(SWEEP))
+    result = mine_projects_root(root, repo=None, min_sessions=1, min_len=2, max_len=5)
+    assert result.sessions_scanned == 2
+    assert result.sessions_unreadable == 1
+    assert result.candidates[0].sessions == ("good",)
+
+
+def test_cli_exits_1_when_no_transcript_could_be_read(tmp_path: Path) -> None:
+    project = tmp_path / "projects" / "-home-natha-OverSteward"
+    project.mkdir(parents=True)
+    (project / "a.jsonl").write_text('{"broken\n')
+    (project / "b.jsonl").write_text("not json at all\n")
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "--projects-root", str(tmp_path / "projects"), "--out", str(tmp_path / "o"), "--dry-run"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "could not read any of 2" in proc.stderr
+
+
+def test_cli_limit_caps_the_drafts_written(tmp_path: Path) -> None:
+    root = tmp_path / "projects"
+    project = root / "-home-natha-OverSteward"
+    other = ["git fetch origin", "git merge --ff-only origin/master"]
+    for sid in ("s1", "s2"):
+        _write_session(project, sid, _session(SWEEP) + _session(other))
+    out = tmp_path / "drafts"
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "--projects-root", str(root), "--out", str(out), "--min-sessions", "2", "--limit", "1"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "candidates: 2 (writing 1)" in proc.stdout
+    assert len(list(out.glob("*/SKILL.md"))) == 1
+
+
+def test_cli_never_writes_a_secret_into_a_draft(tmp_path: Path) -> None:
+    root = tmp_path / "projects"
+    project = root / "-home-natha-OverSteward"
+    for sid in ("s1", "s2"):
+        _write_session(project, sid, _session([SECRET_CMD, "git status"]))
+    out = tmp_path / "drafts"
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "--projects-root", str(root), "--out", str(out), "--min-sessions", "2"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    written = "\n".join(p.read_text() for p in out.rglob("*.md"))
+    assert "hunter2" not in written
+    assert "npg_S3cr3tPw" not in written
+    assert "withheld" in written
 
 
 def test_cli_exits_2_when_nothing_to_look_at(tmp_path: Path) -> None:
