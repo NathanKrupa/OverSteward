@@ -12,11 +12,30 @@ Why this wrapper:
     cost in the sub-5-second budget for any reasonable PR.
 
 Behaviour:
-  * Filters input to ``*.py`` files (pre-commit ``types: [python]``
-    already does this; the filter is defence-in-depth).
-  * Runs ``gaudi check --severity error --exit-code FILE`` for each.
-  * Prints any error output verbatim. Exits 1 if any file produced an
-    error finding, else 0.
+  * Runs ``gaudi check --severity error --exit-code FILE`` for each
+    argument that is an existing ``*.py`` file.
+  * Refuses any argument that is not one, naming it, rather than
+    dropping it.
+  * Prints any error output verbatim.
+
+Exit codes, which are gaudi 0.3.0's own and must not be collapsed:
+
+  * ``0`` — nothing was asked for, or every file asked for was parsed and
+    none carried an error finding.
+  * ``1`` — at least one file carried an error finding.
+  * ``2`` — something could not be looked at: an argument that is not an
+    existing ``*.py`` file, gaudi reporting an incomplete run (a file its
+    parser skipped, a pack that failed to load), a crashed gaudi, or no
+    gaudi beside this interpreter.
+
+``2`` outranks ``1``: a file nobody could read must not be reported as a
+finding, because fixing the findings would then turn the gate green while
+that file was still never parsed. Neither may read as a pass.
+
+An empty argument list is the one silence that is honest — pre-commit
+invokes the hook with the staged Python files, so no arguments means none
+were staged. "Nothing was requested" and "I was handed a path and could
+not read it" are different answers and no longer share an exit code.
 """
 
 from __future__ import annotations
@@ -60,14 +79,39 @@ def _gaudi_binary() -> str:
     return str(found)
 
 
+def _partition(argv: list[str]) -> tuple[list[Path], list[str]]:
+    """The arguments that can be checked, and the ones that cannot.
+
+    ``types: [python]`` already narrows pre-commit's list, so an argument
+    reaching the second bucket means the caller and this gate disagree about
+    what was going to be checked — which is worth a refusal, not a filter.
+    """
+    checkable: list[Path] = []
+    unexaminable: list[str] = []
+    for arg in argv:
+        path = Path(arg)
+        if arg.endswith(".py") and path.is_file():
+            checkable.append(path)
+        else:
+            unexaminable.append(arg)
+    return checkable, unexaminable
+
+
 def main(argv: list[str]) -> int:
-    files = [Path(a) for a in argv if a.endswith(".py") and Path(a).is_file()]
-    if not files:
-        return 0
+    checkable, unexaminable = _partition(argv)
+    worst = 0
+    if unexaminable:
+        sys.stderr.write(
+            "gaudi-check: COULD NOT LOOK — not an existing Python file:\n"
+            + "".join(f"  {arg}\n" for arg in unexaminable)
+            + "  Nothing was checked for these. They are not clean; they are unread.\n"
+        )
+        worst = 2
+    if not checkable:
+        return worst
 
     gaudi = _gaudi_binary()
-    any_failed = False
-    for f in files:
+    for f in checkable:
         # Args are a resolved binary path + literal flags + filtered *.py
         # paths from pre-commit. No shell, no untrusted input — B603 is the
         # generic "subprocess used" warning, not a real signal here.
@@ -77,11 +121,16 @@ def main(argv: list[str]) -> int:
             text=True,
             check=False,
         )
-        if result.returncode != 0:
-            any_failed = True
-            sys.stdout.write(result.stdout)
-            sys.stderr.write(result.stderr)
-    return 1 if any_failed else 0
+        if result.returncode == 0:
+            continue
+        sys.stdout.write(result.stdout)
+        sys.stderr.write(result.stderr)
+        # Only gaudi's 1 means "looked, and found something". Its 2 means the
+        # run was incomplete, and anything else (a crash, a signal, a missing
+        # subcommand) means the same thing less politely. `max` is what makes
+        # the gate fail closed across files, whatever order they arrive in.
+        worst = max(worst, 1 if result.returncode == 1 else 2)
+    return worst
 
 
 if __name__ == "__main__":

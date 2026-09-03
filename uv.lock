@@ -362,15 +362,15 @@ wheels = [
 
 [[package]]
 name = "gaudi-linter"
-version = "0.2.0"
+version = "0.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
     { name = "rich" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b2/61/1701de718d906f7deb2c21d004ccec591efd439a3202f934252efed4f852/gaudi_linter-0.2.0.tar.gz", hash = "sha256:3d6259141e8e6decb13fe2db86461f073d02ba59d5c4e0a8b141973c10645d08", size = 139521, upload-time = "2026-04-14T13:36:18.687Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0b/f3/374881e0aeaf6fd2ba0c10a1edf466c53c615667cbf1f6809e0b976d7a2f/gaudi_linter-0.3.0.tar.gz", hash = "sha256:1845e4e66b231b1ffe2089257ebd8727779cd342069b80a2970bc0c126f24359", size = 184324, upload-time = "2026-09-03T10:05:05.036Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1a/57/0c75bff6370ca584e57caa4f2f4be996ffac76a2c9e812a8acb364ee3d74/gaudi_linter-0.2.0-py3-none-any.whl", hash = "sha256:d6a7e750f8c4b772a9b6f7a83b3dd5be1721a72b07e133f7df8f6d471b39d15d", size = 156251, upload-time = "2026-04-14T13:36:17.184Z" },
+    { url = "https://files.pythonhosted.org/packages/77/e5/46e16b4cfb266c4aaf47b84e947a4ab48accec0467f84354008203e3d7cf/gaudi_linter-0.3.0-py3-none-any.whl", hash = "sha256:bec02b466fdaa33345492a4098e6fb73bf8206b5dfdb00f7a183a56a57dfacb5", size = 180659, upload-time = "2026-09-03T10:05:03.603Z" },
 ]
 
 [[package]]
@@ -528,7 +528,7 @@ vintner = [
 
 [package.metadata]
 requires-dist = [
-    { name = "gaudi-linter", marker = "extra == 'dev'", specifier = ">=0.2.0" },
+    { name = "gaudi-linter", marker = "extra == 'dev'", specifier = ">=0.3.0" },
     { name = "google-genai", specifier = ">=2.20" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.0" },
     { name = "psycopg", extras = ["binary"], marker = "extra == 'vintner'", specifier = ">=3.1" },
