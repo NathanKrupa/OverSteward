@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -20,6 +21,12 @@ from oversteward.skills.miner import (
 )
 
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "skill_miner.py"
+
+
+def _cli_env() -> dict[str, str]:
+    """The CLI subprocess must import the tree under test, not whichever checkout
+    the shared venv's editable .pth names — else a worktree's CLI tests measure master."""
+    return {**os.environ, "PYTHONPATH": str(SCRIPT.parents[1] / "src")}
 
 
 # ---- record builders -----------------------------------------------------------
@@ -358,9 +365,19 @@ def test_mine_projects_root_filters_by_repo(tmp_path: Path) -> None:
     assert only_gs.candidates[0].sessions == ("s3",)
 
 
-def test_mine_projects_root_since_mtime_skips_older_transcripts(tmp_path: Path) -> None:
-    import os
+def test_mine_projects_root_counts_undecodable_transcript_as_unreadable(tmp_path: Path) -> None:
+    root = tmp_path / "projects"
+    project = root / "-home-natha-OverSteward"
+    project.mkdir(parents=True)
+    (project / "bad.jsonl").write_bytes(b'\xff\xfe{"a":1}\n')
+    _write_session(project, "good", _session(SWEEP))
+    result = mine_projects_root(root, repo=None, min_sessions=1, min_len=2, max_len=5)
+    assert result.sessions_scanned == 2
+    assert result.sessions_unreadable == 1
+    assert result.candidates[0].sessions == ("good",)
 
+
+def test_mine_projects_root_since_mtime_skips_older_transcripts(tmp_path: Path) -> None:
     root = _projects_root(tmp_path)
     old = root / "-home-natha-OverSteward" / "s1.jsonl"
     os.utime(old, (1_000_000, 1_000_000))
@@ -389,6 +406,7 @@ def test_cli_exits_1_when_no_transcript_could_be_read(tmp_path: Path) -> None:
     proc = subprocess.run(
         [sys.executable, str(SCRIPT), "--projects-root", str(tmp_path / "projects"), "--out", str(tmp_path / "o"), "--dry-run"],
         capture_output=True,
+        env=_cli_env(),
         text=True,
         check=False,
     )
@@ -406,6 +424,7 @@ def test_cli_limit_caps_the_drafts_written(tmp_path: Path) -> None:
     proc = subprocess.run(
         [sys.executable, str(SCRIPT), "--projects-root", str(root), "--out", str(out), "--min-sessions", "2", "--limit", "1"],
         capture_output=True,
+        env=_cli_env(),
         text=True,
         check=False,
     )
@@ -423,6 +442,7 @@ def test_cli_never_writes_a_secret_into_a_draft(tmp_path: Path) -> None:
     proc = subprocess.run(
         [sys.executable, str(SCRIPT), "--projects-root", str(root), "--out", str(out), "--min-sessions", "2"],
         capture_output=True,
+        env=_cli_env(),
         text=True,
         check=False,
     )
@@ -437,6 +457,7 @@ def test_cli_exits_2_when_nothing_to_look_at(tmp_path: Path) -> None:
     proc = subprocess.run(
         [sys.executable, str(SCRIPT), "--projects-root", str(tmp_path / "missing"), "--out", str(tmp_path / "o")],
         capture_output=True,
+        env=_cli_env(),
         text=True,
         check=False,
     )
@@ -450,6 +471,7 @@ def test_cli_writes_drafts_and_reports_counts(tmp_path: Path) -> None:
     proc = subprocess.run(
         [sys.executable, str(SCRIPT), "--projects-root", str(root), "--out", str(out), "--min-sessions", "2"],
         capture_output=True,
+        env=_cli_env(),
         text=True,
         check=False,
     )

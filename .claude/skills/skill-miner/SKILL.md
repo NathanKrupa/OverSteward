@@ -18,7 +18,9 @@ sessions is a procedure the estate keeps re-deriving.
 .venv/bin/python scripts/skill_miner.py --repo grantspider --since-days 30
 ```
 
-Exit `0` is a measurement; exit `2` means no transcripts were found to look at.
+Exit `0` is a measurement; exit `1` means transcripts were found but none could
+be read (the count is on stderr); exit `2` means no transcripts were found to
+look at. Never collapse the three.
 
 ## Reading the output
 

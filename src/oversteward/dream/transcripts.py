@@ -100,20 +100,25 @@ def read_records(path: Path) -> list[dict[str, Any]]:
     """Parse a .jsonl transcript into a list of records, skipping malformed lines.
 
     Claude Code transcripts occasionally contain a partially-flushed final line;
-    a malformed line is skipped rather than aborting the whole read.
+    a malformed line is skipped rather than aborting the whole read. A file that
+    cannot be opened or decoded at all yields an empty list, so a caller counts
+    it as unreadable instead of losing the rest of the corpus to a traceback.
     """
     records: list[dict[str, Any]] = []
-    with path.open(encoding="utf-8") as handle:
-        for line in handle:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                record = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(record, dict):
-                records.append(record)
+    try:
+        with path.open(encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(record, dict):
+                    records.append(record)
+    except (OSError, UnicodeDecodeError):
+        return []
     return records
 
 
