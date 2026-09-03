@@ -41,10 +41,14 @@ Gaudi is enforced at commit time by the `gaudi-errors` `pre-commit` hook, which
 runs `python scripts/lint/gaudi_check_files.py` — severity `error`, changed
 Python files only.
 
-**The error tier is what gates.** `--exit-code` acts on errors alone, so pairing
-it with a warn minimum severity exits 0 with the warnings merely reported — a
-gate satisfied by doing nothing, which is no gate at all (OS#445). Warn-tier
-findings go to the adversarial reviewer instead, through
+**The error tier is what gates, and that is a policy, not a limitation.** Under
+gaudi 0.3.0 `--exit-code` gates at whatever `--severity` selects, so a warn-tier
+`--exit-code` gate *does* fail on a warning. It works, and it is still forbidden
+here: Nathan's 2026-08-31 audit put the warn tier at roughly half churn and a
+fifth harm, so enforcing it would spend the ratchet on noise. Do not read the
+prohibition as "that gate could never fire" — it can, and we decline it (OS#445,
+rationale corrected for 0.3.0 in OS#461). Warn-tier findings go to the
+adversarial reviewer instead, through
 `scripts/review/assemble_review_input.py`, which already runs the warn report
 over your changed files: they are questions for the reviewer to weigh, not
 defects to gate on.
