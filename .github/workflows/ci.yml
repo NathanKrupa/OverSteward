@@ -60,12 +60,20 @@ jobs:
         # gaudi.toml excludes .claude/worktrees/, which a CI checkout does not
         # have anyway; the exclude matters for local runs.
         #
-        # The version line is the proof that the version the lock resolved is
-        # the version that ran: a green check says nothing about *which* gaudi
-        # produced it, and a linter silently a release behind is how a rule
-        # added upstream goes unenforced here for months.
+        # The version is compared, not merely printed. A linter silently a
+        # release behind is how a rule added upstream goes unenforced here for
+        # months, and an echoed version leaves exactly that regression green —
+        # so a mismatch between uv.lock and the gaudi that actually runs fails
+        # the step. Reading the lock (not the pin) is the point: the pin is a
+        # floor, the lock is what CI installed.
         run: |
-          uv run gaudi --version
+          locked=$(sed -n '/^name = "gaudi-linter"$/{n;s/^version = "\(.*\)"$/\1/p;}' uv.lock)
+          test -n "$locked" || { echo "::error::no gaudi-linter version in uv.lock"; exit 2; }
+          uv run gaudi --version > "$RUNNER_TEMP/gaudi-version.txt"
+          running=$(sed -n 's/^gaudi, version //p' "$RUNNER_TEMP/gaudi-version.txt")
+          echo "gaudi: locked=$locked running=$running"
+          test "$running" = "$locked" \
+            || { echo "::error::gaudi $running ran, but uv.lock resolves $locked"; exit 1; }
           uv run gaudi check . --severity error --exit-code
 
       - name: pytest
