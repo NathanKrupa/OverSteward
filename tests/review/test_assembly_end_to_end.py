@@ -146,23 +146,6 @@ def _verdict_file(root: Path) -> Path:
     return path
 
 
-def _advance_master(root: Path) -> None:
-    """Move the base under the branch: one more commit on master, merged into the branch."""
-    branch = subprocess.run(
-        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-        cwd=root,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.strip()
-    subprocess.run(["git", "checkout", "-q", "master"], cwd=root, check=True)
-    (root / "moved.txt").write_text("the base moved\n", encoding="utf-8")
-    subprocess.run(["git", "add", "moved.txt"], cwd=root, check=True)
-    subprocess.run(["git", "commit", "-q", "-m", "base advances"], cwd=root, check=True)
-    subprocess.run(["git", "checkout", "-q", branch], cwd=root, check=True)
-    subprocess.run(["git", "merge", "-q", "--no-edit", "master"], cwd=root, check=True)
-
-
 def _re_review(root: Path, out: Path, verdict: Path, *extra: str) -> subprocess.CompletedProcess:
     return _assemble_with(
         root, out, "--since", "master", "--previous-verdict", str(verdict), *extra
@@ -267,52 +250,69 @@ class TestTheRoundIsCountedByTheLedgerAndCappedByTheScript:
             "a refusal is not a round"
         )
 
-    def test_an_assembly_that_could_not_look_is_not_a_round(self, repo_deleting_a_test, tmp_path):
+    def test_an_assembly_that_could_not_look_is_still_a_round(self, repo_deleting_a_test, tmp_path):
+        """The reviewer reviews an unmeasured document too, so it is counted and handed forward."""
         doctrine = repo_deleting_a_test / "CLAUDE.md"
         kept = doctrine.read_text(encoding="utf-8")
         doctrine.unlink()
 
         blind = _assemble_with(repo_deleting_a_test, tmp_path / "blind.md")
         doctrine.write_text(kept, encoding="utf-8")
-        again = _assemble_with(repo_deleting_a_test, tmp_path / "r1.md")
-
-        assert blind.returncode == 2, blind.stderr
-        assert again.returncode == 0, again.stderr
-        assert "round: 1 of 3" in (tmp_path / "r1.md").read_text(encoding="utf-8"), (
-            "an unmeasured assembly did not consume a round"
+        repaired = _re_review(
+            repo_deleting_a_test, tmp_path / "r2.md", _verdict_file(repo_deleting_a_test)
         )
 
-    def test_a_restart_against_an_unmoved_base_is_refused_and_names_the_escape(
+        assert blind.returncode == 2, blind.stderr
+        assert "round: 1 of 3" in (tmp_path / "blind.md").read_text(encoding="utf-8")
+        assert repaired.returncode == 0, repaired.stderr
+        assert "round: 2 of 3" in (tmp_path / "r2.md").read_text(encoding="utf-8"), (
+            "the blind round was counted and its verdict handed forward"
+        )
+
+    def test_an_unknown_base_is_a_gate_refusal_not_a_traceback(
         self, repo_deleting_a_test, tmp_path
     ):
-        _assemble_with(repo_deleting_a_test, tmp_path / "r1.md")
-        before = (repo_deleting_a_test / ".review-rounds").read_text(encoding="utf-8")
-
-        result = _assemble_with(
-            repo_deleting_a_test, tmp_path / "again.md", "--restart-rounds", "x"
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "--root",
+                str(repo_deleting_a_test),
+                "--base",
+                "no-such-ref",
+                "--no-issue",
+                "--out",
+                str(tmp_path / "x.md"),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
         )
 
         assert result.returncode == 1
-        assert "has not moved" in result.stderr and "--override-cap" in result.stderr
-        assert (repo_deleting_a_test / ".review-rounds").read_text(encoding="utf-8") == before
+        assert (
+            "could not resolve the merge base" in result.stderr and "Traceback" not in result.stderr
+        )
+        assert not (repo_deleting_a_test / ".review-rounds").exists(), "a refusal is not a round"
 
-    def test_a_restart_after_the_base_moved_is_a_printed_round_one_appended_to_the_ledger(
+    def test_an_override_past_the_cap_is_recorded_in_the_ledger_and_the_header(
         self, repo_deleting_a_test, tmp_path
     ):
+        verdict = _verdict_file(repo_deleting_a_test)
         _assemble_with(repo_deleting_a_test, tmp_path / "r1.md")
-        _advance_master(repo_deleting_a_test)
+        for n in (2, 3):
+            assert _re_review(repo_deleting_a_test, tmp_path / f"r{n}.md", verdict).returncode == 0
 
-        result = _assemble_with(
-            repo_deleting_a_test, tmp_path / "restart.md", "--restart-rounds", "base advanced"
+        fourth = _re_review(
+            repo_deleting_a_test, tmp_path / "r4.md", verdict, "--override-cap", "Nathan: one more"
         )
 
-        assert result.returncode == 0, result.stderr
-        rendered = (tmp_path / "restart.md").read_text(encoding="utf-8")
-        assert "round: 1 of 3" in rendered and "ROUNDS RESTARTED: base advanced" in rendered
+        assert fourth.returncode == 0, fourth.stderr
+        assert "CAP OVERRIDDEN: Nathan: one more" in (tmp_path / "r4.md").read_text(
+            encoding="utf-8"
+        )
         ledger = (repo_deleting_a_test / ".review-rounds").read_text(encoding="utf-8").splitlines()
-        assert len(ledger) == 2 and ledger[1].endswith(" since=- restart"), (
-            "appended, not truncated"
-        )
+        assert len(ledger) == 4 and ledger[3].endswith(" override")
 
     def test_an_override_at_round_one_is_refused(self, repo_deleting_a_test, tmp_path):
         result = _assemble_with(

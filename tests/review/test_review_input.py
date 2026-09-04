@@ -531,44 +531,28 @@ class TestTheRoundIsDerivedFromTheLedgerNotDeclared:
         with pytest.raises(CouldNotLookError, match="already built"):
             derive_round(self.L1 + self.L2 + self.L3, 1)
 
-    def test_a_restart_is_refused_while_the_base_has_not_moved(self):
-        with pytest.raises(CouldNotLookError, match="has not moved"):
-            derive_round(
-                self.L1 + self.L2, None, base_ref="origin/master", base_sha="aaa", restart="why"
-            )
+    def test_a_corrupt_ledger_line_is_a_refusal_not_a_traceback(self):
+        with pytest.raises(CouldNotLookError, match="cannot read"):
+            derive_round(self.L1 + "round=two base=origin/master\n", None)
+        with pytest.raises(CouldNotLookError, match="cannot read"):
+            derive_round("garbage with no fields\n", None)
 
-    def test_a_restart_against_a_different_base_ref_is_refused(self):
-        with pytest.raises(CouldNotLookError, match="belongs to base"):
-            derive_round(self.L1, None, base_ref="origin/other", base_sha="bbb", restart="why")
+    def test_an_override_line_counts_as_a_round_and_is_marked(self):
+        ledger = (
+            self.L1
+            + self.L2
+            + self.L3
+            + "round=4 base=origin/master base_sha=aaa since=x override\n"
+        )
 
-    def test_a_restart_with_nothing_built_is_refused(self):
-        with pytest.raises(CouldNotLookError, match="no rounds have been built"):
-            derive_round(None, None, base_ref="origin/master", base_sha="bbb", restart="why")
-
-    def test_a_restart_after_the_base_moved_begins_at_one_and_only_at_one(self):
-        moved = {"base_ref": "origin/master", "base_sha": "bbb", "restart": "base advanced"}
-
-        assert derive_round(self.L1 + self.L2, None, **moved) == 1
-        with pytest.raises(CouldNotLookError, match="starts the count again at round 1"):
-            derive_round(self.L1 + self.L2, 2, **moved)
-
-    def test_the_count_runs_from_the_last_restart_line(self):
-        ledger = self.L1 + self.L2 + "round=1 base=origin/master base_sha=bbb since=- restart\n"
-
-        assert derive_round(ledger, None) == 2
+        assert derive_round(ledger, None) == 5
 
     def test_the_ledger_line_records_what_reconstructs_the_count(self):
         assert (
-            ledger_line(2, "abc123", "", base_ref="origin/master", base_sha="aaa")
+            ledger_line(2, "abc123", base_ref="origin/master", base_sha="aaa")
             == "round=2 base=origin/master base_sha=aaa since=abc123"
         )
         assert (
-            ledger_line(1, None, "base advanced", base_ref="origin/master", base_sha="bbb")
-            == "round=1 base=origin/master base_sha=bbb since=- restart"
+            ledger_line(4, "def", base_ref="origin/master", base_sha="aaa", override="Nathan")
+            == "round=4 base=origin/master base_sha=aaa since=def override"
         )
-
-    def test_a_restart_is_printed_in_the_header(self):
-        rendered = render(_assemble(restart_reason="base advanced"))
-
-        assert "ROUNDS RESTARTED: base advanced" in rendered
-        assert "this round 1 is not the change's first review" in rendered

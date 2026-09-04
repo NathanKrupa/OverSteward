@@ -74,12 +74,6 @@ def _parse(argv: list[str]) -> argparse.Namespace:
         help=f"confirm the round this input serves; derived from {ROUND_LEDGER} when omitted",
     )
     parser.add_argument(
-        "--restart-rounds",
-        default="",
-        metavar="REASON",
-        help="begin the round count again at 1 — honoured only when the merge base has moved; printed in the header",
-    )
-    parser.add_argument(
         "--since",
         default=None,
         help="re-review only: the commit the last round reviewed; the diff carries what changed since",
@@ -119,7 +113,7 @@ def _read_optional(path: str | None, root: Path) -> str | None:
 
 
 def _record_round(ledger_path: Path, ledger: str | None, line: str) -> None:
-    """Append this round to the ledger — never truncate; a restart is a line, not a fresh file."""
+    """Append this round to the ledger — never truncate."""
     prior = ledger or ""
     if prior and not prior.endswith("\n"):
         prior += "\n"
@@ -137,13 +131,7 @@ def main(argv: list[str]) -> int:
         base_sha = collector.merge_base(args.base)
         if base_sha is None:
             raise CouldNotLookError(f"could not resolve the merge base against {args.base!r}")
-        round_number = derive_round(
-            ledger,
-            args.round,
-            base_ref=args.base,
-            base_sha=base_sha,
-            restart=args.restart_rounds,
-        )
+        round_number = derive_round(ledger, args.round)
         assembled = assemble(
             collector,
             repo=args.repo,
@@ -154,27 +142,24 @@ def main(argv: list[str]) -> int:
             round_number=round_number,
             previous_verdict=previous_verdict,
             cap_override=args.override_cap,
-            restart_reason=args.restart_rounds,
         )
     except (CouldNotLookError, RoundCapError) as exc:
         sys.stderr.write(f"{GATE} {exc}\n")
         return EXIT_USAGE
-    if not assembled.unmeasured:
-        # A round counts only when every input was measured: an assembly that
-        # could not look is not a review the reviewer can have done, and the
-        # operator who repairs the blindness re-runs the same command as the
-        # same round.
-        _record_round(
-            ledger_path,
-            ledger,
-            ledger_line(
-                round_number,
-                args.since,
-                args.restart_rounds,
-                base_ref=args.base,
-                base_sha=base_sha,
-            ),
-        )
+    # Every assembly that produced a document is a round: the reviewer reviews
+    # an unmeasured document too, with the blindness named in its header, and
+    # pays for it. Only a refusal (no document) leaves the ledger untouched.
+    _record_round(
+        ledger_path,
+        ledger,
+        ledger_line(
+            round_number,
+            args.since,
+            base_ref=args.base,
+            base_sha=base_sha,
+            override=args.override_cap,
+        ),
+    )
 
     document = render(assembled)
     if args.out:
