@@ -130,11 +130,20 @@ Then:
   under an `## Adversarial review` heading, with its findings beneath it.
 - **Copy the same verdict onto the trajectory note's `reviewer:` front-matter
   line** (verdict, findings, tokens).
-- **`BLOCK` means do not open the PR.** Fix the findings, re-assemble, re-review
-  once. A *second* `BLOCK` on the same change stops the pickup — emit
+- **`BLOCK` means do not open the PR.** Fix every `hole`, then re-assemble
+  **on the delta** — `--round 2 --since <the sha the reviewer read>
+  --previous-verdict <file holding its verdict block and findings>` — and
+  re-review once. A *second* `BLOCK` on the same change stops the pickup — emit
   `STOPPED_FOR_INPUT`, label the issue `needs-input`, and hand it to Nathan.
-- `PASS-WITH-FINDINGS` may be merged; address the findings or say in the PR body
-  why not.
+  The assembler refuses a fourth round without `--override-cap`.
+- **`PASS-WITH-FINDINGS` gets no re-review.** Address each `defect`, `pin` and
+  `doc` finding, record its fix and the red mutant that proves it in the PR
+  body under the verdict, and open the PR.
+- **Before round 1, run the reviewer's catalogue yourself** (brief entries 13
+  and 14): for every destructive statement in the diff, one negative fixture
+  per `WHERE` conjunct, per key element, per window edge, per row state at an
+  insert's key — with the mutant that kills each. Paste the table into the PR
+  body. Half of one branch's eleven rounds were that table, one row per round.
 
 **Opening a PR with no verdict block is a procedural failure, not a shortcut.**
 `scripts/lint/require_review_verdict.py` is red on a missing, malformed or
