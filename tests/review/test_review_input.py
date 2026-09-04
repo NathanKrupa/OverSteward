@@ -11,9 +11,12 @@ from oversteward.review_input import (
     EXIT_COULD_NOT_LOOK,
     EXIT_OK,
     GAUDI_SECTION,
+    PREVIOUS_VERDICT_SECTION,
+    SECTION_ORDER,
     TEST_FILES_SECTION,
     AssembledInput,
     CouldNotLookError,
+    RoundCapError,
     Section,
     assemble,
     exit_code_for,
@@ -58,8 +61,10 @@ class _Collector:
         self._claude_md = claude_md
         self._gaudi = gaudi
         self.gaudi_calls: list[list[str]] = []
+        self.diff_calls: list[str] = []
 
     def diff(self, base: str) -> str | None:
+        self.diff_calls.append(base)
         return self._diff
 
     def changed_files(self, base: str) -> list[str] | None:
@@ -96,7 +101,7 @@ class TestAssembleGathersEveryInput:
     def test_the_diff_issue_tests_doctrine_and_gaudi_report_are_all_present(self):
         result = _assemble()
         names = [section.name for section in result.sections]
-        assert names == ["diff", "issue", "changed-test-files", "repo-doctrine", "gaudi-warn"]
+        assert names == list(SECTION_ORDER)
 
     def test_every_section_is_measured_when_every_probe_answers(self):
         assert all(section.measured for section in _assemble().sections)
@@ -281,7 +286,10 @@ class TestAssemblyIsDeterministic:
     def test_changed_files_are_sorted_regardless_of_probe_order(self):
         # The bodies must be readable, or both renders collapse to COULD NOT
         # LOOK and the comparison passes without ever exercising the ordering.
-        bodies = {"tests/test_a.py": "def test_a(): ...\n", "tests/test_b.py": "def test_b(): ...\n"}
+        bodies = {
+            "tests/test_a.py": "def test_a(): ...\n",
+            "tests/test_b.py": "def test_b(): ...\n",
+        }
         forward = _assemble(
             collector=_Collector(changed=["tests/test_b.py", "tests/test_a.py"], file_bodies=bodies)
         )
@@ -383,3 +391,74 @@ class TestSection:
         # were the whole answer.
         section = Section(name="changed-test-files", body="def test_x(): ...", measured=False)
         assert section.rendered_body == COULD_NOT_LOOK
+
+
+class TestARoundIsBookkeptNotAssumed:
+    """The loop's economy (a delta re-review, a round cap) lives in the input's header."""
+
+    def test_round_one_reads_the_whole_change_and_says_so(self):
+        rendered = render(_assemble())
+
+        assert "round: 1 of 3" in rendered
+        assert "since: (none — the diff below is the whole change from base)" in rendered
+        assert "Round 1 — there is no previous verdict." in rendered
+
+    def test_a_re_review_diffs_only_since_the_reviewed_commit(self):
+        collector = _Collector()
+
+        assembled = _assemble(
+            collector=collector, round_number=2, since="abc123", previous_verdict="verdict: BLOCK"
+        )
+
+        assert collector.diff_calls == ["abc123"], "the diff is taken from the reviewed commit"
+        assert "since: abc123" in render(assembled)
+
+    def test_the_test_files_still_span_the_whole_branch_on_a_re_review(self):
+        collector = _Collector()
+
+        _assemble(collector=collector, round_number=2, since="abc123", previous_verdict="v")
+
+        assert collector.gaudi_calls == [["src/x.py", "tests/test_x.py"]], (
+            "changed files come from the branch base, not from the re-review point"
+        )
+
+    def test_the_previous_verdict_reaches_the_reviewer(self):
+        rendered = render(
+            _assemble(round_number=2, previous_verdict="verdict: BLOCK\nfindings: 2\n")
+        )
+
+        assert "## previous-verdict" in rendered
+        assert "verdict: BLOCK\nfindings: 2" in rendered
+
+    def test_a_re_review_without_the_previous_verdict_is_refused(self):
+        with pytest.raises(CouldNotLookError, match="needs --previous-verdict"):
+            _assemble(round_number=2)
+
+    def test_a_first_round_refuses_a_since_point(self):
+        with pytest.raises(CouldNotLookError, match="round 1 reads the whole change"):
+            _assemble(since="abc123")
+
+    def test_a_previous_verdict_on_round_one_is_refused(self):
+        with pytest.raises(CouldNotLookError, match="round 1 takes no --previous-verdict"):
+            _assemble(previous_verdict="verdict: PASS")
+
+    def test_the_fourth_round_is_refused(self):
+        with pytest.raises(RoundCapError, match="exceeds the 3-round cap"):
+            _assemble(round_number=4, previous_verdict="v")
+
+    def test_the_cap_can_be_overridden_only_with_a_recorded_reason(self):
+        with pytest.raises(RoundCapError):
+            _assemble(round_number=4, previous_verdict="v", cap_override="   ")
+
+        rendered = render(
+            _assemble(round_number=4, previous_verdict="v", cap_override="Nathan: one more")
+        )
+
+        assert "round: 4 of 3" in rendered
+        assert "CAP OVERRIDDEN: Nathan: one more" in rendered
+
+    def test_the_previous_verdict_section_keeps_the_fixed_order_last(self):
+        assembled = _assemble()
+
+        assert [section.name for section in assembled.sections] == list(SECTION_ORDER)
+        assert SECTION_ORDER[-1] == PREVIOUS_VERDICT_SECTION

@@ -57,7 +57,21 @@ DELETION_LIST_UNREADABLE = (
 #: Section order is fixed so two runs over one tree render byte-identically.
 TEST_FILES_SECTION = "changed-test-files"
 GAUDI_SECTION = "gaudi-warn"
-SECTION_ORDER = ("diff", "issue", TEST_FILES_SECTION, "repo-doctrine", GAUDI_SECTION)
+PREVIOUS_VERDICT_SECTION = "previous-verdict"
+SECTION_ORDER = (
+    "diff",
+    "issue",
+    TEST_FILES_SECTION,
+    "repo-doctrine",
+    GAUDI_SECTION,
+    PREVIOUS_VERDICT_SECTION,
+)
+
+#: How many review rounds one change may take before the loop stops and the
+#: remaining findings go to Nathan as issues. GS#2540's first PR ran eleven
+#: rounds at roughly 110k reviewer tokens each; the cap is the mechanism the
+#: brief's "do not enter a third round" never had.
+MAX_ROUNDS = 3
 
 _TEST_FILENAME_PREFIX = "test_"
 _TEST_FILENAME_SUFFIX = "_test.py"
@@ -67,6 +81,10 @@ _FIXTURE_MODULE = "conftest.py"
 
 class CouldNotLookError(RuntimeError):
     """A required input was unavailable, so no review input can honestly be built."""
+
+
+class RoundCapError(RuntimeError):
+    """The change has used its review rounds; the loop stops here unless overridden."""
 
 
 @dataclass(frozen=True)
@@ -96,6 +114,13 @@ class AssembledInput:
     repo: str
     base: str
     sections: tuple[Section, ...]
+    #: Which review round this input serves; round 1 reads the whole change.
+    round_number: int = 1
+    #: For a re-review, the commit the previous round reviewed: the diff section
+    #: then carries only what changed since, and the header says so.
+    since: str | None = None
+    #: The operator's stated reason for reviewing past :data:`MAX_ROUNDS`.
+    cap_override: str = ""
 
     @property
     def unmeasured(self) -> tuple[str, ...]:
@@ -174,6 +199,42 @@ def _issue_section(collector: Collector, repo: str, issue: int | None, no_issue:
     if body is None:
         return Section(name="issue", body=COULD_NOT_LOOK, measured=False)
     return Section(name="issue", body=f"{repo}#{issue}\n\n{body}", measured=True)
+
+
+def _previous_verdict_section(previous_verdict: str | None, round_number: int) -> Section:
+    """What the last round found — a re-review must see it, a first review has none."""
+    if round_number == 1:
+        if previous_verdict is not None:
+            raise CouldNotLookError(
+                "round 1 takes no --previous-verdict; a first review reads the whole change"
+            )
+        return Section(
+            name=PREVIOUS_VERDICT_SECTION,
+            body="Round 1 — there is no previous verdict.",
+            measured=True,
+        )
+    if previous_verdict is None or not previous_verdict.strip():
+        raise CouldNotLookError(
+            f"round {round_number} needs --previous-verdict <file>: a re-review that cannot "
+            "see what the last round found re-derives it at full price."
+        )
+    return Section(name=PREVIOUS_VERDICT_SECTION, body=previous_verdict, measured=True)
+
+
+def _check_round(round_number: int, since: str | None, cap_override: str) -> None:
+    """The round bookkeeping the loop's economy rests on."""
+    if round_number < 1:
+        raise CouldNotLookError(f"round must be 1 or more, got {round_number}")
+    if round_number == 1 and since:
+        raise CouldNotLookError(
+            "--since is for a re-review (round 2+); round 1 reads the whole change"
+        )
+    if round_number > MAX_ROUNDS and not cap_override.strip():
+        raise RoundCapError(
+            f"round {round_number} exceeds the {MAX_ROUNDS}-round cap. Stop: file the remaining "
+            "findings as issues and hand the change to Nathan, or pass "
+            "--override-cap '<reason>' to record why one more round is worth its cost."
+        )
 
 
 def _labelled(relpath: str, body: str, *, state: str = "") -> str:
@@ -316,9 +377,21 @@ def assemble(
     base: str,
     issue: int | None,
     no_issue: bool = False,
+    since: str | None = None,
+    round_number: int = 1,
+    previous_verdict: str | None = None,
+    cap_override: str = "",
 ) -> AssembledInput:
-    """Gather every reviewer input in a fixed order from a fixed set of probes."""
-    diff = _diff_section(collector, base)
+    """Gather every reviewer input in a fixed order from a fixed set of probes.
+
+    A re-review (``round_number`` 2+) may name ``since``, the commit the last
+    round reviewed: the diff section then carries only the fix commits, while
+    the changed-test-files list still spans the whole branch — a reviewer
+    mutates whole test modules, not hunks. The previous verdict rides along so
+    the round verifies fixes instead of re-deriving findings.
+    """
+    _check_round(round_number, since, cap_override)
+    diff = _diff_section(collector, since or base)
     changed = collector.changed_files(base)
     if changed is None:
         raise CouldNotLookError(f"could not list the files changed against {base!r}")
@@ -337,8 +410,16 @@ def assemble(
         _test_files_section(collector, base, changed, deleted),
         _doctrine_section(collector),
         _gaudi_section(collector, changed, deleted),
+        _previous_verdict_section(previous_verdict, round_number),
     )
-    return AssembledInput(repo=repo, base=base, sections=sections)
+    return AssembledInput(
+        repo=repo,
+        base=base,
+        sections=sections,
+        round_number=round_number,
+        since=since,
+        cap_override=cap_override,
+    )
 
 
 def exit_code_for(assembled: AssembledInput) -> int:
@@ -359,8 +440,17 @@ def render(assembled: AssembledInput) -> str:
         "",
         f"repo: {assembled.repo}",
         f"base: {assembled.base}",
+        f"round: {assembled.round_number} of {MAX_ROUNDS}",
+        (
+            f"since: {assembled.since} — the diff below is only what changed since the "
+            "last round; the test files are whole"
+            if assembled.since
+            else "since: (none — the diff below is the whole change from base)"
+        ),
         f"sections: {', '.join(SECTION_ORDER)}",
     ]
+    if assembled.cap_override:
+        header.append(f"CAP OVERRIDDEN: {assembled.cap_override}")
     if unmeasured:
         header.append(f"UNMEASURED INPUTS: {', '.join(unmeasured)}")
         header.append(
@@ -372,7 +462,6 @@ def render(assembled: AssembledInput) -> str:
     parts = ["\n".join(header)]
     for section in assembled.sections:
         parts.append(
-            f"<!-- review-input:{section.name} -->\n"
-            f"## {section.name}\n\n{section.rendered_body}"
+            f"<!-- review-input:{section.name} -->\n## {section.name}\n\n{section.rendered_body}"
         )
     return "\n\n".join(parts) + "\n"

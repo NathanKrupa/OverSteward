@@ -36,10 +36,12 @@ sys.path.insert(  # noqa: STRUCT-010
     0, str(Path(__file__).resolve().parents[2] / "src")
 )
 
-from oversteward.review_collector import ShellCollector  # noqa: E402
-from oversteward.review_input import (  # noqa: E402
+from oversteward.review_collector import ShellCollector
+from oversteward.review_input import (
     EXIT_USAGE,
+    MAX_ROUNDS,
     CouldNotLookError,
+    RoundCapError,
     assemble,
     exit_code_for,
     render,
@@ -62,12 +64,34 @@ def _parse(argv: list[str]) -> argparse.Namespace:
         help="record deliberately that this change closes no issue",
     )
     parser.add_argument("--out", default=None, help="write here instead of stdout")
+    parser.add_argument(
+        "--round", type=int, default=1, help="review round this input serves (1 = full review)"
+    )
+    parser.add_argument(
+        "--since",
+        default=None,
+        help="re-review only: the commit the last round reviewed; the diff carries what changed since",
+    )
+    parser.add_argument(
+        "--previous-verdict",
+        default=None,
+        help="re-review only: file holding the last round's verdict block and findings",
+    )
+    parser.add_argument(
+        "--override-cap",
+        default="",
+        metavar="REASON",
+        help=f"review past the {MAX_ROUNDS}-round cap, recording why in the input header",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str]) -> int:
     args = _parse(argv)
     root = Path(args.root).resolve()
+    previous_verdict = (
+        Path(args.previous_verdict).read_text(encoding="utf-8") if args.previous_verdict else None
+    )
     try:
         assembled = assemble(
             ShellCollector(root),
@@ -75,8 +99,12 @@ def main(argv: list[str]) -> int:
             base=args.base,
             issue=args.issue,
             no_issue=args.no_issue,
+            since=args.since,
+            round_number=args.round,
+            previous_verdict=previous_verdict,
+            cap_override=args.override_cap,
         )
-    except CouldNotLookError as exc:
+    except (CouldNotLookError, RoundCapError) as exc:
         sys.stderr.write(f"{GATE} {exc}\n")
         return EXIT_USAGE
 

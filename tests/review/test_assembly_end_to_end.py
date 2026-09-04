@@ -112,3 +112,68 @@ class TestBlindnessStillReadsAsBlindness:
         # be reported as blindness everywhere, nor the reverse.
         assert "changed-test-files" not in header
         assert DELETED_TEST_BODY in document
+
+
+def _assemble_with(root: Path, out: Path, *extra: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--root",
+            str(root),
+            "--base",
+            "master",
+            "--no-issue",
+            "--out",
+            str(out),
+            *extra,
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+class TestTheRoundCapIsEnforcedByTheScript:
+    """The three-round budget is a refusal at the assembler, not a sentence in the brief."""
+
+    def test_a_fourth_round_is_refused_with_a_usage_exit(self, repo_deleting_a_test, tmp_path):
+        verdict = tmp_path / "verdict.md"
+        verdict.write_text("verdict: BLOCK\nfindings: 1\n", encoding="utf-8")
+
+        result = _assemble_with(
+            repo_deleting_a_test,
+            tmp_path / "out.md",
+            "--round",
+            "4",
+            "--previous-verdict",
+            str(verdict),
+        )
+
+        assert result.returncode == 1, result.stderr
+        assert "exceeds the 3-round cap" in result.stderr
+        assert not (tmp_path / "out.md").exists(), "a refused round writes no input"
+
+    def test_a_re_review_on_the_delta_names_its_round_and_carries_the_previous_verdict(
+        self, repo_deleting_a_test, tmp_path
+    ):
+        verdict = tmp_path / "verdict.md"
+        verdict.write_text("verdict: BLOCK\nfindings: 1\n1. [hole] x — y\n", encoding="utf-8")
+        out = tmp_path / "out.md"
+
+        result = _assemble_with(
+            repo_deleting_a_test,
+            out,
+            "--round",
+            "2",
+            "--since",
+            "master",
+            "--previous-verdict",
+            str(verdict),
+        )
+
+        assert result.returncode == 0, result.stderr
+        rendered = out.read_text(encoding="utf-8")
+        assert "round: 2 of 3" in rendered
+        assert "since: master" in rendered
+        assert "## previous-verdict" in rendered and "1. [hole] x — y" in rendered
