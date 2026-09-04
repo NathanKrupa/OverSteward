@@ -148,6 +148,8 @@ class Collector(Protocol):
 
     def merge_base(self, base: str) -> str | None: ...
 
+    def branch(self) -> str | None: ...
+
     def diff(self, base: str) -> str | None: ...
 
     def changed_files(self, base: str) -> list[str] | None: ...
@@ -280,6 +282,7 @@ class LedgerLine:
     """One round the assembler built for this checkout, as the ledger records it."""
 
     round_number: int
+    branch: str
     base_ref: str
     base_sha: str
     since: str
@@ -297,26 +300,30 @@ class LedgerLine:
             ) from exc
         return cls(
             round_number=round_number,
+            branch=fields.get("branch", ""),
             base_ref=fields.get("base", ""),
             base_sha=fields.get("base_sha", ""),
             since=fields.get("since", "-"),
         )
 
 
-def derive_round(ledger: str | None, requested: int | None) -> int:
+def derive_round(ledger: str | None, requested: int | None, *, branch: str = "") -> int:
     """The round this assembly is, from the ledger the last assemblies wrote.
 
-    The ledger holds one line per round already built for this checkout — every
-    assembly that produced a document, measured or not, because the reviewer
-    reviews an unmeasured document too, with the blindness named in its header.
-    The next round is one more than that, whatever the caller says;
-    ``requested`` may only confirm it. There is no restart: a genuinely new
-    change gets a new worktree, and the PR body, which carries every round's
-    verdict, is where a count that began again shows. Past
-    :data:`MAX_ROUNDS` the single escape is ``--override-cap``, recorded here
-    and printed in the header.
+    The count belongs to the **branch**: the ledger holds one line per round
+    already built in this checkout, and the rounds counted are the ones on the
+    branch being assembled (a line with no branch recorded counts too). A new
+    change on a new branch in the same worktree starts at round 1; a branch
+    renamed to dodge the cap is the same act as deleting the ledger, and the PR
+    body, which carries every round's verdict block, is where that shows.
+    Every assembly that produced a document counts, measured or not — the
+    reviewer reviews an unmeasured document too, with the blindness named in
+    its header. The next round is one more than the count, whatever the caller
+    says; ``requested`` may only confirm it. Past :data:`MAX_ROUNDS` the single
+    escape is ``--override-cap``, recorded here and printed in the header.
     """
-    built = [LedgerLine.parse(raw) for raw in (ledger or "").splitlines() if raw.strip()]
+    lines = [LedgerLine.parse(raw) for raw in (ledger or "").splitlines() if raw.strip()]
+    built = [line for line in lines if not line.branch or line.branch == branch]
     next_round = len(built) + 1
     if requested is None:
         return next_round
@@ -332,13 +339,17 @@ def ledger_line(
     round_number: int,
     since: str | None,
     *,
+    branch: str = "",
     base_ref: str = "",
     base_sha: str = "",
     override: str = "",
 ) -> str:
     """The line the ledger gains for this round — enough to reconstruct the count and its escapes."""
     tag = " override" if override.strip() else ""
-    return f"round={round_number} base={base_ref} base_sha={base_sha} since={since or '-'}{tag}"
+    return (
+        f"round={round_number} branch={branch} base={base_ref} base_sha={base_sha} "
+        f"since={since or '-'}{tag}"
+    )
 
 
 def _labelled(relpath: str, body: str, *, state: str = "") -> str:

@@ -71,6 +71,9 @@ class _Collector:
     def merge_base(self, base: str) -> str | None:
         return "f00dbase"
 
+    def branch(self) -> str | None:
+        return "feat/x"
+
     def diff(self, base: str) -> str | None:
         self.diff_calls.append(base)
         return self._diff
@@ -515,21 +518,32 @@ class TestARoundIsBookkeptNotAssumed:
 class TestTheRoundIsDerivedFromTheLedgerNotDeclared:
     """Dropping --round cannot turn a fourth round into a first: the ledger counts."""
 
-    L1 = "round=1 base=origin/master base_sha=aaa since=-\n"
-    L2 = "round=2 base=origin/master base_sha=aaa since=abc\n"
-    L3 = "round=3 base=origin/master base_sha=aaa since=def\n"
+    L1 = "round=1 branch=feat/x base=origin/master base_sha=aaa since=-\n"
+    L2 = "round=2 branch=feat/x base=origin/master base_sha=aaa since=abc\n"
+    L3 = "round=3 branch=feat/x base=origin/master base_sha=aaa since=def\n"
 
     def test_no_ledger_is_round_one(self):
-        assert derive_round(None, None) == 1
-        assert derive_round("", 1) == 1
+        assert derive_round(None, None, branch="feat/x") == 1
+        assert derive_round("", 1, branch="feat/x") == 1
 
     def test_the_next_round_is_one_more_than_the_ledger_holds(self):
-        assert derive_round(self.L1 + self.L2, None) == 3
-        assert derive_round(self.L1 + self.L2, 3) == 3
+        assert derive_round(self.L1 + self.L2, None, branch="feat/x") == 3
+        assert derive_round(self.L1 + self.L2, 3, branch="feat/x") == 3
+
+    def test_the_count_belongs_to_the_branch(self):
+        """A new change on a new branch in the same checkout starts at round 1."""
+        assert derive_round(self.L1 + self.L2 + self.L3, None, branch="feat/y") == 1
+        assert derive_round(self.L1 + self.L2 + self.L3, None, branch="feat/x") == 4
+
+    def test_a_line_with_no_branch_recorded_counts_for_every_branch(self):
+        legacy = "round=1 since=-\n"
+
+        assert derive_round(legacy + self.L1, None, branch="feat/x") == 3
+        assert derive_round(legacy, None, branch="feat/y") == 2
 
     def test_a_declared_round_that_disagrees_with_the_ledger_is_refused(self):
         with pytest.raises(CouldNotLookError, match="already built"):
-            derive_round(self.L1 + self.L2 + self.L3, 1)
+            derive_round(self.L1 + self.L2 + self.L3, 1, branch="feat/x")
 
     def test_a_corrupt_ledger_line_is_a_refusal_not_a_traceback(self):
         with pytest.raises(CouldNotLookError, match="cannot read"):
@@ -538,21 +552,19 @@ class TestTheRoundIsDerivedFromTheLedgerNotDeclared:
             derive_round("garbage with no fields\n", None)
 
     def test_an_override_line_counts_as_a_round_and_is_marked(self):
-        ledger = (
-            self.L1
-            + self.L2
-            + self.L3
-            + "round=4 base=origin/master base_sha=aaa since=x override\n"
-        )
+        ledger = self.L1 + self.L2 + self.L3
+        ledger += "round=4 branch=feat/x base=origin/master base_sha=aaa since=x override\n"
 
-        assert derive_round(ledger, None) == 5
+        assert derive_round(ledger, None, branch="feat/x") == 5
 
     def test_the_ledger_line_records_what_reconstructs_the_count(self):
         assert (
-            ledger_line(2, "abc123", base_ref="origin/master", base_sha="aaa")
-            == "round=2 base=origin/master base_sha=aaa since=abc123"
+            ledger_line(2, "abc123", branch="feat/x", base_ref="origin/master", base_sha="aaa")
+            == "round=2 branch=feat/x base=origin/master base_sha=aaa since=abc123"
         )
         assert (
-            ledger_line(4, "def", base_ref="origin/master", base_sha="aaa", override="Nathan")
-            == "round=4 base=origin/master base_sha=aaa since=def override"
+            ledger_line(
+                4, "def", branch="feat/x", base_ref="origin/master", base_sha="aaa", override="N"
+            )
+            == "round=4 branch=feat/x base=origin/master base_sha=aaa since=def override"
         )

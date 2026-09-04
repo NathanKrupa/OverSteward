@@ -131,7 +131,10 @@ def main(argv: list[str]) -> int:
         base_sha = collector.merge_base(args.base)
         if base_sha is None:
             raise CouldNotLookError(f"could not resolve the merge base against {args.base!r}")
-        round_number = derive_round(ledger, args.round)
+        branch = collector.branch()
+        if branch is None:
+            raise CouldNotLookError("could not read the checked-out branch name")
+        round_number = derive_round(ledger, args.round, branch=branch)
         assembled = assemble(
             collector,
             repo=args.repo,
@@ -146,27 +149,32 @@ def main(argv: list[str]) -> int:
     except (CouldNotLookError, RoundCapError) as exc:
         sys.stderr.write(f"{GATE} {exc}\n")
         return EXIT_USAGE
+    document = render(assembled)
+    try:
+        if args.out:
+            Path(args.out).write_text(document, encoding="utf-8")
+            sys.stderr.write(f"{GATE} wrote {args.out}\n")
+        else:
+            sys.stdout.write(document)
+    except OSError as exc:
+        sys.stderr.write(f"{GATE} could not write the document: {exc}\n")
+        return EXIT_USAGE
     # Every assembly that produced a document is a round: the reviewer reviews
     # an unmeasured document too, with the blindness named in its header, and
-    # pays for it. Only a refusal (no document) leaves the ledger untouched.
+    # pays for it. A refusal, or a document that could not be written, leaves
+    # the ledger untouched — the line is written after the document is.
     _record_round(
         ledger_path,
         ledger,
         ledger_line(
             round_number,
             args.since,
+            branch=branch,
             base_ref=args.base,
             base_sha=base_sha,
             override=args.override_cap,
         ),
     )
-
-    document = render(assembled)
-    if args.out:
-        Path(args.out).write_text(document, encoding="utf-8")
-        sys.stderr.write(f"{GATE} wrote {args.out}\n")
-    else:
-        sys.stdout.write(document)
 
     code = exit_code_for(assembled)
     if assembled.unmeasured:

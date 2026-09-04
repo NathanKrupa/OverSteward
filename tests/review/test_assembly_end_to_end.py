@@ -165,7 +165,8 @@ class TestTheRoundIsCountedByTheLedgerAndCappedByTheScript:
         assert result.returncode == 0, result.stderr
         assert "round: 1 of 3" in out.read_text(encoding="utf-8")
         ledger = (repo_deleting_a_test / ".review-rounds").read_text(encoding="utf-8")
-        assert ledger.startswith("round=1 base=master base_sha=") and ledger.endswith(" since=-\n")
+        assert ledger.startswith("round=1 branch=") and " base=master base_sha=" in ledger
+        assert ledger.endswith(" since=-\n")
 
     def test_the_second_assembly_is_round_two_whether_or_not_the_caller_says_so(
         self, repo_deleting_a_test, tmp_path
@@ -313,6 +314,40 @@ class TestTheRoundIsCountedByTheLedgerAndCappedByTheScript:
         )
         ledger = (repo_deleting_a_test / ".review-rounds").read_text(encoding="utf-8").splitlines()
         assert len(ledger) == 4 and ledger[3].endswith(" override")
+
+    def test_a_document_that_cannot_be_written_is_a_refusal_and_not_a_round(
+        self, repo_deleting_a_test, tmp_path
+    ):
+        result = _assemble_with(repo_deleting_a_test, tmp_path / "no-such-dir" / "x.md")
+
+        assert result.returncode == 1
+        assert "could not write the document" in result.stderr and "Traceback" not in result.stderr
+        assert not (repo_deleting_a_test / ".review-rounds").exists(), "no document, no round"
+
+    def test_a_new_branch_in_the_same_checkout_starts_its_own_count(
+        self, repo_deleting_a_test, tmp_path
+    ):
+        verdict = _verdict_file(repo_deleting_a_test)
+        _assemble_with(repo_deleting_a_test, tmp_path / "r1.md")
+        for n in (2, 3):
+            assert _re_review(repo_deleting_a_test, tmp_path / f"r{n}.md", verdict).returncode == 0
+        subprocess.run(
+            ["git", "checkout", "-q", "-b", "another-change"], cwd=repo_deleting_a_test, check=True
+        )
+        (repo_deleting_a_test / "other.py").write_text("X = 1\n", encoding="utf-8")
+        subprocess.run(["git", "add", "other.py"], cwd=repo_deleting_a_test, check=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "another change"], cwd=repo_deleting_a_test, check=True
+        )
+
+        result = _assemble_with(repo_deleting_a_test, tmp_path / "new1.md")
+
+        assert result.returncode == 0, result.stderr
+        assert "round: 1 of 3" in (tmp_path / "new1.md").read_text(encoding="utf-8")
+        ledger = (repo_deleting_a_test / ".review-rounds").read_text(encoding="utf-8").splitlines()
+        assert len(ledger) == 4 and "branch=another-change" in ledger[3], (
+            "appended under its own branch"
+        )
 
     def test_an_override_at_round_one_is_refused(self, repo_deleting_a_test, tmp_path):
         result = _assemble_with(

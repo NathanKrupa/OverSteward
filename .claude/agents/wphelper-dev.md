@@ -109,7 +109,7 @@ degrade the whole instrument silently, so the input is assembled by code.
 ```bash
 # 1. Assemble the input. Run it from the OverSteward checkout, pointed at YOUR
 #    worktree; it exits 2 if any input could not be gathered — read that, do not
-#    review around it.
+#    review around it. A blind assembly still counts as a round in .review-rounds.
 /home/natha/OverSteward/scripts/review/assemble_review_input.py \
     --root <worktree-path> --repo NathanKrupa/wphelper --base origin/main \
     --issue <n> --out <worktree-path>/.review-input.md

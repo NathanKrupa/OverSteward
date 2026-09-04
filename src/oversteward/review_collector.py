@@ -58,8 +58,13 @@ class ShellCollector:
         return out.strip() if out else None
 
     def merge_base(self, base: str) -> str | None:
-        """The commit the branch forked from ``base`` — the ledger keys its count on it."""
+        """The commit the branch forked from ``base``, recorded on every ledger line."""
         return self._merge_base(base)
+
+    def branch(self) -> str | None:
+        """The checked-out branch — the round count belongs to it."""
+        out = _run([_GIT, "rev-parse", "--abbrev-ref", _HEAD], self._root)
+        return out.strip() if out else None
 
     def diff(self, base: str) -> str | None:
         """The branch's own changes — merge-base, so base-branch commits are excluded."""
