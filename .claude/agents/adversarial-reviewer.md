@@ -36,6 +36,13 @@ You are given **one file**, produced by
 | `changed-test-files` | every changed test module **in full**, plus conftest |
 | `repo-doctrine` | the repo's `CLAUDE.md` |
 | `gaudi-warn` | `gaudi check --severity warn --format json` on the changed files |
+| `previous-verdict` | on a re-review, the last round's verdict block and findings; on round 1, a line saying there is none |
+
+The header names the **round** (`round: N of 3`) and, on a re-review, the
+commit the last round reviewed (`since: <sha>`): the `diff` section then holds
+only what changed since, while the test files are still whole. **A re-review
+verifies the fixes to the previous findings and looks for what those fixes
+broke; it does not re-derive the first round.**
 
 **Do not accept review input the author composed, summarised, or pasted inline.**
 If you were handed anything other than that script's output, say so and return
@@ -111,6 +118,17 @@ is violated, that is a finding.
     deployed copy must move together.
 12. **A check whose fixture cannot make it fail.** A new gate shipped without
     the negative fixture that turns it red.
+13. **A destructive path with an unpinned conjunct.** Every conjunct of a
+    `WHERE` on a DELETE/UPDATE, every element of a natural key, and both edges
+    of a time window each need one negative fixture. A fixture two guards
+    protect measures neither. *(GS#2540 rounds 5, 9, 10, 11 — one conjunct per
+    round, and a masked pin)*
+14. **What a delete-then-upsert lands on.** For each state a row can be in at
+    the replacement's key — live same-source, retired, other-source live,
+    other-source retired — either the swap handles it explicitly or the
+    upsert's `ON CONFLICT` swallows the replacement. Enumerate the states; do
+    not stop at the delete. *(GS#2540 rounds 6–8: the two data-loss holes on
+    that branch were here, not in the `WHERE`)*
 
 The catalogue is a floor, not a ceiling. A defect that is not on it is still a
 defect.
@@ -127,12 +145,27 @@ defect.
 - **Scope.** Whether the change should have been split is the author's call,
   not yours, unless the extra scope carries a defect.
 
-## Cap
+## Findings carry a class, and the class decides what happens next
 
-**At most 3 findings**, unless you are returning `BLOCK` — a blocking review may
-name every blocker. If you have more than three non-blocking findings, report
-the three that matter and drop the rest. A reviewer who returns fifteen findings
-is not read.
+Tag every finding with one of four classes, in the entry's first line:
+
+| class | meaning | the author must |
+|---|---|---|
+| `hole` | merging ships a defect that loses, corrupts or exposes data, or removes a guard | fix, then a re-review of the fix |
+| `defect` | wrong behaviour that does not open a hole | fix before merge; no re-review |
+| `pin` | a live guard with no test that measures it | add the fixture with its red mutant; no re-review |
+| `doc` | a docstring or comment whose claim the code does not keep | fix; no re-review |
+
+**Report every `hole` and every `defect`.** Report `pin` and `doc` findings
+in full too, up to eight in total — a truncated list is what turns one review
+into four, because each re-review then surfaces the next three. A reviewer
+who reports fifteen findings is not read, and one who reports three of ten
+is read four times.
+
+When you find one unpinned conjunct, **check its siblings before you file it**:
+every other conjunct in that clause, every other element of that key, the
+other edge of that window. One finding that names five gaps costs one round;
+five findings across five rounds cost five.
 
 ## Your output
 
@@ -150,12 +183,13 @@ tokens: 44900
   `scripts/lint/require_review_verdict.py`.
 - `tokens` — your token cost, or `unknown`. It funds the 4-week
   cost comparison against the ratchet (OS#428 § Instrumentation); do not omit it
-  as a matter of course.
+  as a matter of course. The operator records the harness's own count beside it
+  in the PR body — on GS#2540 the self-report ran 40% under the harness.
 
 Then, for each finding:
 
 ```
-N. `<path>:<line>` — <what is wrong, in one sentence>
+N. [hole|defect|pin|doc] `<path>:<line>` — <what is wrong, in one sentence>
    proof: <the mutation or command that demonstrates it, and what it printed>
 ```
 
@@ -166,11 +200,12 @@ the finding text and count it — but never dress it as demonstrated.
 
 ### Choosing the verdict
 
-- `BLOCK` — a guard was removed, a test cannot fail, a gate cannot fail, a
-  secret can escape, or a safety claim in a comment is false. Anything where
-  merging ships a hole.
-- `PASS-WITH-FINDINGS` — real defects that do not open a hole. The author may
-  merge after addressing them or explaining why not.
+- `BLOCK` — at least one `hole`: a guard was removed, a test cannot fail, a
+  gate cannot fail, a secret can escape, a safety claim in a comment is false,
+  or a destructive path loses data. Anything where merging ships a hole.
+- `PASS-WITH-FINDINGS` — only `defect`, `pin` and `doc` findings. The author
+  fixes them and merges **without another round**; the fixes carry their own
+  red mutants in the PR body.
 - `PASS` — you looked, you ran things, you found nothing. Say what you ran.
 
 **A reviewer that blocks everything is as useless as one that blocks nothing.**
@@ -178,5 +213,43 @@ A clean diff must reach `PASS`.
 
 ## The loop
 
-One author fix-round, then one re-review. A **second** `BLOCK` on the same PR
-escalates to Nathan via a `needs-input` label — do not enter a third round.
+**Three rounds, then it stops.** The assembler counts the rounds itself in a
+ledger it writes beside its output (`.review-rounds` in the reviewed checkout),
+so a caller cannot reset the count by omitting a flag; it refuses to build a
+fourth input without a recorded reason (`--override-cap`), and that refusal is
+the mechanism — the previous "do not enter a third round" was prose, and one
+branch ran eleven rounds under it at roughly 110k reviewer tokens each. Every
+assembly that produced a document counts, measured or not: you review an
+unmeasured document too, with its blindness named in the header. There is no
+restart. The one escape past round 3 is `--override-cap '<reason>'`, recorded
+in the ledger and printed in the header as `CAP OVERRIDDEN`. What the ledger
+cannot see is a deleted ledger or a fresh worktree: the PR body, which
+carries every round's verdict (the final one in the ```reviewer-verdict fence
+the CI gate reads — it accepts exactly one — and the earlier ones as plain
+text beneath it), is where that shows.
+
+- **Round 1** reads the whole change. Every `hole`, every `defect`, siblings
+  checked before a `pin` is filed.
+- **A `BLOCK` gets one re-review, on the delta.** The author fixes, then
+  assembles with `--since <the sha you reviewed> --previous-verdict <the file
+  holding your verdict block and findings, verbatim>`; the round number comes
+  from the ledger. The assembler checks the file is a well-formed `BLOCK`
+  verdict — a `PASS-WITH-FINDINGS` earns no re-review — but it cannot check
+  that the file is *all* you said, so compare its findings count with your own
+  memory of the round if anything reads short. You read the fix commits and the
+  whole test files: confirm each `hole` is closed by running its pin red against
+  the reviewed commit and green now, then look at what the fixes touched. Do not
+  re-derive round 1.
+- **`PASS-WITH-FINDINGS` gets no re-review.** The author addresses the findings
+  and merges; the PR body records each fix's red mutant. If you would have
+  wanted to see those fixes, say which in the finding — that is the only
+  channel.
+- **Round 3 is the last.** If you would `BLOCK` again, return `BLOCK` and
+  list every remaining `hole` plainly: the operator files them as issues,
+  labels the change `needs-input`, and hands it to Nathan. You do not get a
+  fourth look.
+
+The author runs the same failure catalogue before round 1 — the destructive
+path enumeration (#13, #14) and the mutation pass — and pastes the table into
+the PR body. Read it as a claim, not as evidence: your job is still to find
+what it missed.

@@ -11,13 +11,18 @@ from oversteward.review_input import (
     EXIT_COULD_NOT_LOOK,
     EXIT_OK,
     GAUDI_SECTION,
+    PREVIOUS_VERDICT_SECTION,
+    SECTION_ORDER,
     TEST_FILES_SECTION,
     AssembledInput,
     CouldNotLookError,
+    RoundCapError,
     Section,
     assemble,
+    derive_round,
     exit_code_for,
     is_test_path,
+    ledger_line,
     render,
 )
 
@@ -58,14 +63,27 @@ class _Collector:
         self._claude_md = claude_md
         self._gaudi = gaudi
         self.gaudi_calls: list[list[str]] = []
+        self.diff_calls: list[str] = []
+        self.changed_files_calls: list[str] = []
+        self.deleted_files_calls: list[str] = []
+        self.base_text_calls: list[str] = []
+
+    def merge_base(self, base: str) -> str | None:
+        return "f00dbase"
+
+    def branch(self) -> str | None:
+        return "feat/x"
 
     def diff(self, base: str) -> str | None:
+        self.diff_calls.append(base)
         return self._diff
 
     def changed_files(self, base: str) -> list[str] | None:
+        self.changed_files_calls.append(base)
         return self._changed
 
     def deleted_files(self, base: str) -> list[str] | None:
+        self.deleted_files_calls.append(base)
         return None if self._deleted is None else list(self._deleted)
 
     def issue_body(self, repo: str, number: int) -> str | None:
@@ -75,6 +93,7 @@ class _Collector:
         return self._file_bodies.get(relpath)
 
     def file_text_at_base(self, base: str, relpath: str) -> str | None:
+        self.base_text_calls.append(base)
         return self._base_bodies.get(relpath)
 
     def claude_md(self) -> str | None:
@@ -96,7 +115,7 @@ class TestAssembleGathersEveryInput:
     def test_the_diff_issue_tests_doctrine_and_gaudi_report_are_all_present(self):
         result = _assemble()
         names = [section.name for section in result.sections]
-        assert names == ["diff", "issue", "changed-test-files", "repo-doctrine", "gaudi-warn"]
+        assert names == list(SECTION_ORDER)
 
     def test_every_section_is_measured_when_every_probe_answers(self):
         assert all(section.measured for section in _assemble().sections)
@@ -281,7 +300,10 @@ class TestAssemblyIsDeterministic:
     def test_changed_files_are_sorted_regardless_of_probe_order(self):
         # The bodies must be readable, or both renders collapse to COULD NOT
         # LOOK and the comparison passes without ever exercising the ordering.
-        bodies = {"tests/test_a.py": "def test_a(): ...\n", "tests/test_b.py": "def test_b(): ...\n"}
+        bodies = {
+            "tests/test_a.py": "def test_a(): ...\n",
+            "tests/test_b.py": "def test_b(): ...\n",
+        }
         forward = _assemble(
             collector=_Collector(changed=["tests/test_b.py", "tests/test_a.py"], file_bodies=bodies)
         )
@@ -383,3 +405,166 @@ class TestSection:
         # were the whole answer.
         section = Section(name="changed-test-files", body="def test_x(): ...", measured=False)
         assert section.rendered_body == COULD_NOT_LOOK
+
+
+_BLOCK_VERDICT = (
+    "```reviewer-verdict\nverdict: BLOCK\nfindings: 2\ntokens: 1\n```\n1. [hole] x — y\n"
+)
+_PASS_VERDICT = "```reviewer-verdict\nverdict: PASS\nfindings: 0\ntokens: 1\n```\n"
+
+
+class TestARoundIsBookkeptNotAssumed:
+    """The loop's economy (a delta re-review, a round cap) lives in the input's header."""
+
+    def test_round_one_reads_the_whole_change_and_says_so(self):
+        rendered = render(_assemble())
+
+        assert "round: 1 of 3" in rendered
+        assert "since: (none — the diff below is the whole change from base)" in rendered
+        assert "Round 1 — there is no previous verdict." in rendered
+
+    def test_a_re_review_diffs_only_since_the_reviewed_commit(self):
+        collector = _Collector()
+
+        assembled = _assemble(
+            collector=collector, round_number=2, since="abc123", previous_verdict=_BLOCK_VERDICT
+        )
+
+        assert collector.diff_calls == ["abc123"], "the diff is taken from the reviewed commit"
+        assert "since: abc123" in render(assembled)
+
+    def test_the_test_files_still_span_the_whole_branch_on_a_re_review(self):
+        collector = _Collector()
+
+        _assemble(
+            collector=collector, round_number=2, since="abc123", previous_verdict=_BLOCK_VERDICT
+        )
+
+        assert collector.changed_files_calls == ["origin/master"], (
+            "the changed-file list is taken from the branch base, not the re-review point"
+        )
+        assert collector.deleted_files_calls == ["origin/master"]
+
+    def test_a_deleted_test_on_a_re_review_is_read_at_the_branch_base(self):
+        collector = _Collector(
+            changed=["tests/test_gone.py"],
+            deleted=["tests/test_gone.py"],
+            file_bodies={},
+            base_bodies={"tests/test_gone.py": "def test_gone():\n    assert True\n"},
+        )
+
+        _assemble(
+            collector=collector, round_number=2, since="abc123", previous_verdict=_BLOCK_VERDICT
+        )
+
+        assert collector.base_text_calls == ["origin/master"], (
+            "a deleted test's base version comes from the branch base on a re-review too"
+        )
+
+    def test_the_previous_verdict_reaches_the_reviewer(self):
+        rendered = render(_assemble(round_number=2, previous_verdict=_BLOCK_VERDICT))
+
+        assert "## previous-verdict" in rendered
+        assert "verdict: BLOCK\nfindings: 2" in rendered
+
+    def test_a_previous_verdict_that_is_not_a_verdict_block_is_refused(self):
+        with pytest.raises(CouldNotLookError, match="not a reviewer verdict"):
+            _assemble(round_number=2, previous_verdict="The reviewer said it looked fine.")
+
+    def test_a_previous_pass_earns_no_re_review(self):
+        with pytest.raises(CouldNotLookError, match="only a BLOCK earns a re-review"):
+            _assemble(round_number=2, previous_verdict=_PASS_VERDICT)
+
+    def test_an_override_where_no_cap_is_in_play_is_refused(self):
+        with pytest.raises(CouldNotLookError, match="cap is not in play"):
+            _assemble(cap_override="no cap in play")
+
+    def test_a_re_review_without_the_previous_verdict_is_refused(self):
+        with pytest.raises(CouldNotLookError, match="needs --previous-verdict"):
+            _assemble(round_number=2)
+
+    def test_a_first_round_refuses_a_since_point(self):
+        with pytest.raises(CouldNotLookError, match="round 1 reads the whole change"):
+            _assemble(since="abc123")
+
+    def test_a_previous_verdict_on_round_one_is_refused(self):
+        with pytest.raises(CouldNotLookError, match="round 1 takes no --previous-verdict"):
+            _assemble(previous_verdict=_BLOCK_VERDICT)
+
+    def test_the_fourth_round_is_refused(self):
+        with pytest.raises(RoundCapError, match="exceeds the 3-round cap"):
+            _assemble(round_number=4, previous_verdict=_BLOCK_VERDICT)
+
+    def test_the_cap_can_be_overridden_only_with_a_recorded_reason(self):
+        with pytest.raises(RoundCapError):
+            _assemble(round_number=4, previous_verdict=_BLOCK_VERDICT, cap_override="   ")
+
+        rendered = render(
+            _assemble(
+                round_number=4, previous_verdict=_BLOCK_VERDICT, cap_override="Nathan: one more"
+            )
+        )
+
+        assert "round: 4 of 3" in rendered
+        assert "CAP OVERRIDDEN: Nathan: one more" in rendered
+
+    def test_the_previous_verdict_section_keeps_the_fixed_order_last(self):
+        assembled = _assemble()
+
+        assert [section.name for section in assembled.sections] == list(SECTION_ORDER)
+        assert SECTION_ORDER[-1] == PREVIOUS_VERDICT_SECTION
+
+
+class TestTheRoundIsDerivedFromTheLedgerNotDeclared:
+    """Dropping --round cannot turn a fourth round into a first: the ledger counts."""
+
+    L1 = "round=1 branch=feat/x base=origin/master base_sha=aaa since=-\n"
+    L2 = "round=2 branch=feat/x base=origin/master base_sha=aaa since=abc\n"
+    L3 = "round=3 branch=feat/x base=origin/master base_sha=aaa since=def\n"
+
+    def test_no_ledger_is_round_one(self):
+        assert derive_round(None, None, branch="feat/x") == 1
+        assert derive_round("", 1, branch="feat/x") == 1
+
+    def test_the_next_round_is_one_more_than_the_ledger_holds(self):
+        assert derive_round(self.L1 + self.L2, None, branch="feat/x") == 3
+        assert derive_round(self.L1 + self.L2, 3, branch="feat/x") == 3
+
+    def test_the_count_belongs_to_the_branch(self):
+        """A new change on a new branch in the same checkout starts at round 1."""
+        assert derive_round(self.L1 + self.L2 + self.L3, None, branch="feat/y") == 1
+        assert derive_round(self.L1 + self.L2 + self.L3, None, branch="feat/x") == 4
+
+    def test_a_line_with_no_branch_recorded_counts_for_every_branch(self):
+        legacy = "round=1 since=-\n"
+
+        assert derive_round(legacy + self.L1, None, branch="feat/x") == 3
+        assert derive_round(legacy, None, branch="feat/y") == 2
+
+    def test_a_declared_round_that_disagrees_with_the_ledger_is_refused(self):
+        with pytest.raises(CouldNotLookError, match="already built"):
+            derive_round(self.L1 + self.L2 + self.L3, 1, branch="feat/x")
+
+    def test_a_corrupt_ledger_line_is_a_refusal_not_a_traceback(self):
+        with pytest.raises(CouldNotLookError, match="cannot read"):
+            derive_round(self.L1 + "round=two base=origin/master\n", None)
+        with pytest.raises(CouldNotLookError, match="cannot read"):
+            derive_round("garbage with no fields\n", None)
+
+    def test_an_override_line_counts_as_a_round_and_is_marked(self):
+        ledger = self.L1 + self.L2 + self.L3
+        ledger += "round=4 branch=feat/x base=origin/master base_sha=aaa since=x override\n"
+
+        assert derive_round(ledger, None, branch="feat/x") == 5
+
+    def test_the_ledger_line_records_what_reconstructs_the_count(self):
+        assert (
+            ledger_line(2, "abc123", branch="feat/x", base_ref="origin/master", base_sha="aaa")
+            == "round=2 branch=feat/x base=origin/master base_sha=aaa since=abc123"
+        )
+        assert (
+            ledger_line(
+                4, "def", branch="feat/x", base_ref="origin/master", base_sha="aaa", override="N"
+            )
+            == "round=4 branch=feat/x base=origin/master base_sha=aaa since=def override"
+        )

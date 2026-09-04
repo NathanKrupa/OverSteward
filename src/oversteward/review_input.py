@@ -29,6 +29,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from oversteward.review_verdict import (
+    BLOCK,
+    MalformedVerdictError,
+    MissingVerdictError,
+    parse_verdict,
+)
+
 EXIT_OK = 0
 EXIT_USAGE = 1
 EXIT_COULD_NOT_LOOK = 2
@@ -57,7 +64,26 @@ DELETION_LIST_UNREADABLE = (
 #: Section order is fixed so two runs over one tree render byte-identically.
 TEST_FILES_SECTION = "changed-test-files"
 GAUDI_SECTION = "gaudi-warn"
-SECTION_ORDER = ("diff", "issue", TEST_FILES_SECTION, "repo-doctrine", GAUDI_SECTION)
+PREVIOUS_VERDICT_SECTION = "previous-verdict"
+SECTION_ORDER = (
+    "diff",
+    "issue",
+    TEST_FILES_SECTION,
+    "repo-doctrine",
+    GAUDI_SECTION,
+    PREVIOUS_VERDICT_SECTION,
+)
+
+#: How many review rounds one change may take before the loop stops and the
+#: remaining findings go to Nathan as issues. GS#2540's first PR ran eleven
+#: rounds at roughly 110k reviewer tokens each; the cap is the mechanism the
+#: brief's "do not enter a third round" never had.
+MAX_ROUNDS = 3
+
+#: Where the assembler records each round it built, in the reviewed checkout.
+#: The round number is derived from this ledger, never taken on the caller's
+#: word: dropping ``--round`` cannot turn a fourth round into a first.
+ROUND_LEDGER = ".review-rounds"
 
 _TEST_FILENAME_PREFIX = "test_"
 _TEST_FILENAME_SUFFIX = "_test.py"
@@ -67,6 +93,10 @@ _FIXTURE_MODULE = "conftest.py"
 
 class CouldNotLookError(RuntimeError):
     """A required input was unavailable, so no review input can honestly be built."""
+
+
+class RoundCapError(RuntimeError):
+    """The change has used its review rounds; the loop stops here unless overridden."""
 
 
 @dataclass(frozen=True)
@@ -96,6 +126,13 @@ class AssembledInput:
     repo: str
     base: str
     sections: tuple[Section, ...]
+    #: Which review round this input serves; round 1 reads the whole change.
+    round_number: int = 1
+    #: For a re-review, the commit the previous round reviewed: the diff section
+    #: then carries only what changed since, and the header says so.
+    since: str | None = None
+    #: The operator's stated reason for reviewing past :data:`MAX_ROUNDS`.
+    cap_override: str = ""
 
     @property
     def unmeasured(self) -> tuple[str, ...]:
@@ -108,6 +145,10 @@ class Collector(Protocol):
     Injected rather than called directly so a test can state what git, gh and
     gaudi answered — including "nothing", which is the branch that matters.
     """
+
+    def merge_base(self, base: str) -> str | None: ...
+
+    def branch(self) -> str | None: ...
 
     def diff(self, base: str) -> str | None: ...
 
@@ -174,6 +215,141 @@ def _issue_section(collector: Collector, repo: str, issue: int | None, no_issue:
     if body is None:
         return Section(name="issue", body=COULD_NOT_LOOK, measured=False)
     return Section(name="issue", body=f"{repo}#{issue}\n\n{body}", measured=True)
+
+
+def _previous_verdict_section(previous_verdict: str | None, round_number: int) -> Section:
+    """What the last round found — a re-review must see it, a first review has none."""
+    if round_number == 1:
+        if previous_verdict is not None:
+            raise CouldNotLookError(
+                "round 1 takes no --previous-verdict; a first review reads the whole change"
+            )
+        return Section(
+            name=PREVIOUS_VERDICT_SECTION,
+            body="Round 1 — there is no previous verdict.",
+            measured=True,
+        )
+    if previous_verdict is None or not previous_verdict.strip():
+        raise CouldNotLookError(
+            f"round {round_number} needs --previous-verdict <file>: a re-review that cannot "
+            "see what the last round found re-derives it at full price."
+        )
+    # The file is the operator's, so it is the one input a caller could
+    # compose. It must at least BE a verdict — a well-formed block whose
+    # verdict is BLOCK, because only a BLOCK earns a re-review — and its
+    # findings count is checked for consistency by the parser. What it cannot
+    # prove is that the block is the whole of what the reviewer said; the PR
+    # body carries every round's block, and the gate reads that.
+    try:
+        parsed = parse_verdict(previous_verdict)
+    except (MissingVerdictError, MalformedVerdictError) as exc:
+        raise CouldNotLookError(
+            f"--previous-verdict is not a reviewer verdict: {exc}. Pass the file holding the "
+            "last round's ```reviewer-verdict block and its findings, verbatim."
+        ) from exc
+    if parsed.verdict != BLOCK:
+        raise CouldNotLookError(
+            f"the previous verdict is {parsed.verdict}; only a {BLOCK} earns a re-review. "
+            "Address PASS-WITH-FINDINGS findings in the PR body and merge."
+        )
+    return Section(name=PREVIOUS_VERDICT_SECTION, body=previous_verdict, measured=True)
+
+
+def _check_round(round_number: int, since: str | None, cap_override: str) -> None:
+    """The round bookkeeping the loop's economy rests on."""
+    if round_number < 1:
+        raise CouldNotLookError(f"round must be 1 or more, got {round_number}")
+    if round_number == 1 and since:
+        raise CouldNotLookError(
+            "--since is for a re-review (round 2+); round 1 reads the whole change"
+        )
+    if round_number > MAX_ROUNDS and not cap_override.strip():
+        raise RoundCapError(
+            f"round {round_number} exceeds the {MAX_ROUNDS}-round cap. Stop: file the remaining "
+            "findings as issues and hand the change to Nathan, or pass "
+            "--override-cap '<reason>' to record why one more round is worth its cost."
+        )
+    if round_number <= MAX_ROUNDS and cap_override.strip():
+        raise CouldNotLookError(
+            f"--override-cap given at round {round_number}, but the cap is not in play until "
+            f"round {MAX_ROUNDS + 1}; an override recorded where nothing was overridden is a "
+            "false header line."
+        )
+
+
+@dataclass(frozen=True)
+class LedgerLine:
+    """One round the assembler built for this checkout, as the ledger records it."""
+
+    round_number: int
+    branch: str
+    base_ref: str
+    base_sha: str
+    since: str
+
+    @classmethod
+    def parse(cls, line: str) -> LedgerLine:
+        fields = dict(part.split("=", 1) for part in line.split() if "=" in part)
+        try:
+            round_number = int(fields["round"])
+        except (KeyError, ValueError) as exc:
+            raise CouldNotLookError(
+                f"{ROUND_LEDGER} carries a line this assembler cannot read: {line!r}. The ledger "
+                "is the round count; repair it by hand from the PR body's verdict blocks, or "
+                "delete it and say so in the PR."
+            ) from exc
+        return cls(
+            round_number=round_number,
+            branch=fields.get("branch", ""),
+            base_ref=fields.get("base", ""),
+            base_sha=fields.get("base_sha", ""),
+            since=fields.get("since", "-"),
+        )
+
+
+def derive_round(ledger: str | None, requested: int | None, *, branch: str = "") -> int:
+    """The round this assembly is, from the ledger the last assemblies wrote.
+
+    The count belongs to the **branch**: the ledger holds one line per round
+    already built in this checkout, and the rounds counted are the ones on the
+    branch being assembled (a line with no branch recorded counts too). A new
+    change on a new branch in the same worktree starts at round 1; a branch
+    renamed to dodge the cap is the same act as deleting the ledger, and the PR
+    body, which carries every round's verdict block, is where that shows.
+    Every assembly that produced a document counts, measured or not — the
+    reviewer reviews an unmeasured document too, with the blindness named in
+    its header. The next round is one more than the count, whatever the caller
+    says; ``requested`` may only confirm it. Past :data:`MAX_ROUNDS` the single
+    escape is ``--override-cap``, recorded here and printed in the header.
+    """
+    lines = [LedgerLine.parse(raw) for raw in (ledger or "").splitlines() if raw.strip()]
+    built = [line for line in lines if not line.branch or line.branch == branch]
+    next_round = len(built) + 1
+    if requested is None:
+        return next_round
+    if requested != next_round:
+        raise CouldNotLookError(
+            f"--round {requested} but the ledger ({ROUND_LEDGER}) shows {len(built)} round(s) "
+            f"already built, so this is round {next_round}. Omit --round."
+        )
+    return requested
+
+
+def ledger_line(
+    round_number: int,
+    since: str | None,
+    *,
+    branch: str = "",
+    base_ref: str = "",
+    base_sha: str = "",
+    override: str = "",
+) -> str:
+    """The line the ledger gains for this round — enough to reconstruct the count and its escapes."""
+    tag = " override" if override.strip() else ""
+    return (
+        f"round={round_number} branch={branch} base={base_ref} base_sha={base_sha} "
+        f"since={since or '-'}{tag}"
+    )
 
 
 def _labelled(relpath: str, body: str, *, state: str = "") -> str:
@@ -316,9 +492,21 @@ def assemble(
     base: str,
     issue: int | None,
     no_issue: bool = False,
+    since: str | None = None,
+    round_number: int = 1,
+    previous_verdict: str | None = None,
+    cap_override: str = "",
 ) -> AssembledInput:
-    """Gather every reviewer input in a fixed order from a fixed set of probes."""
-    diff = _diff_section(collector, base)
+    """Gather every reviewer input in a fixed order from a fixed set of probes.
+
+    A re-review (``round_number`` 2+) may name ``since``, the commit the last
+    round reviewed: the diff section then carries only the fix commits, while
+    the changed-test-files list still spans the whole branch — a reviewer
+    mutates whole test modules, not hunks. The previous verdict rides along so
+    the round verifies fixes instead of re-deriving findings.
+    """
+    _check_round(round_number, since, cap_override)
+    diff = _diff_section(collector, since or base)
     changed = collector.changed_files(base)
     if changed is None:
         raise CouldNotLookError(f"could not list the files changed against {base!r}")
@@ -337,8 +525,16 @@ def assemble(
         _test_files_section(collector, base, changed, deleted),
         _doctrine_section(collector),
         _gaudi_section(collector, changed, deleted),
+        _previous_verdict_section(previous_verdict, round_number),
     )
-    return AssembledInput(repo=repo, base=base, sections=sections)
+    return AssembledInput(
+        repo=repo,
+        base=base,
+        sections=sections,
+        round_number=round_number,
+        since=since,
+        cap_override=cap_override,
+    )
 
 
 def exit_code_for(assembled: AssembledInput) -> int:
@@ -359,8 +555,17 @@ def render(assembled: AssembledInput) -> str:
         "",
         f"repo: {assembled.repo}",
         f"base: {assembled.base}",
+        f"round: {assembled.round_number} of {MAX_ROUNDS}",
+        (
+            f"since: {assembled.since} — the diff below is only what changed since the "
+            "last round; the test files are whole"
+            if assembled.since
+            else "since: (none — the diff below is the whole change from base)"
+        ),
         f"sections: {', '.join(SECTION_ORDER)}",
     ]
+    if assembled.cap_override:
+        header.append(f"CAP OVERRIDDEN: {assembled.cap_override}")
     if unmeasured:
         header.append(f"UNMEASURED INPUTS: {', '.join(unmeasured)}")
         header.append(
@@ -372,7 +577,6 @@ def render(assembled: AssembledInput) -> str:
     parts = ["\n".join(header)]
     for section in assembled.sections:
         parts.append(
-            f"<!-- review-input:{section.name} -->\n"
-            f"## {section.name}\n\n{section.rendered_body}"
+            f"<!-- review-input:{section.name} -->\n## {section.name}\n\n{section.rendered_body}"
         )
     return "\n\n".join(parts) + "\n"

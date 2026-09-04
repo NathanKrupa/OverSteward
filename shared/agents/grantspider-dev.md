@@ -113,7 +113,7 @@ degrade the whole instrument silently, so the input is assembled by code.
 ```bash
 # 1. Assemble the input. Run it from the OverSteward checkout, pointed at YOUR
 #    worktree; it exits 2 if any input could not be gathered — read that, do not
-#    review around it.
+#    review around it. A blind assembly still counts as a round in .review-rounds.
 /home/natha/OverSteward/scripts/review/assemble_review_input.py \
     --root <worktree-path> --repo NathanKrupa/grantspider --base origin/staging \
     --issue <n> --out <worktree-path>/.review-input.md
@@ -130,11 +130,23 @@ Then:
   under an `## Adversarial review` heading, with its findings beneath it.
 - **Copy the same verdict onto the trajectory note's `reviewer:` front-matter
   line** (verdict, findings, tokens).
-- **`BLOCK` means do not open the PR.** Fix the findings, re-assemble, re-review
-  once. A *second* `BLOCK` on the same change stops the pickup — emit
-  `STOPPED_FOR_INPUT`, label the issue `needs-input`, and hand it to Nathan.
-- `PASS-WITH-FINDINGS` may be merged; address the findings or say in the PR body
-  why not.
+- **`BLOCK` means do not open the PR.** Fix every `hole`, then re-assemble
+  **on the delta** — `--since <the sha the reviewer read> --previous-verdict
+  <file holding its verdict block and findings, verbatim>` — and re-review
+  once. The assembler counts rounds in `.review-rounds` beside its output and
+  checks the file is a well-formed `BLOCK` verdict. A *second* `BLOCK` on the
+  same change stops the pickup — emit `STOPPED_FOR_INPUT`, label the issue
+  `needs-input`, and hand it to Nathan. A fourth round is refused without
+  `--override-cap '<reason>'`, which is recorded in the ledger and printed in
+  the input header; there is no restart flag.
+- **`PASS-WITH-FINDINGS` gets no re-review.** Address each `defect`, `pin` and
+  `doc` finding, record its fix and the red mutant that proves it in the PR
+  body under the verdict, and open the PR.
+- **Before round 1, run the reviewer's catalogue yourself** (brief entries 13
+  and 14): for every destructive statement in the diff, one negative fixture
+  per `WHERE` conjunct, per key element, per window edge, per row state at an
+  insert's key — with the mutant that kills each. Paste the table into the PR
+  body. Half of one branch's eleven rounds were that table, one row per round.
 
 **Opening a PR with no verdict block is a procedural failure, not a shortcut.**
 `scripts/lint/require_review_verdict.py` is red on a missing, malformed or
