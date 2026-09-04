@@ -77,7 +77,7 @@ def _parse(argv: list[str]) -> argparse.Namespace:
         "--restart-rounds",
         default="",
         metavar="REASON",
-        help="begin the round count again at 1 (a new base or a new change on this worktree)",
+        help="begin the round count again at 1 — honoured only when the merge base has moved; printed in the header",
     )
     parser.add_argument(
         "--since",
@@ -118,26 +118,34 @@ def _read_optional(path: str | None, root: Path) -> str | None:
         raise CouldNotLookError(f"--previous-verdict {path!r} could not be read: {exc}") from exc
 
 
-def _record_round(ledger_path: Path, ledger: str | None, round_number: int, since, restart) -> None:
-    """Append this round to the ledger — a restart begins the file again."""
-    prior = "" if restart.strip() else (ledger or "")
+def _record_round(ledger_path: Path, ledger: str | None, line: str) -> None:
+    """Append this round to the ledger — never truncate; a restart is a line, not a fresh file."""
+    prior = ledger or ""
     if prior and not prior.endswith("\n"):
         prior += "\n"
-    ledger_path.write_text(
-        prior + ledger_line(round_number, since, restart) + "\n", encoding="utf-8"
-    )
+    ledger_path.write_text(prior + line + "\n", encoding="utf-8")
 
 
 def main(argv: list[str]) -> int:
     args = _parse(argv)
     root = Path(args.root).resolve()
     ledger_path = root / ROUND_LEDGER
+    collector = ShellCollector(root)
     try:
         previous_verdict = _read_optional(args.previous_verdict, root)
         ledger = ledger_path.read_text(encoding="utf-8") if ledger_path.exists() else None
-        round_number = derive_round(ledger, args.round, restart=args.restart_rounds)
+        base_sha = collector.merge_base(args.base)
+        if base_sha is None:
+            raise CouldNotLookError(f"could not resolve the merge base against {args.base!r}")
+        round_number = derive_round(
+            ledger,
+            args.round,
+            base_ref=args.base,
+            base_sha=base_sha,
+            restart=args.restart_rounds,
+        )
         assembled = assemble(
-            ShellCollector(root),
+            collector,
             repo=args.repo,
             base=args.base,
             issue=args.issue,
@@ -146,11 +154,27 @@ def main(argv: list[str]) -> int:
             round_number=round_number,
             previous_verdict=previous_verdict,
             cap_override=args.override_cap,
+            restart_reason=args.restart_rounds,
         )
     except (CouldNotLookError, RoundCapError) as exc:
         sys.stderr.write(f"{GATE} {exc}\n")
         return EXIT_USAGE
-    _record_round(ledger_path, ledger, round_number, args.since, args.restart_rounds)
+    if not assembled.unmeasured:
+        # A round counts only when every input was measured: an assembly that
+        # could not look is not a review the reviewer can have done, and the
+        # operator who repairs the blindness re-runs the same command as the
+        # same round.
+        _record_round(
+            ledger_path,
+            ledger,
+            ledger_line(
+                round_number,
+                args.since,
+                args.restart_rounds,
+                base_ref=args.base,
+                base_sha=base_sha,
+            ),
+        )
 
     document = render(assembled)
     if args.out:

@@ -68,6 +68,9 @@ class _Collector:
         self.deleted_files_calls: list[str] = []
         self.base_text_calls: list[str] = []
 
+    def merge_base(self, base: str) -> str | None:
+        return "f00dbase"
+
     def diff(self, base: str) -> str | None:
         self.diff_calls.append(base)
         return self._diff
@@ -512,29 +515,60 @@ class TestARoundIsBookkeptNotAssumed:
 class TestTheRoundIsDerivedFromTheLedgerNotDeclared:
     """Dropping --round cannot turn a fourth round into a first: the ledger counts."""
 
+    L1 = "round=1 base=origin/master base_sha=aaa since=-\n"
+    L2 = "round=2 base=origin/master base_sha=aaa since=abc\n"
+    L3 = "round=3 base=origin/master base_sha=aaa since=def\n"
+
     def test_no_ledger_is_round_one(self):
         assert derive_round(None, None) == 1
         assert derive_round("", 1) == 1
 
     def test_the_next_round_is_one_more_than_the_ledger_holds(self):
-        ledger = "round=1 since=-\nround=2 since=abc\n"
-
-        assert derive_round(ledger, None) == 3
-        assert derive_round(ledger, 3) == 3
+        assert derive_round(self.L1 + self.L2, None) == 3
+        assert derive_round(self.L1 + self.L2, 3) == 3
 
     def test_a_declared_round_that_disagrees_with_the_ledger_is_refused(self):
-        ledger = "round=1 since=-\nround=2 since=abc\nround=3 since=def\n"
-
         with pytest.raises(CouldNotLookError, match="already built"):
-            derive_round(ledger, 1)
+            derive_round(self.L1 + self.L2 + self.L3, 1)
 
-    def test_a_restart_begins_at_one_and_only_at_one(self):
-        ledger = "round=1 since=-\nround=2 since=abc\n"
+    def test_a_restart_is_refused_while_the_base_has_not_moved(self):
+        with pytest.raises(CouldNotLookError, match="has not moved"):
+            derive_round(
+                self.L1 + self.L2, None, base_ref="origin/master", base_sha="aaa", restart="why"
+            )
 
-        assert derive_round(ledger, None, restart="new base") == 1
+    def test_a_restart_against_a_different_base_ref_is_refused(self):
+        with pytest.raises(CouldNotLookError, match="belongs to base"):
+            derive_round(self.L1, None, base_ref="origin/other", base_sha="bbb", restart="why")
+
+    def test_a_restart_with_nothing_built_is_refused(self):
+        with pytest.raises(CouldNotLookError, match="no rounds have been built"):
+            derive_round(None, None, base_ref="origin/master", base_sha="bbb", restart="why")
+
+    def test_a_restart_after_the_base_moved_begins_at_one_and_only_at_one(self):
+        moved = {"base_ref": "origin/master", "base_sha": "bbb", "restart": "base advanced"}
+
+        assert derive_round(self.L1 + self.L2, None, **moved) == 1
         with pytest.raises(CouldNotLookError, match="starts the count again at round 1"):
-            derive_round(ledger, 2, restart="new base")
+            derive_round(self.L1 + self.L2, 2, **moved)
+
+    def test_the_count_runs_from_the_last_restart_line(self):
+        ledger = self.L1 + self.L2 + "round=1 base=origin/master base_sha=bbb since=- restart\n"
+
+        assert derive_round(ledger, None) == 2
 
     def test_the_ledger_line_records_what_reconstructs_the_count(self):
-        assert ledger_line(2, "abc123", "") == "round=2 since=abc123"
-        assert ledger_line(1, None, "new base") == "round=1 since=- restart"
+        assert (
+            ledger_line(2, "abc123", "", base_ref="origin/master", base_sha="aaa")
+            == "round=2 base=origin/master base_sha=aaa since=abc123"
+        )
+        assert (
+            ledger_line(1, None, "base advanced", base_ref="origin/master", base_sha="bbb")
+            == "round=1 base=origin/master base_sha=bbb since=- restart"
+        )
+
+    def test_a_restart_is_printed_in_the_header(self):
+        rendered = render(_assemble(restart_reason="base advanced"))
+
+        assert "ROUNDS RESTARTED: base advanced" in rendered
+        assert "this round 1 is not the change's first review" in rendered

@@ -133,6 +133,10 @@ class AssembledInput:
     since: str | None = None
     #: The operator's stated reason for reviewing past :data:`MAX_ROUNDS`.
     cap_override: str = ""
+    #: The operator's stated reason for beginning the round count again — only
+    #: honoured when the base moved, and always printed, so "round 1" reads as
+    #: what it is.
+    restart_reason: str = ""
 
     @property
     def unmeasured(self) -> tuple[str, ...]:
@@ -145,6 +149,8 @@ class Collector(Protocol):
     Injected rather than called directly so a test can state what git, gh and
     gaudi answered — including "nothing", which is the branch that matters.
     """
+
+    def merge_base(self, base: str) -> str | None: ...
 
     def diff(self, base: str) -> str | None: ...
 
@@ -273,38 +279,94 @@ def _check_round(round_number: int, since: str | None, cap_override: str) -> Non
         )
 
 
-def derive_round(ledger: str | None, requested: int | None, *, restart: str = "") -> int:
+@dataclass(frozen=True)
+class LedgerLine:
+    """One round the assembler built for this checkout, as the ledger records it."""
+
+    round_number: int
+    base_ref: str
+    base_sha: str
+    since: str
+    restart: bool
+
+    @classmethod
+    def parse(cls, line: str) -> LedgerLine:
+        fields = dict(part.split("=", 1) for part in line.split() if "=" in part)
+        return cls(
+            round_number=int(fields.get("round", "0")),
+            base_ref=fields.get("base", ""),
+            base_sha=fields.get("base_sha", ""),
+            since=fields.get("since", "-"),
+            restart=" restart" in f" {line} ",
+        )
+
+
+def _rounds_in_count(ledger: str | None) -> tuple[list[LedgerLine], LedgerLine | None]:
+    """The rounds since the last restart, and the last line of all (None when empty)."""
+    lines = [LedgerLine.parse(raw) for raw in (ledger or "").splitlines() if raw.strip()]
+    if not lines:
+        return [], None
+    start = max((i for i, line in enumerate(lines) if line.restart), default=0)
+    return lines[start:], lines[-1]
+
+
+def derive_round(
+    ledger: str | None,
+    requested: int | None,
+    *,
+    base_ref: str = "",
+    base_sha: str = "",
+    restart: str = "",
+) -> int:
     """The round this assembly is, from the ledger the last assemblies wrote.
 
     The ledger holds one line per round already built for this checkout. The
-    next round is one more than that, whatever the caller says; ``requested``
-    may only confirm it. Asking for a lower number is refused unless
-    ``restart`` records why the count begins again (a new base, a new change
-    on the same worktree) — and then only round 1 is allowed.
+    next round is one more than the count since the last restart, whatever the
+    caller says; ``requested`` may only confirm it. A restart is honoured only
+    when the change genuinely moved: same base ref, different merge-base sha
+    (the base advanced or the branch was rebased). A restart against an
+    unmoved base is refused and names the one sanctioned escape,
+    ``--override-cap``. Nothing here can see a deleted ledger or a fresh
+    worktree — the PR body, which carries every round's verdict, can.
     """
-    built = [line for line in (ledger or "").splitlines() if line.strip()]
-    next_round = len(built) + 1
+    counted, last = _rounds_in_count(ledger)
+    next_round = len(counted) + 1
     if restart.strip():
         if requested not in (None, 1):
             raise CouldNotLookError(
                 f"--restart-rounds starts the count again at round 1; got --round {requested}"
+            )
+        if last is None:
+            raise CouldNotLookError("--restart-rounds given but no rounds have been built yet")
+        if last.base_ref != base_ref:
+            raise CouldNotLookError(
+                f"the round count belongs to base {last.base_ref!r}; a restart against "
+                f"{base_ref!r} is a different comparison, not a new count"
+            )
+        if last.base_sha == base_sha:
+            raise CouldNotLookError(
+                f"--restart-rounds refused: the merge base ({base_sha[:12]}) has not moved since "
+                f"round {last.round_number}, so this is the same change. Past round "
+                f"{MAX_ROUNDS} the only escape is --override-cap '<reason>'."
             )
         return 1
     if requested is None:
         return next_round
     if requested != next_round:
         raise CouldNotLookError(
-            f"--round {requested} but the ledger ({ROUND_LEDGER}) shows {len(built)} round(s) "
+            f"--round {requested} but the ledger ({ROUND_LEDGER}) shows {len(counted)} round(s) "
             f"already built, so this is round {next_round}. Omit --round, or pass "
-            "--restart-rounds '<reason>' to begin a new count."
+            "--restart-rounds '<reason>' if the base has moved."
         )
     return requested
 
 
-def ledger_line(round_number: int, since: str | None, restart: str) -> str:
+def ledger_line(
+    round_number: int, since: str | None, restart: str, *, base_ref: str = "", base_sha: str = ""
+) -> str:
     """The line the ledger gains for this round — enough to reconstruct the count."""
     tag = " restart" if restart.strip() else ""
-    return f"round={round_number} since={since or '-'}{tag}"
+    return f"round={round_number} base={base_ref} base_sha={base_sha} since={since or '-'}{tag}"
 
 
 def _labelled(relpath: str, body: str, *, state: str = "") -> str:
@@ -451,6 +513,7 @@ def assemble(
     round_number: int = 1,
     previous_verdict: str | None = None,
     cap_override: str = "",
+    restart_reason: str = "",
 ) -> AssembledInput:
     """Gather every reviewer input in a fixed order from a fixed set of probes.
 
@@ -489,6 +552,7 @@ def assemble(
         round_number=round_number,
         since=since,
         cap_override=cap_override,
+        restart_reason=restart_reason,
     )
 
 
@@ -521,6 +585,11 @@ def render(assembled: AssembledInput) -> str:
     ]
     if assembled.cap_override:
         header.append(f"CAP OVERRIDDEN: {assembled.cap_override}")
+    if assembled.restart_reason:
+        header.append(
+            f"ROUNDS RESTARTED: {assembled.restart_reason} — earlier rounds exist in the "
+            "ledger and in the PR body; this round 1 is not the change's first review"
+        )
     if unmeasured:
         header.append(f"UNMEASURED INPUTS: {', '.join(unmeasured)}")
         header.append(

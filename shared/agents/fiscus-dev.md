@@ -228,7 +228,8 @@ Then:
   checks the file is a well-formed `BLOCK` verdict. A *second* `BLOCK` on the
   same change stops the pickup — emit `STOPPED_FOR_INPUT`, label the issue
   `needs-input`, and hand it to Nathan. A fourth round is refused without
-  `--override-cap`.
+  `--override-cap`; `--restart-rounds` is honoured only when the base has moved
+  and is printed in the input header.
 - **`PASS-WITH-FINDINGS` gets no re-review.** Address each `defect`, `pin` and
   `doc` finding, record its fix and the red mutant that proves it in the PR
   body under the verdict, and open the PR.

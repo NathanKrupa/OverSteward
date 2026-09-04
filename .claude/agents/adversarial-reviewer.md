@@ -218,10 +218,14 @@ ledger it writes beside its output (`.review-rounds` in the reviewed checkout),
 so a caller cannot reset the count by omitting a flag; it refuses to build a
 fourth input without a recorded reason (`--override-cap`), and that refusal is
 the mechanism — the previous "do not enter a third round" was prose, and one
-branch ran eleven rounds under it at roughly 110k reviewer tokens each. What
-the ledger cannot see is a fresh worktree: a change re-reviewed from a new
-checkout starts its count again, and the PR body, which carries every round's
-verdict block, is where that shows.
+branch ran eleven rounds under it at roughly 110k reviewer tokens each. The
+count begins again only when the base has moved (`--restart-rounds
+'<reason>'`, refused against an unmoved base, appended to the ledger never
+truncating it, and printed in the header as `ROUNDS RESTARTED`, so a "round 1"
+that is not the change's first review says so). What the ledger cannot see is
+a deleted ledger or a fresh worktree: the PR body, which carries every
+round's verdict block, is where that shows — read it when a round 1 arrives on
+a change you have seen before.
 
 - **Round 1** reads the whole change. Every `hole`, every `defect`, siblings
   checked before a `pin` is filed.

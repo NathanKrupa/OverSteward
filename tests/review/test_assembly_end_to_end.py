@@ -146,6 +146,23 @@ def _verdict_file(root: Path) -> Path:
     return path
 
 
+def _advance_master(root: Path) -> None:
+    """Move the base under the branch: one more commit on master, merged into the branch."""
+    branch = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    subprocess.run(["git", "checkout", "-q", "master"], cwd=root, check=True)
+    (root / "moved.txt").write_text("the base moved\n", encoding="utf-8")
+    subprocess.run(["git", "add", "moved.txt"], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "base advances"], cwd=root, check=True)
+    subprocess.run(["git", "checkout", "-q", branch], cwd=root, check=True)
+    subprocess.run(["git", "merge", "-q", "--no-edit", "master"], cwd=root, check=True)
+
+
 def _re_review(root: Path, out: Path, verdict: Path, *extra: str) -> subprocess.CompletedProcess:
     return _assemble_with(
         root, out, "--since", "master", "--previous-verdict", str(verdict), *extra
@@ -165,7 +182,7 @@ class TestTheRoundIsCountedByTheLedgerAndCappedByTheScript:
         assert result.returncode == 0, result.stderr
         assert "round: 1 of 3" in out.read_text(encoding="utf-8")
         ledger = (repo_deleting_a_test / ".review-rounds").read_text(encoding="utf-8")
-        assert ledger == "round=1 since=-\n"
+        assert ledger.startswith("round=1 base=master base_sha=") and ledger.endswith(" since=-\n")
 
     def test_the_second_assembly_is_round_two_whether_or_not_the_caller_says_so(
         self, repo_deleting_a_test, tmp_path
@@ -238,6 +255,64 @@ class TestTheRoundIsCountedByTheLedgerAndCappedByTheScript:
 
         assert result.returncode == 1
         assert "must be inside the reviewed checkout" in result.stderr
+
+    def test_a_refused_assembly_leaves_the_ledger_as_it_was(self, repo_deleting_a_test, tmp_path):
+        _assemble_with(repo_deleting_a_test, tmp_path / "r1.md")
+        before = (repo_deleting_a_test / ".review-rounds").read_text(encoding="utf-8")
+
+        refused = _assemble_with(repo_deleting_a_test, tmp_path / "r2.md", "--since", "master")
+
+        assert refused.returncode == 1
+        assert (repo_deleting_a_test / ".review-rounds").read_text(encoding="utf-8") == before, (
+            "a refusal is not a round"
+        )
+
+    def test_an_assembly_that_could_not_look_is_not_a_round(self, repo_deleting_a_test, tmp_path):
+        doctrine = repo_deleting_a_test / "CLAUDE.md"
+        kept = doctrine.read_text(encoding="utf-8")
+        doctrine.unlink()
+
+        blind = _assemble_with(repo_deleting_a_test, tmp_path / "blind.md")
+        doctrine.write_text(kept, encoding="utf-8")
+        again = _assemble_with(repo_deleting_a_test, tmp_path / "r1.md")
+
+        assert blind.returncode == 2, blind.stderr
+        assert again.returncode == 0, again.stderr
+        assert "round: 1 of 3" in (tmp_path / "r1.md").read_text(encoding="utf-8"), (
+            "an unmeasured assembly did not consume a round"
+        )
+
+    def test_a_restart_against_an_unmoved_base_is_refused_and_names_the_escape(
+        self, repo_deleting_a_test, tmp_path
+    ):
+        _assemble_with(repo_deleting_a_test, tmp_path / "r1.md")
+        before = (repo_deleting_a_test / ".review-rounds").read_text(encoding="utf-8")
+
+        result = _assemble_with(
+            repo_deleting_a_test, tmp_path / "again.md", "--restart-rounds", "x"
+        )
+
+        assert result.returncode == 1
+        assert "has not moved" in result.stderr and "--override-cap" in result.stderr
+        assert (repo_deleting_a_test / ".review-rounds").read_text(encoding="utf-8") == before
+
+    def test_a_restart_after_the_base_moved_is_a_printed_round_one_appended_to_the_ledger(
+        self, repo_deleting_a_test, tmp_path
+    ):
+        _assemble_with(repo_deleting_a_test, tmp_path / "r1.md")
+        _advance_master(repo_deleting_a_test)
+
+        result = _assemble_with(
+            repo_deleting_a_test, tmp_path / "restart.md", "--restart-rounds", "base advanced"
+        )
+
+        assert result.returncode == 0, result.stderr
+        rendered = (tmp_path / "restart.md").read_text(encoding="utf-8")
+        assert "round: 1 of 3" in rendered and "ROUNDS RESTARTED: base advanced" in rendered
+        ledger = (repo_deleting_a_test / ".review-rounds").read_text(encoding="utf-8").splitlines()
+        assert len(ledger) == 2 and ledger[1].endswith(" since=- restart"), (
+            "appended, not truncated"
+        )
 
     def test_an_override_at_round_one_is_refused(self, repo_deleting_a_test, tmp_path):
         result = _assemble_with(
