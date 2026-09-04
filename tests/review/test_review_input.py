@@ -19,8 +19,10 @@ from oversteward.review_input import (
     RoundCapError,
     Section,
     assemble,
+    derive_round,
     exit_code_for,
     is_test_path,
+    ledger_line,
     render,
 )
 
@@ -62,15 +64,20 @@ class _Collector:
         self._gaudi = gaudi
         self.gaudi_calls: list[list[str]] = []
         self.diff_calls: list[str] = []
+        self.changed_files_calls: list[str] = []
+        self.deleted_files_calls: list[str] = []
+        self.base_text_calls: list[str] = []
 
     def diff(self, base: str) -> str | None:
         self.diff_calls.append(base)
         return self._diff
 
     def changed_files(self, base: str) -> list[str] | None:
+        self.changed_files_calls.append(base)
         return self._changed
 
     def deleted_files(self, base: str) -> list[str] | None:
+        self.deleted_files_calls.append(base)
         return None if self._deleted is None else list(self._deleted)
 
     def issue_body(self, repo: str, number: int) -> str | None:
@@ -80,6 +87,7 @@ class _Collector:
         return self._file_bodies.get(relpath)
 
     def file_text_at_base(self, base: str, relpath: str) -> str | None:
+        self.base_text_calls.append(base)
         return self._base_bodies.get(relpath)
 
     def claude_md(self) -> str | None:
@@ -393,6 +401,12 @@ class TestSection:
         assert section.rendered_body == COULD_NOT_LOOK
 
 
+_BLOCK_VERDICT = (
+    "```reviewer-verdict\nverdict: BLOCK\nfindings: 2\ntokens: 1\n```\n1. [hole] x — y\n"
+)
+_PASS_VERDICT = "```reviewer-verdict\nverdict: PASS\nfindings: 0\ntokens: 1\n```\n"
+
+
 class TestARoundIsBookkeptNotAssumed:
     """The loop's economy (a delta re-review, a round cap) lives in the input's header."""
 
@@ -407,7 +421,7 @@ class TestARoundIsBookkeptNotAssumed:
         collector = _Collector()
 
         assembled = _assemble(
-            collector=collector, round_number=2, since="abc123", previous_verdict="verdict: BLOCK"
+            collector=collector, round_number=2, since="abc123", previous_verdict=_BLOCK_VERDICT
         )
 
         assert collector.diff_calls == ["abc123"], "the diff is taken from the reviewed commit"
@@ -416,19 +430,48 @@ class TestARoundIsBookkeptNotAssumed:
     def test_the_test_files_still_span_the_whole_branch_on_a_re_review(self):
         collector = _Collector()
 
-        _assemble(collector=collector, round_number=2, since="abc123", previous_verdict="v")
+        _assemble(
+            collector=collector, round_number=2, since="abc123", previous_verdict=_BLOCK_VERDICT
+        )
 
-        assert collector.gaudi_calls == [["src/x.py", "tests/test_x.py"]], (
-            "changed files come from the branch base, not from the re-review point"
+        assert collector.changed_files_calls == ["origin/master"], (
+            "the changed-file list is taken from the branch base, not the re-review point"
+        )
+        assert collector.deleted_files_calls == ["origin/master"]
+
+    def test_a_deleted_test_on_a_re_review_is_read_at_the_branch_base(self):
+        collector = _Collector(
+            changed=["tests/test_gone.py"],
+            deleted=["tests/test_gone.py"],
+            file_bodies={},
+            base_bodies={"tests/test_gone.py": "def test_gone():\n    assert True\n"},
+        )
+
+        _assemble(
+            collector=collector, round_number=2, since="abc123", previous_verdict=_BLOCK_VERDICT
+        )
+
+        assert collector.base_text_calls == ["origin/master"], (
+            "a deleted test's base version comes from the branch base on a re-review too"
         )
 
     def test_the_previous_verdict_reaches_the_reviewer(self):
-        rendered = render(
-            _assemble(round_number=2, previous_verdict="verdict: BLOCK\nfindings: 2\n")
-        )
+        rendered = render(_assemble(round_number=2, previous_verdict=_BLOCK_VERDICT))
 
         assert "## previous-verdict" in rendered
         assert "verdict: BLOCK\nfindings: 2" in rendered
+
+    def test_a_previous_verdict_that_is_not_a_verdict_block_is_refused(self):
+        with pytest.raises(CouldNotLookError, match="not a reviewer verdict"):
+            _assemble(round_number=2, previous_verdict="The reviewer said it looked fine.")
+
+    def test_a_previous_pass_earns_no_re_review(self):
+        with pytest.raises(CouldNotLookError, match="only a BLOCK earns a re-review"):
+            _assemble(round_number=2, previous_verdict=_PASS_VERDICT)
+
+    def test_an_override_where_no_cap_is_in_play_is_refused(self):
+        with pytest.raises(CouldNotLookError, match="cap is not in play"):
+            _assemble(cap_override="no cap in play")
 
     def test_a_re_review_without_the_previous_verdict_is_refused(self):
         with pytest.raises(CouldNotLookError, match="needs --previous-verdict"):
@@ -440,18 +483,20 @@ class TestARoundIsBookkeptNotAssumed:
 
     def test_a_previous_verdict_on_round_one_is_refused(self):
         with pytest.raises(CouldNotLookError, match="round 1 takes no --previous-verdict"):
-            _assemble(previous_verdict="verdict: PASS")
+            _assemble(previous_verdict=_BLOCK_VERDICT)
 
     def test_the_fourth_round_is_refused(self):
         with pytest.raises(RoundCapError, match="exceeds the 3-round cap"):
-            _assemble(round_number=4, previous_verdict="v")
+            _assemble(round_number=4, previous_verdict=_BLOCK_VERDICT)
 
     def test_the_cap_can_be_overridden_only_with_a_recorded_reason(self):
         with pytest.raises(RoundCapError):
-            _assemble(round_number=4, previous_verdict="v", cap_override="   ")
+            _assemble(round_number=4, previous_verdict=_BLOCK_VERDICT, cap_override="   ")
 
         rendered = render(
-            _assemble(round_number=4, previous_verdict="v", cap_override="Nathan: one more")
+            _assemble(
+                round_number=4, previous_verdict=_BLOCK_VERDICT, cap_override="Nathan: one more"
+            )
         )
 
         assert "round: 4 of 3" in rendered
@@ -462,3 +507,34 @@ class TestARoundIsBookkeptNotAssumed:
 
         assert [section.name for section in assembled.sections] == list(SECTION_ORDER)
         assert SECTION_ORDER[-1] == PREVIOUS_VERDICT_SECTION
+
+
+class TestTheRoundIsDerivedFromTheLedgerNotDeclared:
+    """Dropping --round cannot turn a fourth round into a first: the ledger counts."""
+
+    def test_no_ledger_is_round_one(self):
+        assert derive_round(None, None) == 1
+        assert derive_round("", 1) == 1
+
+    def test_the_next_round_is_one_more_than_the_ledger_holds(self):
+        ledger = "round=1 since=-\nround=2 since=abc\n"
+
+        assert derive_round(ledger, None) == 3
+        assert derive_round(ledger, 3) == 3
+
+    def test_a_declared_round_that_disagrees_with_the_ledger_is_refused(self):
+        ledger = "round=1 since=-\nround=2 since=abc\nround=3 since=def\n"
+
+        with pytest.raises(CouldNotLookError, match="already built"):
+            derive_round(ledger, 1)
+
+    def test_a_restart_begins_at_one_and_only_at_one(self):
+        ledger = "round=1 since=-\nround=2 since=abc\n"
+
+        assert derive_round(ledger, None, restart="new base") == 1
+        with pytest.raises(CouldNotLookError, match="starts the count again at round 1"):
+            derive_round(ledger, 2, restart="new base")
+
+    def test_the_ledger_line_records_what_reconstructs_the_count(self):
+        assert ledger_line(2, "abc123", "") == "round=2 since=abc123"
+        assert ledger_line(1, None, "new base") == "round=1 since=- restart"

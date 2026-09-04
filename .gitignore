@@ -88,3 +88,9 @@ reports/sow/
 
 # Skill-miner drafts are review artifacts copied out of transcripts; never tracked.
 reports/skill-drafts/
+
+# The adversarial reviewer's assembled input and the assembler's round ledger — per
+# worktree, never committed (a committed input would be reviewable as code).
+.review-input.md
+.review-rounds
+.review-verdict*.md

@@ -29,6 +29,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from oversteward.review_verdict import (
+    BLOCK,
+    MalformedVerdictError,
+    MissingVerdictError,
+    parse_verdict,
+)
+
 EXIT_OK = 0
 EXIT_USAGE = 1
 EXIT_COULD_NOT_LOOK = 2
@@ -72,6 +79,11 @@ SECTION_ORDER = (
 #: rounds at roughly 110k reviewer tokens each; the cap is the mechanism the
 #: brief's "do not enter a third round" never had.
 MAX_ROUNDS = 3
+
+#: Where the assembler records each round it built, in the reviewed checkout.
+#: The round number is derived from this ledger, never taken on the caller's
+#: word: dropping ``--round`` cannot turn a fourth round into a first.
+ROUND_LEDGER = ".review-rounds"
 
 _TEST_FILENAME_PREFIX = "test_"
 _TEST_FILENAME_SUFFIX = "_test.py"
@@ -218,6 +230,24 @@ def _previous_verdict_section(previous_verdict: str | None, round_number: int) -
             f"round {round_number} needs --previous-verdict <file>: a re-review that cannot "
             "see what the last round found re-derives it at full price."
         )
+    # The file is the operator's, so it is the one input a caller could
+    # compose. It must at least BE a verdict — a well-formed block whose
+    # verdict is BLOCK, because only a BLOCK earns a re-review — and its
+    # findings count is checked for consistency by the parser. What it cannot
+    # prove is that the block is the whole of what the reviewer said; the PR
+    # body carries every round's block, and the gate reads that.
+    try:
+        parsed = parse_verdict(previous_verdict)
+    except (MissingVerdictError, MalformedVerdictError) as exc:
+        raise CouldNotLookError(
+            f"--previous-verdict is not a reviewer verdict: {exc}. Pass the file holding the "
+            "last round's ```reviewer-verdict block and its findings, verbatim."
+        ) from exc
+    if parsed.verdict != BLOCK:
+        raise CouldNotLookError(
+            f"the previous verdict is {parsed.verdict}; only a {BLOCK} earns a re-review. "
+            "Address PASS-WITH-FINDINGS findings in the PR body and merge."
+        )
     return Section(name=PREVIOUS_VERDICT_SECTION, body=previous_verdict, measured=True)
 
 
@@ -235,6 +265,46 @@ def _check_round(round_number: int, since: str | None, cap_override: str) -> Non
             "findings as issues and hand the change to Nathan, or pass "
             "--override-cap '<reason>' to record why one more round is worth its cost."
         )
+    if round_number <= MAX_ROUNDS and cap_override.strip():
+        raise CouldNotLookError(
+            f"--override-cap given at round {round_number}, but the cap is not in play until "
+            f"round {MAX_ROUNDS + 1}; an override recorded where nothing was overridden is a "
+            "false header line."
+        )
+
+
+def derive_round(ledger: str | None, requested: int | None, *, restart: str = "") -> int:
+    """The round this assembly is, from the ledger the last assemblies wrote.
+
+    The ledger holds one line per round already built for this checkout. The
+    next round is one more than that, whatever the caller says; ``requested``
+    may only confirm it. Asking for a lower number is refused unless
+    ``restart`` records why the count begins again (a new base, a new change
+    on the same worktree) — and then only round 1 is allowed.
+    """
+    built = [line for line in (ledger or "").splitlines() if line.strip()]
+    next_round = len(built) + 1
+    if restart.strip():
+        if requested not in (None, 1):
+            raise CouldNotLookError(
+                f"--restart-rounds starts the count again at round 1; got --round {requested}"
+            )
+        return 1
+    if requested is None:
+        return next_round
+    if requested != next_round:
+        raise CouldNotLookError(
+            f"--round {requested} but the ledger ({ROUND_LEDGER}) shows {len(built)} round(s) "
+            f"already built, so this is round {next_round}. Omit --round, or pass "
+            "--restart-rounds '<reason>' to begin a new count."
+        )
+    return requested
+
+
+def ledger_line(round_number: int, since: str | None, restart: str) -> str:
+    """The line the ledger gains for this round — enough to reconstruct the count."""
+    tag = " restart" if restart.strip() else ""
+    return f"round={round_number} since={since or '-'}{tag}"
 
 
 def _labelled(relpath: str, body: str, *, state: str = "") -> str:

@@ -40,10 +40,13 @@ from oversteward.review_collector import ShellCollector
 from oversteward.review_input import (
     EXIT_USAGE,
     MAX_ROUNDS,
+    ROUND_LEDGER,
     CouldNotLookError,
     RoundCapError,
     assemble,
+    derive_round,
     exit_code_for,
+    ledger_line,
     render,
 )
 
@@ -65,7 +68,16 @@ def _parse(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument("--out", default=None, help="write here instead of stdout")
     parser.add_argument(
-        "--round", type=int, default=1, help="review round this input serves (1 = full review)"
+        "--round",
+        type=int,
+        default=None,
+        help=f"confirm the round this input serves; derived from {ROUND_LEDGER} when omitted",
+    )
+    parser.add_argument(
+        "--restart-rounds",
+        default="",
+        metavar="REASON",
+        help="begin the round count again at 1 (a new base or a new change on this worktree)",
     )
     parser.add_argument(
         "--since",
@@ -75,7 +87,7 @@ def _parse(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--previous-verdict",
         default=None,
-        help="re-review only: file holding the last round's verdict block and findings",
+        help="re-review only: file inside the reviewed checkout holding the last round's verdict block and findings",
     )
     parser.add_argument(
         "--override-cap",
@@ -86,13 +98,44 @@ def _parse(argv: list[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _read_optional(path: str | None, root: Path) -> str | None:
+    """The verdict file's text, or None when no path was given.
+
+    The file must sit inside the reviewed checkout (``root``), like the input
+    the assembler writes there — one fixed base, so the operator's path cannot
+    reach outside it. A missing file is a refusal, not a crash.
+    """
+    if not path:
+        return None
+    resolved = Path(path).resolve()
+    if not resolved.is_relative_to(root):
+        raise CouldNotLookError(
+            f"--previous-verdict must be inside the reviewed checkout {root}; got {resolved}"
+        )
+    try:
+        return resolved.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise CouldNotLookError(f"--previous-verdict {path!r} could not be read: {exc}") from exc
+
+
+def _record_round(ledger_path: Path, ledger: str | None, round_number: int, since, restart) -> None:
+    """Append this round to the ledger — a restart begins the file again."""
+    prior = "" if restart.strip() else (ledger or "")
+    if prior and not prior.endswith("\n"):
+        prior += "\n"
+    ledger_path.write_text(
+        prior + ledger_line(round_number, since, restart) + "\n", encoding="utf-8"
+    )
+
+
 def main(argv: list[str]) -> int:
     args = _parse(argv)
     root = Path(args.root).resolve()
-    previous_verdict = (
-        Path(args.previous_verdict).read_text(encoding="utf-8") if args.previous_verdict else None
-    )
+    ledger_path = root / ROUND_LEDGER
     try:
+        previous_verdict = _read_optional(args.previous_verdict, root)
+        ledger = ledger_path.read_text(encoding="utf-8") if ledger_path.exists() else None
+        round_number = derive_round(ledger, args.round, restart=args.restart_rounds)
         assembled = assemble(
             ShellCollector(root),
             repo=args.repo,
@@ -100,13 +143,14 @@ def main(argv: list[str]) -> int:
             issue=args.issue,
             no_issue=args.no_issue,
             since=args.since,
-            round_number=args.round,
+            round_number=round_number,
             previous_verdict=previous_verdict,
             cap_override=args.override_cap,
         )
     except (CouldNotLookError, RoundCapError) as exc:
         sys.stderr.write(f"{GATE} {exc}\n")
         return EXIT_USAGE
+    _record_round(ledger_path, ledger, round_number, args.since, args.restart_rounds)
 
     document = render(assembled)
     if args.out:

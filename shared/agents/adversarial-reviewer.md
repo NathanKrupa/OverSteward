@@ -213,18 +213,28 @@ A clean diff must reach `PASS`.
 
 ## The loop
 
-**Three rounds, then it stops.** The assembler refuses to build a fourth input
-without a recorded reason (`--override-cap`), and that refusal is the
-mechanism — the previous "do not enter a third round" was prose, and one branch
-ran eleven rounds under it at roughly 110k reviewer tokens each.
+**Three rounds, then it stops.** The assembler counts the rounds itself in a
+ledger it writes beside its output (`.review-rounds` in the reviewed checkout),
+so a caller cannot reset the count by omitting a flag; it refuses to build a
+fourth input without a recorded reason (`--override-cap`), and that refusal is
+the mechanism — the previous "do not enter a third round" was prose, and one
+branch ran eleven rounds under it at roughly 110k reviewer tokens each. What
+the ledger cannot see is a fresh worktree: a change re-reviewed from a new
+checkout starts its count again, and the PR body, which carries every round's
+verdict block, is where that shows.
 
 - **Round 1** reads the whole change. Every `hole`, every `defect`, siblings
   checked before a `pin` is filed.
 - **A `BLOCK` gets one re-review, on the delta.** The author fixes, then
-  assembles with `--round 2 --since <the sha you reviewed> --previous-verdict
-  <your verdict>`. You read the fix commits and the whole test files: confirm
-  each `hole` is closed by running its pin red against the reviewed commit and
-  green now, then look at what the fixes touched. Do not re-derive round 1.
+  assembles with `--since <the sha you reviewed> --previous-verdict <the file
+  holding your verdict block and findings, verbatim>`; the round number comes
+  from the ledger. The assembler checks the file is a well-formed `BLOCK`
+  verdict — a `PASS-WITH-FINDINGS` earns no re-review — but it cannot check
+  that the file is *all* you said, so compare its findings count with your own
+  memory of the round if anything reads short. You read the fix commits and the
+  whole test files: confirm each `hole` is closed by running its pin red against
+  the reviewed commit and green now, then look at what the fixes touched. Do not
+  re-derive round 1.
 - **`PASS-WITH-FINDINGS` gets no re-review.** The author addresses the findings
   and merges; the PR body records each fix's red mutant. If you would have
   wanted to see those fixes, say which in the finding — that is the only

@@ -222,11 +222,13 @@ Then:
 - **Copy the same verdict onto the trajectory note's `reviewer:` front-matter
   line** (verdict, findings, tokens).
 - **`BLOCK` means do not open the PR.** Fix every `hole`, then re-assemble
-  **on the delta** — `--round 2 --since <the sha the reviewer read>
-  --previous-verdict <file holding its verdict block and findings>` — and
-  re-review once. A *second* `BLOCK` on the same change stops the pickup — emit
-  `STOPPED_FOR_INPUT`, label the issue `needs-input`, and hand it to Nathan.
-  The assembler refuses a fourth round without `--override-cap`.
+  **on the delta** — `--since <the sha the reviewer read> --previous-verdict
+  <file holding its verdict block and findings, verbatim>` — and re-review
+  once. The assembler counts rounds in `.review-rounds` beside its output and
+  checks the file is a well-formed `BLOCK` verdict. A *second* `BLOCK` on the
+  same change stops the pickup — emit `STOPPED_FOR_INPUT`, label the issue
+  `needs-input`, and hand it to Nathan. A fourth round is refused without
+  `--override-cap`.
 - **`PASS-WITH-FINDINGS` gets no re-review.** Address each `defect`, `pin` and
   `doc` finding, record its fix and the red mutant that proves it in the PR
   body under the verdict, and open the PR.

@@ -134,46 +134,115 @@ def _assemble_with(root: Path, out: Path, *extra: str) -> subprocess.CompletedPr
     )
 
 
-class TestTheRoundCapIsEnforcedByTheScript:
-    """The three-round budget is a refusal at the assembler, not a sentence in the brief."""
+BLOCK_VERDICT = (
+    "```reviewer-verdict\nverdict: BLOCK\nfindings: 1\ntokens: 1\n```\n1. [hole] x — y\n"
+)
 
-    def test_a_fourth_round_is_refused_with_a_usage_exit(self, repo_deleting_a_test, tmp_path):
-        verdict = tmp_path / "verdict.md"
-        verdict.write_text("verdict: BLOCK\nfindings: 1\n", encoding="utf-8")
 
-        result = _assemble_with(
-            repo_deleting_a_test,
-            tmp_path / "out.md",
-            "--round",
-            "4",
-            "--previous-verdict",
-            str(verdict),
-        )
+def _verdict_file(root: Path) -> Path:
+    """The previous verdict, inside the reviewed checkout as the assembler requires."""
+    path = root / ".review-verdict.md"
+    path.write_text(BLOCK_VERDICT, encoding="utf-8")
+    return path
 
-        assert result.returncode == 1, result.stderr
-        assert "exceeds the 3-round cap" in result.stderr
-        assert not (tmp_path / "out.md").exists(), "a refused round writes no input"
 
-    def test_a_re_review_on_the_delta_names_its_round_and_carries_the_previous_verdict(
+def _re_review(root: Path, out: Path, verdict: Path, *extra: str) -> subprocess.CompletedProcess:
+    return _assemble_with(
+        root, out, "--since", "master", "--previous-verdict", str(verdict), *extra
+    )
+
+
+class TestTheRoundIsCountedByTheLedgerAndCappedByTheScript:
+    """The three-round budget is a refusal at the assembler, on a count silence cannot reset."""
+
+    def test_the_first_assembly_is_round_one_and_writes_the_ledger(
         self, repo_deleting_a_test, tmp_path
     ):
-        verdict = tmp_path / "verdict.md"
-        verdict.write_text("verdict: BLOCK\nfindings: 1\n1. [hole] x — y\n", encoding="utf-8")
         out = tmp_path / "out.md"
 
-        result = _assemble_with(
-            repo_deleting_a_test,
-            out,
-            "--round",
-            "2",
-            "--since",
-            "master",
-            "--previous-verdict",
-            str(verdict),
-        )
+        result = _assemble_with(repo_deleting_a_test, out)
 
         assert result.returncode == 0, result.stderr
-        rendered = out.read_text(encoding="utf-8")
-        assert "round: 2 of 3" in rendered
-        assert "since: master" in rendered
+        assert "round: 1 of 3" in out.read_text(encoding="utf-8")
+        ledger = (repo_deleting_a_test / ".review-rounds").read_text(encoding="utf-8")
+        assert ledger == "round=1 since=-\n"
+
+    def test_the_second_assembly_is_round_two_whether_or_not_the_caller_says_so(
+        self, repo_deleting_a_test, tmp_path
+    ):
+        _assemble_with(repo_deleting_a_test, tmp_path / "r1.md")
+
+        silent = _re_review(
+            repo_deleting_a_test, tmp_path / "r2.md", _verdict_file(repo_deleting_a_test)
+        )
+
+        assert silent.returncode == 0, silent.stderr
+        rendered = (tmp_path / "r2.md").read_text(encoding="utf-8")
+        assert "round: 2 of 3" in rendered and "since: master" in rendered
         assert "## previous-verdict" in rendered and "1. [hole] x — y" in rendered
+
+    def test_a_second_assembly_without_the_previous_verdict_is_refused(
+        self, repo_deleting_a_test, tmp_path
+    ):
+        _assemble_with(repo_deleting_a_test, tmp_path / "r1.md")
+
+        result = _assemble_with(repo_deleting_a_test, tmp_path / "r2.md", "--since", "master")
+
+        assert result.returncode == 1
+        assert "needs --previous-verdict" in result.stderr
+
+    def test_the_fourth_round_is_refused_even_when_round_is_omitted(
+        self, repo_deleting_a_test, tmp_path
+    ):
+        verdict = _verdict_file(repo_deleting_a_test)
+        _assemble_with(repo_deleting_a_test, tmp_path / "r1.md")
+        for n in (2, 3):
+            r = _re_review(repo_deleting_a_test, tmp_path / f"r{n}.md", verdict)
+            assert r.returncode == 0, r.stderr
+
+        fourth = _re_review(repo_deleting_a_test, tmp_path / "r4.md", verdict)
+
+        assert fourth.returncode == 1
+        assert "exceeds the 3-round cap" in fourth.stderr
+        assert not (tmp_path / "r4.md").exists(), "a refused round writes no input"
+
+    def test_a_declared_round_that_contradicts_the_ledger_is_refused(
+        self, repo_deleting_a_test, tmp_path
+    ):
+        _assemble_with(repo_deleting_a_test, tmp_path / "r1.md")
+
+        result = _assemble_with(repo_deleting_a_test, tmp_path / "again.md", "--round", "1")
+
+        assert result.returncode == 1
+        assert "already built" in result.stderr
+
+    def test_a_missing_verdict_file_is_a_gate_refusal_not_a_traceback(
+        self, repo_deleting_a_test, tmp_path
+    ):
+        _assemble_with(repo_deleting_a_test, tmp_path / "r1.md")
+
+        result = _re_review(
+            repo_deleting_a_test, tmp_path / "r2.md", repo_deleting_a_test / "nope.md"
+        )
+
+        assert result.returncode == 1
+        assert "review-input:" in result.stderr and "could not be read" in result.stderr
+        assert "Traceback" not in result.stderr
+
+    def test_a_verdict_file_outside_the_checkout_is_refused(self, repo_deleting_a_test, tmp_path):
+        _assemble_with(repo_deleting_a_test, tmp_path / "r1.md")
+        outside = tmp_path / "elsewhere.md"
+        outside.write_text(BLOCK_VERDICT, encoding="utf-8")
+
+        result = _re_review(repo_deleting_a_test, tmp_path / "r2.md", outside)
+
+        assert result.returncode == 1
+        assert "must be inside the reviewed checkout" in result.stderr
+
+    def test_an_override_at_round_one_is_refused(self, repo_deleting_a_test, tmp_path):
+        result = _assemble_with(
+            repo_deleting_a_test, tmp_path / "r1.md", "--override-cap", "no cap in play"
+        )
+
+        assert result.returncode == 1
+        assert "cap is not in play" in result.stderr
