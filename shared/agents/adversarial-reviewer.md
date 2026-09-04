@@ -224,7 +224,9 @@ unmeasured document too, with its blindness named in the header. There is no
 restart. The one escape past round 3 is `--override-cap '<reason>'`, recorded
 in the ledger and printed in the header as `CAP OVERRIDDEN`. What the ledger
 cannot see is a deleted ledger or a fresh worktree: the PR body, which
-carries every round's verdict block, is where that shows.
+carries every round's verdict (the final one in the ```reviewer-verdict fence
+the CI gate reads — it accepts exactly one — and the earlier ones as plain
+text beneath it), is where that shows.
 
 - **Round 1** reads the whole change. Every `hole`, every `defect`, siblings
   checked before a `pin` is filed.
