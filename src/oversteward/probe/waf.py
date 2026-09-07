@@ -1,18 +1,28 @@
 # ABOUTME: INNER connector for the Cloudflare WAF — installs the skip rule that honours the probe header.
 # ABOUTME: Idempotent: creates the rule first in the custom ruleset, updates it, or leaves it alone.
 
-"""Keep the steward-probe skip rule installed on a zone.
+"""Keep a signed-header skip rule installed on a zone.
 
-The rule sits first in the ``http_request_firewall_custom`` ruleset and, when
-the probe header equals the token, skips the remaining custom rules (the
+A skip rule sits first in the ``http_request_firewall_custom`` ruleset and,
+when its header equals its token, skips the remaining custom rules (the
 managed challenge on ``/foundations/*``) and the rate-limiting phase. It is
 found again by its description, so rotating the token is a re-run, not a
 dashboard hunt.
+
+Two rules are known here, one per credential, because a skip is a bypass and
+its reach should be the consumer's need and no wider:
+
+* :data:`STEWARD_PROBE` — the steward's live-URL checks, zone-wide.
+* :data:`SMOKE_PROBE` — aigranthelper's post-promotion smoke, whose headless
+  browser is otherwise served the challenge; scoped to ``/foundations/*`` by a
+  path conjunct in the expression, and holding its own token so CI never
+  carries the steward's (AG#1968).
 """
 
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from urllib.error import HTTPError
@@ -23,7 +33,31 @@ from oversteward.probe.models import PROBE_HEADER
 API_ROOT = "https://api.cloudflare.com/client/v4"
 RULE_DESCRIPTION = "steward probe — skip challenge + rate limit for signed session checks"
 _PHASE = "http_request_firewall_custom"
+_RATELIMIT_PHASE = "http_ratelimit"
 _TIMEOUT_SECONDS = 30
+
+#: A quoted literal compared with ``eq`` in a rule expression — where a skip
+#: rule keeps its secret. Redacted before any expression is printed.
+_COMPARED_LITERAL = re.compile(r'eq "[^"]*"')
+REDACTED = 'eq "<redacted>"'
+
+
+@dataclass(frozen=True)
+class SkipRule:
+    """One signed-header skip rule: the header it matches, the description it
+    is found by, and the path prefix (if any) that bounds its reach."""
+
+    header: str
+    description: str
+    path_prefix: str | None = None
+
+
+STEWARD_PROBE = SkipRule(header=PROBE_HEADER, description=RULE_DESCRIPTION)
+SMOKE_PROBE = SkipRule(
+    header="x-smoke-probe",
+    description="smoke probe — skip challenge + rate limit for the post-promotion smoke on /foundations/*",
+    path_prefix="/foundations/",
+)
 
 Transport = Callable[[str, str, str, dict | None], dict]
 
@@ -41,29 +75,41 @@ class RuleOutcome:
     ruleset_id: str
 
 
-def skip_rule_expression(token: str) -> str:
-    """The rule expression matching the probe header against ``token``.
+def skip_rule_expression(token: str, *, rule: SkipRule = STEWARD_PROBE) -> str:
+    """The rule expression matching ``rule``'s header against ``token``.
 
     The token is embedded in a quoted string literal, so a quote or backslash
     would change the expression's meaning; ``secrets.token_urlsafe`` never
-    produces one, and anything else is refused rather than escaped.
+    produces one, and anything else is refused rather than escaped. A rule
+    with a path prefix is bounded to it by a leading conjunct, so the skip
+    reaches no further than the pages its consumer needs.
     """
     if any(ch in token for ch in '"\\') or not token:
         raise ValueError("probe token must be non-empty and contain no quote or backslash")
-    return f'http.request.headers["{PROBE_HEADER}"][0] eq "{token}"'
+    expression = f'http.request.headers["{rule.header}"][0] eq "{token}"'
+    if rule.path_prefix is None:
+        return expression
+    if not rule.path_prefix.startswith("/") or any(ch in rule.path_prefix for ch in '"\\'):
+        raise ValueError("a path prefix must start with / and contain no quote or backslash")
+    return f'starts_with(http.request.uri.path, "{rule.path_prefix}") and {expression}'
+
+
+def redact_expression(expression: str) -> str:
+    """The expression with every ``eq "…"`` literal replaced — safe to print."""
+    return _COMPARED_LITERAL.sub(REDACTED, expression)
 
 
 def _http_transport(method: str, url: str, api_token: str, body: dict | None) -> dict:
     """One Cloudflare API call; the bearer token lives only in the header."""
     data = json.dumps(body).encode() if body is not None else None
-    request = Request(  # noqa: S310 - fixed https API root
+    request = Request(
         url,
         data=data,
         method=method,
         headers={"Authorization": f"Bearer {api_token}", "Content-Type": "application/json"},
     )
     try:
-        with urlopen(request, timeout=_TIMEOUT_SECONDS) as response:  # noqa: S310
+        with urlopen(request, timeout=_TIMEOUT_SECONDS) as response:
             return json.load(response)
     except HTTPError as error:
         try:
@@ -76,8 +122,45 @@ def _call(transport: Transport, method: str, url: str, api_token: str, body: dic
     payload = transport(method, url, api_token, body)
     if not payload.get("success"):
         messages = "; ".join(e.get("message", "?") for e in payload.get("errors", [])) or "unknown"
-        raise CloudflareError(f"Cloudflare refused {method} {url.replace(API_ROOT, '')}: {messages}")
+        raise CloudflareError(
+            f"Cloudflare refused {method} {url.replace(API_ROOT, '')}: {messages}"
+        )
     return payload["result"]
+
+
+def read_rules(
+    zone_id: str, api_token: str, *, transport: Transport = _http_transport
+) -> dict[str, list[dict]]:
+    """Every rule in the custom-firewall and rate-limit phases, expressions redacted.
+
+    The only reader that should ever print a ruleset: a raw API dump carries
+    each skip rule's token inside its expression.
+    """
+    out: dict[str, list[dict]] = {}
+    for phase in (_PHASE, _RATELIMIT_PHASE):
+        try:
+            ruleset = _call(
+                transport,
+                "GET",
+                f"{API_ROOT}/zones/{zone_id}/rulesets/phases/{phase}/entrypoint",
+                api_token,
+                None,
+            )
+        except CloudflareError as error:
+            if "could not find entrypoint" in str(error):
+                out[phase] = []
+                continue
+            raise
+        out[phase] = [
+            {
+                "description": rule.get("description", ""),
+                "action": rule.get("action", ""),
+                "enabled": rule.get("enabled", False),
+                "expression": redact_expression(rule.get("expression", "")),
+            }
+            for rule in ruleset.get("rules", [])
+        ]
+    return out
 
 
 def ensure_skip_rule(
@@ -85,10 +168,11 @@ def ensure_skip_rule(
     api_token: str,
     probe_token: str,
     *,
+    rule: SkipRule = STEWARD_PROBE,
     transport: Transport = _http_transport,
 ) -> RuleOutcome:
-    """Create, update or confirm the probe skip rule on ``zone_id``."""
-    expression = skip_rule_expression(probe_token)
+    """Create, update or confirm ``rule`` on ``zone_id`` with ``probe_token``."""
+    expression = skip_rule_expression(probe_token, rule=rule)
     entrypoint = f"{API_ROOT}/zones/{zone_id}/rulesets/phases/{_PHASE}/entrypoint"
     ruleset = _call(transport, "GET", entrypoint, api_token, None)
     ruleset_id = ruleset["id"]
@@ -97,13 +181,13 @@ def ensure_skip_rule(
 
     desired = {
         "action": "skip",
-        "action_parameters": {"ruleset": "current", "phases": ["http_ratelimit"]},
+        "action_parameters": {"ruleset": "current", "phases": [_RATELIMIT_PHASE]},
         "expression": expression,
-        "description": RULE_DESCRIPTION,
+        "description": rule.description,
         "enabled": True,
     }
 
-    existing = next((r for r in rules if r.get("description") == RULE_DESCRIPTION), None)
+    existing = next((r for r in rules if r.get("description") == rule.description), None)
     if existing is not None:
         if existing.get("expression") == expression and existing.get("enabled", False):
             return RuleOutcome("unchanged", existing["id"], ruleset_id)
@@ -115,7 +199,7 @@ def ensure_skip_rule(
     # Cloudflare answers a rule create with the whole ruleset, not the rule.
     updated_ruleset = _call(transport, "POST", rules_url, api_token, desired)
     created = next(
-        (r for r in updated_ruleset.get("rules", []) if r.get("description") == RULE_DESCRIPTION),
+        (r for r in updated_ruleset.get("rules", []) if r.get("description") == rule.description),
         {},
     )
     return RuleOutcome("created", created.get("id", ""), ruleset_id)
