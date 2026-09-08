@@ -49,12 +49,20 @@ REDACTED = '"<redacted>"'
 
 @dataclass(frozen=True)
 class SkipRule:
-    """One signed-header skip rule: the header it matches, the description it
-    is found by, and the path prefix (if any) that bounds its reach."""
+    """One signed skip rule: the header it matches, the description it is found
+    by, the path prefix (if any) that bounds its reach, and the cookie (if any)
+    that carries the same token.
+
+    A cookie alternative exists for a browser-driven consumer: a browser sends
+    a cookie only to the host that set it, on every hop of a redirect chain and
+    on API requests alike — the three places a per-request header cannot be
+    made to reach without also reaching third parties (AG#1968, round 3).
+    """
 
     header: str
     description: str
     path_prefix: str | None = None
+    cookie: str | None = None
 
 
 STEWARD_PROBE = SkipRule(header=PROBE_HEADER, description=RULE_DESCRIPTION)
@@ -62,6 +70,7 @@ SMOKE_PROBE = SkipRule(
     header="x-smoke-probe",
     description="smoke probe — skip challenge + rate limit for the post-promotion smoke on /foundations/*",
     path_prefix="/foundations/",
+    cookie="smoke_probe",
 )
 
 Transport = Callable[[str, str, str, dict | None], dict]
@@ -97,6 +106,10 @@ def skip_rule_expression(token: str, *, rule: SkipRule = STEWARD_PROBE) -> str:
     if any(ch in token for ch in '"\\') or not token:
         raise ValueError("probe token must be non-empty and contain no quote or backslash")
     expression = f'http.request.headers["{rule.header}"][0] eq "{token}"'
+    if rule.cookie is not None:
+        if not rule.cookie.replace("_", "").isalnum():
+            raise ValueError("a cookie name must be alphanumeric or underscore")
+        expression = f'({expression} or http.cookie contains "{rule.cookie}={token}")'
     if rule.path_prefix is None:
         return expression
     if not rule.path_prefix.startswith("/") or any(ch in rule.path_prefix for ch in '"\\'):
