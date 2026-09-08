@@ -206,6 +206,7 @@ class TestInstallerConsumers:
         assert steward_var == "STEWARD_PROBE_TOKEN" and smoke_var == "SMOKE_PROBE_TOKEN"
         assert steward_rule.header == "x-steward-probe" and smoke_rule.header == "x-smoke-probe"
         assert smoke_rule.path_prefix == "/foundations/" and steward_rule.path_prefix is None
+        assert smoke_rule.cookie == "smoke_probe" and steward_rule.cookie is None
 
     def test_an_unknown_consumer_is_refused_by_argparse(self):
         with pytest.raises(SystemExit):
