@@ -68,12 +68,19 @@ def mint_into(env_file: Path, name: str, *, token: str | None = None) -> str:
         lines.append(assignment)
         outcome = "appended"
     mode = env_file.stat().st_mode & 0o777 if existed else 0o600
-    temporary = env_file.with_name(f".{env_file.name}.mint-{os.getpid()}")
+    # The sibling's name ends in ``.env`` so ``.gitignore``'s ``*.env`` covers
+    # it, and it is removed on any failure so an interruption leaves neither a
+    # truncated credential file nor a stray one holding the fresh secret.
+    temporary = env_file.with_name(f"{env_file.name}.mint-{os.getpid()}.env")
     descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(descriptor, "w") as handle:
-        handle.write("\n".join(lines) + "\n")
-    os.chmod(temporary, mode)
-    os.replace(temporary, env_file)
+    try:
+        with os.fdopen(descriptor, "w") as handle:
+            handle.write("\n".join(lines) + "\n")
+        os.chmod(temporary, mode)
+        os.replace(temporary, env_file)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
     return outcome
 
 

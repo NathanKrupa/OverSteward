@@ -83,8 +83,8 @@ class TestRedaction:
         )
         redacted = redact_expression(expression)
         assert _TOKEN not in redacted
-        assert redacted.count(REDACTED) == 3  # the path prefix, the token, the host
-        assert "starts_with" in redacted and 'headers["x-smoke-probe"]' in redacted
+        assert redacted.count(REDACTED) == 4  # the path prefix, the header key, the token, the host
+        assert "starts_with" in redacted and "http.request.headers[" in redacted
 
     @pytest.mark.parametrize(
         "expression",
@@ -105,6 +105,25 @@ class TestRedaction:
         redacted = redact_expression(expression)
         assert _TOKEN not in redacted, redacted
         assert REDACTED in redacted
+
+    def test_a_refusal_that_echoes_the_expression_is_raised_redacted(self):
+        """A rule create can be refused with the submitted expression quoted back;
+        the installer prints the message to stderr, which is the transcript."""
+        expression = skip_rule_expression(_TOKEN, rule=SMOKE_PROBE)
+        transport, _ = _fake_transport(
+            [
+                _entrypoint([]),
+                {
+                    "success": False,
+                    "errors": [{"message": f"expression is not valid: {expression}"}],
+                    "result": None,
+                },
+            ]
+        )
+        with pytest.raises(CloudflareError) as raised:
+            ensure_skip_rule(_ZONE, _API, _TOKEN, rule=SMOKE_PROBE, transport=transport)
+        assert _TOKEN not in str(raised.value)
+        assert "expression is not valid" in str(raised.value) and REDACTED in str(raised.value)
 
     def test_read_rules_never_returns_a_token(self):
         transport, calls = _fake_transport(

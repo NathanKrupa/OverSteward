@@ -127,6 +127,38 @@ class TestMintEnvSecret:
         mint.mint_into(env, "SMOKE_PROBE_TOKEN", token="newer")
         assert env.stat().st_mode & 0o777 == 0o640
 
+    def test_an_interrupted_mint_leaves_the_original_whole_and_no_stray_secret(
+        self, tmp_path, monkeypatch
+    ):
+        env = tmp_path / ".env"
+        env.write_text("KEEP=1\n")
+
+        def boom(src, dst):
+            raise OSError("disk full at the worst moment")
+
+        monkeypatch.setattr(mint.os, "replace", boom)
+        with pytest.raises(OSError):
+            mint.mint_into(env, "SMOKE_PROBE_TOKEN", token="fresh-secret")
+        assert env.read_text() == "KEEP=1\n"
+        assert [p.name for p in tmp_path.iterdir()] == [".env"], (
+            "a temporary holding the fresh secret was left behind"
+        )
+
+    def test_the_temporary_name_is_covered_by_the_env_ignore_pattern(self, tmp_path, monkeypatch):
+        """``*.env`` in .gitignore must cover the sibling, so an interruption can
+        never stage the fresh secret."""
+        env = tmp_path / ".env"
+        seen = {}
+        real_replace = mint.os.replace
+
+        def spy(src, dst):
+            seen["src"] = Path(src)
+            real_replace(src, dst)
+
+        monkeypatch.setattr(mint.os, "replace", spy)
+        mint.mint_into(env, "SMOKE_PROBE_TOKEN", token="new")
+        assert seen["src"].name.endswith(".env") and seen["src"].name != ".env"
+
     def test_the_write_is_atomic_and_leaves_no_temporary(self, tmp_path, monkeypatch):
         """The credential file is replaced by rename, never truncated in place:
         an interrupted mint leaves the old file whole."""

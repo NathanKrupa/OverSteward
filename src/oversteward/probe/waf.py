@@ -39,10 +39,10 @@ _TIMEOUT_SECONDS = 30
 #: Every double-quoted string literal in a rule expression. A skip rule keeps
 #: its secret in one, and the Rules language compares literals with ``eq``,
 #: ``==``, ``ne``, ``contains``, ``matches`` and ``in {…}`` alike, so the only
-#: honest redaction is of the literal itself, whatever precedes it. Field names
-#: and operators survive, as does a subscript key (``headers["x-smoke-probe"]``
-#: names a header, not a secret); a path prefix or a host is redacted with the
-#: rest, and the rule's description says what it is.
+#: honest redaction is of the literal itself, whatever precedes it — subscript
+#: keys included, because "a subscript is never a secret" is a claim about
+#: rules this installer did not write. Field names and operators survive; the
+#: rule's description says what the rest is.
 _QUOTED_LITERAL = re.compile(r'"(?:[^"\\]|\\.)*"')
 REDACTED = '"<redacted>"'
 
@@ -68,7 +68,12 @@ Transport = Callable[[str, str, str, dict | None], dict]
 
 
 class CloudflareError(RuntimeError):
-    """Cloudflare refused or could not be read. Carries the API's message, never a token."""
+    """Cloudflare refused or could not be read.
+
+    Carries the API's message with every quoted literal redacted: a refusal
+    of a rule create can echo the submitted expression, which holds the token,
+    and the message is printed to stderr — the transcript channel.
+    """
 
 
 @dataclass(frozen=True)
@@ -100,18 +105,8 @@ def skip_rule_expression(token: str, *, rule: SkipRule = STEWARD_PROBE) -> str:
 
 
 def redact_expression(expression: str) -> str:
-    """The expression with every quoted string literal replaced — safe to print.
-
-    Literals are consumed left to right as whole strings, so a subscript key
-    (``headers["x-smoke-probe"]``) is recognised by the ``[`` before it and
-    kept; every other literal, whatever operator compares it, is replaced.
-    """
-
-    def _keep_or_redact(match: re.Match[str]) -> str:
-        preceded_by_subscript = match.start() > 0 and expression[match.start() - 1] == "["
-        return match.group(0) if preceded_by_subscript else REDACTED
-
-    return _QUOTED_LITERAL.sub(_keep_or_redact, expression)
+    """The expression with every quoted string literal replaced — safe to print."""
+    return _QUOTED_LITERAL.sub(REDACTED, expression)
 
 
 def _http_transport(method: str, url: str, api_token: str, body: dict | None) -> dict:
@@ -137,6 +132,7 @@ def _call(transport: Transport, method: str, url: str, api_token: str, body: dic
     payload = transport(method, url, api_token, body)
     if not payload.get("success"):
         messages = "; ".join(e.get("message", "?") for e in payload.get("errors", [])) or "unknown"
+        messages = redact_expression(messages)
         raise CloudflareError(
             f"Cloudflare refused {method} {url.replace(API_ROOT, '')}: {messages}"
         )
