@@ -18,6 +18,7 @@ is replaced in place; a missing one is appended.
 from __future__ import annotations
 
 import argparse
+import os
 import secrets
 import sys
 from pathlib import Path
@@ -28,19 +29,51 @@ EXIT_FAILED = 1
 TOKEN_BYTES = 32
 
 
+_ASSIGNMENT_PREFIX = ("", "export ")
+
+
+def _assigns(line: str, name: str) -> bool:
+    """Whether ``line`` assigns ``name`` — with or without an ``export`` prefix."""
+    stripped = line.strip()
+    for prefix in _ASSIGNMENT_PREFIX:
+        if (
+            stripped.startswith(prefix)
+            and stripped[len(prefix) :].split("=", 1)[0].strip() == name
+            and "=" in stripped
+        ):
+            return True
+    return False
+
+
 def mint_into(env_file: Path, name: str, *, token: str | None = None) -> str:
-    """Write ``name=<token>`` into ``env_file``; return ``replaced`` or ``appended``."""
+    """Write ``name=<token>`` into ``env_file``; return ``replaced`` or ``appended``.
+
+    Every existing assignment of ``name`` — plain or ``export``ed — is removed
+    and one fresh line written where the first stood, so a rotation leaves no
+    previous value behind. The file is written to a private temporary sibling
+    and renamed into place, so an interrupted mint never truncates the
+    credential file; a new file is created owner-read-write only.
+    """
     value = token or secrets.token_urlsafe(TOKEN_BYTES)
-    lines = env_file.read_text().splitlines() if env_file.exists() else []
+    existed = env_file.exists()
+    lines = env_file.read_text().splitlines() if existed else []
     assignment = f"{name}={value}"
-    matches = [i for i, line in enumerate(lines) if line.split("=", 1)[0].strip() == name]
+    matches = [i for i, line in enumerate(lines) if _assigns(line, name)]
     if matches:
-        lines[matches[-1]] = assignment
+        lines[matches[0]] = assignment
+        for index in reversed(matches[1:]):
+            del lines[index]
         outcome = "replaced"
     else:
         lines.append(assignment)
         outcome = "appended"
-    env_file.write_text("\n".join(lines) + "\n")
+    mode = env_file.stat().st_mode & 0o777 if existed else 0o600
+    temporary = env_file.with_name(f".{env_file.name}.mint-{os.getpid()}")
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "w") as handle:
+        handle.write("\n".join(lines) + "\n")
+    os.chmod(temporary, mode)
+    os.replace(temporary, env_file)
     return outcome
 
 

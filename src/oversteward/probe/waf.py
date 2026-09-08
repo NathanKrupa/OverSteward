@@ -36,10 +36,15 @@ _PHASE = "http_request_firewall_custom"
 _RATELIMIT_PHASE = "http_ratelimit"
 _TIMEOUT_SECONDS = 30
 
-#: A quoted literal compared with ``eq`` in a rule expression — where a skip
-#: rule keeps its secret. Redacted before any expression is printed.
-_COMPARED_LITERAL = re.compile(r'eq "[^"]*"')
-REDACTED = 'eq "<redacted>"'
+#: Every double-quoted string literal in a rule expression. A skip rule keeps
+#: its secret in one, and the Rules language compares literals with ``eq``,
+#: ``==``, ``ne``, ``contains``, ``matches`` and ``in {…}`` alike, so the only
+#: honest redaction is of the literal itself, whatever precedes it. Field names
+#: and operators survive, as does a subscript key (``headers["x-smoke-probe"]``
+#: names a header, not a secret); a path prefix or a host is redacted with the
+#: rest, and the rule's description says what it is.
+_QUOTED_LITERAL = re.compile(r'"(?:[^"\\]|\\.)*"')
+REDACTED = '"<redacted>"'
 
 
 @dataclass(frozen=True)
@@ -95,8 +100,18 @@ def skip_rule_expression(token: str, *, rule: SkipRule = STEWARD_PROBE) -> str:
 
 
 def redact_expression(expression: str) -> str:
-    """The expression with every ``eq "…"`` literal replaced — safe to print."""
-    return _COMPARED_LITERAL.sub(REDACTED, expression)
+    """The expression with every quoted string literal replaced — safe to print.
+
+    Literals are consumed left to right as whole strings, so a subscript key
+    (``headers["x-smoke-probe"]``) is recognised by the ``[`` before it and
+    kept; every other literal, whatever operator compares it, is replaced.
+    """
+
+    def _keep_or_redact(match: re.Match[str]) -> str:
+        preceded_by_subscript = match.start() > 0 and expression[match.start() - 1] == "["
+        return match.group(0) if preceded_by_subscript else REDACTED
+
+    return _QUOTED_LITERAL.sub(_keep_or_redact, expression)
 
 
 def _http_transport(method: str, url: str, api_token: str, body: dict | None) -> dict:
@@ -147,6 +162,10 @@ def read_rules(
                 None,
             )
         except CloudflareError as error:
+            # Cloudflare has no entrypoint ruleset for a phase until a rule
+            # exists in it, and answers with this wording (observed 2026-09-07
+            # for http_request_firewall_managed; unverified for other phases).
+            # A wrong guess at the wording fails closed — the error propagates.
             if "could not find entrypoint" in str(error):
                 out[phase] = []
                 continue

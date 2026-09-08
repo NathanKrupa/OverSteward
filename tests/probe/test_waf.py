@@ -83,8 +83,28 @@ class TestRedaction:
         )
         redacted = redact_expression(expression)
         assert _TOKEN not in redacted
-        assert redacted.count(REDACTED) == 2
-        assert "starts_with" in redacted
+        assert redacted.count(REDACTED) == 3  # the path prefix, the token, the host
+        assert "starts_with" in redacted and 'headers["x-smoke-probe"]' in redacted
+
+    @pytest.mark.parametrize(
+        "expression",
+        [
+            f'http.request.headers["x"][0] == "{_TOKEN}"',
+            f'http.request.headers["x"][0] ne "{_TOKEN}"',
+            f'http.request.headers["x"][0] contains "{_TOKEN}"',
+            f'http.request.headers["x"][0] matches "^{_TOKEN}$"',
+            f'http.request.headers["x"][0] in {{"{_TOKEN}" "other"}}',
+            f'(http.host eq "h") and (http.request.uri.query contains "t={_TOKEN}")',
+            f'http.cookie contains "a\\"b{_TOKEN}"',
+        ],
+        ids=["==", "ne", "contains", "matches", "in", "nested", "escaped-quote"],
+    )
+    def test_a_literal_is_redacted_whatever_operator_compares_it(self, expression):
+        """The Rules language has more than ``eq``, and the zone holds rules this
+        installer did not write; the redaction is of the literal, not the operator."""
+        redacted = redact_expression(expression)
+        assert _TOKEN not in redacted, redacted
+        assert REDACTED in redacted
 
     def test_read_rules_never_returns_a_token(self):
         transport, calls = _fake_transport(

@@ -19,10 +19,27 @@ value read in-process from the named file:
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import subprocess  # nosec B404 -- list-form argv, no shell; the value goes to stdin only
 import sys
 from collections.abc import Callable
 from pathlib import Path
+
+
+def _sanctioned_parser():
+    """``parse_env_file`` from the sibling ``with_test_env.py`` — the one parser.
+
+    The token the installer reads (through ``with_test_env.py``) and the token
+    this script uploads must be the same bytes; two parsers that disagree on an
+    inline comment or a quote would ship different values to the WAF and to CI.
+    """
+    location = Path(__file__).with_name("with_test_env.py")
+    spec = importlib.util.spec_from_file_location("with_test_env", location)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module.parse_env_file
+
 
 EXIT_OK = 0
 EXIT_REFUSED = 1
@@ -32,16 +49,8 @@ Runner = Callable[[list[str], str], int]
 
 
 def read_env_value(env_file: Path, name: str) -> str:
-    """``name``'s value in ``env_file`` — the last assignment wins, quotes stripped, never printed."""
-    value = ""
-    for raw in env_file.read_text().splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, rest = line.partition("=")
-        if key.strip() == name:
-            value = rest.strip().strip("'\"")
-    return value
+    """``name``'s value in ``env_file`` as ``with_test_env.py`` would read it — never printed."""
+    return _sanctioned_parser()(env_file.read_text()).get(name, "")
 
 
 def gh_argv(name: str, repo: str) -> list[str]:

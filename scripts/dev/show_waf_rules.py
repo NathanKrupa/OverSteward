@@ -6,7 +6,8 @@
 
 A skip rule keeps its credential inside its expression (``… eq "<token>"``),
 so a raw ruleset read is a secret leak — one happened on 2026-09-07. This
-reader replaces every compared literal with ``<redacted>`` before printing.
+reader replaces every quoted string literal with ``<redacted>`` before printing,
+whatever operator compares it — ``eq``, ``==``, ``ne``, ``contains``, ``matches``, ``in``.
 
 Needs ``CLOUDFLARE_API_TOKEN`` (the consumer repo's ``.env``, through the
 sanctioned runner) and the zone id — ``--zone-id`` or ``CLOUDFLARE_ZONE_ID``:

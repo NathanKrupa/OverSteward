@@ -62,6 +62,16 @@ class TestShowWafRules:
 
 
 class TestPushActionsSecret:
+    def test_reads_the_value_exactly_as_the_sanctioned_runner_does(self, tmp_path):
+        """One parser for both holders: an inline comment, an export prefix and
+        quotes are handled as with_test_env.py handles them, so the WAF and CI
+        receive the same bytes."""
+        env = tmp_path / ".env"
+        env.write_text('export SMOKE_PROBE_TOKEN="abc 123"   # rotated 2026-09-07\n')
+        assert push.read_env_value(env, "SMOKE_PROBE_TOKEN") == "abc 123"
+        env.write_text("SMOKE_PROBE_TOKEN=abc123   # rotated 2026-09-07\n")
+        assert push.read_env_value(env, "SMOKE_PROBE_TOKEN") == "abc123"
+
     def test_the_value_travels_on_stdin_and_never_in_argv(self, tmp_path):
         env = tmp_path / ".env"
         env.write_text("OTHER=1\nSMOKE_PROBE_TOKEN='tok-123'\n")
@@ -100,6 +110,42 @@ class TestPushActionsSecret:
 
 
 class TestMintEnvSecret:
+    def test_every_previous_assignment_goes_including_exported_ones(self, tmp_path):
+        """A rotation that leaves the old token in the file has not rotated."""
+        env = tmp_path / ".env"
+        env.write_text("export SMOKE_PROBE_TOKEN=old1\nA=1\nSMOKE_PROBE_TOKEN=old2\n")
+        assert mint.mint_into(env, "SMOKE_PROBE_TOKEN", token="new") == "replaced"
+        text = env.read_text()
+        assert text == "SMOKE_PROBE_TOKEN=new\nA=1\n"
+        assert "old" not in text
+
+    def test_a_new_file_is_private_and_an_existing_mode_is_kept(self, tmp_path):
+        env = tmp_path / ".env"
+        mint.mint_into(env, "SMOKE_PROBE_TOKEN", token="new")
+        assert env.stat().st_mode & 0o777 == 0o600
+        env.chmod(0o640)
+        mint.mint_into(env, "SMOKE_PROBE_TOKEN", token="newer")
+        assert env.stat().st_mode & 0o777 == 0o640
+
+    def test_the_write_is_atomic_and_leaves_no_temporary(self, tmp_path, monkeypatch):
+        """The credential file is replaced by rename, never truncated in place:
+        an interrupted mint leaves the old file whole."""
+        env = tmp_path / ".env"
+        env.write_text("KEEP=1\n")
+        real_replace = mint.os.replace
+        seen = {}
+
+        def spy(src, dst):
+            seen["src"], seen["dst"] = Path(src), Path(dst)
+            assert env.read_text() == "KEEP=1\n", "the original was touched before the rename"
+            real_replace(src, dst)
+
+        monkeypatch.setattr(mint.os, "replace", spy)
+        mint.mint_into(env, "SMOKE_PROBE_TOKEN", token="new")
+        assert seen["dst"] == env and seen["src"].parent == tmp_path and seen["src"] != env
+        assert not seen["src"].exists()
+        assert [p.name for p in tmp_path.iterdir()] == [".env"]
+
     def test_replaces_an_existing_line_in_place(self, tmp_path):
         env = tmp_path / ".env"
         env.write_text("A=1\nSMOKE_PROBE_TOKEN=old\nB=2\n")
@@ -133,9 +179,37 @@ class TestInstallerConsumers:
         with pytest.raises(SystemExit):
             install.main(["--consumer", "other"])
 
-    def test_missing_smoke_token_exits_2(self, monkeypatch):
+    def test_missing_smoke_token_exits_2_even_when_the_stewards_is_set(self, monkeypatch):
+        """No fallback: the smoke's rule must never be installed with the steward's token."""
         monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "t")
         monkeypatch.setenv("CLOUDFLARE_ZONE_ID", "z")
+        monkeypatch.setenv("STEWARD_PROBE_TOKEN", "steward-secret")
         monkeypatch.delenv("SMOKE_PROBE_TOKEN", raising=False)
         monkeypatch.setattr(sys, "stderr", io.StringIO())
+        called = []
+        monkeypatch.setattr(install, "ensure_skip_rule", lambda *a, **k: called.append((a, k)))
         assert install.main(["--consumer", "smoke"]) == 2
+        assert called == []
+
+    @pytest.mark.parametrize("consumer", ["steward", "smoke"])
+    def test_each_consumer_installs_its_own_rule_with_its_own_token(self, monkeypatch, consumer):
+        """The success path, end to end: this rule, this token, this zone."""
+        monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "cf-token")
+        monkeypatch.setenv("CLOUDFLARE_ZONE_ID", "zone-1")
+        monkeypatch.setenv("STEWARD_PROBE_TOKEN", "steward-secret")
+        monkeypatch.setenv("SMOKE_PROBE_TOKEN", "smoke-secret")
+        seen = {}
+
+        def fake_ensure(zone_id, api_token, probe_token, *, rule):
+            seen.update(zone=zone_id, api=api_token, token=probe_token, rule=rule)
+            return _Outcome()
+
+        monkeypatch.setattr(install, "ensure_skip_rule", fake_ensure)
+        assert install.main(["--consumer", consumer]) == 0
+        rule, _var = install.CONSUMERS[consumer]
+        assert seen["rule"] is rule and seen["zone"] == "zone-1" and seen["api"] == "cf-token"
+        assert seen["token"] == {"steward": "steward-secret", "smoke": "smoke-secret"}[consumer]
+
+
+class _Outcome:
+    action, rule_id, ruleset_id = "created", "r1", "rs1"
