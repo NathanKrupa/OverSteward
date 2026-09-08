@@ -81,12 +81,30 @@ class TestExpression:
         assert "cookie" not in skip_rule_expression(_TOKEN, rule=STEWARD_PROBE)
         assert STEWARD_PROBE.cookie is None
 
-    def test_a_cookie_name_that_could_break_the_expression_is_refused(self):
-        for name in ('a"b', "a b", "a=b", "a;b"):
-            with pytest.raises(ValueError):
-                skip_rule_expression(
-                    _TOKEN, rule=SkipRule(header="x", description="d", cookie=name)
-                )
+    @pytest.mark.parametrize(
+        "name", ['a"b', "a b", "a=b", "a;b", "смоке", "١٢", "smoke²", "ǅabc", ""]
+    )
+    def test_a_cookie_name_a_browser_cannot_send_is_refused(self, name):
+        """Unicode letters and digits are alphanumeric to Python and unsendable
+        to a browser; a rule with such a name can never match — fail-closed, but
+        a rule installed to never match is a rule nobody meant."""
+        with pytest.raises(ValueError, match="cookie name"):
+            skip_rule_expression(
+                _TOKEN, rule=SkipRule(header="x", description="d", path_prefix="/p/", cookie=name)
+            )
+
+    def test_a_hyphenated_cookie_name_is_accepted(self):
+        rule = SkipRule(header="x", description="d", path_prefix="/p/", cookie="smoke-probe")
+        assert f'http.cookie contains "smoke-probe={_TOKEN}"' in skip_rule_expression(
+            _TOKEN, rule=rule
+        )
+
+    def test_a_cookie_without_a_path_bound_is_refused(self):
+        """A zone-wide cookie bypass is a shape nothing here should install."""
+        with pytest.raises(ValueError, match="path prefix"):
+            skip_rule_expression(
+                _TOKEN, rule=SkipRule(header="x", description="d", cookie="smoke_probe")
+            )
 
     def test_a_path_prefix_that_is_not_a_path_is_refused(self):
         for prefix in ("foundations/", '/a"b', "/a\\b"):

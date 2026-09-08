@@ -1,13 +1,13 @@
 # ABOUTME: INNER connector for the Cloudflare WAF — installs the skip rule that honours the probe header.
 # ABOUTME: Idempotent: creates the rule first in the custom ruleset, updates it, or leaves it alone.
 
-"""Keep a signed-header skip rule installed on a zone.
+"""Keep a signed skip rule installed on a zone.
 
 A skip rule sits first in the ``http_request_firewall_custom`` ruleset and,
-when its header equals its token, skips the remaining custom rules (the
-managed challenge on ``/foundations/*``) and the rate-limiting phase. It is
-found again by its description, so rotating the token is a re-run, not a
-dashboard hunt.
+when its header equals its token — or, for a rule that names a cookie, when
+that cookie carries the token — skips the remaining custom rules (the managed
+challenge on ``/foundations/*``) and the rate-limiting phase. It is found again
+by its description, so rotating the token is a re-run, not a dashboard hunt.
 
 Two rules are known here, one per credential, because a skip is a bypass and
 its reach should be the consumer's need and no wider:
@@ -15,8 +15,9 @@ its reach should be the consumer's need and no wider:
 * :data:`STEWARD_PROBE` — the steward's live-URL checks, zone-wide.
 * :data:`SMOKE_PROBE` — aigranthelper's post-promotion smoke, whose headless
   browser is otherwise served the challenge; scoped to ``/foundations/*`` by a
-  path conjunct in the expression, and holding its own token so CI never
-  carries the steward's (AG#1968).
+  path conjunct in the expression, holding its own token so CI never carries
+  the steward's, and accepting that token as the ``smoke_probe`` cookie as
+  well as the header, inside the same path bound (AG#1968).
 """
 
 from __future__ import annotations
@@ -46,6 +47,9 @@ _TIMEOUT_SECONDS = 30
 _QUOTED_LITERAL = re.compile(r'"(?:[^"\\]|\\.)*"')
 REDACTED = '"<redacted>"'
 
+#: A cookie name a browser can send: ASCII letters, digits, underscore, hyphen.
+_COOKIE_NAME = re.compile(r"[A-Za-z0-9_-]+")
+
 
 @dataclass(frozen=True)
 class SkipRule:
@@ -53,10 +57,14 @@ class SkipRule:
     by, the path prefix (if any) that bounds its reach, and the cookie (if any)
     that carries the same token.
 
-    A cookie alternative exists for a browser-driven consumer: a browser sends
-    a cookie only to the host that set it, on every hop of a redirect chain and
-    on API requests alike — the three places a per-request header cannot be
-    made to reach without also reaching third parties (AG#1968, round 3).
+    A cookie alternative exists for a browser-driven consumer: a *host-only*
+    cookie (one set without a ``Domain`` attribute) is sent by the browser to
+    the host that set it and no other, on every hop of a redirect chain and on
+    API requests alike — the three places a per-request header cannot be made
+    to reach without also reaching third parties (AG#1968, round 3). That host
+    boundary is the consumer's to keep — this rule carries no host conjunct —
+    and is unverified here; a cookie set with a ``Domain`` reaches every
+    subdomain of the zone. A cookie is only ever accepted inside a path bound.
     """
 
     header: str
@@ -95,20 +103,29 @@ class RuleOutcome:
 
 
 def skip_rule_expression(token: str, *, rule: SkipRule = STEWARD_PROBE) -> str:
-    """The rule expression matching ``rule``'s header against ``token``.
+    """The rule expression matching ``rule``'s header — or its cookie — against ``token``.
 
     The token is embedded in a quoted string literal, so a quote or backslash
     would change the expression's meaning; ``secrets.token_urlsafe`` never
     produces one, and anything else is refused rather than escaped. A rule
     with a path prefix is bounded to it by a leading conjunct, so the skip
-    reaches no further than the pages its consumer needs.
+    reaches no further than the pages its consumer needs. A rule that names a
+    cookie accepts the token in it as well, in a parenthesised disjunct inside
+    that bound; a cookie without a path prefix is refused, because a zone-wide
+    cookie bypass is a shape nothing here should be able to install, and the
+    cookie name must be one a browser can send (RFC 6265 token characters,
+    checked as ASCII letters, digits, underscore or hyphen).
     """
     if any(ch in token for ch in '"\\') or not token:
         raise ValueError("probe token must be non-empty and contain no quote or backslash")
     expression = f'http.request.headers["{rule.header}"][0] eq "{token}"'
     if rule.cookie is not None:
-        if not rule.cookie.replace("_", "").isalnum():
-            raise ValueError("a cookie name must be alphanumeric or underscore")
+        if rule.path_prefix is None:
+            raise ValueError(
+                "a cookie clause needs a path prefix — a zone-wide cookie bypass is refused"
+            )
+        if not _COOKIE_NAME.fullmatch(rule.cookie):
+            raise ValueError("a cookie name must be ASCII letters, digits, underscore or hyphen")
         expression = f'({expression} or http.cookie contains "{rule.cookie}={token}")'
     if rule.path_prefix is None:
         return expression
