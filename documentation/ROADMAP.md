@@ -710,6 +710,215 @@ Heavy delivery between 2026-04-15 and 2026-05-07. Center of gravity moved here.
 
 ---
 
+## §3.12 Early September 2026 — the review loop earns its keep, and the home page becomes an instrument (reconciled 2026-09-08)
+
+> Sixth dream-produced pass, over 32 transcripts. Three through-lines. The
+> **adversarial review loop** (OS#428) went from a design to a measured
+> instrument in one week: its first full day of dispatch returned
+> mutation-proven findings on every round-1 review, two GS pickups stopped on
+> its own second-BLOCK rule, and its red-team revision landed as PR #466. The
+> **Gaudi overhaul** promised for Wednesday 09-02 shipped across all six
+> primaries — dead gates made real, warn-tier gates forbidden, 0.3.0 pinned —
+> and immediately surfaced its own liability (a file gaudi cannot parse reads
+> as clean). And **Nathan's 09-04 verdict on the AG home page** ("boring and
+> static") produced, by 09-07, a home page made of admin-editable blocks with
+> per-block A/B arms — the estate's first surface designed to be changed
+> without a PR. The 09-07 competitive review reframed what AG is for.
+
+### Shipped (2026-09-01 → 09-08)
+
+- **Review loop v2, live and measured.** PR #432 (reviewer agent + deterministic
+  input assembly, eval-first), its own BLOCK fix round #441 (OS#440), the CI
+  verdict gate #443 (OS#437, scoped by a fixed cutoff — non-retroactivity is not
+  a bypass label) with its pins #449 (OS#444), the paragraph-scanned volatile-fact
+  guard #451 (OS#442), and the red-team revision #466: the assembler keeps the
+  round count in `.review-rounds`, a BLOCK gets one delta re-review, PASS-WITH-
+  FINDINGS gets none, a fourth round is refused without a recorded override.
+  Doctrine followed the measurement: the PR body carries every round's verdict
+  (the final one in the single fence CI reads). **First full day (09-04/05):**
+  eight pickups carried a verdict (a ninth ran without the reviewer) across
+  roughly eighteen round verdicts; every round-1 finding was mutation-proven and none cosmetic (an
+  unmasked seam column, a dropped pytest-timeout that made a 60 s guard inert,
+  a permanent 410 on a calendar-dependent condition). GS#2465 and GS#2468 hit
+  the second-BLOCK stop and went to Nathan; both merged on 09-05 — #2577 after
+  five rounds under two recorded cap overrides, #2587 after his round-3
+  authorization. Cost: authors 150k–500k subagent
+  tokens per pickup, reviewers 60k–95k per round by self-report — and the
+  self-report runs ~2.5× under the harness count, which is why the harness
+  number is recorded beside it. Residue filed: OS#454, #459/#460 (dispatch
+  agents cannot launch the reviewer; a `.env` symlink left in the author's
+  worktree), #467, #468, #470.
+- **The Gaudi overhaul (Wed 09-02) landed estate-wide.** OS#424's audit → PR
+  #433 (OverSteward's own dead gates can fail; #384, #379, #378), #434 (resolve
+  gaudi in the venv, hook the `| tail` recurrer), #435 (cut the instruction load
+  by subtraction), #436 (worktrees under `.claude/worktrees/`, typed kaizen
+  verdict), #447 (the error tier gates; the inert warn-severity gate is
+  forbidden — OS#445), #462 (pin ≥0.3.0, exit 2 on an incomplete run). Siblings:
+  AG#1912 (retire the leaking boy-scout ratchet, make the gaudi error gate
+  real), AG#1907, GS#2542 (wave 2: tree-wide error gate, ratchet denominator
+  from `gaudi count --ratchet`), wphelper#207, fiscus#128, exchequer#20. All six
+  primaries on 0.3.0 by 09-05. **Liability found the same week:** 0.3.0 cannot
+  parse PEP 758 unparenthesized `except A, B:` and prints "Structurally sound"
+  with `examined: true, skipped: []` — the skip reads as a pass and leaves no
+  trace in the JSON (gaudi#277). An estate checkout can also hold two gaudi
+  versions at once (AG's venv 0.2.2 vs `~/.local/bin` 0.3.0), so local verify
+  and CI examine different files.
+- **AG home page — from verdict to instrument in three days.** Nathan's 09-04
+  rulings: the three-step page is boring and static, getcreo.ai is the
+  reference; no social proof, data quality and price are the pitch, headshot
+  below the fold; it is a landing page for a buyer, not an SEO page, so ambient
+  motion is approved; and **the home page is the estate's A/B surface — its
+  sections must be blocks edited and rearranged without a PR**, tracked to GA4
+  outcomes. The Wednesday workshop was cancelled because the dialogue settled
+  it. Epic AG#1932 built it on what AG already had (the lead-page
+  draft/publish/revision workflow, the lead-page cookie hash + server-side GA4
+  events, the Playwright capture service): landing blocks #1935 (#1927),
+  per-block experiments with impression/conversion attribution #1948 (#1928),
+  the walkthrough recorder #1941 (#1929), the "Try it now" sector-list block
+  #1952 (#1930), block set v1 — hero loop, computed price pitch, pinned
+  walkthrough, consulting, credibility — #1953 (#1931, three review rounds),
+  phone/tablet widths #1962 (#1958); promoted 09-07 (#1963). Two invariants the
+  loop found outside the diff: a `csrf_token` on the cache-everything `/` puts
+  `Set-Cookie: csrftoken` on every visitor and Cloudflare Rule 1 then bypasses
+  the edge for every public path (the sanctioned shape fetches the token from a
+  `never_cache` endpoint on first focus); and seeding the shared tenant DB is
+  visible to production instantly, so the promotion lands first.
+- **AG SEO chain, indexation experiment, and the smoke that was never red.**
+  The §3.11 chain landed 08-31/09-01: #1842 (recrawl mechanism), #1843 (sector
+  hubs), #1844 (national lead pages), #1845 (990-derived second indexability
+  tier, bounded rollout), #1848 (Funder Snapshot — then removed from foundation
+  pages by hotfix #1883), #1849 (weekly stratified indexation sweep), #1850;
+  then the retention experiment #1865–#1869 (cohort, three arms, weekly per-arm
+  monitor). Legacy URL shapes 301/410'd (#1949); the 990 cohort refresh bounded
+  with its own statement timeout (#1937). **The daily production smoke red
+  since 08-26 was never an app defect**: the zone's managed-challenge rule on
+  `/foundations/*` served the headless browser a challenge page (AG#1874). A
+  Cloudflare Access service token does not clear a bot challenge — they are
+  different controls — so the fix is a smoke-owned, path-scoped, header-keyed
+  WAF skip rule with its own secret; installing that rule *before* its consumer
+  PR landed was caught twice by the reviewer and reverted (never install a
+  production bypass ahead of the code that reads it). Reading a Cloudflare
+  ruleset raw prints the compared literal into the transcript.
+- **AG data and money.** `generation_costs` — priced LLM spend per grant draft
+  (#1960, #1959); the report is a floor: FAILED generations persist zero
+  tokens though the provider billed them (AG#1961), QA and match explanations
+  record none, and the rate card lacks the Sonnet/Opus 4.5 families. Giving by
+  Sector as a squarified treemap with the key to the right (#1938, Nathan's
+  ruling), chart caps (#1920, #1939), the timing answer when no deadline is on
+  file (#1908), the consumer-mirror drift gate over GS's enrichment vocabulary
+  (#1909, #1098), expired enrichment badged instead of lost (#1905), the
+  ci-light ratchets measuring a real baseline and failing closed (#1907),
+  the smoke suite installing its real import closure (#1925).
+- **GS data-quality epic #2452 — section 1 closed, section 2 nearly.** Section
+  1 (silent loss): #2453–#2461 via PRs #2484–#2491, #2496 (irs_bmf 40-day
+  freshness alert), #2500 (recipient resolution + funding rollup + people
+  schedule, with coverage ratchets), #2593 (refresh lane: content_hash/etag,
+  requeue stale snapshots; part 3 filed as #2592). Section 2 (invisible data):
+  #2462 (Part XV submission deadlines into the AG seam, #2514), #2467, #2468
+  (#2587 — a second BLOCK on the plural-cue regression, then merged 09-05 after
+  Nathan's round-3 authorization), #2465 (#2577, enrichment pathway/disposition
+  on `foundations_v`, merged 09-05 after five rounds under two recorded cap
+  overrides), #2463
+  (#2600:
+  25,445 contact names and 6,970 emails live). Remaining: #2464, #2466; section
+  3 (#2469–#2481) cannot start until section 2 clears. Alongside: grant source
+  precedence — `irs_990` retires the ProPublica archive (#2085 via #2520,
+  #2527, #2529); **#2088 measured the grants natural-key collapse (#2594):
+  54,002 rows and ~$1.5 B silently folded, a third of colliding pairs with
+  different stated purposes** — Nathan ruled on 09-08 to widen the key as
+  recommended and the second half was dispatched 09-09; the #2540
+  residue pairs re-derived from their source filings, three passes deep
+  (#2556, #2560, #2571); the fit-first enrichment prompt (#2533, GS#2510) —
+  the re-drain that applies it deferred by Nathan to Tuesday 09-08, after the
+  Feeding America grant.
+- **GS crawler identity, audited against its own bot page.** The declared
+  behaviour was mostly honoured (single egress, UA + From on every request,
+  5 s per-host floor, Retry-After, no headless browsers) with two gaps: robots
+  groups naming the crawler token were ignored (#2583 → #2588), and a
+  Chrome-shaped UA ran against foundation sites while the bot page declared
+  that identity unused (#2584 → #2618). Nathan's sequencing: land the robots
+  fix before retrying the Cloudflare Verified Bots application; apply as an
+  Aggregator, never as an AI Crawler; Web Bot Auth signing is the fast-track
+  that sidesteps the IP-list form.
+- **The 990-PF facsimile engine is complete; the corpus is the long pole.**
+  Epic GS#2348's six legs closed. At 09-05: 207,580 facsimiles of ~475k
+  filings (~44 %), 122,271 foundations, 14k–26k/day, ~785 GB in B2 projected.
+  The drain writes back once per ~30,000-filing segment, so database recency
+  is not a liveness signal; after the 09-04 host reboot the supervisor was
+  relaunched and resumed from its local SQLite ledger. The bottleneck is the
+  resume path (GS#2398 — a fresh segment re-walks every rendered row), to fix
+  before the next relaunch.
+- **Research week (09-07), three reports.** *Search*: keep Typesense and fix
+  the producer (a bench measurement outranked five research diagnoses);
+  Meilisearch is the standby if Typesense ships nothing by year end; convex
+  score fusion beats RRF but only behind a judged eval set; the abbreviation
+  gap in nonprofit search is unclaimed and OpenSanctions' name vocabulary is
+  the schema to copy. *Crawl*: no open-source framework beats the bespoke
+  httpx stack; Wayback, not Common Crawl, for archive fallback; nobody in the
+  sector crawls foundation websites and the capability GS lacks is Candid's
+  news stream. Epic GS#2607 (index frontier) is the write-up — no child
+  dispatch until #2452 closes. *Competitors*: **AG-as-a-cheap-Instrumentl is
+  dead** — Candid at ~$100 and free for a year to any Gold Seal nonprofit under
+  $1 M occupies that ground; the two surviving businesses are the
+  Google-findable foundation reference and "the one that does not miss the
+  small local foundation" — coverage does not overlap across databases and no
+  incumbent claims completeness. Grant Frog already ships AG's thesis and is
+  the one to study. **Unasked licensing question surfaced:** PyMuPDF is
+  AGPL-3.0 and imported in six GS production modules (GS#2602, needs-input).
+- **Sphere II — Special Angel.** Palette approved (blue #0D7AD9, aqua #55D0DC,
+  gold #FCC514); the Royal Purple direction is dead; the redesigned homepage
+  promoted, the four colour-review pages torn down; giving now runs through the
+  CauseVox white-label and PayPal is retired.
+- **OverSteward, the rest.** Skill miner (#456, #457): session transcripts
+  mined for repeated Bash sequences into SKILL.md drafts. Seen-red doctrine
+  gains the ImportError/mutation clause (#420, kaizen 11×). Page judge: seeker
+  rubric and groundedness against fixture ground truth (#426, #423). Worktree
+  gates must prove which tree Python imports (#416). Ops-triage residue filed
+  (#446, #450, #399). This run: 32 transcripts consolidated, the promotion
+  pass run degraded (lexical clustering — the Fiscus embeddings extra is not
+  installed in the fiscus checkout).
+
+### Corrections to the §3.11 watch-list
+
+| §3.11 row | Correction as of 2026-09-08 |
+|---|---|
+| AG SEO chain #1838 → #1839 → #1840 → #1334 | **landed** 08-31/09-01 (#1842–#1850); Funder Snapshot then pulled from foundation pages by hotfix #1883 |
+| Second-tier indexability gate | **shipped** — #1845 bounded rollout, plus the three-arm retention experiment #1865–#1869 |
+| Weekly indexation-ratio sampler | **shipped** as #1849 (stratified sweep) and the per-arm cohort monitor #1869 |
+| SEO instruments' permanent home | not verified this pass; carried |
+| Lead pages A/B-tested without a PR | **answered** by AG#1932 — landing blocks (#1935) + per-block experiments (#1948) |
+| Pricing tier for under-$1M nonprofits | **reframed, still parked** — Candid comps that segment for free; the 09-07 review declares the cheap-tier business dead |
+| `sow.py` auto-merge of green byte-copy PRs | carried |
+| AG staging DB separation | carried, standing hazard — seeding the shared DB is visible to production instantly (bit again on #1931) |
+| Guard lexer apostrophe residual (OS#409) | open, carried |
+| `guard_main_worktree` resolves the primary from `CLAUDE_PROJECT_DIR` | unfiled, carried |
+| Dream engine: finalize residue / Standing Orders budget | still true — this run's residue committed by hand again; OS#386 (25,000 vs ~17 KB harness read) open; engine issue still unfiled |
+| Memory contradiction awaiting a ruling (SEO stance) | **retired this run** with `dream.py supersede` |
+| Two AG worktrees with uncommitted work | not verified this pass; carried |
+| 990-PF facsimile corpus drain | ~44 % at 09-05; engine complete; GS#2398 resume path is the bottleneck |
+
+### Started, not yet landed (September 8 watch-list)
+
+| Item | Where | State |
+|---|---|---|
+| GS#2452 section 2 residue, then section 3 | GS #2464, #2466 → #2469–#2481 | both dispatchable; AG companions #1846/#1847 unblock as columns reach production |
+| Grants natural-key widening | GS#2088 | measured (54,002 rows / ~$1.5 B); Nathan ruled 09-08 to widen the key; second half dispatched 09-09 (`agent-in-progress`, worktree `dispatch-2088`) |
+| GS#2465 / GS#2468 after repeated BLOCKs | GS | both merged 09-05 (#2577 five rounds, two cap overrides; #2587 round 3); worktrees gone; #2468's post-merge corpus refresh and Dagster-history confirmation were never recorded on the issue |
+| GS#2510 enrichment re-drain | GS | Nathan's order: Tuesday 09-08 after the Feeding America grant; unblocks AG#1906 |
+| Cloudflare Verified Bots application | GS | #2583/#2584 both merged; retry pending — apply as Aggregator; Web Bot Auth well-known paths still 404 |
+| PyMuPDF AGPL question | GS#2602 | parked on Nathan |
+| Index-frontier epic | GS#2607 | write-up only until #2452 closes and Nathan says go |
+| AG home page A/B data | AG#1932 | blocks and arms live since 09-07; no conversion read yet |
+| Competitive follow-throughs | (unfiled intent, Nathan's go-ahead) | the twenty-foundation coverage test; an afternoon on Grant Frog; a dated Search Console milestone for foundation-page impressions/clicks |
+| AG production smoke skip rule + token | AG#1874 | consumer PR in flight; the rule must follow the code, not precede it |
+| AG LLM cost gaps | AG#1961 | FAILED rows and QA/match calls unmetered |
+| Dispatch agents → adversarial reviewer | OS#459, #460 | parked on Nathan: sanction headless `claude -p`, or route the review to the operator by design |
+| Review-loop residue | OS#454, #467, #468, #470 | open |
+| Fiscus embeddings extra | fiscus checkout (unfiled) | `uv sync --extra embeddings` there, not in OverSteward; until then every promotion pass is UNMEASURED |
+| AG#1208 foundation-code-15 search interim fix | AG | parked on Nathan |
+
+---
+
 ## §4 In flight
 
 Active or partially-shipped items as of 2026-05-07.
@@ -815,4 +1024,4 @@ Captured in `IDEA_STORE.md` from gstack research and conversational drift. None 
 - If §2-§3 grow past readable length, extract to a `documentation/changelog.md` and keep this doc thin.
 - This doc is the single answer to "what are we trying to do, what's done, what's next?" If it can't answer that in under 60 seconds of reading, it's grown past its purpose — restructure rather than expand.
 
-*Last updated: 2026-08-31 (end-of-August reconciliation — §3.11 added; the lexed-argv guard family, sow.py built, the steward probe, the Stripe smoke root cause, and Google's measured verdict on the enriched pages).*
+*Last updated: 2026-09-08 (early-September reconciliation — §3.12 added; the review loop measured on its first full day, the Gaudi overhaul across six primaries, the AG home page as an A/B instrument, GS#2452 section 1 closed, and the 09-07 competitive reframing).*

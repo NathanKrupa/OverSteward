@@ -111,8 +111,12 @@ rewritten — reconciliation is additive, corrections ride in the new section.
 ```bash
 scripts/dev/new-session.sh dream-roadmap-$(date +%F)
 # edit documentation/ROADMAP.md in that worktree, commit as
-#   docs(roadmap): <date> reconciliation (dream cycle) [skip ci]
-# push, open the PR, merge it, remove the worktree
+#   docs(roadmap): <date> reconciliation (dream cycle)
+# push, open the PR, run the adversarial reviewer, paste its verdict into the
+# body, merge it, remove the worktree. No `[skip ci]` on a PR-bound commit: the
+# marker suppresses the reviewer-verdict job, and a gate that never runs reads
+# as green (both 2026-09-08 dream PRs were BLOCKED on it). Only the memory-store
+# commits finalize makes are `[skip ci]` (HARD CONSTRAINT #2).
 ```
 
 Intent found in transcripts that was never filed as an issue is **flagged, not
@@ -157,8 +161,9 @@ decision is auditable without re-running the report.
 ```bash
 scripts/dev/new-session.sh dream-promotion-$(date +%F)
 # edit the doctrine/memory surfaces in that worktree, commit as
-#   docs(doctrine): promote <n> recurring lessons (dream cycle) [skip ci]
-# push, open the PR, merge it, remove the worktree
+#   docs(doctrine): promote <n> recurring lessons (dream cycle)
+# push, open the PR, run the adversarial reviewer, paste its verdict into the
+# body, merge it, remove the worktree — no `[skip ci]`, as above.
 ```
 
 The `--record` flag stamps the run ledger, so a **skipped month shows as a gap**
