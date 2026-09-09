@@ -46,7 +46,7 @@ The rule extends past database queries: any shell command that consumes secrets 
 
 ## When a control blocks the estate's own instruments
 
-A WAF challenge, a bot-fight rule, an Access wall or a rate limit will sooner or later block a probe, a smoke or a capture the estate itself runs. **Add a signed bypass for the instrument; never weaken the control, and never impersonate a client.** The sanctioned shape is the steward probe (OverSteward PR #414): a header-keyed skip rule scoped to the path the instrument needs, matched on a secret the instrument alone holds, installed *after* the consumer code lands — a bypass whose consumer exists only on an unpublished branch is a live hole with no owner. Reading the rule back raw prints the compared literal into the transcript, so inspect rules by id and description, not by dumping the ruleset (8 PRs across three repos relearned this).
+A WAF challenge, a bot-fight rule, an Access wall or a rate limit will sooner or later block a probe, a smoke or a capture the estate itself runs. **Add a signed bypass for the instrument; never weaken the control, and never impersonate a client.** The sanctioned shape is the steward probe (OverSteward PR #414): a header-keyed skip rule scoped to the path the instrument needs, matched on a secret the instrument alone holds, installed *after* the consumer code lands — a bypass whose consumer exists only on an unpublished branch is a live hole with no owner. Reading the rule back raw prints the compared literal into the transcript, so inspect rules by id and description, not by dumping the ruleset.
 
 ## The Estate Secrets Registry
 

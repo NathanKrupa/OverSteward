@@ -67,11 +67,11 @@ def run_check(root, *, runner=subprocess.run):
 
 If a connector makes business decisions (which records are eligible, what score means "good"), that logic leaked from the service layer.
 
-**A connector that both mutates an external system and records that it did must snapshot the metadata before the mutation.** The mutation is often what makes the metadata unfetchable — the resolved Sentry issue no longer lists, the dropped worktree no longer names its database, the moved page no longer answers at its old slug. Read first, write second, record what was read (8 PRs across three repos relearned this).
+**A connector that both mutates an external system and records that it did must snapshot the metadata before the mutation.** The mutation is often what makes the metadata unfetchable — the resolved Sentry issue no longer lists, the dropped worktree no longer names its database, the moved page no longer answers at its old slug. Read first, write second, record what was read.
 
 ### Display Values, Not Rendered Strings
 
-A template filter, serializer or service that returns **pre-rendered HTML strings** couples the data to one page's palette and layout. Return values (a number, a label, a status enum, a list) and let the template lay them out; a redesign then touches templates only. `contact_bar` did not survive AG's redesign for exactly this reason (8 PRs across AG and GS).
+A template filter, serializer or service that returns **pre-rendered HTML strings** couples the data to one page's palette and layout. Return values (a number, a label, a status enum, a list) and let the template lay them out; a redesign then touches templates only. `contact_bar` did not survive AG's redesign for exactly this reason.
 
 ## Extraction Pattern
 
