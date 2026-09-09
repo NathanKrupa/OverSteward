@@ -736,12 +736,13 @@ Heavy delivery between 2026-04-15 and 2026-05-07. Center of gravity moved here.
   FINDINGS gets none, a fourth round is refused without a recorded override.
   Doctrine followed the measurement: the PR body carries every round's verdict
   (the final one in the single fence CI reads). **First full day (09-04/05):**
-  nine recorded verdicts — four round-1 BLOCK, four round-1 PASS-WITH-FINDINGS,
-  one round-2 PASS; every round-1 finding was mutation-proven and none cosmetic (an
+  eight pickups carried a verdict (a ninth ran without the reviewer) across
+  roughly eighteen round verdicts; every round-1 finding was mutation-proven and none cosmetic (an
   unmasked seam column, a dropped pytest-timeout that made a 60 s guard inert,
   a permanent 410 on a calendar-dependent condition). GS#2465 and GS#2468 hit
-  the second-BLOCK stop, went to Nathan, and both merged on 09-05 (#2577,
-  #2587) after his round-3 authorization. Cost: authors 150k–500k subagent
+  the second-BLOCK stop and went to Nathan; both merged on 09-05 — #2577 after
+  five rounds under two recorded cap overrides, #2587 after his round-3
+  authorization. Cost: authors 150k–500k subagent
   tokens per pickup, reviewers 60k–95k per round by self-report — and the
   self-report runs ~2.5× under the harness count, which is why the harness
   number is recorded beside it. Residue filed: OS#454, #459/#460 (dispatch
@@ -816,7 +817,8 @@ Heavy delivery between 2026-04-15 and 2026-05-07. Center of gravity moved here.
   #2462 (Part XV submission deadlines into the AG seam, #2514), #2467, #2468
   (#2587 — a second BLOCK on the plural-cue regression, then merged 09-05 after
   Nathan's round-3 authorization), #2465 (#2577, enrichment pathway/disposition
-  on `foundations_v`, merged 09-05 once Nathan reviewed its migration), #2463
+  on `foundations_v`, merged 09-05 after five rounds under two recorded cap
+  overrides), #2463
   (#2600:
   25,445 contact names and 6,970 emails live). Remaining: #2464, #2466; section
   3 (#2469–#2481) cannot start until section 2 clears. Alongside: grant source
@@ -824,7 +826,7 @@ Heavy delivery between 2026-04-15 and 2026-05-07. Center of gravity moved here.
   #2527, #2529); **#2088 measured the grants natural-key collapse (#2594):
   54,002 rows and ~$1.5 B silently folded, a third of colliding pairs with
   different stated purposes** — Nathan ruled on 09-08 to widen the key as
-  recommended, second half not yet dispatched; the #2540
+  recommended and the second half was dispatched 09-09; the #2540
   residue pairs re-derived from their source filings, three passes deep
   (#2556, #2560, #2571); the fit-first enrichment prompt (#2533, GS#2510) —
   the re-drain that applies it deferred by Nathan to Tuesday 09-08, after the
@@ -900,7 +902,8 @@ Heavy delivery between 2026-04-15 and 2026-05-07. Center of gravity moved here.
 | Item | Where | State |
 |---|---|---|
 | GS#2452 section 2 residue, then section 3 | GS #2464, #2466 → #2469–#2481 | both dispatchable; AG companions #1846/#1847 unblock as columns reach production |
-| Grants natural-key widening | GS#2088 | measured (54,002 rows / ~$1.5 B); Nathan ruled 09-08 to widen the key — `ready-for-agent`, second half not yet dispatched |
+| Grants natural-key widening | GS#2088 | measured (54,002 rows / ~$1.5 B); Nathan ruled 09-08 to widen the key; second half dispatched 09-09 (`agent-in-progress`, worktree `dispatch-2088`) |
+| GS#2465 / GS#2468 after repeated BLOCKs | GS | both merged 09-05 (#2577 five rounds, two cap overrides; #2587 round 3); worktrees gone; #2468's post-merge corpus refresh and Dagster-history confirmation were never recorded on the issue |
 | GS#2510 enrichment re-drain | GS | Nathan's order: Tuesday 09-08 after the Feeding America grant; unblocks AG#1906 |
 | Cloudflare Verified Bots application | GS | #2583/#2584 both merged; retry pending — apply as Aggregator; Web Bot Auth well-known paths still 404 |
 | PyMuPDF AGPL question | GS#2602 | parked on Nathan |
