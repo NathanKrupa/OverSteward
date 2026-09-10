@@ -1,7 +1,7 @@
 ---
 date: 2026-09-10
 repo: oversteward
-pr: oversteward#TBD
+pr: oversteward#476
 branch: session/docs-reports-2026-09-10
 issues: []
 session_kind: in-session-pickup
