@@ -1,0 +1,30 @@
+size	domain	root_http	pages_http	total_pages	total_posts
+large	hewlett.org	200	200	57	866
+large	kresge.org	200	401		
+large	mott.org	200	200	37	0
+large	fordfoundation.org	401	401		
+large	packard.org	200	200	45	155
+large	rockefellerfoundation.org	200	200	310	139
+large	carnegie.org	200	200	39	0
+large	kauffman.org	200	200	132	0
+large	luminafoundation.org	200	401		
+large	wkkf.org	200	200	61	0
+mid	seattlefoundation.org	200	200		
+small	bentoncf.org	200	200	18	5
+small	blackfordcofoundation.org	200	200	48	33
+small	browncountygives.org	200	200	28	7
+small	daviesscountycf.org	200	200		
+small	dearborncf.org	200	200	76	228
+small	cfdekalb.org	200	401		
+small	greenecountyfoundation.org	200	200	28	196
+small	henrycountycf.org	200	200	120	602
+small	huntingtonccf.org	200	200	38	147
+small	jasperfdn.org	200	200	51	114
+small	kcfoundation.org	200	200	55	209
+small	lccf.net	200	200	38	160
+small	marshallcountycf.org	200	200	26	372
+small	occfrisingsun.com	200	200	27	65
+small	parkeccf.org	200	200	77	38
+small	cfopc.org	200	200	33	39
+small	randolphcountyfoundation.org	200	200	68	132
+WP_DONE
