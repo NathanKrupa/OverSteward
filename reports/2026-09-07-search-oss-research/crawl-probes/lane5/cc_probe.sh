@@ -2,7 +2,8 @@
 # ABOUTME: Read-only Common Crawl CDX index probe over a fixed foundation-domain sample.
 # ABOUTME: One request per second, declared User-Agent, no writes anywhere but this scratchpad.
 set -u
-D=/home/natha/.claude/tmp/claude-1000/-home-natha-OverSteward/69309070-6f71-422f-9333-aeba569aae31/scratchpad/search-research/lane5
+D="${D:-$(cd "$(dirname "$0")" && pwd)}"
+[ -r "$D/domains.txt" ] || { echo "$0: $D/domains.txt is missing — could not look" >&2; exit 2; }
 UA="GrantSpiderResearch/1.0 (one-off coverage measurement; bot@aigranthelper.com)"
 OUT="$D/cc_results.tsv"
 echo -e "crawl\tsize\tdomain\thttp\trecords\tcapped\tdistinct_urls\tlatest_ts" > "$OUT"

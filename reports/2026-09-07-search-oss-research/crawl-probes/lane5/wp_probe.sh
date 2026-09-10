@@ -2,7 +2,8 @@
 # ABOUTME: Probes whether WordPress-fingerprinted foundation sites expose an open wp-json REST API.
 # ABOUTME: One HEAD-ish GET per domain against /wp-json/wp/v2/pages?per_page=1, declared UA, 1.2s pacing.
 set -u
-D=/home/natha/.claude/tmp/claude-1000/-home-natha-OverSteward/69309070-6f71-422f-9333-aeba569aae31/scratchpad/search-research/lane5
+D="${D:-$(cd "$(dirname "$0")" && pwd)}"
+[ -r "$D/platform.tsv" ] || { echo "$0: $D/platform.tsv is missing — could not look" >&2; exit 2; }
 UA="GrantSpiderResearch/1.0 (one-off REST-API census; bot@aigranthelper.com)"
 OUT="$D/wprest.tsv"
 echo -e "size\tdomain\troot_http\tpages_http\ttotal_pages\ttotal_posts" > "$OUT"

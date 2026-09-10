@@ -2,9 +2,18 @@
 
 Rubric: **seeker**. Scored 1-5, higher is better on every dimension.
 
+> **`groundedness` is UNMEASURED in this round.** It scores 1/5 on every one of
+> the 6 pages because the ground-truth set does not carry the fields the pages
+> render (grants made, total annual giving, fiscal-year totals), so the check
+> cannot pass for any page and a uniform verdict is the instrument, not the
+> pages. The `mean` column below still folds that 1/5 in. Over the six measured
+> dimensions the means are: Lilly 4.17, Dover 4.83, H. W. Wilson 4.33, Bank of
+> America 4.17, Tomah PTA 3.17, Edna McConnell Clark 3.83. Cite those, not the
+> table's `mean`, until the ground truth carries the rendered fields.
+
 ## foundation
 
-| | URL | can_i_apply | typical_giving | who_they_fund | when_to_apply | where_to_apply | clarity | groundedness | mean ||
+| | URL | can_i_apply | typical_giving | who_they_fund | when_to_apply | where_to_apply | clarity | groundedness (UNMEASURED) | mean (includes the unmeasured 1/5) ||
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | | https://www.aigranthelper.com/foundations/in/lilly-endowment-inc/ | 4 | 5 | 5 | 1 | 5 | 5 | 1 | 3.7 ||
 | | https://www.aigranthelper.com/foundations/nc/dover-foundation-inc/ | 5 | 4 | 5 | 5 | 5 | 5 | 1 | 4.3 ||
@@ -23,7 +32,7 @@ Rubric: **seeker**. Scored 1-5, higher is better on every dimension.
 - **when_to_apply** 1/5 — No application deadlines, cycle schedules, or board meeting dates are listed on the page.
 - **where_to_apply** 5/5 — Includes complete address, phone number, website link, and extensive geographic giving breakdowns.
 - **clarity** 5/5 — Information is structured logically with clear headings, summaries, and graphical data representations.
-- **groundedness** 1/5 — 4 claim(s) the ground truth does not support
+- **groundedness** 1/5 (UNMEASURED, see the note at the top) — 4 claim(s) the ground truth does not support
 
 Unsupported claims:
 
@@ -42,7 +51,7 @@ Unsupported claims:
 - **when_to_apply** 5/5 — Lists explicit quarterly submission deadlines for both 2025 and 2026.
 - **where_to_apply** 5/5 — Clearly states primary geographic focus on Cleveland County, NC and specifies applying via online portal.
 - **clarity** 5/5 — Well-structured headings and readable text make information easy to digest for non-experts.
-- **groundedness** 1/5 — 4 claim(s) the ground truth does not support
+- **groundedness** 1/5 (UNMEASURED, see the note at the top) — 4 claim(s) the ground truth does not support
 
 Unsupported claims:
 
@@ -61,7 +70,7 @@ Unsupported claims:
 - **when_to_apply** 2/5 — Does not state specific application deadlines or board meeting dates.
 - **where_to_apply** 4/5 — Shows geographic focus and foundation contact details, though full mailing street address is missing.
 - **clarity** 5/5 — Extremely clean and easy to navigate with structured charts, clear headings, and readable data.
-- **groundedness** 1/5 — 4 claim(s) the ground truth does not support
+- **groundedness** 1/5 (UNMEASURED, see the note at the top) — 4 claim(s) the ground truth does not support
 
 Unsupported claims:
 
@@ -80,7 +89,7 @@ Unsupported claims:
 - **when_to_apply** 4/5 — Lists specific submission window dates for multiple program RFPs.
 - **where_to_apply** 5/5 — Specifies geographic presence requirements and provides direct links to the online application portal.
 - **clarity** 4/5 — Information is cleanly structured and accessible, despite raw IRS text formatting in some sections.
-- **groundedness** 1/5 — 5 claim(s) the ground truth does not support
+- **groundedness** 1/5 (UNMEASURED, see the note at the top) — 5 claim(s) the ground truth does not support
 
 Unsupported claims:
 
@@ -100,7 +109,7 @@ Unsupported claims:
 - **when_to_apply** 1/5 — No deadlines, cycle dates, or submission timelines are listed on the page.
 - **where_to_apply** 2/5 — States geographic focus (Tomah, WI) and phone number, but omits an address, portal, or application instructions.
 - **clarity** 4/5 — Clean presentation quickly informs a nonprofit leader that this fund is exclusively for individual student scholarships.
-- **groundedness** 1/5 — 5 claim(s) the ground truth does not support
+- **groundedness** 1/5 (UNMEASURED, see the note at the top) — 5 claim(s) the ground truth does not support
 
 Unsupported claims:
 
@@ -120,7 +129,7 @@ Unsupported claims:
 - **when_to_apply** 1/5 — No application deadlines, board meeting dates, or submission cycles are specified.
 - **where_to_apply** 4/5 — Clear geographic focus provided along with foundation phone number, city, and website address.
 - **clarity** 5/5 — Data is presented cleanly with plain-language summaries, helpful tables, and structured sections.
-- **groundedness** 1/5 — 5 claim(s) the ground truth does not support
+- **groundedness** 1/5 (UNMEASURED, see the note at the top) — 5 claim(s) the ground truth does not support
 
 Unsupported claims:
 

@@ -2,7 +2,8 @@
 # ABOUTME: Read-only Wayback CDX + availability probe over the same foundation-domain sample.
 # ABOUTME: One request per second per endpoint, declared User-Agent.
 set -u
-D=/home/natha/.claude/tmp/claude-1000/-home-natha-OverSteward/69309070-6f71-422f-9333-aeba569aae31/scratchpad/search-research/lane5
+D="${D:-$(cd "$(dirname "$0")" && pwd)}"
+[ -r "$D/domains.txt" ] || { echo "$0: $D/domains.txt is missing — could not look" >&2; exit 2; }
 UA="GrantSpiderResearch/1.0 (one-off coverage measurement; bot@aigranthelper.com)"
 OUT="$D/wb_results.tsv"
 echo -e "size\tdomain\thome_http\thome_latest_ts\tcdx_http\tdistinct_urls_2024plus\tcapped\tfirst_ts\tlast_ts" > "$OUT"

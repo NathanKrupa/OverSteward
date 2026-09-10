@@ -2,7 +2,8 @@
 # ABOUTME: Read-only homepage fingerprint of the foundation sample: CMS/platform, edge, JS-only signals.
 # ABOUTME: One request per domain, declared User-Agent, 1.2s pacing.
 set -u
-D=/home/natha/.claude/tmp/claude-1000/-home-natha-OverSteward/69309070-6f71-422f-9333-aeba569aae31/scratchpad/search-research/lane5
+D="${D:-$(cd "$(dirname "$0")" && pwd)}"
+[ -r "$D/domains.txt" ] || { echo "$0: $D/domains.txt is missing — could not look" >&2; exit 2; }
 UA="GrantSpiderResearch/1.0 (one-off platform census; bot@aigranthelper.com)"
 OUT="$D/platform.tsv"
 mkdir -p "$D/rawhp"
