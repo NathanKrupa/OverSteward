@@ -1,0 +1,31 @@
+size	domain	root_http	pages_http	total_pages	total_posts
+large	hewlett.org	200	200	57	866
+large	carnegie.org	200	200	39	0
+large	kresge.org	200	401		
+large	kauffman.org	301	301		
+large	mott.org	200	200	37	0
+large	luminafoundation.org	200	401		
+large	fordfoundation.org	401	401		
+large	wkkf.org	301	301		
+mid	seattlefoundation.org	301	301		
+large	packard.org	200	200	45	155
+large	rockefellerfoundation.org	301	301		
+small	bentoncf.org	200	200	18	5
+large	carnegie.org	200	200	39	0
+large	kauffman.org	301	301		
+small	blackfordcofoundation.org	200	200	48	33
+large	luminafoundation.org	200	401		
+small	browncountygives.org	200	200	28	7
+large	wkkf.org	301	301		
+small	daviesscountycf.org	301	301		
+mid	seattlefoundation.org	301	301		
+small	dearborncf.org	200	200	76	228
+small	bentoncf.org	200	200	18	5
+small	cfdekalb.org	200	401		
+small	greenecountyfoundation.org	301	301		
+small	blackfordcofoundation.org	200	200	48	33
+small	browncountygives.org	200	200	28	7
+small	daviesscountycf.org	301	301		
+small	dearborncf.org	200	200	76	228
+small	cfdekalb.org	200	401		
+small	greenecountyfoundation.org	301	301		

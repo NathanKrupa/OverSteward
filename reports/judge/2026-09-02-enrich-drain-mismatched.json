@@ -1,0 +1,1092 @@
+[
+ {
+  "foundation_id": "b7f7d996-ccfd-4304-9176-adb15702da8f",
+  "foundation_name": "James S Mcdonnell Family Foundation Inc",
+  "actual_subject": "James S. McDonnell Foundation website (jsmf.org, St. Louis, EIN 54-2074788) \u2014 a different organization from EIN 36-4507175 (Lincoln, MA)"
+ },
+ {
+  "foundation_id": "99a23305-81dc-45d4-adce-e202e9fea127",
+  "foundation_name": "Mcdonnell Foundation Inc",
+  "actual_subject": "James S. McDonnell Foundation website (jsmf.org, St. Louis, EIN 54-2074788) \u2014 a different organization from EIN 43-1439173 (Kansas City, MO)"
+ },
+ {
+  "foundation_id": "fb0b172d-881a-4afc-862f-8733a38d6397",
+  "foundation_name": "Storer Goodwin Decatur Foundation",
+  "actual_subject": "GrantSonar grant-listing directory pages about unrelated funders/grant notices (Max and Victoria Dreyfus Foundation, United Way of the Golden Triangle Region, etc.) \u2014 no mention of Storer Goodwin Decatur Foundation anywhere in the source"
+ },
+ {
+  "foundation_id": "e9c1b030-f414-44b9-958a-bd24392bff88",
+  "foundation_name": "Rad Vucichevich Foundation",
+  "actual_subject": "John T. Vucurevich Foundation (JTVF) website, jtvf.org \u2014 a distinct South Dakota private foundation founded by banker John T. Vucurevich, different first name and surname spelling from 'Rad Vucichevich Foundation'"
+ },
+ {
+  "foundation_id": "3d76997e-5cb5-4185-84da-92d3ed078a5e",
+  "foundation_name": "Lamb Baldwin Foundation",
+  "actual_subject": "Frank I Lamb Foundation website (lambfoundation.org, self-identified as \"Lamb Foundation\")"
+ },
+ {
+  "foundation_id": "41c951e1-474a-4205-b9b3-1dfb43adb131",
+  "foundation_name": "Womans Seamens Friend Society Of Connecticut",
+  "actual_subject": "Community Foundation for Greater New Haven website (cfgnh.org)"
+ },
+ {
+  "foundation_id": "bf1db6a2-43f4-4959-950a-4a8d05945990",
+  "foundation_name": "John And Polly Sparks Foundation",
+  "actual_subject": "American Psychological Foundation website (ampsychfdn.org) \u2014 zero occurrences of \"Polly\" or \"Sparks\" anywhere in the source"
+ },
+ {
+  "foundation_id": "0093dc3a-ce0c-44e4-9135-daf2afde8839",
+  "foundation_name": "Ucla Health System Auxiliary",
+  "actual_subject": "UCLA Health website \u2014 clinical fellowship/training-program application pages, zero occurrences of \"Auxiliary\" anywhere in the source"
+ },
+ {
+  "foundation_id": "59fdac3d-f3c3-407f-9291-7dddedce8046",
+  "foundation_name": "Henderson Family Ford Foundation",
+  "actual_subject": "Ford Foundation website (fordfoundation.org) \u2014 the large international philanthropy founded by Edsel and Henry Ford, an unrelated organization"
+ },
+ {
+  "foundation_id": "110e3d7e-8591-4626-93ce-aede41e48084",
+  "foundation_name": "David Simon Foundation",
+  "actual_subject": "Simons Foundation website (mathematics/basic-science research funder; name similarity only, not the same organization)"
+ },
+ {
+  "foundation_id": "d10a3803-688a-4e6f-ba32-b346eeba67db",
+  "foundation_name": "American Independence Foundation",
+  "actual_subject": "The Independence Fund (veterans mobility/caregiver charity) website"
+ },
+ {
+  "foundation_id": "35fc0516-e6c4-414f-accf-b91a7f45e583",
+  "foundation_name": "Samaritan Foundation",
+  "actual_subject": "Samaritan Fund Program (medical-cost-assistance service run by a Founder/CEO) website"
+ },
+ {
+  "foundation_id": "663103fa-66d3-4383-bd58-1150a7d2838e",
+  "foundation_name": "Wallace And Baum Family Foundation Inc",
+  "actual_subject": "The Wallace Foundation website (wallacefoundation.org)"
+ },
+ {
+  "foundation_id": "0841004f-c5a1-477e-8a34-187379d40f27",
+  "foundation_name": "Kamehameha Schools Parents & Teachers",
+  "actual_subject": "Kamehameha Schools institutional website (ksbe.edu)"
+ },
+ {
+  "foundation_id": "421c5ec9-6f8a-4b21-bd3f-473772eeae14",
+  "foundation_name": "Shiv And Nandita Foundation",
+  "actual_subject": "Shiva Foundation website (animal-welfare / TNR cat-rescue org founded in memory of a pet cat named Shiva)"
+ },
+ {
+  "foundation_id": "d7f97b62-f8b3-434a-867e-4f9e9fdc5f0c",
+  "foundation_name": "Dollries Family Foundation",
+  "actual_subject": "Doll Family Foundation website (dollfamilyfoundation.org)"
+ },
+ {
+  "foundation_id": "aad59139-c16e-4aea-b3c9-82d5e6e1cc61",
+  "foundation_name": "The Fk Legacy Foundation",
+  "actual_subject": "Legacy Foundation, Inc. (Lake County, Indiana community foundation) website"
+ },
+ {
+  "foundation_id": "632d2a10-c5d8-4496-a479-461e8cf54806",
+  "foundation_name": "L&K Legacy Foundation",
+  "actual_subject": "Legacy Foundation, Inc. (Lake County, Indiana community foundation) website"
+ },
+ {
+  "foundation_id": "5917e26b-1a65-4b5f-ac32-ddc1912543ce",
+  "foundation_name": "Fleischer Scholars Foundation",
+  "actual_subject": "Flinn Foundation website (blog listing third-party K-12/STEM grant opportunities)"
+ },
+ {
+  "foundation_id": "4acfc2d5-59f9-46a9-bdc8-f87dd83bdddf",
+  "foundation_name": "Salado Independent School District Education Foundation Incorporated",
+  "actual_subject": "Salado Independent School District (public school district) website"
+ },
+ {
+  "foundation_id": "572e8ce1-0a00-4ee5-a548-22e6e6393092",
+  "foundation_name": "Ggs Family Foundation",
+  "actual_subject": "Global Gender-Smart Fund (GGSF) investment fund website"
+ },
+ {
+  "foundation_id": "59e6ab05-6cd8-43dc-bac6-909b706fbf05",
+  "foundation_name": "Scholarships to Economically Poorstudents",
+  "actual_subject": "Rhode Island Foundation donor/field-of-interest fund pages (multiple unrelated named funds)"
+ },
+ {
+  "foundation_id": "0c02aa67-2222-4fe9-8ffc-f2d2a15af875",
+  "foundation_name": "Ir Tua Vanhorn Salvation Army B",
+  "actual_subject": "The Salvation Army USA national/local corps program pages"
+ },
+ {
+  "foundation_id": "b82daea5-d86a-4d2f-8f40-81a28ca198e3",
+  "foundation_name": "Salvation Army Medical Care Trust",
+  "actual_subject": "The Salvation Army USA website (generic local corps community-center pages: holiday giving, adult program services, thrift store \u2014 no content about a Medical Care Trust)"
+ },
+ {
+  "foundation_id": "299861a8-1a99-4f59-bf1a-abe146c0426e",
+  "foundation_name": "Elizabeth American Legion",
+  "actual_subject": "The American Legion national headquarters news pages (legion.org) \u2014 national program announcements (Child Well-being Foundation, Eagle Scout of the Year, National Emergency Fund, Temporary Financial Assistance, Mission Blue Post Assistance, Overseas Graves Decoration Trust); no mention of \"Elizabeth\" or content specific to that local post anywhere in the source"
+ },
+ {
+  "foundation_id": "be7df409-5d05-4765-b514-7896cad236e2",
+  "foundation_name": "Greater Cincinnati Northernkentucky Healthcare Foundation Inc",
+  "actual_subject": "Greater Cincinnati Foundation (GCF) website \u2014 general community foundation, education/housing/community-vibrancy RFPs"
+ },
+ {
+  "foundation_id": "df9eacc3-199e-4ed1-9665-c1f7385c2702",
+  "foundation_name": "Barr Family Foundation",
+  "actual_subject": "Barr Foundation (Boston) website"
+ },
+ {
+  "foundation_id": "99029afe-6b5b-4400-acef-ef891e662b66",
+  "foundation_name": "Mission West Foundation",
+  "actual_subject": "California Missions Foundation website"
+ },
+ {
+  "foundation_id": "3a86148b-3362-414f-9572-9aa666ef77b7",
+  "foundation_name": "Two Rivers Council Foundation",
+  "actual_subject": "Two Rivers Regional Council of Public Officials website (a regional council of governments / community action agency administering federal-state housing and energy assistance, not a grantmaking foundation)"
+ },
+ {
+  "foundation_id": "597063a1-f31d-46d9-ac7e-7a815f13a897",
+  "foundation_name": "Central Georgia Technical College Foundation Inc",
+  "actual_subject": "Central Georgia Technical College (parent public college) admissions/financial-aid website"
+ },
+ {
+  "foundation_id": "2e7af091-1450-4131-b3a2-da24104dac9f",
+  "foundation_name": "Pittsburgh Independent Catholic Academy",
+  "actual_subject": "Sister Thea Bowman Catholic Academy website"
+ },
+ {
+  "foundation_id": "e327fbb8-459d-46ad-8575-165edba14a64",
+  "foundation_name": "South Carolina Woodmen of The",
+  "actual_subject": "WoodmenLife (Woodmen of the World Life Insurance Society) national corporate website"
+ },
+ {
+  "foundation_id": "195879e2-a105-4ff6-9fe6-f48961749391",
+  "foundation_name": "Marian W Ottley U W Atlanta First Wachovia Bank Na",
+  "actual_subject": "Wells Fargo bank branch locator / corporate community-giving pages (wellsfargo.com)"
+ },
+ {
+  "foundation_id": "6cd47f79-bf67-4e89-ad9b-36c59b7a37fe",
+  "foundation_name": "Robert F Schumann Foundation",
+  "actual_subject": "Wells Fargo bank branch locator / corporate community-giving pages (wellsfargo.com)"
+ },
+ {
+  "foundation_id": "e795837a-fbe6-4b2c-9659-86bd07b6e107",
+  "foundation_name": "Myra Fox Skelton Foundation",
+  "actual_subject": "Wells Fargo grant-process page and Wells Fargo branch-locator pages"
+ },
+ {
+  "foundation_id": "4d47e9b8-3e6f-46ab-b347-b665167d0540",
+  "foundation_name": "Eric A Baade And Mary C Baade Charitable Purposes Trust",
+  "actual_subject": "Wells Fargo grant-process page and Wells Fargo branch-locator pages"
+ },
+ {
+  "foundation_id": "cf560bdb-52c3-41ac-9bc0-77fa01b64bb0",
+  "foundation_name": "Arthur F and Alice E Adams",
+  "actual_subject": "Wells Fargo grant-process page and Wells Fargo branch-locator pages"
+ },
+ {
+  "foundation_id": "dadc1acc-afbf-4b6f-bdc7-c509a8486661",
+  "foundation_name": "Knights of Columbus",
+  "actual_subject": "New Hampshire State Council (Knights of Columbus) chapter website \u2014 a local/state affiliate, not the national organization"
+ },
+ {
+  "foundation_id": "ef960132-6001-46df-bc89-90324d82601b",
+  "foundation_name": "Bank Of Hawaii Foundation",
+  "actual_subject": "Bank of Hawaii's directory of client charitable trusts/foundations it administers as trustee \u2014 fetched pages describe other foundations (Waipahu Community Foundation, McInerny Foundation, etc.), not Bank of Hawaii Foundation itself"
+ },
+ {
+  "foundation_id": "d957170c-43b7-4a6a-8a45-90b71afa714a",
+  "foundation_name": "Episcopal Charities of Albany Inc",
+  "actual_subject": "Episcopal Charities of New York website (Diocese of New York \u2014 Manhattan, Staten Island, Bronx, Westchester, etc.; not the Albany diocese)"
+ },
+ {
+  "foundation_id": "9af44f6b-5275-4093-9b2d-ceaf02acf77d",
+  "foundation_name": "The Schreiber & Packman Foundation",
+  "actual_subject": "Schreiber Philanthropy \u2014 John and Kathy Schreiber's family giving site; no mention of any Packman-affiliated foundation anywhere in the source"
+ },
+ {
+  "foundation_id": "c21338db-2aba-4d84-b5b6-043be3e1385e",
+  "foundation_name": "Fann Fam Foundation Tr",
+  "actual_subject": "FAM Foundation website (Portugal-based marine-science funder, fam.foundation)"
+ },
+ {
+  "foundation_id": "d7a8ba82-838c-4034-927d-c9b0491e2845",
+  "foundation_name": "Maroun Fam Foundation",
+  "actual_subject": "FAM Foundation website (Portugal-based marine-science funder, fam.foundation)"
+ },
+ {
+  "foundation_id": "3677d54b-3b34-481f-996f-56f5aa367a59",
+  "foundation_name": "Welch Family Foundation",
+  "actual_subject": "The Welch Foundation website (Robert A. Welch Foundation, Houston TX chemistry-research funder)"
+ },
+ {
+  "foundation_id": "1966efef-d2da-4c40-9484-2b64dd316e97",
+  "foundation_name": "The Boler Family Foundation",
+  "actual_subject": "The Bolger Foundation website (thebolgerfoundation.org, founded by David F. Bolger)"
+ },
+ {
+  "foundation_id": "b5a56af3-fad1-4c99-afc2-45b684159157",
+  "foundation_name": "Dekalb School Employees Foundation Inc",
+  "actual_subject": "DeKalb County School District Grants and Partnerships Department website"
+ },
+ {
+  "foundation_id": "2be51f65-d140-44d4-a25e-83157ce6ae60",
+  "foundation_name": "Weimar Methodist Foundation",
+  "actual_subject": "Texas Methodist Foundation website"
+ },
+ {
+  "foundation_id": "377077ff-de9f-4cf9-9032-2155e09c7173",
+  "foundation_name": "Friends of Carmel Unified Schools",
+  "actual_subject": "The Focus Foundation (Carmel Schools education foundation) website"
+ },
+ {
+  "foundation_id": "1af3dfa3-62a9-40d0-a93c-c872c6c4ed12",
+  "foundation_name": "Esther N Nielsen Foundation",
+  "actual_subject": "The Nielsen Foundation (Nielsen media/data company's corporate foundation) website"
+ },
+ {
+  "foundation_id": "3a5b1311-bc1f-49b2-a541-5184b75b1512",
+  "foundation_name": "Friends of Community Memorial Hospital Foundation",
+  "actual_subject": "Community Memorial Foundation website (cmfdn.org)"
+ },
+ {
+  "foundation_id": "53797857-0446-4b99-9349-85f6d2970e57",
+  "foundation_name": "Pali Community Center Committee",
+  "actual_subject": "Pacific Palisades Community Council (PPCC) website"
+ },
+ {
+  "foundation_id": "4adfff45-2ff1-4af4-bdf4-507bfe5d5e7a",
+  "foundation_name": "Nata Partners Foundation",
+  "actual_subject": "NATA Foundation (National Athletic Trainers' Association Research & Education Foundation) website"
+ },
+ {
+  "foundation_id": "4f4e4712-a71d-4ffd-896e-ac250fbd55d9",
+  "foundation_name": "Protecting Michigans Future Fund",
+  "actual_subject": "Fund MI Future coalition website (labor/tax-fairness policy advocacy coalition, not a grantmaking foundation)"
+ },
+ {
+  "foundation_id": "eba88534-681f-4638-9694-093597d13e3a",
+  "foundation_name": "Coalition of New York State",
+  "actual_subject": "New York Immigration Coalition (NYIC) website"
+ },
+ {
+  "foundation_id": "52b8e2ba-a4d1-4da7-ab2b-98fc102db0db",
+  "foundation_name": "Dupage Graue Mill Foundation",
+  "actual_subject": "DuPage Foundation website (a distinct community foundation in Downers Grove, IL)"
+ },
+ {
+  "foundation_id": "5b22d448-10da-460c-9e20-452e7e29be05",
+  "foundation_name": "Good Shepherd Hospital Medical Staff",
+  "actual_subject": "Advocate Health Care corporate/mission and Clinical Pastoral Education pages"
+ },
+ {
+  "foundation_id": "53a65dd2-540b-460b-84c1-9904320c7c21",
+  "foundation_name": "Texas Health Harris Methodist Hospital Hurst-Euless-Bedford Auxi",
+  "actual_subject": "Texas Health Resources (parent hospital system) corporate website"
+ },
+ {
+  "foundation_id": "12a6b599-d24f-4481-ad7f-18bd8ea05dc5",
+  "foundation_name": "Apa Local 2118",
+  "actual_subject": "International Brotherhood of Teamsters press releases (teamster.org)"
+ },
+ {
+  "foundation_id": "a28333a0-b031-4cba-aafd-6e0e4cc07971",
+  "foundation_name": "Roxanne And Henry Brandt Foundation",
+  "actual_subject": "The Brant Foundation website (Peter M. Brant's contemporary-art study center/museum, Greenwich CT and New York)"
+ },
+ {
+  "foundation_id": "be07e82f-135a-4419-8531-deb9ac962cac",
+  "foundation_name": "Gusti Brandt Foundation",
+  "actual_subject": "The Brant Foundation (Peter M. Brant contemporary-art museum/study center) website"
+ },
+ {
+  "foundation_id": "2eaf8a1a-ccb8-4263-b9bb-8fcaaa4e176c",
+  "foundation_name": "Morgan Lewis Foundation",
+  "actual_subject": "Morgan Lewis law firm website (client LawFlash/publications pages)"
+ },
+ {
+  "foundation_id": "3ecf362c-dd76-4452-a06b-2d31fd8f3da4",
+  "foundation_name": "Salt Lake Community College Foundation",
+  "actual_subject": "Salt Lake Community College's own institutional website (the college itself, not its Foundation) \u2014 no page mentions a Foundation entity"
+ },
+ {
+  "foundation_id": "4198f2f4-6f01-44e5-baa2-cba94c24b431",
+  "foundation_name": "Monticello School District Foundation",
+  "actual_subject": "Monticello school district's student-bulletin/announcements pages (lunch menus, sports schedules, dress-up days) \u2014 not the Foundation entity"
+ },
+ {
+  "foundation_id": "eac06fa0-860a-470c-a69b-09366e182e6f",
+  "foundation_name": "Trust for the Benefit of Minsi Trails Council",
+  "actual_subject": "Minsi Trails Council (Boy Scouts of America local council) operational website"
+ },
+ {
+  "foundation_id": "20e62a27-43d7-4f33-a4cf-3fb4d5b793da",
+  "foundation_name": "Mars Hq Regional Foundation",
+  "actual_subject": "Mars, Incorporated corporate website"
+ },
+ {
+  "foundation_id": "b3edb9e5-59e5-4852-9690-a75b0dbbdf60",
+  "foundation_name": "Sho Foundation",
+  "actual_subject": "New York Women's Foundation website"
+ },
+ {
+  "foundation_id": "062dc20f-9824-44b1-8b44-eb78af1ae5f0",
+  "foundation_name": "Weinig Foundation",
+  "actual_subject": "New York Women's Foundation website"
+ },
+ {
+  "foundation_id": "39b050ba-f792-4d16-8772-57307918eff7",
+  "foundation_name": "Ethnikos Kyrix National Herald Foundation",
+  "actual_subject": "The National Herald (thenationalherald.com) news-article archive covering unrelated third-party orgs (FCAO, Hellenic Initiative, Stavros Niarchos Foundation, Grant Thornton, Pan Gregorian Society, National Hellenic Society) \u2014 not the foundation's own site"
+ },
+ {
+  "foundation_id": "5fe3df50-180e-431e-a562-508dcb92d118",
+  "foundation_name": "Weinberg Newton Family Foundation",
+  "actual_subject": "Harry and Jeanette Weinberg Foundation website (hjweinbergfoundation.org) \u2014 a distinct, much larger foundation founded by Harry and Jeanette Weinberg"
+ },
+ {
+  "foundation_id": "91e6e987-8ab6-46ce-9b8c-a6393b9c7fc0",
+  "foundation_name": "Hawkeye Community College Foundation",
+  "actual_subject": "Hawkeye Community College's own institutional website (the college itself, not its charitable Foundation) \u2014 the word \"Foundation\" never appears anywhere in the crawled source"
+ },
+ {
+  "foundation_id": "35b6031a-86a1-4041-a059-cd9de11413e9",
+  "foundation_name": "Blank Charitable Foundation Inc",
+  "actual_subject": "Arthur M. Blank Family Foundation website"
+ },
+ {
+  "foundation_id": "c43b4ad7-9433-4b3f-b0cd-515536d0830c",
+  "foundation_name": "Nancy And Robert S Blank Foundation",
+  "actual_subject": "Arthur M. Blank Family Foundation website"
+ },
+ {
+  "foundation_id": "ccbc5f37-289e-4067-b3a3-ec8012c91323",
+  "foundation_name": "Cla Inc",
+  "actual_subject": "CliftonLarsonAllen (CLA) accounting/consulting firm's grant-writing service pages and staff directory"
+ },
+ {
+  "foundation_id": "e01e6fe3-01c0-4b59-a205-dc36a32e65c3",
+  "foundation_name": "Robert Bensen Meyer Jr Foundation Inc",
+  "actual_subject": "Meyer Foundation (Washington DC racial/economic-justice grantmaker, meyerfoundation.org) website"
+ },
+ {
+  "foundation_id": "28e90e1c-5265-4f48-b251-f12e978d15e5",
+  "foundation_name": "PEO Sisterhood Chapter GA-CA",
+  "actual_subject": "P.E.O. International (the national parent organization) website"
+ },
+ {
+  "foundation_id": "2ee05b54-bf94-4bcd-8a46-59f86ab16758",
+  "foundation_name": "Rosenberg Ebin Family Foundation",
+  "actual_subject": "Rosenberg Fund for Children (rfc.org) website"
+ },
+ {
+  "foundation_id": "fb97f272-570e-4e77-8d67-1e7dd226e75c",
+  "foundation_name": "Wsm Foundation",
+  "actual_subject": "Women's Foundation California website"
+ },
+ {
+  "foundation_id": "2b76ae4b-5461-49ac-b83b-e7907f36e3bf",
+  "foundation_name": "Wfcs Holdings Ii Llc",
+  "actual_subject": "Wonderful Foundations website (charter-school funding nonprofit; a bond-financed real-estate holding entity distinct from this LLC row)"
+ },
+ {
+  "foundation_id": "f873458d-4c42-4452-882e-938770402bae",
+  "foundation_name": "Disabled Veterans of Louisiana Auxilliary Chapter 4",
+  "actual_subject": "DAV Department of Louisiana (state department) website"
+ },
+ {
+  "foundation_id": "3d2566dc-0373-4d97-b64f-cf6648b496f2",
+  "foundation_name": "Medical Staff of St John Hospital & Medical Center",
+  "actual_subject": "Henry Ford Health system website (general health-system site, residency programs, physician directory, ACO filing \u2014 not the named Medical Staff organization)"
+ },
+ {
+  "foundation_id": "df21624b-e58f-4765-85f4-b8d805013024",
+  "foundation_name": "The Leon And Helen Weiner Foundation",
+  "actual_subject": "Leon N. Weiner Education Foundation (LNWEF) website"
+ },
+ {
+  "foundation_id": "4c89f450-853c-40b9-b7b8-f2018164f6c4",
+  "foundation_name": "Norm And Barb Johnson Family Foundation",
+  "actual_subject": "Norman Family Foundation, Inc. website"
+ },
+ {
+  "foundation_id": "21d26d09-9d0f-4a8e-84b6-dad333bde29a",
+  "foundation_name": "Bcbsm Foundation Inc",
+  "actual_subject": "Blue Cross and Blue Shield of Minnesota Foundation website"
+ },
+ {
+  "foundation_id": "bb6a7f6c-717c-4d17-8d75-147ce7f3ffc0",
+  "foundation_name": "Kentucky Elks Association Kids with Cancer Charitable Fund Inc",
+  "actual_subject": "Kentucky Elks Association (state lodge association) blog/news site"
+ },
+ {
+  "foundation_id": "f2e4e49c-105c-4bfa-87da-ad88575b871c",
+  "foundation_name": "Duke Medicine Global Support Corporation",
+  "actual_subject": "Duke Global (Duke University's international/global engagement office at global.duke.edu)"
+ },
+ {
+  "foundation_id": "b61c8a38-75b6-4eb1-80be-58eab0a5820c",
+  "foundation_name": "Operating Engineers Business Development",
+  "actual_subject": "Operating Engineers Funds Inc. website (IUOE Local 12 pension, health & welfare, vacation-holiday, and journeyman-apprentice training trust funds) \u2014 no \"Business Development\" fund appears anywhere in the source"
+ },
+ {
+  "foundation_id": "51689169-7ff9-422f-be1c-38629d3d6978",
+  "foundation_name": "Rotary Educational Foundation",
+  "actual_subject": "Rotary International's official website (rotary.org) \u2014 describes Rotary International's own grant programs and the Rotary Foundation, not a distinct 'Rotary Educational Foundation' entity"
+ },
+ {
+  "foundation_id": "c7bc7ea6-d72b-42e3-9d27-47013057dcc3",
+  "foundation_name": "Rotary/One Foundation Inc",
+  "actual_subject": "Rotary International (rotary.org) global website"
+ },
+ {
+  "foundation_id": "36c22a7b-21fb-4684-aa24-7e1593c0d964",
+  "foundation_name": "Richard H Driehaus Art Exhibition Lending Foundation",
+  "actual_subject": "The Richard H. Driehaus Foundation's own website (driehausfoundation.org) \u2014 a separate Driehaus-family grantmaker funding built environment/arts/investigative journalism; no page mentions art-exhibition lending"
+ },
+ {
+  "foundation_id": "cc98287e-b67f-4fd2-941e-1756b035cc17",
+  "foundation_name": "Civic Involvement Fund",
+  "actual_subject": "NYC Service (nycservice.org), an NYC Mayor's Office volunteerism program; no page identifies itself as \"Civic Involvement Fund\""
+ },
+ {
+  "foundation_id": "ba50772a-7afd-4b51-87d9-e72a79062723",
+  "foundation_name": "The Topeka Public Schools Foundation",
+  "actual_subject": "Topeka Public Schools (the school district) website \u2014 district operational pages, no Foundation-specific content"
+ },
+ {
+  "foundation_id": "b2eef800-5886-4135-ab37-d41cd4835dd5",
+  "foundation_name": "The Cordeiro Family Foundation",
+  "actual_subject": "Anthony F. Cordeiro Charitable Foundation website (EIN 82-1144802, Fall River MA) \u2014 a distinct entity from The Cordeiro Family Foundation (EIN 13-3926136, Ketchum ID)"
+ },
+ {
+  "foundation_id": "9a66b358-df24-4c31-81cb-a020fc6af48f",
+  "foundation_name": "Morris Foundation",
+  "actual_subject": "Morris Animal Foundation website (morrisanimalfoundation.org) \u2014 a large veterinary/animal-health research funder; source self-identifies throughout as \"Morris Animal Foundation,\" never as plain \"Morris Foundation\", and multiple distinct real \"Morris Foundation\"/\"Morris Family Foundation\" IRS entities exist"
+ },
+ {
+  "foundation_id": "4733b897-8f32-4a8c-bafa-4e744f9aa414",
+  "foundation_name": "Medical Mutual of Ohio Charitable Foundation",
+  "actual_subject": "Medical Mutual of Ohio consumer insurance website (medmutual.com) \u2014 the parent health insurer's product/enrollment pages, no foundation or grantmaking content"
+ },
+ {
+  "foundation_id": "97b6e41b-ba02-44c5-99a8-2ed82edbb825",
+  "foundation_name": "Southern Arizona Legal Initiative Inc",
+  "actual_subject": "Southern Arizona Legal Aid (SALA) website"
+ },
+ {
+  "foundation_id": "7a7f886e-503e-45b6-96c2-779f3f98db86",
+  "foundation_name": "Anna P Siromas Charitable Tr",
+  "actual_subject": "Anna's Cupboard (St. Louis-area ministry/furniture and food pantry) website"
+ },
+ {
+  "foundation_id": "89e93dca-2aa5-4610-b2f6-983b387081cb",
+  "foundation_name": "Greater Lowell Technical High School Charitable Foundation Inc",
+  "actual_subject": "Greater Lowell Technical High School (public vocational-technical school district) website"
+ },
+ {
+  "foundation_id": "00b0f1ca-899b-4b75-9d3b-95da664fd70f",
+  "foundation_name": "Columbus Capital Foundation Inc",
+  "actual_subject": "The Columbus Foundation website"
+ },
+ {
+  "foundation_id": "bd456b08-5335-4ccf-bb38-4192f4e4b177",
+  "foundation_name": "University of Kentucky Mining Engineering Foundation Inc",
+  "actual_subject": "University of Kentucky Mechanical & Aerospace Engineering / College of Engineering graduate-admissions pages (no mention of the Mining Engineering Foundation)"
+ },
+ {
+  "foundation_id": "9bcc818d-8bb7-476b-bd01-99ee53f98522",
+  "foundation_name": "John H Ellis Foundation Inc",
+  "actual_subject": "The Ellis Foundation website (theellisfoundation.org) \u2014 a scholarship organization founded by Danny and Willa Ellis; no 'John' appears anywhere in the source"
+ },
+ {
+  "foundation_id": "838a408c-d144-401d-98c0-455abb3dcdcb",
+  "foundation_name": "Cwa Joe Beirne Foundation",
+  "actual_subject": "CWA (Communications Workers of America) union website"
+ },
+ {
+  "foundation_id": "ac67649e-3f98-49b1-8084-a1ca9867edaf",
+  "foundation_name": "Arthur And Edith Stern Family Foundation",
+  "actual_subject": "Stern Family Charitable Trust (sternfamilyfund.org) scholarship/community-giving website \u2014 different Stern-named entity"
+ },
+ {
+  "foundation_id": "239f58a3-071e-4512-ae9f-55bed5e311f3",
+  "foundation_name": "Stefano La Sala Foundation Inc",
+  "actual_subject": "Stefano Foundation (Barque Stefano shipwreck heritage nonprofit, Australia) \u2014 different organization"
+ },
+ {
+  "foundation_id": "091304f6-0fd0-4d5d-804a-051076abc2a6",
+  "foundation_name": "Chavie Stern Family Foundation Inc",
+  "actual_subject": "Stern Family Charitable Trust (sternfamilyfund.org) scholarship/community-giving website \u2014 different Stern-named entity"
+ },
+ {
+  "foundation_id": "84788874-7b44-434c-add3-ada46fbef2a5",
+  "foundation_name": "Stuart Family Foundation Inc",
+  "actual_subject": "Stuart Foundation website (the California/Washington education philanthropy; source never uses the word \"Family\" and identifies itself only as \"The Stuart Foundation\")"
+ },
+ {
+  "foundation_id": "664fbd45-8394-4930-b232-296201c658ea",
+  "foundation_name": "Mds Charitable Foundation",
+  "actual_subject": "The MDS Foundation website (global myelodysplastic syndromes patient-advocacy nonprofit, unrelated org sharing the MDS acronym)"
+ },
+ {
+  "foundation_id": "9391e729-7794-4aed-9bca-f9571c475061",
+  "foundation_name": "YMBL Sunshine Foundation",
+  "actual_subject": "Austin Sunshine Camps website"
+ },
+ {
+  "foundation_id": "c82c2e72-8454-41c8-9679-a6c93662cc71",
+  "foundation_name": "Catholic Charities Foundation",
+  "actual_subject": "Catholic Charities, Diocese of Des Moines website (social-services agency, not a foundation)"
+ },
+ {
+  "foundation_id": "568fc539-4c4b-4d73-b9ae-c51c9756f20a",
+  "foundation_name": "G Harbaugh Foundation",
+  "actual_subject": "The Honor Foundation (honor.org) website"
+ },
+ {
+  "foundation_id": "129c4bce-a246-460b-8df9-570180ad67fc",
+  "foundation_name": "Community Medical Center Auxiliary Association Gift Shop",
+  "actual_subject": "RWJBarnabas Health / Children's Specialized Hospital website"
+ },
+ {
+  "foundation_id": "503fd73c-338a-4b79-977f-df4905b76c30",
+  "foundation_name": "Auxiliary of the Robert Wood Johnson University Hospital",
+  "actual_subject": "RWJBarnabas Health / Robert Wood Johnson University Hospital website (parent health system, not the hospital's Auxiliary)"
+ },
+ {
+  "foundation_id": "9432d8db-57c2-4a8b-8e07-171644cf3fa9",
+  "foundation_name": "Muriel M Morris Educational Foundation",
+  "actual_subject": "Morris Educational Foundation (Morris School District, Morristown NJ) website"
+ },
+ {
+  "foundation_id": "4ef648de-f5ee-4d9b-9ffb-dd708a1642f7",
+  "foundation_name": "Ahepa National Housing Corporation",
+  "actual_subject": "Order of AHEPA (parent membership/fraternal association) website \u2014 no mention of the National Housing Corporation subsidiary"
+ },
+ {
+  "foundation_id": "2af5b548-9467-4741-a1d4-fa929203b2ca",
+  "foundation_name": "Hutchinson Community College Endowment Association",
+  "actual_subject": "Hutchinson Community College's own website (admissions, financial aid, campus store, HR), not the separate Endowment Association"
+ },
+ {
+  "foundation_id": "5d30292d-7743-4301-9ee8-530763255040",
+  "foundation_name": "New Israel American Education Fund Inc",
+  "actual_subject": "New Israel Fund (NIF, nif.org) website"
+ },
+ {
+  "foundation_id": "d2a96e05-188b-4b4f-a015-3b05c48892b5",
+  "foundation_name": "Don Root   Tularosa Basin Chapter Of The Military Officers America",
+  "actual_subject": "MOAA (Military Officers Association of America) national website \u2014 generic national news/chapter-program content, no Tularosa Basin chapter-specific content"
+ },
+ {
+  "foundation_id": "de22d182-1310-45a9-8045-94c50123b7e8",
+  "foundation_name": "Greene Family Foundation Inc",
+  "actual_subject": "Green Family Foundation website (Daniel B. & Florence E. Green Foundation, Conshohocken PA)"
+ },
+ {
+  "foundation_id": "3a6ebc0e-20d6-4679-b99d-73b3f862f599",
+  "foundation_name": "Greenly Family Foundation",
+  "actual_subject": "Green Family Foundation website (Daniel B. & Florence E. Green Foundation, Conshohocken PA)"
+ },
+ {
+  "foundation_id": "f7e9c531-4a42-4135-97e2-d5af2efff241",
+  "foundation_name": "Michael Sullivan Family Foundation Inc",
+  "actual_subject": "Sullivan Family Charitable Foundation website (trustees Patrick & Carolyn Sullivan, not Michael Sullivan)"
+ },
+ {
+  "foundation_id": "90a87278-f128-4d07-b336-784399671406",
+  "foundation_name": "Cray Medical Research Foundation",
+  "actual_subject": "Cray-Seaberg Family Foundations website (grantor org; Cray Medical Research Foundation is named there only as a grantee)"
+ },
+ {
+  "foundation_id": "3afc22b4-dda5-4ff0-b700-41848e360bda",
+  "foundation_name": "Ave Maria University Land Trust Inc",
+  "actual_subject": "Ave Maria University website (the operating university itself, not the Land Trust entity)"
+ },
+ {
+  "foundation_id": "2165df45-5b82-4d7d-84b7-ec5d35a682d1",
+  "foundation_name": "Americas Charitable Foundation",
+  "actual_subject": "CAF America (Charities Aid Foundation America) website"
+ },
+ {
+  "foundation_id": "3619f414-78c9-4fad-89c9-48a5743e82f1",
+  "foundation_name": "Gladys Gerrity Scholarship Tr",
+  "actual_subject": "The Gladys Foundation (Troy Morrison's employee-benefit foundation for North Texas Bells/Wings and Memphis Wings restaurant franchises, honoring his mother Gladys)"
+ },
+ {
+  "foundation_id": "69564472-1237-40a7-9cc7-44f9d55f66c4",
+  "foundation_name": "Russert Family Foundation Inc",
+  "actual_subject": "The Russell Family Foundation (trff.org, Tacoma WA) website"
+ },
+ {
+  "foundation_id": "c5c0a9c0-5ae1-4ca3-8902-68e5fc09213e",
+  "foundation_name": "Jill And William Steinberg Family Foundation",
+  "actual_subject": "Steinberg Family Charitable Fund (memorial fund for Bruce Steinberg's family, founded by his sister Tamara Steinberg Jacobson \u2014 different founders, different organization)"
+ },
+ {
+  "foundation_id": "765952d5-f0ea-4d38-95e5-e53e3156d4ba",
+  "foundation_name": "Brooks Mccormick Jr Tr For Animal Rights Law And Policy",
+  "actual_subject": "The Brooks Institute (animal law think-and-do tank / digest publisher) website at thebrooksinstitute.org \u2014 a distinct operating institute, not the Trust's own site"
+ },
+ {
+  "foundation_id": "059d05f7-5166-415a-953b-09ad7b2b47a5",
+  "foundation_name": "Creative Capital Impact Organization Inc",
+  "actual_subject": "Creative Capital Foundation website (EIN 31-1605982, NYC arts grantmaker) \u2014 wrong org; the named foundation is EIN 84-3906590, Rockville MD"
+ },
+ {
+  "foundation_id": "5abc61f9-76ce-4b82-8787-4065102dd9df",
+  "foundation_name": "Farmers Educational & Cooperative Union",
+  "actual_subject": "Montana Farmers Union website (state affiliate, not the national body)"
+ },
+ {
+  "foundation_id": "9888351d-ce9d-4447-a49c-5b982ded9ce0",
+  "foundation_name": "Sarah Bush Lincoln Health Center Guild",
+  "actual_subject": "Sarah Bush Lincoln Health Foundation website"
+ },
+ {
+  "foundation_id": "b9f6be87-9b62-486c-9d55-6ef51f523804",
+  "foundation_name": "Polish National Alliance No 905",
+  "actual_subject": "Polish National Alliance (national fraternal organization) website, pna-znp.org \u2014 no content specific to Lodge/Group No. 905 anywhere in the source, only national-level news, other numbered local lodges (664, 352, 1052, 1120), and member-wide programs"
+ },
+ {
+  "foundation_id": "36774b3f-8549-4ac5-991a-c9f07eef377e",
+  "foundation_name": "Ray A and Kathryn A Eckstein School Sisters of St Francis Charitable T",
+  "actual_subject": "School Sisters of St. Francis (SSSF) congregation website \u2014 the beneficiary congregation's own donation-solicitation site, not the Eckstein trust"
+ },
+ {
+  "foundation_id": "dbd643d3-e666-4f78-a899-9fd338a8b1c7",
+  "foundation_name": "199 Philanthropic Fund",
+  "actual_subject": "1199SEIU Benefit and Pension Funds website \u2014 a labor union's closed member-benefit/training fund, not a philanthropic grantmaking fund"
+ },
+ {
+  "foundation_id": "3b32f575-86a4-474b-a51d-f5ec2bf5d503",
+  "foundation_name": "Boy Scouts of America",
+  "actual_subject": "Greater New York Councils (local BSA council) website"
+ },
+ {
+  "foundation_id": "59cb36c2-7dd3-4498-a72f-e39b13736aa1",
+  "foundation_name": "Benevolent & Protective Order of Elks of the USA",
+  "actual_subject": "Illinois State Elks Association website (a state affiliate, not the national Grand Lodge)"
+ },
+ {
+  "foundation_id": "5a33feaf-05bd-42b1-8052-ed650b21d03f",
+  "foundation_name": "Benevolent & Protective Order of Elks of the USA",
+  "actual_subject": "Illinois State Elks Association website (a state affiliate, not the national Grand Lodge)"
+ },
+ {
+  "foundation_id": "cf331892-1358-44e5-8711-b50dd6be58ff",
+  "foundation_name": "Hart Emc Foundation",
+  "actual_subject": "Hart EMC electric cooperative website (the parent electric membership co-op's own operational site \u2014 billing, meters, capital credits, service rules; the word \"Foundation\" appears nowhere in the source)"
+ },
+ {
+  "foundation_id": "fc00e3ee-6d45-48df-8c7b-a0b073fd1018",
+  "foundation_name": "Benevolent & Protective Order of Elks of the USA",
+  "actual_subject": "Illinois State Elks Association website (a separately incorporated 1964 state affiliate, not the national Order)"
+ },
+ {
+  "foundation_id": "7ca4b22e-7d74-49fa-8139-2558ab5f3167",
+  "foundation_name": "Animas Foundation",
+  "actual_subject": "The Nature Conservancy website (nature.org) \u2014 no mention of Animas Foundation anywhere in the source"
+ },
+ {
+  "foundation_id": "5be445e3-9ec6-4be3-a436-040a61abbdac",
+  "foundation_name": "Pinnacle Health Auxilary of Harrisburg Pennsylvania",
+  "actual_subject": "UPMC Pinnacle Foundation website (hospital fundraising foundation; Pinnacle Health Auxiliary appears only as one of many designation options, not as the site's own subject)"
+ },
+ {
+  "foundation_id": "c6b2c179-747b-44cb-a3ed-cf858f61b494",
+  "foundation_name": "American Legion Sal Squardron 326",
+  "actual_subject": "Sons of the American Legion Detachment of Michigan (SAL Michigan) statewide website \u2014 no mention of Squadron 326 specifically"
+ },
+ {
+  "foundation_id": "a0701193-fdb8-48f2-9807-10d04b58825b",
+  "foundation_name": "Eugene M Adler Family Fund",
+  "actual_subject": "Rita and Jeffrey Adler Family Foundation (RJAFF) website"
+ },
+ {
+  "foundation_id": "aa32ae24-7aaf-43c1-b02f-b1ac1cc51876",
+  "foundation_name": "The Horowitz Family Foundation",
+  "actual_subject": "Horowitz Foundation for Social Policy website"
+ },
+ {
+  "foundation_id": "deb1404e-b951-42f3-b0f0-bb1b8d0dabe3",
+  "foundation_name": "Tiger Baron Foundation Inc",
+  "actual_subject": "Tiger Foundation (tigerfoundation.org) website"
+ },
+ {
+  "foundation_id": "277c4e04-a0e1-48de-b869-3d983aea00da",
+  "foundation_name": "Tiger Global Philanthropic Ventures Inc",
+  "actual_subject": "Tiger Foundation (tigerfoundation.org) website"
+ },
+ {
+  "foundation_id": "f8286053-950b-487c-8c84-6f7cda3bf249",
+  "foundation_name": "Cancer Care Foundation Inc",
+  "actual_subject": "CancerCare (Cancer Care, Inc.) website \u2014 a national direct-service nonprofit's patient counseling, workshops and co-payment-assistance content; pages self-identify only as \"Cancer*Care*\"/\"Cancer Care, Inc.\", never as \"Cancer Care Foundation Inc\""
+ },
+ {
+  "foundation_id": "243350dd-0f95-41d2-8ce7-7a4b529e2948",
+  "foundation_name": "Matthew Six Ten Foundation",
+  "actual_subject": "Matthew 6 Foundation website (matthew6foundation.com, Naples FL) \u2014 a distinct Christian family foundation named for Matthew chapter 6, not \"Matthew Six Ten\" (Matthew 6:10)"
+ },
+ {
+  "foundation_id": "20c877bb-32fc-475f-aef1-6a2d3b8dc1b7",
+  "foundation_name": "Murphy Burkhardt Family Charitable Foundation Tr",
+  "actual_subject": "Burkhart Family Foundation website (unrelated trade-school scholarship charity, Albuquerque NM)"
+ },
+ {
+  "foundation_id": "c4137d94-5ab8-4e09-915d-89e825a0675f",
+  "foundation_name": "Bader Family Foundation",
+  "actual_subject": "Bader Philanthropies website"
+ },
+ {
+  "foundation_id": "058f9c2e-5827-4f83-9c2a-1bcc3fe90007",
+  "foundation_name": "Scottish Rite Foundation Of Texas",
+  "actual_subject": "Scottish Rite for Children hospital website"
+ },
+ {
+  "foundation_id": "145c77bc-5753-4bcd-9cfb-2fcaa9dfd363",
+  "foundation_name": "Mep Foundation",
+  "actual_subject": "NY Manufacturing Extension Partnership (NY MEP) website"
+ },
+ {
+  "foundation_id": "b152cf7a-2c5f-499d-a4ee-e6658726b5c2",
+  "foundation_name": "George Backer Family Foundation Inc",
+  "actual_subject": "George Family Foundation website (Bill and Penny George's Minneapolis foundation)"
+ },
+ {
+  "foundation_id": "2abbeb82-8e46-401b-97eb-35bfe7d21866",
+  "foundation_name": "Global Foundation",
+  "actual_subject": "PA Foundation (Physician Assistant Foundation) website"
+ },
+ {
+  "foundation_id": "62088c0e-9f64-4421-bde0-aef28cacdc46",
+  "foundation_name": "Pi Beta Phi House Association",
+  "actual_subject": "Pi Beta Phi national sorority/fraternity website (parent membership organization and its national scholarship Foundation, not a chapter House Association)"
+ },
+ {
+  "foundation_id": "62d03bf5-6f5b-450b-84cd-6b82001d832c",
+  "foundation_name": "National Society of the Daughters of the American Revolution",
+  "actual_subject": "New York State Society of the Daughters of the American Revolution (nydar.org) \u2014 a state affiliate, not the national NSDAR organization"
+ },
+ {
+  "foundation_id": "9920579d-436a-465f-84fe-29b8b6dae1a4",
+  "foundation_name": "Community Living Concepts Inc",
+  "actual_subject": "Community Concepts, Inc. (CCI, ccimaine.org) \u2014 a Maine community action agency, a differently-named organization"
+ },
+ {
+  "foundation_id": "b6798079-83cb-4bff-8cf5-6d7b506e8efd",
+  "foundation_name": "Davison Educational Foundation",
+  "actual_subject": "Davison Community Schools website (K-12 public school district; foundation only appears as a nav-menu link, no foundation content captured)"
+ },
+ {
+  "foundation_id": "bc415de6-80d0-4307-ac79-c3b2e0cde295",
+  "foundation_name": "Cooper Hansen Foundation",
+  "actual_subject": "Cooper Charitable Foundation / Cooper Foundation website (Raleigh NC housing-stability grantmaker founded by John Cooper; no 'Hansen' anywhere in source)"
+ },
+ {
+  "foundation_id": "35abc36d-8a24-47c0-aad0-2b7474ef7a8d",
+  "foundation_name": "Monterey Collegiate Foundation",
+  "actual_subject": "Monterey Peninsula College Foundation website"
+ },
+ {
+  "foundation_id": "8b7891b3-ba0e-4f3a-9c66-073bffc25b4c",
+  "foundation_name": "Ira Decamp Foundation Under The Will Of Elizabeth Decamp Mcinerny",
+  "actual_subject": "JPMorgan Chase & Co. corporate wealth-management website (generic account-access how-to pages and regulatory disclosures, unrelated to the foundation)"
+ },
+ {
+  "foundation_id": "51980350-2743-49fe-af4c-5561441e787d",
+  "foundation_name": "Msma Health Education Foundation",
+  "actual_subject": "Missouri State Medical Association (MSMA) trade-association website"
+ },
+ {
+  "foundation_id": "8d8855b5-825a-4939-9600-8afc2ec4f49d",
+  "foundation_name": "Anacortes Rotary Charitableassociation",
+  "actual_subject": "Rotary District 5050 website (multi-club district umbrella, not the Anacortes club's own charitable association)"
+ },
+ {
+  "foundation_id": "59e01d1b-150b-4242-8a79-9c546dd1fe73",
+  "foundation_name": "Employees Community Action Council",
+  "actual_subject": "Capstone Community Action (Vermont community action agency) website"
+ },
+ {
+  "foundation_id": "9060a83d-fd93-4b1b-a804-cb96ab27b680",
+  "foundation_name": "Public Safety Coordination Associates",
+  "actual_subject": "APCO International website (Association of Public-Safety Communications Officials)"
+ },
+ {
+  "foundation_id": "e98460ba-b4c0-429f-b468-259abe02ff31",
+  "foundation_name": "Harvey L Kanter Foundation",
+  "actual_subject": "Kantner Foundation, Inc. website (Florida scholarship foundation founded by Woodrow A. Kantner)"
+ },
+ {
+  "foundation_id": "5369f474-b4c2-417c-a623-5bb12f5fdbb9",
+  "foundation_name": "Swedish Council of America Foundation",
+  "actual_subject": "Swedish American Museum website (Andersonville, Chicago)"
+ },
+ {
+  "foundation_id": "f0228006-33e1-4da7-819a-b941c67a8021",
+  "foundation_name": "Independent Order of Oddfellows 232",
+  "actual_subject": "California Grand Lodge / Rebekah Assembly of the IOOF general statewide website (caioof.org) \u2014 Lodge #232 (Santa Barbara Lodge) appears only as one row in a multi-lodge directory, with no content of its own"
+ },
+ {
+  "foundation_id": "ce98bd75-0e1a-44f8-a4bc-f2dc20c2124c",
+  "foundation_name": "The Congregational Church Fund",
+  "actual_subject": "National Association of Congregational Christian Churches (NACCC) website"
+ },
+ {
+  "foundation_id": "ec0769c7-0c2c-453c-8fcc-0940c20abf59",
+  "foundation_name": "Community College of Allegheny County-Education Foundation",
+  "actual_subject": "Community College of Allegheny County (the parent college's general site, not the affiliated Education Foundation's own content)"
+ },
+ {
+  "foundation_id": "d6013f76-f325-4d09-8bf5-49218e2c6934",
+  "foundation_name": "Alex Mcmillan Family Foundation",
+  "actual_subject": "The McMillan Family Foundation website (themcmillanfamilyfoundation.org) \u2014 founded 2024 by Drs. Ced and LaChish McMillan; extensive about-page names the founders and all five children plus the grandparents behind its legacy grant, with no 'Alex' McMillan mentioned anywhere in the source"
+ },
+ {
+  "foundation_id": "4f895366-6a0d-4c55-bca6-7e0f3ce2c2d2",
+  "foundation_name": "Syracuse-Rotary Foundation Inc",
+  "actual_subject": "Rotary Club of Syracuse, Inc. website (the club itself, not a separate foundation entity \u2014 grants are administered through the unrelated Central New York Community Foundation, not any self-titled Syracuse-Rotary Foundation)"
+ },
+ {
+  "foundation_id": "469b0050-639c-4915-8849-d37417fd068c",
+  "foundation_name": "Catholic Schools Foundation of The",
+  "actual_subject": "Idaho Catholic Foundation website"
+ },
+ {
+  "foundation_id": "780986f9-4b01-4498-8e20-628e950de5fe",
+  "foundation_name": "Phil N Allen Charitable Trust",
+  "actual_subject": "Allen Family Philanthropies website"
+ },
+ {
+  "foundation_id": "94a8fdeb-2f1c-478b-a689-902703c9569c",
+  "foundation_name": "Sweet Grass Health Care Foundation Inc",
+  "actual_subject": "Sweet Grass Community Foundation website (Big Timber, MT)"
+ },
+ {
+  "foundation_id": "3cc1d990-e3dd-4431-84c1-87c99e15be57",
+  "foundation_name": "Pinon Trail Foundation",
+  "actual_subject": "Pi\u00f1on Foundation website (Dallas, TX scholarship funder, unrelated Denver CO org)"
+ },
+ {
+  "foundation_id": "510cfe2d-3d37-4517-b56e-66be927de486",
+  "foundation_name": "Father Jim Offutt Foundation",
+  "actual_subject": "Offutt Family Foundation / R.D. Offutt Company press mentions (Threemile Canyon Farms and R.D. Offutt Farms blogs)"
+ },
+ {
+  "foundation_id": "b9b3752e-0af5-4f8d-b696-c915211ff289",
+  "foundation_name": "Tom Slick Memorial for Southwest Research Institute",
+  "actual_subject": "Southwest Research Institute (SwRI) corporate website \u2014 the operating research institute itself, not the Tom Slick Memorial fund that supports it"
+ },
+ {
+  "foundation_id": "5dc712eb-71ec-47b4-8e2a-21b8dffcd4bd",
+  "foundation_name": "Kf Impact Foundation",
+  "actual_subject": "Impact Foundation (Lenexa, KS) impact-investing/donor-advised platform website \u2014 a differently-named organization with no 'KF' branding anywhere in the source"
+ },
+ {
+  "foundation_id": "538fb306-e279-4cbd-88f4-ebb5335a00b3",
+  "foundation_name": "Christus Connected Care Network",
+  "actual_subject": "CHRISTUS Health general hospital-system website (parent Catholic health system; no page describes a distinct \"Connected Care Network\" entity, and none names it anywhere)"
+ },
+ {
+  "foundation_id": "e8da2f9c-b9ce-4a8b-9406-30b9d761e677",
+  "foundation_name": "Graves Technologies Foundation",
+  "actual_subject": "Graves' Disease & Thyroid Foundation (GDATF) website \u2014 a patient-advocacy nonprofit for people with Graves' disease/thyroid disorders; name overlap on \"Graves\" only, unrelated organization"
+ },
+ {
+  "foundation_id": "52e4f4a2-e183-41d9-9506-0f0d112b233f",
+  "foundation_name": "Tov Family Foundation Inc",
+  "actual_subject": "Tov V'Chesed Foundation, Inc. website (Orthodox Jewish orphan/family-support charity, Spring Valley NY)"
+ },
+ {
+  "foundation_id": "adbe35f7-2d9c-4fd4-842c-73e6db259764",
+  "foundation_name": "Hemant Shah Family Foundation Inc",
+  "actual_subject": "The Shah Family Foundation website (Jill and Niraj Shah's Boston-based education/health/community foundation \u2014 a different Shah family, no 'Hemant' mentioned anywhere)"
+ },
+ {
+  "foundation_id": "f876c43e-2508-47ef-a552-3c8e9af07348",
+  "foundation_name": "Henry H Uihlein And Marion S Uihlein Foundation Inc",
+  "actual_subject": "Henry II and Mildred A. Uihlein Foundation (Heaven Hill Farm / HUF) website \u2014 different Uihlein-family foundation, spouse name Mildred A. not Marion S."
+ },
+ {
+  "foundation_id": "3ff8bb32-9491-4901-953d-d4e989d9878f",
+  "foundation_name": "The Green Oak Foundation",
+  "actual_subject": "Oak Foundation website (oakfnd.org) \u2014 unrelated large international foundation, no mention of \"Green Oak\""
+ },
+ {
+  "foundation_id": "2114f7a4-de8e-4f0b-8c0e-4b0282019c42",
+  "foundation_name": "The Mary E Babcock Foundation",
+  "actual_subject": "Mary Reynolds Babcock Foundation website (mrbf.org) \u2014 different Babcock foundation, no mention of \"Mary E\""
+ },
+ {
+  "foundation_id": "56668bed-140b-40e7-96ad-08d7592819ae",
+  "foundation_name": "Tw Little Jw Tw Tr B",
+  "actual_subject": "jw.org (Jehovah's Witnesses / Watchtower Bible and Tract Society of New York) global privacy-policy pages \u2014 generic parent-site content, not this specific entity's own page"
+ },
+ {
+  "foundation_id": "124ca1e9-8977-4f00-aa9e-72d8e1592557",
+  "foundation_name": "George Frey Trust Fbo Emaus Orphan House",
+  "actual_subject": "Lower Swatara Township Historic Preservation Society website"
+ },
+ {
+  "foundation_id": "1c731e48-c4bb-46c9-b11f-caf95af44901",
+  "foundation_name": "United Way of Dickson County",
+  "actual_subject": "United Way of Greater Nashville website"
+ },
+ {
+  "foundation_id": "2b152ce7-2b1f-4925-863e-82c5f412fc2e",
+  "foundation_name": "Latta Schools Educational Foundation Inc",
+  "actual_subject": "Latta School District (Dillon District 3) website"
+ },
+ {
+  "foundation_id": "3606f095-dd88-44fe-b59e-367b6a248ef4",
+  "foundation_name": "Edmund F Boettcher Foundation",
+  "actual_subject": "Boettcher Foundation (Denver) website \u2014 the large statewide foundation founded 1937, a different organization from the named Edmund F Boettcher Foundation"
+ },
+ {
+  "foundation_id": "3bcdb7b5-c10f-41c9-bcbd-7b194b4d2684",
+  "foundation_name": "Stanley Fund for the Broad Institute",
+  "actual_subject": "Broad Institute website"
+ },
+ {
+  "foundation_id": "42177d37-4eba-43f5-b4f3-4c92a99c86bd",
+  "foundation_name": "Uhrichsville Lodge 740 Loyal Order",
+  "actual_subject": "Ohio State Moose Association website (statewide fraternal association pages; \"Uhrichsville\" never appears in the source)"
+ },
+ {
+  "foundation_id": "4828d815-4469-4768-8fc0-5360cfb9f49e",
+  "foundation_name": "Jenks East Elementary PTA",
+  "actual_subject": "Jenks Public Schools district website (school-district pages spanning multiple unrelated elementary schools, not the PTA's own site/content)"
+ },
+ {
+  "foundation_id": "4e2dcdf7-f976-40d4-80c8-7dd1228ff99d",
+  "foundation_name": "East Liverpool Lodge 122 Loyal Order of Moose",
+  "actual_subject": "Ohio State Moose Association (ohiomoose.net) website"
+ },
+ {
+  "foundation_id": "5180d3da-b1d7-4725-81cb-2c98e83d762a",
+  "foundation_name": "Constantinople Armenian Relief Society Inc",
+  "actual_subject": "Armenian Relief Society, Inc. (ars1910.org) national/international organization website"
+ },
+ {
+  "foundation_id": "543f57e3-6d54-4437-8032-0cf63ca34098",
+  "foundation_name": "Elyria Lodge 778 Loyal Order of Moose",
+  "actual_subject": "Ohio State Moose Association website (ohiomoose.net); Elyria not mentioned at all"
+ },
+ {
+  "foundation_id": "6136dac0-e223-48ae-86bf-bc8188b95d6e",
+  "foundation_name": "Ravenna Lodge 1234 Loyal Order of Moose",
+  "actual_subject": "Ohio State Moose Association website (ohiomoose.net); Ravenna Lodge 1234 named only once in a passing news blurb"
+ },
+ {
+  "foundation_id": "59f985f1-860c-497b-a630-dc2591656cb0",
+  "foundation_name": "Unite Here Education and Support Fund",
+  "actual_subject": "UNITE HERE International Union's general advocacy/news website (unitehere.org); no mention of an Education and Support Fund"
+ },
+ {
+  "foundation_id": "62079dab-fbc3-43d2-abe8-d9d7f256000f",
+  "foundation_name": "World Zoroastrian Organization US Region Ltd",
+  "actual_subject": "World Zoroastrian Organisation (WZO) UK-headquartered global body's own website (w-z-o.org) \u2014 UK charity office in Feltham, SORP accounting (UK-only charity accounting standard), UK company-secretarial matters; no content ties the site to a distinct US Region legal entity"
+ },
+ {
+  "foundation_id": "848e97c2-d424-4a27-b077-94d6a4ba1b54",
+  "foundation_name": "Lowell Lodge No 2382 Loyal Order of Moose",
+  "actual_subject": "Ohio State Moose Association (ohiomoose.net) \u2014 state-level umbrella association covering 89 Ohio lodges, not the specific Lowell Lodge No 2382"
+ },
+ {
+  "foundation_id": "ce5dff52-a5d3-4313-9a2c-21c945613175",
+  "foundation_name": "Brewster Lodge 1102 Loyal Order of Moose",
+  "actual_subject": "Ohio State Moose Association website"
+ },
+ {
+  "foundation_id": "e9d64924-2d3f-42c8-8a54-52bf17511b7e",
+  "foundation_name": "Cambridge Lodge 631 Loyal Order of Moose",
+  "actual_subject": "Ohio State Moose Association website (ohiomoose.net) \u2014 a statewide umbrella site covering other named lodges (Lexington 2511, Hilliard 2236, Painesville 490, etc.); no content specific to Cambridge Lodge 631 appears anywhere in the source"
+ },
+ {
+  "foundation_id": "edb544d9-0d31-427c-8eb3-552fc31dfde5",
+  "foundation_name": "Upper Sandusky Lodge No 1093 Loyal Order of Moose",
+  "actual_subject": "Ohio State Moose Association (OSMA) statewide website \u2014 never names Upper Sandusky or Lodge 1093"
+ },
+ {
+  "foundation_id": "f671f238-52e5-46b0-a125-093db04befce",
+  "foundation_name": "Sid Peterson Memorial Hospital Auxiliary",
+  "actual_subject": "Peterson Health hospital website"
+ },
+ {
+  "foundation_id": "f8c46dad-68d8-4b73-bbd9-cfde7db1652b",
+  "foundation_name": "Advance Highlands Education",
+  "actual_subject": "Advance HE (UK higher-education membership and leadership-development body) website"
+ },
+ {
+  "foundation_id": "ce885228-36bb-4869-ac29-122db3e420b8",
+  "foundation_name": "Mobile Infirmary Auxiliary Inc",
+  "actual_subject": "Infirmary Health hospital system website (physician directory and general hospital service pages; no content about the Auxiliary itself)"
+ },
+ {
+  "foundation_id": "9aec0183-186a-4f98-a54d-16a88acde4e6",
+  "foundation_name": "Farmers Electric Education Foundation",
+  "actual_subject": "Farmers' Electric Cooperative, Inc. of New Mexico website (parent utility co-op, not the education foundation)"
+ },
+ {
+  "foundation_id": "4ef88797-ec4c-4419-bfce-f416863c6840",
+  "foundation_name": "Hillside Community Preparatory School",
+  "actual_subject": "Hillside School (private all-boys boarding/day prep school, Marlborough, MA)"
+ },
+ {
+  "foundation_id": "c4f41390-c668-4b7d-b027-ab9eb044705b",
+  "foundation_name": "Edson & Margaret Larson Foundation",
+  "actual_subject": "UND Alumni Association & Foundation website"
+ },
+ {
+  "foundation_id": "b61a7c57-dd29-4157-8156-b395da574a26",
+  "foundation_name": "Clear Lake Community School Foundation Inc",
+  "actual_subject": "Clear Lake Community School District website"
+ },
+ {
+  "foundation_id": "ec9ce31c-34f3-46a2-9fc9-c1ca08bf0470",
+  "foundation_name": "Doors of Hope Holding Corporation",
+  "actual_subject": "Doors of Hope Community, Inc. website (a distinct reentry-services nonprofit for formerly incarcerated women)"
+ },
+ {
+  "foundation_id": "c4f41390-c668-4b7d-b027-ab9eb044705b",
+  "foundation_name": "Edson & Margaret Larson Foundation",
+  "actual_subject": "UND Alumni Association & Foundation (UNDAAF) website"
+ },
+ {
+  "foundation_id": "491ebf1b-def4-409b-a2de-f9fe1e865c84",
+  "foundation_name": "Kadlec Auxiliary Inc",
+  "actual_subject": "Providence Health System website (providence.org) \u2014 zero mentions of \"Kadlec\" anywhere in the source"
+ },
+ {
+  "foundation_id": "a9d5dd59-6992-4e65-982a-4d62f2e5bc6f",
+  "foundation_name": "The@Max F Rosarius Charitable Foundation",
+  "actual_subject": "Maxim Charitable Foundation (MCF) \u2014 Maxim Healthcare Services employee-assistance/community-giving foundation"
+ },
+ {
+  "foundation_id": "c8f07d03-7144-437a-84e6-c79418951098",
+  "foundation_name": "Taylor Trust fbo ASU Foundation",
+  "actual_subject": "ASU Foundation general donor/fundraising website (President's Club, real estate giving, PitchFunder) \u2014 no mention of Taylor Trust anywhere in the source"
+ },
+ {
+  "foundation_id": "ea40a40c-9783-4762-97c2-cecb3e35a2d1",
+  "foundation_name": "First Housing Foundation Inc",
+  "actual_subject": "First Housing (for-profit HUD/FHA multifamily lending and compliance-training company, stockholder-owned, Tampa FL) \u2014 not the Foundation itself"
+ },
+ {
+  "foundation_id": "c1390b79-3399-49da-9574-c1a5494bfb28",
+  "foundation_name": "Rubin Family Harvest Foundation",
+  "actual_subject": "The Rubin Foundation (migrant-aid nonprofit) website"
+ },
+ {
+  "foundation_id": "efcc6608-b8a6-46c4-bb99-15fe204b765a",
+  "foundation_name": "Lawrence P Frank Foundation",
+  "actual_subject": "The Lawrence Foundation (Santa Monica, CA, founded by Jeff Lawrence and Diane Troth) website"
+ },
+ {
+  "foundation_id": "0f2bc19d-50c3-4f5f-8546-be81cc0e9fce",
+  "foundation_name": "The Lawrence And Diedre Gordon Foundation",
+  "actual_subject": "The Lawrence Foundation website (Jeff Lawrence & Diane Troth, Santa Monica, CA)"
+ }
+]
