@@ -242,11 +242,13 @@ his Todoist "Operator Steps" project **in the same breath as telling him**:
 ```
 
 Every step carries a reference number at the front of its content (`TD12: …`),
-allocated by `add` and never reused. **Name a step by its TD number in every
-message to Nathan** — "pushed as TD12", "TD12 is done" — and read his replies
-the same way; it is the handle he uses from his phone. `list` prints the open
-steps by TD number and flags any without one (a step he added by hand);
-`number` gives those a number. Never hand-assign or reuse a number.
+allocated by `add` as one past the highest number Todoist still holds, open or
+completed. **Name a step by its TD number in every message to Nathan** —
+"pushed as TD12", "TD12 is done" — and read his replies the same way; it is the
+handle he uses from his phone. `list` prints the open steps by TD number and
+flags any without one (a step he added by hand); `number` gives those a number.
+Never hand-assign a number, and close steps rather than delete them — a deleted
+step's number comes back.
 
 The description must be self-contained — Nathan acts from his phone without the
 session log. Mark `done` only on verified completion (the job went green, the

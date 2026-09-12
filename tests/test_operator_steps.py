@@ -243,3 +243,51 @@ def test_completed_history_follows_the_cursor_within_a_window(ops, fake, monkeyp
     assert ops._next_number() == 51
     cursors = [q.get("cursor") for _, p, _, q in api.calls if "completed" in p]
     assert cursors == [None, "c2"]
+
+
+def test_done_refuses_when_two_open_steps_carry_the_same_number(ops, fake):
+    api = fake([_task("real", "TD51: mint the token"), _task("dup", "TD51: paste the block")])
+    with pytest.raises(SystemExit, match="TD51"):
+        ops.cmd_done(ops._parse_args(["done", "TD51"]))
+    assert not any(p.endswith("/close") for _, p, _, _ in api.calls)
+
+
+def test_open_tasks_and_projects_follow_the_cursor_past_the_first_page(ops, monkeypatch):
+    calls = []
+    pages = {
+        ("/projects", None): {"results": [{"id": "x", "name": "Inbox"}], "next_cursor": "p2"},
+        ("/projects", "p2"): {"results": [_PROJECT], "next_cursor": None},
+        ("/tasks", None): {"results": [_task("a", "TD1: one")], "next_cursor": "t2"},
+        ("/tasks", "t2"): {"results": [_task("b", "TD60: on page two")], "next_cursor": None},
+        ("/tasks/completed/by_completion_date", None): {"items": []},
+    }
+
+    def paged(method, path, body=None, query=None):
+        calls.append((method, path, query))
+        return pages[(path, (query or {}).get("cursor"))]
+
+    monkeypatch.setattr(ops, "_request", paged)
+    monkeypatch.setattr(ops, "_now_iso", lambda: "2026-09-13T00:00:00Z")
+    assert ops._next_number() == 61
+    assert [q.get("cursor") for m, p, q in calls if p == "/projects"] == [None, "p2"]
+    assert [q.get("cursor") for m, p, q in calls if p == "/tasks"] == [None, "t2"]
+    assert all(q.get("limit") == 200 for m, p, q in calls if p in ("/projects", "/tasks"))
+
+
+def test_a_freshly_created_project_allocates_from_now_without_a_created_at(ops, monkeypatch):
+    calls = []
+
+    def creating(method, path, body=None, query=None):
+        calls.append((method, path, query))
+        if (method, path) == ("GET", "/projects"):
+            return {"results": []}
+        if (method, path) == ("POST", "/projects"):
+            return {"id": "new-proj", "name": "Operator Steps"}
+        if (method, path) == ("GET", "/tasks"):
+            return {"results": []}
+        raise AssertionError(f"unexpected {method} {path}")
+
+    monkeypatch.setattr(ops, "_request", creating)
+    assert ops._next_number() == 1
+    assert ("POST", "/projects", None) in calls
+    assert not any("completed" in p for _, p, _ in calls)

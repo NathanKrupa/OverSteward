@@ -10,9 +10,10 @@ verified complete. The session log is not a to-do list.
 
 Every step carries a reference number at the front of its content — ``TD12:
 Paste the autoMode block`` — so Nathan can name it in chat ("TD12 is done").
-The number is allocated as one past the highest TD number the project has ever
-carried, counting open steps and the completed history, so a retired number is
-never reused. Todoist itself is the ledger; nothing is kept locally.
+The number is one past the highest TD number Todoist still holds for the
+project, open steps and completed history alike; nothing is kept locally.
+Close steps, never delete them — a deleted step's number would come back —
+and `done` refuses a reference that names more than one open step.
 
 Stdlib-only (urllib), like every canonical shared script, so it runs from any
 repo's venv or bare python3. The token is read in-process from the
@@ -46,7 +47,7 @@ _TIMEOUT = 15
 _ISO = "%Y-%m-%dT%H:%M:%SZ"
 # The completed-tasks endpoint refuses a window wider than about three months.
 _COMPLETED_WINDOW = dt.timedelta(days=90)
-_COMPLETED_PAGE = 200
+_PAGE = 200
 _TD_PREFIX = re.compile(r"^TD(\d+)\b", re.IGNORECASE)
 _TD_REF = re.compile(r"^(?:TD\s*)?(\d+)$", re.IGNORECASE)
 
@@ -88,11 +89,17 @@ def _request(method: str, path: str, body: dict | None = None, query: dict | Non
     return json.loads(raw) if raw else {}
 
 
-def _rows(payload) -> list[dict]:
-    """v1 endpoints wrap collections as {"results": [...]}; tolerate both shapes."""
-    if isinstance(payload, dict):
-        return payload.get("results", [])
-    return payload
+def _paged(path: str, query: dict | None = None, key: str = "results") -> list[dict]:
+    """Every v1 collection endpoint pages by next_cursor; read the whole collection."""
+    query = {**(query or {}), "limit": _PAGE}
+    rows: list[dict] = []
+    while True:
+        page = _request("GET", path, query=query)
+        rows.extend(page.get(key, []))
+        cursor = page.get("next_cursor")
+        if not cursor:
+            return rows
+        query = {**query, "cursor": cursor}
 
 
 def _now_iso() -> str:
@@ -100,14 +107,14 @@ def _now_iso() -> str:
 
 
 def _project() -> dict:
-    for project in _rows(_request("GET", "/projects")):
+    for project in _paged("/projects"):
         if project.get("name") == _PROJECT_NAME:
             return project
     return _request("POST", "/projects", body={"name": _PROJECT_NAME, "color": "red"})
 
 
 def _open_tasks(project_id: str) -> list[dict]:
-    return _rows(_request("GET", "/tasks", query={"project_id": project_id}))
+    return _paged("/tasks", {"project_id": project_id})
 
 
 def _td_number(content: str) -> int | None:
@@ -129,7 +136,13 @@ def _parse_ref(ref: str) -> int:
 
 
 def _completed_numbers(project: dict) -> list[int]:
-    """TD numbers of every completed step, paged in windows from the project's creation."""
+    """TD numbers of every completed step, in windows from the project's creation.
+
+    A project this run just created has no history; the create response is not
+    relied on to carry created_at.
+    """
+    if not project.get("created_at"):
+        return []
     numbers: list[int] = []
     since = dt.datetime.fromisoformat(project["created_at"]).replace(microsecond=0)
     now = dt.datetime.strptime(_now_iso(), _ISO).replace(tzinfo=dt.timezone.utc)
@@ -139,17 +152,9 @@ def _completed_numbers(project: dict) -> list[int]:
             "project_id": project["id"],
             "since": since.strftime(_ISO),
             "until": until.strftime(_ISO),
-            "limit": _COMPLETED_PAGE,
         }
-        while True:
-            page = _request("GET", "/tasks/completed/by_completion_date", query=query)
-            numbers.extend(
-                n for n in (_td_number(t.get("content", "")) for t in page.get("items", [])) if n
-            )
-            cursor = page.get("next_cursor")
-            if not cursor:
-                break
-            query = {**query, "cursor": cursor}
+        rows = _paged("/tasks/completed/by_completion_date", query, key="items")
+        numbers.extend(n for n in (_td_number(t.get("content", "")) for t in rows) if n)
         since = until
     return numbers
 
@@ -214,15 +219,20 @@ def cmd_number(_: argparse.Namespace) -> None:
 
 def cmd_done(args: argparse.Namespace) -> None:
     number = _parse_ref(args.ref)
-    for task in _open_tasks(_project()["id"]):
-        if _td_number(task["content"]) == number:
-            _request("POST", f"/tasks/{task['id']}/close")
-            print(f"done TD{number}: {_strip_prefix(task['content'])}")
-            return
-    sys.exit(
-        f"TD{number} is not an open operator step — already done, or never numbered "
-        "(run: operator_steps.py number)"
-    )
+    matches = [t for t in _open_tasks(_project()["id"]) if _td_number(t["content"]) == number]
+    if len(matches) > 1:
+        sys.exit(
+            f"TD{number} names {len(matches)} open steps — close the duplicate in Todoist "
+            "by hand before marking either done"
+        )
+    if not matches:
+        sys.exit(
+            f"TD{number} is not an open operator step — already done, or never numbered "
+            "(run: operator_steps.py number)"
+        )
+    task = matches[0]
+    _request("POST", f"/tasks/{task['id']}/close")
+    print(f"done TD{number}: {_strip_prefix(task['content'])}")
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:

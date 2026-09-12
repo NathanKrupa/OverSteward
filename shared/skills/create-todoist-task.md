@@ -46,11 +46,12 @@ content — `TD12: Pay the Neon invoice` — so Nathan can name it in chat ("TD1
 is done") without reading a Todoist id. Name a task by its TD number in every
 message about it, and read his replies the same way.
 
-Allocate the number as one past the highest TD number the project already
-carries, counting completed tasks as well as open ones, so a retired number is
-never reused:
+Allocate the number as one past the highest TD number Todoist still holds for
+the project, completed tasks as well as open ones. Close tasks rather than
+delete them — a deleted task's number comes back:
 
-1. Open tasks: `GET /api/v1/tasks?project_id=PROJECT_ID`
+1. Open tasks: `GET /api/v1/tasks?project_id=PROJECT_ID&limit=200`, following
+   `next_cursor` until it is null.
 2. Completed tasks: `GET /api/v1/tasks/completed/by_completion_date?project_id=PROJECT_ID&since=…&until=…&limit=200`,
    in windows of at most 90 days from the project's `created_at` to now,
    following `next_cursor` within each window.
