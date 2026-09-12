@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
 # ABOUTME: Operator-steps channel — pushes steps Nathan must perform to his Todoist
 # ABOUTME: "Operator Steps" project so they never get lost in a session log.
-"""CLI: add, list, and complete operator steps in Todoist.
+"""CLI: add, list, number and complete operator steps in Todoist.
 
 Doctrine (Nathan's order, 2026-08-19): whenever a session surfaces a step only
 Nathan can perform — a secret to mint, a settings paste, a dashboard click, an
 approval — it MUST also be pushed here, and marked done when the step is
 verified complete. The session log is not a to-do list.
+
+Every step carries a reference number at the front of its content — ``TD12:
+Paste the autoMode block`` — so Nathan can name it in chat ("TD12 is done").
+The number is allocated as one past the highest TD number the project has ever
+carried, counting open steps and the completed history, so a retired number is
+never reused. Todoist itself is the ledger; nothing is kept locally.
 
 Stdlib-only (urllib), like every canonical shared script, so it runs from any
 repo's venv or bare python3. The token is read in-process from the
@@ -17,13 +23,16 @@ Usage:
     operator_steps.py add "Paste the autoMode block into settings.json" \
         --description "…full instructions…" [--due tomorrow] [--priority 3]
     operator_steps.py list
-    operator_steps.py done <task-id>
+    operator_steps.py number          # give any unnumbered open step a TD number
+    operator_steps.py done TD12
 """
 
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
+import re
 import sys
 import urllib.error
 import urllib.parse
@@ -34,6 +43,12 @@ _TOKEN_KEY = "TODOIST_API_KEY"
 _API = "https://api.todoist.com/api/v1"
 _PROJECT_NAME = "Operator Steps"
 _TIMEOUT = 15
+_ISO = "%Y-%m-%dT%H:%M:%SZ"
+# The completed-tasks endpoint refuses a window wider than about three months.
+_COMPLETED_WINDOW = dt.timedelta(days=90)
+_COMPLETED_PAGE = 200
+_TD_PREFIX = re.compile(r"^TD(\d+)\b", re.IGNORECASE)
+_TD_REF = re.compile(r"^(?:TD\s*)?(\d+)$", re.IGNORECASE)
 
 
 def _token() -> str:
@@ -80,17 +95,76 @@ def _rows(payload) -> list[dict]:
     return payload
 
 
-def _project_id() -> str:
+def _now_iso() -> str:
+    return dt.datetime.now(dt.timezone.utc).strftime(_ISO)
+
+
+def _project() -> dict:
     for project in _rows(_request("GET", "/projects")):
         if project.get("name") == _PROJECT_NAME:
-            return project["id"]
-    return _request("POST", "/projects", body={"name": _PROJECT_NAME, "color": "red"})["id"]
+            return project
+    return _request("POST", "/projects", body={"name": _PROJECT_NAME, "color": "red"})
+
+
+def _open_tasks(project_id: str) -> list[dict]:
+    return _rows(_request("GET", "/tasks", query={"project_id": project_id}))
+
+
+def _td_number(content: str) -> int | None:
+    """The TD number a task's content leads with, or None when it carries none."""
+    match = _TD_PREFIX.match(content)
+    return int(match.group(1)) if match else None
+
+
+def _strip_prefix(content: str) -> str:
+    return _TD_PREFIX.sub("", content).lstrip(": ").strip()
+
+
+def _parse_ref(ref: str) -> int:
+    """A reference as Nathan types it — TD12, td12, TD 12 or bare 12 — as its number."""
+    match = _TD_REF.match(ref.strip())
+    if not match or int(match.group(1)) < 1:
+        sys.exit(f"not a TD reference: {ref!r} (expected e.g. TD12)")
+    return int(match.group(1))
+
+
+def _completed_numbers(project: dict) -> list[int]:
+    """TD numbers of every completed step, paged in windows from the project's creation."""
+    numbers: list[int] = []
+    since = dt.datetime.fromisoformat(project["created_at"]).replace(microsecond=0)
+    now = dt.datetime.strptime(_now_iso(), _ISO).replace(tzinfo=dt.timezone.utc)
+    while since < now:
+        until = min(since + _COMPLETED_WINDOW, now)
+        query = {
+            "project_id": project["id"],
+            "since": since.strftime(_ISO),
+            "until": until.strftime(_ISO),
+            "limit": _COMPLETED_PAGE,
+        }
+        while True:
+            page = _request("GET", "/tasks/completed/by_completion_date", query=query)
+            numbers.extend(
+                n for n in (_td_number(t.get("content", "")) for t in page.get("items", [])) if n
+            )
+            cursor = page.get("next_cursor")
+            if not cursor:
+                break
+            query = {**query, "cursor": cursor}
+        since = until
+    return numbers
+
+
+def _next_number(project: dict | None = None) -> int:
+    project = project or _project()
+    open_numbers = [n for n in (_td_number(t["content"]) for t in _open_tasks(project["id"])) if n]
+    return max([0, *open_numbers, *_completed_numbers(project)]) + 1
 
 
 def cmd_add(args: argparse.Namespace) -> None:
+    project = _project()
     body: dict[str, object] = {
-        "content": args.content,
-        "project_id": _project_id(),
+        "content": f"TD{_next_number(project)}: {args.content}",
+        "project_id": project["id"],
         "priority": args.priority,
     }
     if args.description:
@@ -98,25 +172,60 @@ def cmd_add(args: argparse.Namespace) -> None:
     if args.due:
         body["due_string"] = args.due
     task = _request("POST", "/tasks", body=body)
-    print(f"added {task['id']}: {task['content']}")
+    print(f"added {task['content']}")
 
 
 def cmd_list(_: argparse.Namespace) -> None:
-    rows = _rows(_request("GET", "/tasks", query={"project_id": _project_id()}))
+    rows = _open_tasks(_project()["id"])
     if not rows:
         print("no open operator steps")
         return
-    for task in rows:
+    numbered = sorted(
+        (t for t in rows if _td_number(t["content"])), key=lambda t: _td_number(t["content"])
+    )
+    unnumbered = [t for t in rows if not _td_number(t["content"])]
+    for task in numbered:
         due = (task.get("due") or {}).get("date", "")
-        print(f"{task['id']}  {task['content']}" + (f"  (due {due})" if due else ""))
+        ref = f"TD{_td_number(task['content'])}"
+        print(f"{ref:<6}{_strip_prefix(task['content'])}" + (f"  (due {due})" if due else ""))
+    for task in unnumbered:
+        print(f"{'--':<6}{task['content']}")
+    if unnumbered:
+        noun = "task lacks" if len(unnumbered) == 1 else "tasks lack"
+        print(f"{len(unnumbered)} {noun} a TD number — run: operator_steps.py number")
+
+
+def cmd_number(_: argparse.Namespace) -> None:
+    project = _project()
+    rows = _open_tasks(project["id"])
+    unnumbered = sorted(
+        (t for t in rows if not _td_number(t["content"])), key=lambda t: t.get("created_at", "")
+    )
+    if not unnumbered:
+        print(f"all {len(rows)} open steps carry a TD number")
+        return
+    number = _next_number(project)
+    for task in unnumbered:
+        content = f"TD{number}: {task['content']}"
+        _request("POST", f"/tasks/{task['id']}", body={"content": content})
+        print(content)
+        number += 1
 
 
 def cmd_done(args: argparse.Namespace) -> None:
-    _request("POST", f"/tasks/{args.task_id}/close")
-    print(f"done {args.task_id}")
+    number = _parse_ref(args.ref)
+    for task in _open_tasks(_project()["id"]):
+        if _td_number(task["content"]) == number:
+            _request("POST", f"/tasks/{task['id']}/close")
+            print(f"done TD{number}: {_strip_prefix(task['content'])}")
+            return
+    sys.exit(
+        f"TD{number} is not an open operator step — already done, or never numbered "
+        "(run: operator_steps.py number)"
+    )
 
 
-def main() -> None:
+def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -127,14 +236,21 @@ def main() -> None:
     add.add_argument("--priority", type=int, default=3, choices=(1, 2, 3, 4))
     add.set_defaults(func=cmd_add)
 
-    lst = sub.add_parser("list", help="list open operator steps")
+    lst = sub.add_parser("list", help="list open operator steps by TD number")
     lst.set_defaults(func=cmd_list)
 
-    done = sub.add_parser("done", help="mark an operator step complete (verified)")
-    done.add_argument("task_id")
+    number = sub.add_parser("number", help="give every unnumbered open step a TD number")
+    number.set_defaults(func=cmd_number)
+
+    done = sub.add_parser("done", help="mark an operator step complete (verified), by TD number")
+    done.add_argument("ref", help="the step's reference, e.g. TD12")
     done.set_defaults(func=cmd_done)
 
-    args = parser.parse_args()
+    return parser.parse_args(argv)
+
+
+def main() -> None:
+    args = _parse_args(sys.argv[1:])
     args.func(args)
 
 
