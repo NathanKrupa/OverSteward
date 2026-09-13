@@ -291,3 +291,22 @@ def test_a_freshly_created_project_allocates_from_now_without_a_created_at(ops, 
     assert ops._next_number() == 1
     assert ("POST", "/projects", None) in calls
     assert not any("completed" in p for _, p, _ in calls)
+
+
+def test_a_found_project_without_created_at_fails_loudly_rather_than_skipping_history(
+    ops, monkeypatch
+):
+    calls = []
+
+    def found_but_bare(method, path, body=None, query=None):
+        calls.append((method, path))
+        if (method, path) == ("GET", "/projects"):
+            return {"results": [{"id": "proj-1", "name": "Operator Steps"}]}
+        if (method, path) == ("GET", "/tasks"):
+            return {"results": [_task("a", "TD2: open")]}
+        raise AssertionError(f"unexpected {method} {path}")
+
+    monkeypatch.setattr(ops, "_request", found_but_bare)
+    with pytest.raises(SystemExit, match="created_at"):
+        ops._next_number()
+    assert ("POST", "/projects") not in calls

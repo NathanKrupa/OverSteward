@@ -107,10 +107,16 @@ def _now_iso() -> str:
 
 
 def _project() -> dict:
+    """The Operator Steps project, created if absent.
+
+    A project created here dates from now — it has no history to read — so the
+    create response is not relied on to carry created_at.
+    """
     for project in _paged("/projects"):
         if project.get("name") == _PROJECT_NAME:
             return project
-    return _request("POST", "/projects", body={"name": _PROJECT_NAME, "color": "red"})
+    created = _request("POST", "/projects", body={"name": _PROJECT_NAME, "color": "red"})
+    return {**created, "created_at": created.get("created_at") or _now_iso()}
 
 
 def _open_tasks(project_id: str) -> list[dict]:
@@ -136,13 +142,9 @@ def _parse_ref(ref: str) -> int:
 
 
 def _completed_numbers(project: dict) -> list[int]:
-    """TD numbers of every completed step, in windows from the project's creation.
-
-    A project this run just created has no history; the create response is not
-    relied on to carry created_at.
-    """
+    """TD numbers of every completed step, in windows from the project's creation."""
     if not project.get("created_at"):
-        return []
+        sys.exit(f"{_PROJECT_NAME} project payload carries no created_at; cannot read history")
     numbers: list[int] = []
     since = dt.datetime.fromisoformat(project["created_at"]).replace(microsecond=0)
     now = dt.datetime.strptime(_now_iso(), _ISO).replace(tzinfo=dt.timezone.utc)
