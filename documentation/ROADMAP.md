@@ -952,9 +952,9 @@ Heavy delivery between 2026-04-15 and 2026-05-07. Center of gravity moved here.
   (AG#2024). Promoted 09-11 (#2027) and 09-14 (#2053, with the GS pin bump
   #1852). Residue: ~70 write controls still render to lapsed orgs (dead, not
   holes — the middleware fails closed); a half-set Builder price is hidden
-  from `/pricing/` but still a live checkout target, and the cutover doc on
-  staging still calls the half-set state "inert" (unfiled — no AG issue
-  covers it); the Customer Portal is a second path onto a Builder price and
+  from `/pricing/` but still a live checkout target — the cutover doc
+  documents exactly that since #1999, but no AG issue covers closing it; the
+  Customer Portal is a second path onto a Builder price and
   its dashboard-default configuration is unverified (unfiled). All three are
   on the watch-list below.
 - **AG has its own Stripe account (09-11).** Split from The Almoner/Substack
@@ -1177,7 +1177,8 @@ Heavy delivery between 2026-04-15 and 2026-05-07. Center of gravity moved here.
 | Competitive follow-throughs | (unfiled intent, Nathan's go-ahead) | the twenty-foundation coverage test, an afternoon on Grant Frog, a dated Search Console milestone — none started |
 | AG home page A/B conversion read | AG#1932, #1989 | blocks and arms live since 09-07; no conversion read yet; first-touch capture at the edge filed |
 | AG LLM cost gaps | AG#1961 | FAILED rows and QA/match calls unmetered; open |
-| Lapsed-org write controls, half-set Builder price, portal path | (unfiled) | ~70 write controls still render to lapsed orgs; a half-set Builder price stays a live checkout target and the cutover doc calls it inert; the Customer Portal's dashboard-default configuration is unverified — three residues with no AG issue |
+| Lapsed-org write controls, half-set Builder price, portal path | (unfiled) | ~70 write controls still render to lapsed orgs; a half-set Builder price stays a live checkout target (documented in the cutover doc, not filed); the Customer Portal's dashboard-default configuration is unverified — three residues with no AG issue |
+| Index-frontier epic | GS#2607 | children #2608–#2617 filed; no dispatch until #2452 closes and Nathan says go |
 | Dispatch agents → adversarial reviewer | OS#459, #460 | open; every dispatch this week used the headless `claude -p` path, which produced OS#477 |
 | Review-loop residue | OS#454, #467, #468, #470 | open |
 | Fiscus embeddings extra | fiscus checkout (unfiled) | `uv sync --extra embeddings` there; until then every promotion pass is UNMEASURED; not due this run |
