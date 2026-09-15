@@ -952,9 +952,11 @@ Heavy delivery between 2026-04-15 and 2026-05-07. Center of gravity moved here.
   (AG#2024). Promoted 09-11 (#2027) and 09-14 (#2053, with the GS pin bump
   #1852). Residue: ~70 write controls still render to lapsed orgs (dead, not
   holes — the middleware fails closed); a half-set Builder price is hidden
-  from `/pricing/` but still a live checkout target (AG#2013 corrects the docs
-  that called it dead); the Customer Portal is a second path onto a Builder
-  price and its dashboard-default configuration is unverified.
+  from `/pricing/` but still a live checkout target, and the cutover doc on
+  staging still calls the half-set state "inert" (unfiled — no AG issue
+  covers it); the Customer Portal is a second path onto a Builder price and
+  its dashboard-default configuration is unverified (unfiled). All three are
+  on the watch-list below.
 - **AG has its own Stripe account (09-11).** Split from The Almoner/Substack
   account; catalogue re-minted; Consultant is **$149/mo + $50 per additional
   seat**, the $50 grandfathered product retired onto a 100%-forever Creator
@@ -1009,12 +1011,15 @@ Heavy delivery between 2026-04-15 and 2026-05-07. Center of gravity moved here.
   completed paid checkouts ever** — so the leak this quarter is the wizard and
   the trial cliff, not the cart. Stripe sends no abandoned-checkout mail on its
   own (recovery must be enabled per session, the `expired` event received, and
-  the email sent by us). Six lanes filed #2043–#2049: one fixture-exclusion
+  the email sent by us). Seven lanes filed #2043–#2049: one fixture-exclusion
   predicate for the three onboarding checks (half the stall firings were our
   own demo and smoke orgs), finish-setup mails, T-7/T-1 trial-expiry mails (a
   plain trial gets nothing before its cliff today), abandoned-checkout
-  recovery, an opt-out reusing the digest's signed unsubscribe, and a funnel
-  report. **AG#1474 first** — the wizard skips the mission screen when Website
+  recovery, an opt-out reusing the digest's signed unsubscribe, a
+  `stalled_orgs` ops-seam report with verdicts replacing the Sentry stall
+  firing (#2048 — the one cross-repo lane, blocked on OS#475, the sweep's
+  `platform_alerts` rows rendering as unknown), and a funnel report.
+  **AG#1474 first** — the wizard skips the mission screen when Website
   is blank, so the checklist can be uncompletable and a nag would be wrong.
 - **Help docs must reach customers without an operator step.** A price
   correction sat behind a Todoist step while the admin published an older
@@ -1084,8 +1089,8 @@ Heavy delivery between 2026-04-15 and 2026-05-07. Center of gravity moved here.
   worktree (`DRAIN_SRC`) because main lacked the guard; the 09-13 promotion
   carries it, so the next restart drops the override.
 - **GS promotions 09-08, 09-09, 09-10 (×2), 09-11, 09-13** (#2619, #2625, #2639,
-  #2645, #2661, #2674), each with its back-merge; #2618 promoted the crawler
-  identity fix. The `neon-integration` job is a known red on main (GS#2599);
+  #2645, #2661, #2674), each with its back-merge; the 09-08 one carried the
+  crawler identity fix (#2618, merged to staging). The `neon-integration` job is a known red on main (GS#2599);
   `ci` is the gate that matters. The GS→AG pin-bump seam runs on two PATs
   (`AG_DISPATCH_PAT` on GS, `BUMP_PR_TOKEN` on AG); both were dead at once,
   and a re-rolled token does not update the secret that holds it.
@@ -1164,8 +1169,21 @@ Heavy delivery between 2026-04-15 and 2026-05-07. Center of gravity moved here.
 | Sibling-slug teardown, branch=HEAD ledger, prod `.env` reviewer | OS#480, #483, #477 | open |
 | Board connections | (unfiled intent, Nathan-originated) | phase 1 is the own-990 officer join against the 1.56M-row `people` table — no data entry, no LLM; gated on the GS#1673 PII barrier |
 | Google Ads developer-token sunset | ai-assistants#10 | the OAuth client must belong to the Cloud project that holds the access level; H1 2027 |
-| Dream engine residue | (unfiled) | no lock, probes blind to an open dream PR, full index unstaged after finalize, five order-dependent GS tests |
+| Dream engine residue | (unfiled) | no lock, probes blind to an open dream PR, full index unstaged after finalize, five order-dependent GS tests; the Stop-hook queue never drains (4,012 entries — it hashes the transcript at stop time, the ledger at processing time) |
 | exchequer verify exit collapse | exchequer#22 | small; `ready-for-agent` candidate |
+| GS#2452 section 2 residue, then section 3 | GS#2464, #2466 → #2469–#2481 | still open; section 3 waits on section 2; AG companions #1846/#1847 unblock as columns reach production |
+| GS#2465 / GS#2468 post-merge steps | GS#2468 | closed but still labelled `agent-in-progress`; its corpus refresh and Dagster-history confirmation were never recorded on the issue |
+| Cloudflare Verified Bots application | GS | #2583/#2584 closed; the retry (apply as Aggregator, Web Bot Auth) is not recorded anywhere; unverified |
+| Competitive follow-throughs | (unfiled intent, Nathan's go-ahead) | the twenty-foundation coverage test, an afternoon on Grant Frog, a dated Search Console milestone — none started |
+| AG home page A/B conversion read | AG#1932, #1989 | blocks and arms live since 09-07; no conversion read yet; first-touch capture at the edge filed |
+| AG LLM cost gaps | AG#1961 | FAILED rows and QA/match calls unmetered; open |
+| Lapsed-org write controls, half-set Builder price, portal path | (unfiled) | ~70 write controls still render to lapsed orgs; a half-set Builder price stays a live checkout target and the cutover doc calls it inert; the Customer Portal's dashboard-default configuration is unverified — three residues with no AG issue |
+| Dispatch agents → adversarial reviewer | OS#459, #460 | open; every dispatch this week used the headless `claude -p` path, which produced OS#477 |
+| Review-loop residue | OS#454, #467, #468, #470 | open |
+| Fiscus embeddings extra | fiscus checkout (unfiled) | `uv sync --extra embeddings` there; until then every promotion pass is UNMEASURED; not due this run |
+| AG#1208 foundation-code-15 search interim fix | AG#1208 | open, `blocked`; parked on Nathan |
+| `guard_main_worktree` resolves the primary from `CLAUDE_PROJECT_DIR` | (unfiled, carried since §3.11) | refuses safe `git -C <linked-worktree>` switches from another repo's session; no issue exists — this row is its only record |
+| AG session worktrees with uncommitted entries | AG checkout | four session worktrees (admins-critical-alerts, consultant-149, grant-studio-strings, gs-pin-check) each show untracked entries; whether any holds real work is unverified this pass |
 
 ---
 
