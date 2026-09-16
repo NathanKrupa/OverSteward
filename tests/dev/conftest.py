@@ -48,6 +48,11 @@ def load_dev_script(name: str):
     spec = importlib.util.spec_from_file_location(path.stem, path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
+    # Registered before exec: @dataclass resolves its annotations through
+    # sys.modules[cls.__module__], which is None for an unregistered module, so
+    # a member carrying a dataclass fails to import at all. The doctor's own
+    # loader (tests/dev/test_worktree_doctor.py) already does this.
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
