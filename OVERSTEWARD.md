@@ -532,9 +532,10 @@ session's model, so an Opus session planning in plan mode plans on Opus and the
 split disappears without an error — `architect` is the name that keeps it real.
 It is read-only: it reads the repos its brief names, plans, red-teams its own
 plan, rebuilds from the red team, and returns a bounded plan block whose last
-section is a dispatch brief the session can paste into an issue. It writes
-nothing, opens nothing and never polls. When to reach for it is in `/dispatch`
-§ 3.
+section is a dispatch brief the session can paste into an issue. Its card
+forbids every write, every `gh` mutation and every poll — an instruction the
+card carries, unenforced by any hook today. When to reach for it is in
+`/dispatch` § 3.
 
 ### Dispatch loop
 

@@ -108,9 +108,12 @@ orchestrator spends the expensive model on deliberation and leaves nothing
 behind; launching `architect` spends it once, in a subagent, and returns a plan
 that has already been red-teamed against itself.
 
-`architect` reads and returns — it writes nothing, opens nothing, and never
-polls. A scope small enough to state in the brief's own bullets does not need
-it; the issue's own acceptance is already the agreed scope.
+`architect` is *instructed* to read and return only — no write, no `gh`
+mutation, no dispatch, no poll. That is prose in its card and nothing enforces
+it: no hook refuses a write under the card, so a plan that reports having
+changed a file is a card violation to raise, not a convenience to accept. A
+scope small enough to state in the brief's own bullets does not need it; the
+issue's own acceptance is already the agreed scope.
 
 Invoke the `Agent` tool with:
 - `subagent_type: <repo>-dev`
