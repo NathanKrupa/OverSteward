@@ -307,6 +307,10 @@ class TestCommandLine:
         result = run_cli("record", "--registry", str(store), stdin=json.dumps({"cwd": "/tmp"}))
         assert result.returncode == EXIT_FAILED
         assert not store.exists()
+        # A refusal, not a traceback: dropping the check leaves the same exit
+        # code by way of a KeyError, and that must not read as this guard biting.
+        assert "no session_id" in result.stderr
+        assert "Traceback" not in result.stderr
 
     def test_resume_dry_run_plans_one_window_per_live_session(self, tmp_path, tmux_stub):
         store = tmp_path / "session-registry.jsonl"

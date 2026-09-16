@@ -283,6 +283,34 @@ echo '.claude/worktrees/' >> .gitignore
 
 Then document it in the repo's `CONTRIBUTING.md` (or `CLAUDE.md` where there is none).
 
+#### Resuming the sessions a reboot took (OS#486)
+
+A worktree survives a WSL restart; the *session* working in it does not. `claude -r <id>` restores a transcript for free, so the only thing missing is a record of which ids were alive — which is all `session_registry.py` is: two hooks that append one JSON line each to `~/.claude/session-registry.jsonl`, and a boot verb that reads them back.
+
+- **`session_registry.py`** — `record` (SessionStart) and `retire` (SessionEnd) upsert `{session_id, name, cwd, started_at, last_seen}` into an append-only JSONL store; `list` prints the live rows; `resume` opens one tmux window per live row, in that row's own `cwd`, running `claude -r <id>`. Liveness is the *absence* of a clean `SessionEnd` — a crashed or killed session never runs the hook, which is exactly the state `resume` exists for — and `--max-age-hours` (default 24) drops rows too stale to be "what was running when the machine went down". `resume` exits **2** when tmux is not on `PATH`: a skip must not read as a pass. Names come from the payload's `session_title` (an explicit `-n`), else the latest `ai-title` in the session's own transcript, else the `cwd` basename, with the tier stored beside the name so a later hook can improve a fallback and never demote an explicit one.
+
+**Hook registration is global, in `~/.claude/settings.json`** — not a repo's `.claude/settings.json`, because sessions span repos and a per-repo registration misses every session started anywhere else. Apply it through the `update-config` skill so the JSON stays valid:
+
+```json
+"SessionStart": [
+  {"hooks": [{"type": "command",
+    "command": "python3 /home/natha/OverSteward/scripts/dev/session_registry.py record"}]}
+],
+"SessionEnd": [
+  {"hooks": [{"type": "command",
+    "command": "python3 /home/natha/OverSteward/scripts/dev/session_registry.py retire"}]}
+]
+```
+
+It points at the OverSteward checkout's deployed copy rather than a third copy under `~/.claude/hooks/`; a copy nothing compares is a copy that drifts.
+
+**Boot entry — the first tmux of the day, not a timer.** A resume opens interactive terminals, so there is deliberately no systemd unit; nothing useful happens if the windows open while nobody is attached:
+
+```bash
+/home/natha/OverSteward/scripts/dev/session_registry.py resume --dry-run   # read the plan first
+/home/natha/OverSteward/scripts/dev/session_registry.py resume
+```
+
 ### Workflow registry & descriptor convention
 
 The **tool registry** catalogs single entry points (CLI scripts, console commands). The **workflow registry** catalogs the higher-altitude thing: multi-step **Python↔Claude workflows** — a Claude Agent SDK Workflow script, a Python pipeline, or an operator-in-loop loop. It is the same durable, regenerable pattern, one level up.
