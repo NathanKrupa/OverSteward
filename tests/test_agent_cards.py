@@ -279,7 +279,33 @@ REVIEWER_STEP_MARKERS = (
     "## Adversarial review",
     "assemble_review_input.py",
     "require_review_verdict.py",
+    # The reviewer runs as a separate `claude -p` process with its one
+    # instruction on stdin. A dev card is launched with `tools: Bash, Read,
+    # Edit, Write, Grep, Glob` and cannot launch a subagent, so a card that
+    # prescribes an in-session launch prescribes a step the agent cannot take
+    # (OS#493 — four pickups each rediscovered the headless form).
+    "| claude -p --agent adversarial-reviewer --model opus",
+    "--output-format json",
 )
+
+#: The launch shape the dev cards used to prescribe and no dispatch agent can
+#: execute. Matched as prose so a comment or a parenthetical reintroducing it
+#: goes red too.
+REVIEWER_LAUNCH_FORBIDDEN = re.compile(r"\bTask\s+tool\b", re.IGNORECASE)
+
+#: The loop is three rounds (`shared/references/pr-workflow.md`,
+#: `shared/agents/adversarial-reviewer.md`): a `BLOCK` earns a re-review on the
+#: delta, and it is the *third* `BLOCK` that hands the change to Nathan. A card
+#: that stops on the second contradicts the fourth-round refusal it states two
+#: lines later, and one pickup ran the three rounds and had to flag the
+#: conflict (OS#493).
+THIRD_BLOCK_STOPS = "a *third* `BLOCK` on the same change stops the pickup"
+SECOND_BLOCK_STOPS = re.compile(r"\bsecond\b\W{0,4}BLOCK", re.IGNORECASE)
+
+
+def _unwrapped(card: str) -> str:
+    """Card prose with hard wraps closed, so a phrase is found wherever the wrap falls."""
+    return " ".join(card.split())
 
 
 def _dev_cards() -> list[Path]:
@@ -300,6 +326,11 @@ def test_every_dev_card_runs_the_adversarial_reviewer_before_opening_a_pr(card: 
         f"(missing: {', '.join(missing)}). A dev card that opens a PR without a "
         f"verdict makes the reviewer decoration — see shared/agents/adversarial-reviewer.md."
     )
+    forbidden = REVIEWER_LAUNCH_FORBIDDEN.search(_unwrapped(text))
+    assert forbidden is None, (
+        f"{card.parent.name}/{card.name} launches the reviewer through a tool a "
+        f"dispatch agent does not have: {forbidden.group(0)!r}"
+    )
 
 
 @pytest.mark.parametrize("card", _dev_cards(), ids=lambda p: f"{p.parent.name}/{p.name}")
@@ -308,6 +339,16 @@ def test_every_dev_card_states_that_a_block_stops_the_pickup(card: Path) -> None
     text = card.read_text(encoding="utf-8")
     assert "`BLOCK` means do not open the PR" in text, (
         f"{card.parent.name}/{card.name} names the reviewer but not its authority."
+    )
+    prose = _unwrapped(text)
+    assert THIRD_BLOCK_STOPS in prose, (
+        f"{card.parent.name}/{card.name} does not say which BLOCK stops the pickup; "
+        f"the loop is three rounds and the third BLOCK goes to Nathan."
+    )
+    early_stop = SECOND_BLOCK_STOPS.search(prose)
+    assert early_stop is None, (
+        f"{card.parent.name}/{card.name} stops on a second BLOCK, one round short of "
+        f"the cap it states beneath: {early_stop.group(0)!r}"
     )
 
 

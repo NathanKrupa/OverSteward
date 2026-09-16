@@ -190,7 +190,8 @@ def judge(body: str | None) -> tuple[int, str]:
     if parsed.blocking:
         return EXIT_VIOLATIONS, (
             f"reviewer returned {BLOCK} with {parsed.findings} finding(s). "
-            "Fix them and re-review; a second BLOCK escalates to Nathan via needs-input."
+            "Fix them and re-review on the delta; the loop is three rounds, and a third BLOCK "
+            "escalates to Nathan via needs-input."
         )
     return EXIT_OK, parsed.verdict
 
