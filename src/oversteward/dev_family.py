@@ -27,6 +27,7 @@ HOOK_MEMBERS = frozenset(
         "check_destructive_command.py",
         "guard_trunk_pull.py",
         "guard_gate_pipe.py",
+        "guard_architect_readonly.py",
     }
 )
 
