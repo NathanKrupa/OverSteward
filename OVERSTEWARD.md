@@ -514,6 +514,17 @@ Five production repos, each with a dedicated subagent type defined in `shared/ag
 
 Each subagent is briefed with the repo's architecture, conventions, self-critique ratchet, and dispatch playbook. Agents run **in-session, foreground** (Agent/Workflow tools) on the Max subscription — never background-async, which is API-metered and subject to silent-termination bug #47936.
 
+`shared/agents/` carries further cards that are **not** dispatch targets; the
+directory is the inventory, deliberately not a list here. One of them is doctrine
+rather than convenience: **`watch`** (sonnet, foreground) holds the polling a
+session would otherwise pay for. A `Monitor`, a `ScheduleWakeup` or a background
+Bash loop delivers its events to whichever agent armed it, so an orchestrator
+that arms them pays a turn per tick — 32% of measured Fable spend over
+2026-09-07 → 09-14 (OS#485). `watch` polls with foreground Bash calls, appends
+every state change to an on-disk ledger, and returns one YAML report of at most
+40 lines, so the session pays a single completion. The rule and its one
+surviving exception are in `/dispatch` § 3.5.
+
 ### Dispatch loop
 
 ```
