@@ -94,3 +94,4 @@ reports/skill-drafts/
 .review-input.md
 .review-rounds
 .review-verdict*.md
+.review-round-*.json

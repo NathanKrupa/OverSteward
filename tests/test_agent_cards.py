@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import re
+import subprocess
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -349,6 +350,38 @@ def test_every_dev_card_states_that_a_block_stops_the_pickup(card: Path) -> None
     assert early_stop is None, (
         f"{card.parent.name}/{card.name} stops on a second BLOCK, one round short of "
         f"the cap it states beneath: {early_stop.group(0)!r}"
+    )
+
+
+#: A file the card writes into the worktree, named relative to it. Every such
+#: file must be ignored, or the pickup leaves untracked files that a `git add .`
+#: would commit and that `worktree_doctor.py teardown` (which never forces)
+#: refuses over.
+WORKTREE_ARTEFACT = re.compile(r"<worktree-path>/(\.review-[\w.-]+)")
+
+
+def _worktree_artefacts(card: Path) -> list[str]:
+    return sorted(set(WORKTREE_ARTEFACT.findall(card.read_text(encoding="utf-8"))))
+
+
+def _is_ignored(path: str) -> bool:
+    return (
+        subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "check-ignore", "--quiet", path],
+            check=False,
+        ).returncode
+        == 0
+    )
+
+
+def test_the_oversteward_card_writes_review_artefacts_this_repo_ignores() -> None:
+    """The card names the files; the repo's `.gitignore` has to know the same names."""
+    artefacts = _worktree_artefacts(CANONICAL_DIR / "oversteward-dev.md")
+    assert artefacts, "the card writes nothing into the worktree — the regex has rotted"
+    tracked = [name for name in artefacts if not _is_ignored(name)]
+    assert not tracked, (
+        f"oversteward-dev.md writes {tracked} into the worktree and .gitignore does not "
+        f"cover them: they would block teardown and could be committed."
     )
 
 

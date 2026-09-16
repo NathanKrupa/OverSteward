@@ -212,20 +212,28 @@ degrade the whole instrument silently, so the input is assembled by code.
     --root <worktree-path> --repo NathanKrupa/Fiscus --base origin/main \
     --issue <n> --out <worktree-path>/.review-input.md
 
-# 2. Launch the reviewer as a separate headless process. You are launched with
+# 2. The launch below writes its captures into the worktree beside the input.
+#    They must be ignored there, or they sit untracked where `git add .` would
+#    commit them and `worktree_doctor.py teardown` refuses over them. Check
+#    before writing; if a name is not ignored, add it to .gitignore in this PR.
+for f in .review-round-1.json .review-verdict-1.md; do
+    git -C <worktree-path> check-ignore -q "$f" || echo "$f NOT IGNORED — add it to .gitignore first"
+done
+
+# 3. Launch the reviewer as a separate headless process. You are launched with
 #    `tools: Bash, Read, Edit, Write, Grep, Glob` and cannot start a subagent
 #    yourself. Run it from the OverSteward checkout, where the reviewer card is
-#    a project-level agent; the ONE instruction goes on stdin (a positional
-#    prompt after --agent is refused), and --add-dir grants the reviewer your
-#    worktree. Pass nothing else — no summary, no rationale, no "here's what I
-#    was going for".
+#    a project-level agent; the ONE instruction goes on stdin, so every round's
+#    launch reads the same, and --add-dir grants the reviewer your worktree.
+#    Pass nothing else — no summary, no rationale, no "here's what I was going
+#    for".
 ( cd /home/natha/OverSteward && printf '%s\n' \
     "Read <worktree-path>/.review-input.md and return your verdict." \
     | claude -p --agent adversarial-reviewer --model opus \
         --add-dir /home/natha/fiscus --output-format json \
     > <worktree-path>/.review-round-1.json )
 
-# 3. Capture the verdict. The JSON envelope's `result` is the reviewer's text
+# 4. Capture the verdict. The JSON envelope's `result` is the reviewer's text
 #    (its ```reviewer-verdict fence and the findings beneath it); `usage` is
 #    the harness's token count, recorded beside the reviewer's self-report.
 jq -r .result <worktree-path>/.review-round-1.json > <worktree-path>/.review-verdict-1.md
