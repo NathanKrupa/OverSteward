@@ -117,7 +117,7 @@ POLL=<poll_seconds>
 DEADLINE=<epoch second the whole watch must end by — compute ONCE, at launch:
           date -d "+<deadline> minutes" +%s — and paste the same literal into
           every chained call>
-SUBJECTS="pr_1853 branch_issue_1853 log_drain"     # one token per subject
+SUBJECTS="pr-1853 branch-issue-1853 log-drain"     # the brief's ids, verbatim
 WINDOW_END=$(( $(date +%s) + 540 ))
 STALL=$(( POLL * 3 )); [ "$STALL" -lt 90 ] && STALL=90
 
@@ -132,9 +132,12 @@ record() {   # id state evidence — one line per STATE CHANGE, never per poll
 }
 
 # --- one probe function per subject; each echoes "<state>\t<evidence>" ------
-probe_pr_1853() { :; }          # <- paste a recipe from the next section
-probe_branch_issue_1853() { :; }
-probe_log_drain() { :; }
+# The token in SUBJECTS is the subject's id from the brief, and the function is
+# `probe_<id>`. bash accepts a hyphen in a function name, so nothing needs
+# renaming — and the ledger stays greppable by the id the parent already knows.
+probe_pr-1853() { :; }          # <- paste a recipe from the next section
+probe_branch-issue-1853() { :; }
+probe_log-drain() { :; }
 # ---------------------------------------------------------------------------
 
 ENDED=""
@@ -183,7 +186,7 @@ characters. Every one ends with a catch-all arm.
 ### `pr` — a pull request
 
 ```bash
-probe_pr_1853() {
+probe_pr-1853() {
   local out
   out=$(gh pr view 1853 --repo NathanKrupa/aigranthelper \
         --json state,mergeStateStatus,statusCheckRollup \
@@ -193,7 +196,7 @@ probe_pr_1853() {
   case "$out" in
     MERGED*)                        printf 'terminal_ok\t%s\n' "$out" ;;
     CLOSED*)                        printf 'escalated\tclosed unmerged: %s\n' "$out" ;;
-    *FAILURE*|*TIMED_OUT*|*CANCELLED*|*ACTION_REQUIRED*|*STARTUP_FAILURE*)
+    *FAILURE*|*ERROR*|*TIMED_OUT*|*CANCELLED*|*ACTION_REQUIRED*|*STARTUP_FAILURE*)
                                     printf 'escalated\tcheck failed: %s\n' "$out" ;;
     *DIRTY*|*CONFLICTING*)          printf 'escalated\tconflicts with base: %s\n' "$out" ;;
     OPEN*)                          printf 'pending\t%s\n' "$out" ;;
@@ -210,11 +213,16 @@ probe_pr_1853() {
   still exits 0.
 - `mergeStateStatus: UNKNOWN` means GitHub is still recomputing mergeability. It
   is `pending` (the `OPEN*` arm catches it) — never treat it as `CLEAN`.
+- **The failing half of GitHub's `StatusState` is `ERROR` and `FAILURE`**, and a
+  commit status (Railway posts these on GS PRs) reports `ERROR` where a workflow
+  reports `FAILURE`. Both are in the alternation above. Any conclusion you add to
+  a brief must be added there too, or it falls through to `OPEN*` and reads as
+  `pending` until the deadline — the exact silence this card exists to refuse.
 
 ### `branch` — a dispatch branch appearing on origin
 
 ```bash
-probe_branch_issue_1853() {
+probe_branch-issue-1853() {
   local out
   out=$(git -C /home/natha/aigranthelper ls-remote --heads origin 'refs/heads/fix/issue-1853-*' 2>&1) \
     || { printf 'unreadable\tls-remote failed: %s\n' "$out"; return; }
@@ -234,7 +242,7 @@ a branch that does not exist. Classify on the *output*, not the exit code.
 ### `railway` — a service's deployment state
 
 ```bash
-probe_railway_web() {
+probe_railway-web() {
   local out
   out=$(railway service list --json --project 6134a75b-dd3b-48cd-a01b-6228962bab99 \
         --environment production 2>&1) \
@@ -264,15 +272,15 @@ probe_railway_web() {
 ### `log` — a file that will grow a failure signature
 
 ```bash
-probe_log_drain() {
+probe_log-drain() {
   local tail_out
   tail_out=$(tail -c 20000 /home/natha/grantspider/logs/drain.log 2>&1) \
     || { printf 'unreadable\tcannot read log: %s\n' "$tail_out"; return; }
-  if printf '%s' "$tail_out" | grep -qE 'Traceback|CRITICAL|FATAL|Segmentation fault|Killed|OutOfMemory|exit(ed)? (code )?[1-9]'; then
-    printf 'escalated\t%s\n' "$(printf '%s' "$tail_out" | grep -oE 'Traceback|CRITICAL|FATAL|Segmentation fault|Killed|OutOfMemory|exit(ed)? (code )?[1-9]' | tail -1)"
+  if printf '%s' "$tail_out" | grep -qE 'Traceback|CRITICAL|FATAL|Segmentation fault|Killed|OutOfMemory|exit(ed)? (code )?[1-9][0-9]*\b'; then
+    printf 'escalated\t%s\n' "$(printf '%s' "$tail_out" | grep -oE 'Traceback|CRITICAL|FATAL|Segmentation fault|Killed|OutOfMemory|exit(ed)? (code )?[1-9][0-9]*\b' | tail -1)"
     return
   fi
-  if printf '%s' "$tail_out" | grep -qE 'drain complete|DONE'; then
+  if printf '%s' "$tail_out" | grep -qE 'drain complete'; then
     printf 'terminal_ok\tsuccess signature present\n'; return
   fi
   case "$tail_out" in
@@ -292,11 +300,16 @@ probe_log_drain() {
   print the same.
 - Use `tail -c`, not `cat`: a runaway log can be gigabytes, and you must not
   spend your context on it.
+- **The success signature is the brief's `terminal_when`, spelled exactly, and a
+  bare word needs `\b` around it.** An unanchored `DONE` matches `ABANDONED` and
+  `UNDONE`, which ends the watch with a cheerful `terminal_ok` on a log that says
+  the opposite. The same anchoring applies to the failure alternation's exit
+  clause, or `exited 1x faster` escalates.
 
 ### `command` — an arbitrary probe, judged on its exit code
 
 ```bash
-probe_cmd_migration() {
+probe_cmd-migration() {
   local out rc
   out=$(<the brief's probe command> 2>&1); rc=$?
   case "$rc" in
