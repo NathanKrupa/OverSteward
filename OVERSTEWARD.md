@@ -525,6 +525,17 @@ every state change to an on-disk ledger, and returns one YAML report of at most
 40 lines, so the session pays a single completion. The rule and its one
 surviving exception are in `/dispatch` § 3.5.
 
+The same directory carries **`architect`** (fable, foreground), which is the
+model split made launchable. The daily session and every dispatch agent run on
+Opus; Fable is reserved for planning. The built-in plan agent inherits the
+session's model, so an Opus session planning in plan mode plans on Opus and the
+split disappears without an error — `architect` is the name that keeps it real.
+It is read-only: it reads the repos its brief names, plans, red-teams its own
+plan, rebuilds from the red team, and returns a bounded plan block whose last
+section is a dispatch brief the session can paste into an issue. It writes
+nothing, opens nothing and never polls. When to reach for it is in `/dispatch`
+§ 3.
+
 ### Dispatch loop
 
 ```

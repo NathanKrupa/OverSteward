@@ -334,3 +334,95 @@ def test_oversteward_card_does_not_deny_the_ci_this_repo_has() -> None:
             f"{card.parent.name}/{card.name} claims OverSteward has no CI, but "
             f"{[w.name for w in workflows]} exist:\n  " + "\n  ".join(offenders)
         )
+
+
+# A card that names no model inherits the session's. When the session default
+# moved to Opus (2026-09-16), that silently promoted every unpinned card and
+# demoted nothing — no error, no diff, no way to see it from the card. The pin
+# below is what makes a card's model a contract rather than a side effect
+# (OS#490).
+
+#: The aliases Claude Code documents for a card's `model:` key.
+MODEL_ALIASES = frozenset({"sonnet", "opus", "haiku", "fable", "inherit"})
+
+#: A full model id is accepted wherever an alias is — e.g. `claude-opus-5[1m]`.
+MODEL_ID = re.compile(r"^claude-[a-z0-9][a-z0-9.\-]*(?:\[[a-z0-9]+\])?$")
+
+#: Cards whose model is part of the contract, not a preference. `architect`
+#: exists only to run on a different model from the session that launches it, so
+#: an unpinned `architect` is not a slower planner — it is no planner at all.
+PINNED_MODELS = {"architect": "fable", "watch": "sonnet"}
+
+#: Roles that are Opus work by the same rule that puts the dev cards there:
+#: reading a repo's doctrine and out-reading the author of a diff.
+OPUS_ROLES = ("adversarial-reviewer",)
+
+#: `*-dev` cards are matched as a family rather than listed, so adding a repo
+#: cannot quietly add an unpinned card.
+DEV_CARD_SUFFIX = "-dev"
+
+_FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
+_MODEL_KEY = re.compile(r"^model:[ \t]*(\S.*?)[ \t]*$", re.MULTILINE)
+
+
+def _card_model(card: Path) -> str | None:
+    """The card's frontmatter `model:` value, or None when it names none.
+
+    Only the frontmatter is read: a card that *discusses* another agent's model
+    in its prose has not pinned its own.
+    """
+    frontmatter = _FRONTMATTER.match(card.read_text(encoding="utf-8"))
+    if frontmatter is None:
+        return None
+    found = _MODEL_KEY.search(frontmatter.group(1))
+    return found.group(1) if found else None
+
+
+def _expected_model(card: Path) -> str | None:
+    """The model this card must pin, or None when only the vocabulary binds."""
+    if card.stem.endswith(DEV_CARD_SUFFIX) or card.stem in OPUS_ROLES:
+        return "opus"
+    return PINNED_MODELS.get(card.stem)
+
+
+def _contractual_model_cards() -> list:
+    return [
+        pytest.param(card, _expected_model(card), id=f"{card.parent.name}/{card.name}")
+        for card in _agent_cards()
+        if _expected_model(card) is not None
+    ]
+
+
+def test_every_card_with_a_pinned_model_is_present() -> None:
+    """A pin over a card that does not exist passes vacuously — renaming one must go red."""
+    present = {card.stem for card in _agent_cards()}
+    missing = sorted((set(PINNED_MODELS) | set(OPUS_ROLES)) - present)
+    assert not missing, f"pinned but no such card: {missing}"
+
+
+def test_the_dev_card_family_is_not_empty() -> None:
+    """The `*-dev` half of the pin is derived from a glob; an empty glob pins nothing."""
+    assert [card for card in _agent_cards() if card.stem.endswith(DEV_CARD_SUFFIX)]
+
+
+@pytest.mark.parametrize("card", _agent_cards(), ids=lambda p: f"{p.parent.name}/{p.name}")
+def test_every_agent_card_names_a_documented_model(card: Path) -> None:
+    """An absent `model:` is not a default — it is the session's model, whatever that is."""
+    model = _card_model(card)
+    assert model is not None, (
+        f"{card.parent.name}/{card.name} names no `model:` in its frontmatter, so it "
+        f"runs on whatever model the launching session happens to be using."
+    )
+    assert model in MODEL_ALIASES or MODEL_ID.match(model), (
+        f"{card.parent.name}/{card.name} declares `model: {model}`, which is neither a "
+        f"documented alias ({', '.join(sorted(MODEL_ALIASES))}) nor a full model id."
+    )
+
+
+@pytest.mark.parametrize(("card", "expected"), _contractual_model_cards())
+def test_a_card_whose_model_is_contractual_pins_it(card: Path, expected: str) -> None:
+    """Implementation and review run on opus; `architect` plans on fable; `watch` waits on sonnet."""
+    assert _card_model(card) == expected, (
+        f"{card.parent.name}/{card.name} must pin `model: {expected}` and declares "
+        f"`model: {_card_model(card)}`."
+    )
