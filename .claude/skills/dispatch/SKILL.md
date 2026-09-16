@@ -119,13 +119,37 @@ uv run python scripts/dispatch/dispatch_watchdog.py <owner>/<repo> <n>
 
 It polls for the agent's `issue-<n>-…` branch and exits `0` (progressing) once the branch is pushed, or exits `3` with an alert if no branch appears within `--warn-min` (default 22). Run it via `run_in_background`; on a stall alert, inspect the agent transcript's turn count and `TaskStop` + re-dispatch if it is looping. Tune with `--warn-min` for issues expected to take longer before a first push.
 
+**A Fable session never arms `Monitor`, `ScheduleWakeup` or a polling Bash loop
+directly; it launches `watch` (sonnet, foreground) and reads one report.**
+
+The watchdog above is the shape that survives that rule, and it survives on a
+count: **a single background command that exits once fires exactly one
+completion notification**, which costs the same one turn as reading a `watch`
+report. What the rule forbids is every shape that alerts *repeatedly* — a
+`Monitor` with a tick interval, a `ScheduleWakeup` chain, an
+`until gh pr view ...; do sleep 60; done` in the session's own Bash. Those go
+into a `watch` brief (`shared/agents/watch.md`), which absorbs each poll inside a
+Sonnet loop, writes every state change to an on-disk ledger, and returns one
+YAML report of at most 40 lines.
+
+The test is arithmetic rather than taste: count the notifications the shape will
+deliver to *this* session. One is allowed. More than one is a `watch` brief.
+
+Two measurements sit behind the rule. Over 2026-09-07 -> 09-14, **32% of Fable
+spend was waiting and watching** (OS#485). And a subagent cannot quietly take the
+watchdog's place by arming a Monitor on your behalf: a Monitor armed inside a
+subagent delivers its ticks to *nobody*, because the subagent's loop ends when it
+answers (delivery trial, 2026-09-16 — the parent saw 0 ticks and so did the
+subagent). Foreground polling is the only shape that observes anything, which is
+why `watch` is foreground and carries no Monitor tool.
+
 ### 4. Return to user
 
 When the agent returns, read its YAML report and relay the terminal state directly (no verification round-trip is needed — foreground returns the genuine final output):
 
 - `final_state: MERGED` → "✅ PR merged: <url>"
 - `final_state: CI_FAILED` → "❌ CI failed on <url> — check the Actions tab"
-- `final_state: STILL_RUNNING` → "⏱ PR open, CI pending: <url>. Will merge when green — re-poll with `gh pr view`."
+- `final_state: STILL_RUNNING` → "⏱ PR open, CI pending: <url>. Will merge when green." Hand it to `watch` with one `pr` subject rather than re-polling `gh pr view` by hand — repeated by-hand polling is the shape §3.5 forbids.
 - `final_state: STOPPED_FOR_INPUT` → "❓ Agent stopped with a question on issue #<n>. See comments. Answer with `/answer <repo> <n>`."
 - `final_state: REFUSED_PREFLIGHT` → "🚫 Agent refused: <reason>"
 
