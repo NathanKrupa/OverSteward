@@ -97,6 +97,24 @@ If all preflights pass: proceed.
 
 ### 3. Run the agent (foreground)
 
+**Scope first, and on the right model.** The session runs on Opus, and so does
+every `<repo>-dev` agent it launches. Fable is reserved for planning, and it is
+reached **by name**: a scope that crosses more than one repo, that touches an
+`architecture.md` §3 invariant, or that is itself an architecture decision goes
+to `architect` (fable, foreground — `shared/agents/architect.md`), and the
+session then dispatches from the `Dispatch brief` that card returns. **The
+session never switches itself to Fable in order to plan.** Switching the
+orchestrator spends the expensive model on deliberation and leaves nothing
+behind; launching `architect` spends it once, in a subagent, and returns a plan
+that has already been red-teamed against itself.
+
+`architect` is *instructed* to read and return only — no write, no `gh`
+mutation, no dispatch, no poll. That is prose in its card and nothing enforces
+it: no hook refuses a write under the card, so a plan that reports having
+changed a file is a card violation to raise, not a convenience to accept. A
+scope small enough to state in the brief's own bullets does not need it; the
+issue's own acceptance is already the agreed scope.
+
 Invoke the `Agent` tool with:
 - `subagent_type: <repo>-dev`
 - **No `run_in_background`** (foreground — see billing/reliability note above)
@@ -119,7 +137,7 @@ uv run python scripts/dispatch/dispatch_watchdog.py <owner>/<repo> <n>
 
 It polls for the agent's `issue-<n>-…` branch and exits `0` (progressing) once the branch is pushed, or exits `3` with an alert if no branch appears within `--warn-min` (default 22). Run it via `run_in_background`; on a stall alert, inspect the agent transcript's turn count and `TaskStop` + re-dispatch if it is looping. Tune with `--warn-min` for issues expected to take longer before a first push.
 
-**A Fable session never arms `Monitor`, `ScheduleWakeup` or a polling Bash loop
+**The session never arms `Monitor`, `ScheduleWakeup` or a polling Bash loop
 directly; it launches `watch` (sonnet, foreground) and reads one report.**
 
 The watchdog above is the shape that survives that rule, and it survives on a
