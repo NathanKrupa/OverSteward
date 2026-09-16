@@ -17,6 +17,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CANONICAL = REPO_ROOT / "shared" / "scripts" / "dev" / "guard_architect_readonly.py"
@@ -657,13 +658,24 @@ class TestWiring:
         assert CANONICAL.read_bytes() == DEPLOYED.read_bytes()
 
     def test_the_architect_card_names_the_hook_for_pretooluse_bash(self):
-        """A hook script that exists but is not named in the card's frontmatter enforces nothing."""
+        """A hook script that exists but is not named in the card's frontmatter enforces nothing.
+
+        The frontmatter is parsed, not grepped: the settings.json hook shape
+        nests a second ``hooks:`` key under every matcher, so a substring check
+        stays green when the top-level key is renamed away (mutation pass).
+        """
         text = ARCHITECT_CARD.read_text(encoding="utf-8")
-        frontmatter = text.split("---\n", 2)[1]
-        assert "hooks:" in frontmatter
-        assert "PreToolUse:" in frontmatter
-        assert 'matcher: Bash' in frontmatter
-        assert ".claude/hooks/guard_architect_readonly.py" in frontmatter
+        frontmatter = yaml.safe_load(text.split("---\n", 2)[1])
+        matchers = frontmatter["hooks"]["PreToolUse"]
+        bash = [entry for entry in matchers if entry.get("matcher") == "Bash"]
+        assert bash, f"no PreToolUse matcher for Bash in {matchers!r}"
+        commands = [hook["command"] for entry in bash for hook in entry["hooks"]]
+        assert any(
+            hook.get("type") == "command" for entry in bash for hook in entry["hooks"]
+        )
+        assert any(".claude/hooks/guard_architect_readonly.py" in command for command in commands), (
+            commands
+        )
 
     def test_the_card_no_longer_calls_its_rule_unenforced(self):
         text = ARCHITECT_CARD.read_text(encoding="utf-8")
