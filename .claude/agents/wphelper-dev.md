@@ -107,17 +107,41 @@ hurried or captured author who summarised the diff or dropped a test file would
 degrade the whole instrument silently, so the input is assembled by code.
 
 ```bash
-# 1. Assemble the input. Run it from the OverSteward checkout, pointed at YOUR
-#    worktree; it exits 2 if any input could not be gathered — read that, do not
-#    review around it. A blind assembly still counts as a round in .review-rounds.
-/home/natha/OverSteward/scripts/review/assemble_review_input.py \
+# 1. Assemble the input. Run it through the OverSteward checkout's own
+#    interpreter (its `#!/usr/bin/env python` shebang finds no `python` on this
+#    box), pointed at YOUR worktree; it exits 2 if any input could not be
+#    gathered — read that, do not review around it. A blind assembly still
+#    counts as a round in .review-rounds.
+/home/natha/OverSteward/.venv/bin/python \
+    /home/natha/OverSteward/scripts/review/assemble_review_input.py \
     --root <worktree-path> --repo NathanKrupa/wphelper --base origin/main \
     --issue <n> --out <worktree-path>/.review-input.md
 
-# 2. Launch the reviewer (Task tool, subagent_type: adversarial-reviewer,
-#    model: opus) with ONE instruction: read <worktree-path>/.review-input.md and
-#    return your verdict. Pass nothing else — no summary, no rationale, no
-#    "here's what I was going for".
+# 2. The launch below writes its captures into the worktree beside the input.
+#    They must be ignored there, or they sit untracked where `git add .` would
+#    commit them and `worktree_doctor.py teardown` refuses over them. Check
+#    before writing; if a name is not ignored, add it to .gitignore in this PR.
+for f in .review-round-1.json .review-verdict-1.md; do
+    git -C <worktree-path> check-ignore -q "$f" || echo "$f NOT IGNORED — add it to .gitignore first"
+done
+
+# 3. Launch the reviewer as a separate headless process. You are launched with
+#    `tools: Bash, Read, Edit, Write, Grep, Glob` and cannot start a subagent
+#    yourself. Run it from the OverSteward checkout, where the reviewer card is
+#    a project-level agent; the ONE instruction goes on stdin, so every round's
+#    launch reads the same, and --add-dir grants the reviewer your worktree.
+#    Pass nothing else — no summary, no rationale, no "here's what I was going
+#    for".
+( cd /home/natha/OverSteward && printf '%s\n' \
+    "Read <worktree-path>/.review-input.md and return your verdict." \
+    | claude -p --agent adversarial-reviewer --model opus \
+        --add-dir /home/natha/wphelper --output-format json \
+    > <worktree-path>/.review-round-1.json )
+
+# 4. Capture the verdict. The JSON envelope's `result` is the reviewer's text
+#    (its ```reviewer-verdict fence and the findings beneath it); `usage` is
+#    the harness's token count, recorded beside the reviewer's self-report.
+jq -r .result <worktree-path>/.review-round-1.json > <worktree-path>/.review-verdict-1.md
 ```
 
 Then:
@@ -128,13 +152,16 @@ Then:
   line** (verdict, findings, tokens).
 - **`BLOCK` means do not open the PR.** Fix every `hole`, then re-assemble
   **on the delta** — `--since <the sha the reviewer read> --previous-verdict
-  <file holding its verdict block and findings, verbatim>` — and re-review
-  once. The assembler counts rounds in `.review-rounds` beside its output and
-  checks the file is a well-formed `BLOCK` verdict. A *second* `BLOCK` on the
-  same change stops the pickup — emit `STOPPED_FOR_INPUT`, label the issue
-  `needs-input`, and hand it to Nathan. A fourth round is refused without
-  `--override-cap '<reason>'`, which is recorded in the ledger and printed in
-  the input header; there is no restart flag.
+  <file holding its verdict block and findings, verbatim>` — and launch the
+  reviewer again with the same command, capturing to `.review-round-<N>.json`.
+  The assembler counts rounds in `.review-rounds` beside its output and
+  checks the file is a well-formed `BLOCK` verdict. The loop is three rounds:
+  each `BLOCK` earns one re-review on the delta, and a *third* `BLOCK` on the
+  same change stops the pickup — emit `STOPPED_FOR_INPUT`, file the remaining
+  holes as issues, label the issue `needs-input`, and hand it to Nathan. A
+  fourth round is refused without `--override-cap '<reason>'`, which is
+  recorded in the ledger and printed in the input header; there is no restart
+  flag.
 - **`PASS-WITH-FINDINGS` gets no re-review.** Address each `defect`, `pin` and
   `doc` finding, record its fix and the red mutant that proves it in the PR
   body under the verdict, and open the PR.
