@@ -43,7 +43,9 @@ resolved in three tiers and the tier is recorded beside it: an explicit
 ``ai-title`` record in the session's own transcript, else the ``cwd``
 basename. A later ``record``/``retire`` for the same session may *improve* the
 name (a fresh session has no ``ai-title`` yet — it is written after the first
-exchange) but never demotes it.
+exchange) but never demotes it, and ``list``/``resume`` re-resolve it again at
+read time: the crashed session this tool exists for never fires another hook,
+so a name frozen at ``SessionStart`` would always be its directory's.
 
 **Liveness is the absence of a clean end.** A row with no ``ended_at`` is live:
 a crashed or killed session never ran its ``SessionEnd`` hook, so it still
@@ -238,6 +240,27 @@ def retire_row(
     return _upsert(payload, existing, now, read_transcript, ended=True)
 
 
+def refresh_name(row: dict, read_transcript: TranscriptReader) -> dict:
+    """Re-resolve a row's name from its own transcript, at read time.
+
+    The hooks resolve a name when they fire, and the one session this tool
+    exists for never fires again: at ``SessionStart`` the transcript has no
+    ``ai-title`` yet (it is written after the first exchange), and a crash
+    never reaches ``SessionEnd``. Without this, every crashed session is
+    resumed into a window named after its directory — the acceptance criterion
+    ("the windows return with the recorded names") would pass while Nathan's
+    actual constraint went unmet.
+
+    ``_best_name`` still decides, so an explicit ``-n`` name is never replaced
+    by a title the model wrote.
+    """
+    fresh = resolve_name(
+        {"transcript_path": row.get("transcript_path"), "cwd": row.get("cwd")}, read_transcript
+    )
+    name, tier = _best_name(fresh, row)
+    return {**row, "name": name, "name_source": tier}
+
+
 def fold_rows(lines: Iterable[str]) -> Registry:
     """Fold the append-only log into one row per session id; last line wins."""
     rows: dict[str, dict] = {}
@@ -420,7 +443,11 @@ def cmd_list(args: argparse.Namespace, now: datetime) -> int:
     if registry is None:
         return EXIT_COULD_NOT_LOOK
     _report_unreadable(registry)
-    rows = live_rows(registry, now, args.max_age_hours, args.include_ended)
+    reader = transcript_reader(Path(args.transcript_root))
+    rows = [
+        refresh_name(row, reader)
+        for row in live_rows(registry, now, args.max_age_hours, args.include_ended)
+    ]
     for line in format_table(rows, now):
         print(line)
     print(f"[session-registry] {len(rows)} live of {len(registry.rows)} recorded session(s).")
@@ -442,7 +469,11 @@ def cmd_resume(args: argparse.Namespace, now: datetime) -> int:
         return EXIT_COULD_NOT_LOOK
     _report_unreadable(registry)
 
-    rows = live_rows(registry, now, args.max_age_hours, args.include_ended)
+    reader = transcript_reader(Path(args.transcript_root))
+    rows = [
+        refresh_name(row, reader)
+        for row in live_rows(registry, now, args.max_age_hours, args.include_ended)
+    ]
     windows = plan_windows(rows, args.claude_bin)
     # Asked even for a dry run: `has-session` reads, it does not act, and a plan
     # that says `new-session` against a server that already has one is a lie.
@@ -504,20 +535,15 @@ def build_parser() -> argparse.ArgumentParser:
         default=str(DEFAULT_REGISTRY),
         help="Append-only JSONL store (default: %(default)s).",
     )
-    subcommands = parser.add_subparsers(dest="command", required=True)
-
-    hook = argparse.ArgumentParser(add_help=False)
-    hook.add_argument(
+    common.add_argument(
         "--transcript-root",
         default=str(DEFAULT_TRANSCRIPT_ROOT),
         help="Only read transcripts under this directory (default: %(default)s).",
     )
-    subcommands.add_parser(
-        "record", parents=[common, hook], help="SessionStart hook; JSON on stdin."
-    )
-    subcommands.add_parser(
-        "retire", parents=[common, hook], help="SessionEnd hook; JSON on stdin."
-    )
+    subcommands = parser.add_subparsers(dest="command", required=True)
+
+    subcommands.add_parser("record", parents=[common], help="SessionStart hook; JSON on stdin.")
+    subcommands.add_parser("retire", parents=[common], help="SessionEnd hook; JSON on stdin.")
 
     listing = subcommands.add_parser("list", parents=[common], help="Print live sessions.")
     _add_read_arguments(listing)

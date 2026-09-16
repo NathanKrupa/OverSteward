@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import stat
 import subprocess
 import sys
@@ -41,11 +42,18 @@ OTHER_SESSION = "13d4e2f1-2f8c-4c24-ba68-e62425a51c05"
 # and logs every invocation so a test can prove the verb acted rather than printed.
 TMUX_STUB = """#!/usr/bin/env python3
 import os, sys
+
+verb = sys.argv[1] if len(sys.argv) > 1 else ""
 log = os.environ.get("TMUX_STUB_LOG")
 if log:
     with open(log, "a", encoding="utf-8") as handle:
         handle.write(" ".join(sys.argv[1:]) + "\\n")
-sys.exit(1 if sys.argv[1:2] == ["has-session"] else 0)
+if verb == "has-session":
+    sys.exit(int(os.environ.get("TMUX_STUB_HAS_SESSION", "1")))
+if verb and verb == os.environ.get("TMUX_STUB_REFUSES", ""):
+    sys.stderr.write("tmux stub: no space left for a window\\n")
+    sys.exit(1)
+sys.exit(0)
 """
 
 
@@ -423,6 +431,141 @@ class TestSkipIsNotAPass:
         result = run_cli("list", "--registry", str(store))
         assert result.returncode == EXIT_OK
         assert "0 live of 0 recorded" in result.stdout
+
+
+class TestReadTimeNameRefresh:
+    """`refresh_name` is the read-time half of the naming rule — same never-demote order."""
+
+    def test_a_cwd_named_row_takes_the_title_its_transcript_has_now(self, registry):
+        row = registry.record_row(payload(), None, T0, reader(transcript()))
+        assert row["name_source"] == registry.CWD_BASENAME
+
+        refreshed = registry.refresh_name(row, reader(transcript("Session registry")))
+        assert (refreshed["name"], refreshed["name_source"]) == (
+            "Session registry",
+            registry.AI_TITLE,
+        )
+
+    def test_an_explicit_name_is_not_re_resolved_away(self, registry):
+        row = registry.record_row(
+            payload(session_title="td-numbers"), None, T0, reader(transcript())
+        )
+        refreshed = registry.refresh_name(row, reader(transcript("Something else")))
+        assert (refreshed["name"], refreshed["name_source"]) == ("td-numbers", registry.EXPLICIT)
+
+    def test_the_rest_of_the_row_survives_the_refresh(self, registry):
+        row = registry.record_row(payload(), None, T0, reader(transcript()))
+        refreshed = registry.refresh_name(row, reader(transcript("Session registry")))
+        assert refreshed["started_at"] == row["started_at"]
+        assert refreshed["session_id"] == row["session_id"]
+        assert refreshed["cwd"] == row["cwd"]
+        assert refreshed["ended_at"] == row["ended_at"]
+
+
+class TestCrashedSessionNaming:
+    """Finding 1: the window a crashed session comes back in must carry its real title."""
+
+    def _store(self, tmp_path: Path) -> tuple[Path, Path]:
+        note = tmp_path / "x.jsonl"
+        note.write_text(transcript(), encoding="utf-8")  # no ai-title yet, as at SessionStart
+        store = tmp_path / "session-registry.jsonl"
+        run_cli(
+            "record",
+            "--registry",
+            str(store),
+            "--transcript-root",
+            str(tmp_path),
+            stdin=json.dumps(payload(transcript_path=str(note))),
+        )
+        # The title Claude Code writes after the first exchange; then the session
+        # crashes, so no further hook ever fires.
+        note.write_text(transcript("Session registry"), encoding="utf-8")
+        return store, note
+
+    def test_list_shows_the_title_written_after_the_last_hook(self, tmp_path):
+        store, note = self._store(tmp_path)
+        listed = run_cli(
+            "list", "--registry", str(store), "--transcript-root", str(note.parent)
+        )
+        assert listed.returncode == EXIT_OK
+        assert "Session registry" in listed.stdout
+
+    def test_the_resumed_window_is_named_from_the_transcript_not_the_directory(
+        self, tmp_path, tmux_stub
+    ):
+        store, note = self._store(tmp_path)
+        result = run_cli(
+            "resume",
+            "--dry-run",
+            "--registry",
+            str(store),
+            "--transcript-root",
+            str(note.parent),
+            "--tmux-bin",
+            str(tmux_stub),
+        )
+        assert result.returncode == EXIT_OK
+        assert "-n Session-registry" in result.stdout
+        assert "-n OverSteward" not in result.stdout
+
+
+class TestGuardsTheReviewerCouldNotRedden:
+    """Finding 2: four live guards with no fixture. One each."""
+
+    def _one_row_store(self, tmp_path: Path, last_seen: datetime) -> Path:
+        store = tmp_path / "session-registry.jsonl"
+        store.write_text(
+            json.dumps(
+                {
+                    "session_id": SESSION,
+                    "name": "Session registry",
+                    "name_source": "ai-title",
+                    "cwd": "/home/natha/OverSteward",
+                    "transcript_path": "",
+                    "started_at": last_seen.isoformat(),
+                    "last_seen": last_seen.isoformat(),
+                    "ended_at": None,
+                    "end_reason": "",
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return store
+
+    def test_an_existing_tmux_session_is_detected_through_has_session(self, tmp_path, tmux_stub):
+        store = self._one_row_store(tmp_path, datetime.now(UTC))
+        result = run_cli(
+            "resume", "--dry-run", "--registry", str(store), "--tmux-bin", str(tmux_stub),
+            env_extra={"TMUX_STUB_HAS_SESSION": "0"},
+        )
+        assert result.returncode == EXIT_OK
+        assert "new-window" in result.stdout
+        assert "new-session" not in result.stdout
+
+    def test_a_tmux_refusal_is_a_failure_not_a_reported_success(self, tmp_path, tmux_stub):
+        store = self._one_row_store(tmp_path, datetime.now(UTC))
+        result = run_cli(
+            "resume", "--registry", str(store), "--tmux-bin", str(tmux_stub),
+            env_extra={"TMUX_STUB_REFUSES": "new-session"},
+        )
+        assert result.returncode == EXIT_FAILED
+        assert "tmux refused" in result.stderr
+        assert "opened" not in result.stdout
+
+    def test_max_age_hours_zero_means_no_limit_at_the_cli(self, tmp_path):
+        store = self._one_row_store(tmp_path, datetime.now(UTC) - timedelta(hours=30))
+
+        default_window = run_cli("list", "--registry", str(store))
+        assert "0 live of 1 recorded" in default_window.stdout
+
+        no_limit = run_cli("list", "--registry", str(store), "--max-age-hours", "0")
+        assert "1 live of 1 recorded" in no_limit.stdout
+
+    def test_the_session_id_reaches_the_shell_quoted(self, registry):
+        nasty = "abc; touch /tmp/pwned"
+        window = registry.plan_windows([{"session_id": nasty, "name": "a", "cwd": "/tmp"}])[0]
+        assert shlex.split(window.command) == ["claude", "-r", nasty]
 
 
 def test_canonical_and_deployed_copies_are_byte_identical():
