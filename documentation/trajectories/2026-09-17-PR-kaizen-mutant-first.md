@@ -1,0 +1,56 @@
+---
+date: 2026-09-17
+repo: oversteward
+pr: oversteward#TBD
+branch: session/kaizen-mutant-first
+issues:
+  - oversteward#432
+session_kind: in-session-pickup
+duration: ~40min
+reviewer: PASS-WITH-FINDINGS findings=1 tokens=62000
+---
+
+# Trajectory — a surviving test indicts the mutant before the test
+
+## Context
+
+The session-start kaizen pass. Its first run returned a DEGRADED report (the
+fiscus `embeddings` extra was absent, so clustering was lexical) whose top item
+was 16 unrelated lessons glued by "A … must …" phrasing. Installing the extra
+in the fiscus checkout and re-clustering semantically surfaced a measured
+cluster instead: 12 trajectory notes across aigranthelper, grantspider and
+OverSteward, all the same defect — a green survivor of the mutation pass read
+as a "vacuous test" when the mutant was at fault. Doctrine (`pr-workflow.md`
+§ Inert controls, the reviewer brief's mutation step) named only the two honest
+readings of a survivor, pin or decoration, and never the dishonest one.
+
+## Trajectory
+
+Read the cluster's members before trusting the count (the OS#352 rule). They
+split four ways: the mutated line sat after a guard that short-circuited
+(AG#1867); the mutant was applied to a layer a stub replaced (GS#2666); the
+mutant was checked against the single test expected to redden, missing the
+sibling that carried the guard (GS#2516); and the survivor was a real bug the
+suite could not see (AG#1849, OS#432). All four are procedural — a hook could
+in principle see them — so under the kaizen rule `promoted` needs a mechanism
+or a recurrence budget. No mechanism exists today: the honest one is a
+mutant-reach check (run the test under coverage, assert the mutated line
+executed), which is a build, not a session-start pass. Promoted to prose with
+a budget of two recurrences, at which point that check becomes an issue.
+
+Edited the canonical card and byte-copied it to `.claude/agents/`;
+`tests/test_agent_cards.py` pins the pair byte-identical.
+
+## What worked
+
+- [tooling] Repairing the detector (installing the fiscus `embeddings` extra) before ruling on its output — the degraded report's head item was an artifact; the semantic report's head item was a genuine cluster — six of twelve members on one defect.
+- [process] Reading the twelve member bullets sorted them into four distinct failure shapes, which is what the doctrine sentence needed to name — a count alone would have produced "be careful with mutants".
+
+## What didn't  (cost: trivial | minutes | hours | blocked)
+
+- [tooling][minutes] The first `fiscus review trajectories` run exceeded the 300 s foreground timeout and was backgrounded — semantic clustering over 60 days takes minutes → remedy: launch it in the background from the start.
+
+## What was learned
+
+- [process] A procedural kaizen item with no mechanism available promotes to prose only with a recurrence budget recorded in the verdict — two more "vacuous test that was a bad mutant" notes re-open this as a mutant-reach tooling issue → promote: none
+- [process] A kaizen cluster count is not a recurrence count, even in semantic mode — the reviewer caught "twelve notes" written into doctrine where six members carried the lesson; state the measured figure and name the members → promote: none
