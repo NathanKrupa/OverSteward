@@ -919,6 +919,275 @@ Heavy delivery between 2026-04-15 and 2026-05-07. Center of gravity moved here.
 
 ---
 
+## §3.13 Mid-September 2026 — the plan ladder sells, the account splits, and the machine turns out to be out of memory (reconciled 2026-09-15)
+
+> Seventh dream-produced pass, over 34 transcripts. Three through-lines. **AG
+> learned to sell**: the Builder tier shipped as a five-PR ladder in one day,
+> promoted twice, and on the same day AG got its own Stripe account — a cutover
+> whose blast radius was "every org that ever opened checkout", not "the one
+> that paid". **GS found the cohort it was actually enriching**: the expiry cliff
+> was a cwd-relative config loader, the refresh it unblocked narrowed 42 of 157
+> profiles, and the drain-eligible cohort turned out to be ~1,183 foundations,
+> not ~35,000, because a Haiku website verdict gates it. And **the recurring
+> "session crashed" pattern was measured** — 24 WSL2 VM reboots against nine
+> Windows restarts, three kernel OOM kills, a 990 render worker holding 30.6 GB
+> of a 32 GB VM — which is why the AmazonSmile 990-PF killed the drain twice
+> before anyone looked at RSS.
+
+### Shipped (2026-09-09 → 09-15)
+
+- **AG Builder tier and the plan ladder (epic AG#1994).** Nathan's rulings
+  across the design pass: the tier is **Builder**, $5/month or $49/year, one
+  seat, no AI generation; **AI generation is Pro-and-up** (Studio, Applications,
+  match analysis — the first AI gate the codebase ever had, the inverse polarity
+  of the only existing plan gate); Matches joins the search gate; **Free after
+  the trial is read-only** via a lapsed-org middleware; the $5 per-seat charge
+  applies only to Builder orgs attached to a consultancy. Five PRs merged to
+  staging on 09-11 — vocabulary and access decisions #2004, the AI gate and
+  Studio upgrade page #2007, selling Builder #2009, lapsed read-only #2011,
+  operator docs #2015 — then the fixes the reviewer and the cutover produced:
+  no promotion-code field on Builder checkout #2022 (AG#2020, coupons cannot
+  be retroactively restricted), Consultant seat is $50 not $20 #2023 (AG#2021),
+  a dead Stripe customer id degrades the portal instead of 500ing #2025
+  (AG#2024). Promoted 09-11 (#2027) and 09-14 (#2053, with the GS pin bump
+  #1852). Residue: ~70 write controls still render to lapsed orgs (dead, not
+  holes — the middleware fails closed); a half-set Builder price is hidden
+  from `/pricing/` but still a live checkout target — the cutover doc
+  documents exactly that since #1999, but no AG issue covers closing it; the
+  Customer Portal is a second path onto a Builder price and
+  its dashboard-default configuration is unverified (unfiled). All three are
+  on the watch-list below.
+- **AG has its own Stripe account (09-11).** Split from The Almoner/Substack
+  account; catalogue re-minted; Consultant is **$149/mo + $50 per additional
+  seat**, the $50 grandfathered product retired onto a 100%-forever Creator
+  coupon. Three defects the rebuild taught: per-seat prices minted as Volume
+  instead of Graduated (two Consultant seats billed $100, not $199; the mode is
+  immutable, so archive and re-mint in both modes); a coupon's
+  `max_redemptions` is immutable, so caps belong on the promotion code; and AG
+  mints a Stripe customer the moment anyone opens checkout, so every org that
+  ever clicked through carried a stale id under the new key (AG#2024). Two
+  settings are Dashboard-only — portal plan-switch products (empty in both
+  accounts, which is why the old Pro→Consultant "Switch" opened an empty
+  portal) and a coupon's `applies_to`. Stripe's "content creator" compliance
+  notice was the **account profile**, not the site: MCC 5815, the Substack URL
+  as business website, empty description and support fields, all inherited
+  from The Almoner's defaults; the public business name still reads "The
+  Almoner, LLC" on AG receipts. The Stripe webhook mirrors every customer in a
+  shared account (AG#2017); the webhook price map never reads the legacy
+  Consultant setting (AG#2013).
+- **The consultancy entity (epic AG#2019), and the review loop's clearest
+  ruling.** AG#2030 (Organization.kind + firm wizard) took **three BLOCK
+  verdicts on a 20-file PR (#2040)** — the third round found a live privilege
+  escalation the single-org fixtures could not see (`request.organization` vs
+  `request.user.organization`). Offered a cap-override round 4 or a re-scope,
+  Nathan ruled: **re-scope it and fix all of the problems in a second PR.** The
+  additive foundation (#2052, five files) passed round 1 on its first try and
+  merged 09-13; part 2 is AG#2051, children #2031–#2034. Two rulings inside the
+  loop: the wizard creates the consultancy org and sends the user to checkout
+  but **never mints consultant status** — that arrives only when the firm's plan
+  is actually Consultant (the issue's own acceptance item had asked for the
+  unsafe form); and a non-admin held at the firm-setup gate gets a holding
+  page naming the admins, never a dead end. The firm is an Organization kind,
+  EIN-keyed; today the Consultant plan sits on Golden Harvest Food Bank, a real
+  client, so the migration (AG#2034) is not a junk-data cleanup.
+- **AG's edge, its hosts, and its own honeypot.** Nathan wanted www gone; the
+  ruling landed as **redirect, never delete** — a Cloudflare 301 template with
+  the DNS record kept, AG#2018 to pin the canonical host in settings (today
+  every host claims to be canonical, which is how the edge held two copies of
+  every page). The home page now sends a Cache-Control (#1987, AG#1967) under
+  edge-TTL option 1 — never a forced TTL on a page that branches on
+  `is_authenticated` and carries a CSRF token; the try-it-now token fetch
+  hotfix #1978. **Purge-by-URL does not evict a foundation page**: Cache
+  Reserve plus a 7-day edge TTL refills from reserve, so a corrected profile
+  (Ford, Food Lion) sat stale for days after the database was right (AG#2012,
+  #1988); the 5-minute figure everyone cited is the origin header. The home
+  network's 30-day honeypot block was **our own scan** — a scratch script from
+  an earlier session followed the hidden nofollow footer trap under
+  `chestertron-scan`. The smoke never hands out a magic link twice (#1990,
+  AG#1965) and passes the `/foundations/*` challenge with its own credential
+  (#1972/#1973, AG#1968; OverSteward #473/#474).
+- **AG lifecycle epic AG#2042, red-teamed before filing.** Measured state: 8
+  users, 9 organizations, 4 users who signed in and never made an org, **zero
+  completed paid checkouts ever** — so the leak this quarter is the wizard and
+  the trial cliff, not the cart. Stripe sends no abandoned-checkout mail on its
+  own (recovery must be enabled per session, the `expired` event received, and
+  the email sent by us). Seven lanes filed #2043–#2049: one fixture-exclusion
+  predicate for the three onboarding checks (half the stall firings were our
+  own demo and smoke orgs), finish-setup mails, T-7/T-1 trial-expiry mails (a
+  plain trial gets nothing before its cliff today), abandoned-checkout
+  recovery, an opt-out reusing the digest's signed unsubscribe, a
+  `stalled_orgs` ops-seam report with verdicts replacing the Sentry stall
+  firing (#2048 — the one cross-repo lane, blocked on OS#475, the sweep's
+  `platform_alerts` rows rendering as unknown), and a funnel report.
+  **AG#1474 first** — the wizard skips the mission screen when Website
+  is blank, so the checklist can be uncompletable and a nag would be wrong.
+- **Help docs must reach customers without an operator step.** A price
+  correction sat behind a Todoist step while the admin published an older
+  draft with the $20 seat rate; Nathan ruled corrections **flow through
+  automatically** — AG#2039, a `source_hash` on HelpArticle and a three-way
+  import rule per slug. Until it lands, any `docs/help` edit needs `import_docs`
+  on Railway recorded as an operator step in the PR body.
+- **GS: the grants key widened, and the enrichment cliff root-caused.** GS#2088
+  **closed**: part A (#2624, `source_row_ordinal`) promoted 09-09, part B
+  (#2634, IRS grant lines keyed on filing position, the 4-tuple UNIQUE dropped)
+  promoted 09-10; residue #2623 (two cached filings per period), #2630
+  (re-ingest the collapsed pairs), #2632 (the audit describes the old fold).
+  The **expiry cliff was a loader defect, not policy**: the TTL config had said
+  365 days since July, but the reader resolved it relative to the cwd and fell
+  back to a hard-coded 90 — and the Dockerfile never shipped the file at all
+  (GS#2629 → #2631; 26,271 rows re-stamped; #2633 files the whole cwd-relative
+  `config/*.yaml` class). The refresh cohort with prompt-version idempotence
+  (GS#2635 → #2642) then ran 09-09/09-10 and **narrowed 42 of 157 profiles** —
+  Ford's became a description of JustFilms because the page selector prefers
+  program pages over About and nothing recorded which pages were read (GS#2653
+  → #2660: page provenance, a narrowing audit, an armed generation restore, a
+  reserved funder page; #2656 closed, #2658 open). GS#2659 → #2673: one active
+  generation per (foundation, type), the stacked-generation repair. Sector and
+  geography hubs rank only funders open to applications (Nathan's 09-09
+  ruling, GS#2637 → #2649/#2650/#2652; AG#1981 consumes it).
+- **GS: the cohort that is actually enrichable.** A foundation enters any
+  Sonnet cohort only when the Haiku website-verification pass stamped its site
+  ok — a conjunct invisible to a shape query. That pass had never run at scale
+  (59,633 never verified; 8,364 ok; 4,067 blocked; 2,986 mismatch), so the
+  ordinary drain cohort is **1,183, not the 35,102 reported**, and only ~1,850
+  of the 9,597 already-profiled foundations are reachable by a refresh. By
+  resolution source: DuckDuckGo 45% ok (39% mismatch on the richest
+  unverified), IRS-filed URLs 55% ok with almost no mismatches, Brave and
+  Wikidata 85% (GS#2648 — the resolver ignores the directory-host list). The
+  mismatch repair split wrong-organisation from wrong-pages first: 45 of 239
+  and 79 of 509 were the right site's corporate subpages, and a blanket clear
+  would have destroyed correct data; agent-returned ids were validated against
+  the batch files (four invented UUIDs in the prose summaries). The July
+  removal of the name-to-domain affinity gate stands (21% of correct answers
+  rejected for 2% of wrong ones); the Haiku judge is its successor.
+- **GS: the verification spine and the consistency engine, planned and
+  red-teamed.** Nathan's four rulings on the 09-10 enrichment-fidelity plan:
+  the deep pass covers giving ≥ $10M (tiers 1–2, ~933 funders), not $100M; the
+  consistency engine's first release is **flag-only**, so a failing page is
+  fixed before Google recrawls it; the drain stays at two agents; tier 1–2
+  pages may carry a visible Programs section after the judge scores it
+  (AG#2006). Red team caught a check comparing a profile against its own
+  generation's program list (unfalsifiable) and a token-overlap identity check
+  that passes the dominant failure class. Epics GS#2667 (spine: #2668
+  ready-for-agent, #2669–#2671, decision #2672), GS#2655 (consistency v1),
+  GS#2657 (deep pass — a costed, acknowledged exception to the 08-03
+  no-per-page-LLM directive, ~31 agent-hours on the Max drain); AG#2005
+  consumes the findings. A committed CliRunner test could dial production Neon
+  through the click group's `.env` walk-up — GS#2643, with the autouse fixture
+  that makes `create_engine` and `psycopg.connect` raise, and a canary.
+- **The 990-PF drain: twin "reboots" were the drain OOM-killing WSL.** Two
+  relaunches into the same death before the measurement: AmazonSmile's TY2022
+  990-PF carries 362,192 grant rows in a 272 MB XML, the statements renderer
+  built one unbounded HTML table and WeasyPrint took 30 GB laying it out.
+  GS#2665 → #2666 refuses returns above a measured 75,000-row cap in seconds
+  and records them as refusals; GS#2678 files the memory bounds. Three
+  diagnostics learned the hard way: a log that keeps printing while the ledger
+  stalls means one pool worker is stuck; a silent relaunch is the parent
+  replaying the ledger through the skip check (GS#2398, still the resume
+  bottleneck); a live pid is not progress after a laptop sleep — judge the
+  drain by its ledger. The drain was relaunched from a detached **staging**
+  worktree (`DRAIN_SRC`) because main lacked the guard; the 09-13 promotion
+  carries it, so the next restart drops the override.
+- **GS promotions 09-08, 09-09, 09-10 (×2), 09-11, 09-13** (#2619, #2625, #2639,
+  #2645, #2661, #2674), each with its back-merge; the 09-08 one carried the
+  crawler identity fix (#2618, merged to staging). The `neon-integration` job is a known red on main (GS#2599);
+  `ci` is the gate that matters. The GS→AG pin-bump seam runs on two PATs
+  (`AG_DISPATCH_PAT` on GS, `BUMP_PR_TOKEN` on AG); both were dead at once,
+  and a re-rolled token does not update the secret that holds it.
+- **The estate measured its own deaths.** Nathan's "the computer restarted
+  again" was the recovery, not the cause: the WSL2 VM rebooted 24 times in four
+  weeks against nine logged Windows restarts, with three kernel OOM kills (a
+  render worker at 30.6 GB, a python process at 28.9 GB, a Claude Code session
+  at 11.7 GB). Nathan confirmed the VS Code "reload session" prompt each time.
+  A week of session logs, parsed out of band, put **32% of Fable turn-spend in
+  monitor-tick watching** — OS#485 (a Sonnet watch agent absorbs the ticks,
+  foreground only) and OS#486 (session registry hooks + tmux resume). Two
+  prior rulings to park Fable had never reached `~/.claude/settings.json`,
+  which still said `fable[1m]`; switching to a cheaper vendor was evaluated
+  and rejected — a flat-rate subscription is not priced per token, the
+  competitor does not run the estate's controls, and a cost fix must remove
+  the driver.
+- **OverSteward, the rest.** TD reference numbers on every Todoist operator
+  step (#484 — allocated past completed history, so steps are closed, never
+  deleted; ai-assistants#100 for the stale checked-in skill copy). The
+  09-01→09-09 reports committed (#476). Review-loop residue filed from a week
+  of dispatches: the headless reviewer ran a Django command against the
+  primary checkout's prod `.env` (OS#477); gaudi cannot parse PEP 758 and the
+  assembler reports those files as measured — seen independently in four
+  reviews (OS#479, AG#2050); a teardown dropped a sibling repo's bench
+  databases on a shared slug (OS#480); a detached checkout writes `branch=HEAD`
+  and restarts the round count (OS#483); ag_ops posts to the www host (OS#481).
+  Learned about AG dispatch: `required_status_checks` is empty on both
+  branches, so `--auto` merges instantly and the pre-push `make verify` marker
+  is the only gate (AG#2041 to deploy the verdict watchdog); assemble the
+  review input against `origin/staging`; the dispatch watchdog's default
+  windows are a guaranteed false alarm behind AG's 6–7 minute verify. The
+  dream: the 09-11 run committed; a 09-14 apply pass wrote 74 files and never
+  finalized (this run swept them); finalize leaves the full index unstaged;
+  the cycle takes no lock. PyMuPDF (GS#2602) has waited on Nathan since 09-07.
+  Google Ads API access moved from developer tokens to Cloud projects
+  (ai-assistants#10 is the only consumer, never run live).
+
+### Corrections to the §3.12 watch-list
+
+| §3.12 row | Correction as of 2026-09-15 |
+|---|---|
+| GS#2452 section 2 residue, then section 3 | #2464, #2466 still open; not dispatched this week — the lane went to the enrichment cliff and the verification spine |
+| Grants natural-key widening GS#2088 | **closed** — parts A (#2624) and B (#2634) merged and promoted 09-09/09-10; residue #2623, #2630, #2632 |
+| GS#2465 / GS#2468 after repeated BLOCKs | both closed; #2468 still wears `agent-in-progress` and its post-merge steps remain unrecorded; carried |
+| GS#2510 enrichment re-drain | **ran** 09-09/09-10 as the refresh cohort (#2635 → #2642) and narrowed 42/157 profiles; repaired via #2653/#2659; the reachable refresh cohort is ~1,850 of 9,597, not the full set |
+| Cloudflare Verified Bots application | #2583/#2584 closed; retry not verified this pass; carried |
+| PyMuPDF AGPL question GS#2602 | still `needs-input`, unchanged since 09-07 |
+| Index-frontier epic GS#2607 | children filed #2608–#2617; no dispatch, by its own rule |
+| AG home page A/B data | no conversion read yet; #1987 sends a Cache-Control, AG#1989 (first-touch capture at the edge) filed |
+| Competitive follow-throughs | not verified this pass; carried |
+| AG production smoke skip rule + token | **landed** 09-08 (#1972/#1973); OverSteward #473/#474 |
+| AG LLM cost gaps AG#1961 | open, carried |
+| Dispatch agents → adversarial reviewer (OS#459/#460) | open; the headless `claude -p` path is what every dispatch used this week, and it produced OS#477 |
+| Review-loop residue OS#454/#467/#468/#470 | all open; joined by #477, #479, #480, #483 |
+| Fiscus embeddings extra | not verified; the promotion pass was not due this run |
+| AG#1208 | open, `blocked`; carried |
+
+### Started, not yet landed (September 15 watch-list)
+
+| Item | Where | State |
+|---|---|---|
+| Consultancy entity, part 2 and children | AG#2051, #2031–#2034 | part 1 (#2052) on main since 09-14; the rest scoped, none dispatched |
+| Lifecycle epic | AG#2042 → #2043–#2049 | lane 0 (AG#2043) and AG#1474 first; #1474 is `ready-for-agent` |
+| Help-doc auto import | AG#2039 | Nathan's ruling; until it lands, `import_docs` is an operator step per `docs/help` PR |
+| AG Stripe account profile | Todoist operator steps | public business name, MCC, product description, support email/URL still The Almoner's or empty |
+| AG renewal notices | (unfiled) | the cron services never carried the Builder/per-seat price ids; whether any cron runs `send_renewal_notifications` at all is unverified |
+| Edge purge that does not evict | AG#2012, #1988, #2018 | prod has no purge token; canonical host still derived from the request |
+| Verification spine + consistency engine | GS#2667 (#2668 ready), #2655, #2657, #2672 | plan and red team done; #2668 is the first dispatch |
+| Resolver and config classes | GS#2648, #2633, #2643 | directory hosts ignored; cwd-relative readers; the CliRunner walk-up |
+| Grants re-ingest | GS#2630, #2623 | the pairs the old key collapsed, from the XML cache |
+| 990 facsimile drain | GS#2398, #2678, `DRAIN_SRC` | drop the staging override at the next restart; the resume walk is still the bottleneck |
+| `neon-integration` red on main | GS#2599 | known; confirm a red matches it before calling it a finding |
+| PyMuPDF licensing | GS#2602 | parked on Nathan since 09-07 |
+| Fable spend: watch agent, session registry, settings default | OS#485, #486; `~/.claude/settings.json` | the settings change is an operator step; no PR yet |
+| gaudi PEP 758 skip | OS#479, AG#2050 | the assembler must fail closed on a non-empty `skipped` list |
+| Sibling-slug teardown, branch=HEAD ledger, prod `.env` reviewer | OS#480, #483, #477 | open |
+| Board connections | (unfiled intent, Nathan-originated) | phase 1 is the own-990 officer join against the 1.56M-row `people` table — no data entry, no LLM; gated on the GS#1673 PII barrier |
+| Google Ads developer-token sunset | ai-assistants#10 | the OAuth client must belong to the Cloud project that holds the access level; H1 2027 |
+| Dream engine residue | (unfiled) | no lock, probes blind to an open dream PR, full index unstaged after finalize, five order-dependent GS tests; the Stop-hook queue never drains (4,012 entries — it hashes the transcript at stop time, the ledger at processing time) |
+| exchequer verify exit collapse | exchequer#22 | small; `ready-for-agent` candidate |
+| GS#2452 section 2 residue, then section 3 | GS#2464, #2466 → #2469–#2481 | still open; section 3 waits on section 2; AG companions #1846/#1847 unblock as columns reach production |
+| GS#2465 / GS#2468 post-merge steps | GS#2468 | closed but still labelled `agent-in-progress`; its corpus refresh and Dagster-history confirmation were never recorded on the issue |
+| Cloudflare Verified Bots application | GS | #2583/#2584 closed; the retry (apply as Aggregator, Web Bot Auth) is not recorded anywhere; unverified |
+| Competitive follow-throughs | (unfiled intent, Nathan's go-ahead) | the twenty-foundation coverage test, an afternoon on Grant Frog, a dated Search Console milestone — none started |
+| AG home page A/B conversion read | AG#1932, #1989 | blocks and arms live since 09-07; no conversion read yet; first-touch capture at the edge filed |
+| AG LLM cost gaps | AG#1961 | FAILED rows and QA/match calls unmetered; open |
+| Lapsed-org write controls, half-set Builder price, portal path | (unfiled) | ~70 write controls still render to lapsed orgs; a half-set Builder price stays a live checkout target (documented in the cutover doc, not filed); the Customer Portal's dashboard-default configuration is unverified — three residues with no AG issue |
+| Index-frontier epic | GS#2607 | children #2608–#2617 filed; no dispatch until #2452 closes and Nathan says go |
+| Dispatch agents → adversarial reviewer | OS#459, #460 | open; every dispatch this week used the headless `claude -p` path, which produced OS#477 |
+| Review-loop residue | OS#454, #467, #468, #470 | open |
+| Fiscus embeddings extra | fiscus checkout (unfiled) | `uv sync --extra embeddings` there; until then every promotion pass is UNMEASURED; not due this run |
+| AG#1208 foundation-code-15 search interim fix | AG#1208 | open, `blocked`; parked on Nathan |
+| `guard_main_worktree` resolves the primary from `CLAUDE_PROJECT_DIR` | (unfiled, carried since §3.11) | refuses safe `git -C <linked-worktree>` switches from another repo's session; no issue exists — this row is its only record |
+| AG session worktrees with uncommitted entries | AG checkout | four session worktrees (admins-critical-alerts, consultant-149, grant-studio-strings, gs-pin-check) each show untracked entries; whether any holds real work is unverified this pass |
+
+---
+
 ## §4 In flight
 
 Active or partially-shipped items as of 2026-05-07.
@@ -1024,4 +1293,4 @@ Captured in `IDEA_STORE.md` from gstack research and conversational drift. None 
 - If §2-§3 grow past readable length, extract to a `documentation/changelog.md` and keep this doc thin.
 - This doc is the single answer to "what are we trying to do, what's done, what's next?" If it can't answer that in under 60 seconds of reading, it's grown past its purpose — restructure rather than expand.
 
-*Last updated: 2026-09-08 (early-September reconciliation — §3.12 added; the review loop measured on its first full day, the Gaudi overhaul across six primaries, the AG home page as an A/B instrument, GS#2452 section 1 closed, and the 09-07 competitive reframing).*
+*Last updated: 2026-09-15 (mid-September reconciliation — §3.13 added; the Builder ladder and AG's own Stripe account, the consultancy re-scope ruling, GS#2088 closed and the enrichment cliff root-caused, the ~1,183-foundation cohort, and the WSL2 out-of-memory measurement behind the session deaths).*
