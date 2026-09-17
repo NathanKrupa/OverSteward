@@ -68,7 +68,11 @@ recall. You are expected to:
   which ones still pass. One that passes either way is not a regression guard.
 - **Mutate the implementation.** Invert the guard, move the check after the
   call, delete the filter, return early. Re-run the new tests. The ones that
-  stay green are pins or decoration, not guards.
+  stay green are pins or decoration, not guards — **once you have shown the
+  mutant is reached**: not short-circuited by an earlier guard, not on a
+  layer a stub replaces, and checked against the whole test file rather
+  than the one test you expected to redden. A survivor whose mutant was
+  sound may be a real bug the suite cannot see; report that, not "vacuous".
 - **Grep the whole repo**, not one file, before claiming something is absent.
 
 Work in a scratch copy. **Never commit, never push, never edit the author's
