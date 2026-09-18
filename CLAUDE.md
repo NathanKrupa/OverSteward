@@ -104,15 +104,22 @@ nothing outside this repo's own stems, and never treats the shared
 `<project>_test` bench as a candidate. It exits 2 rather than reporting when it
 could not look.
 
-**Cleanup after a merged PR is standing-authorized.** Once `gh` reports the PR
-`MERGED` and no open PR uses the branch as its base (`gh pr list --base
-<branch> --state open` prints nothing — deleting under a child closes it), the
-session tears down the worktree (and any `<name>.baseline` sibling), sweeps,
-deletes the local branch with `git branch -d`, and deletes the remote ref with
-`gh api -X DELETE repos/<owner>/<repo>/git/refs/heads/<branch>` — in that
-order, without asking, and never as an operator step. The exact sequence, with
-the existence tests that let "already gone" read as done, is
-`.claude/skills/dispatch/SKILL.md` §5. `-d` is not the merged-check (it checks
+**Cleanup after a merged PR is standing-authorized.** Every dispatch-target
+repo and OverSteward has `delete_branch_on_merge` on (verified by hand
+2026-09-18; OS#510 makes `sync-status` measure it): GitHub removes the head
+branch when a PR merges and **retargets** any open child PR onto the merged
+PR's base (measured, OS#508/#509). Never `gh pr merge --delete-branch` — a
+no-op under `--auto`, an unmeasured refs-API delete otherwise, and a refs-API
+delete of a branch an open PR bases on is the measured way to **close** that
+PR. Once `gh` reports the PR `MERGED`, the session tears down the worktree
+(and any `<name>.baseline` sibling), sweeps, deletes the local branch with `git branch -d`, and — only if
+the remote ref somehow survived, and only after `gh pr list --base <branch>
+--state open` prints nothing — deletes it with `gh api -X DELETE
+repos/<owner>/<repo>/git/refs/heads/<branch>`. Without asking, never as an
+operator step. The exact sequence, with the existence tests that let "already
+gone" read as done, is `.claude/skills/dispatch/SKILL.md` §5, which also rules
+that **a stack is cleaned up by its last PR to merge**: a child's cleanup
+re-runs the sequence for each ancestor. `-d` is not the merged-check (it checks
 the upstream tracking ref, not the trunk); the PR state is. The one legitimate
 stop is the doctor's own refusal (exit 1 or 2): that is a finding to fix
 in-session — a stray untracked file to inspect, a capture to `repair` — not a
