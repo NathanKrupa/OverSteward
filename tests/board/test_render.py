@@ -5,9 +5,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from oversteward.board.assemble import assemble
+import re
+from pathlib import Path
+
+from oversteward.board.assemble import Action, Decision, DecisionKind, Target, Verb, assemble
 from oversteward.board.models import Issue
-from oversteward.board.render import render
+from oversteward.board.render import CONNECTOR, render
 
 NOW = datetime(2026, 9, 18, 12, 0, tzinfo=UTC)
 
@@ -143,6 +146,60 @@ def test_the_page_carries_the_card_script_and_names_the_connector():
     assert 'SERVER = "GitHub"' in html
     assert "estate-board" in html
     assert "GitHub connector" in html
+
+
+def test_the_script_calls_the_connector_by_the_name_the_renderer_declares():
+    source = (Path(__file__).parents[2] / "src" / "oversteward" / "board" / "cards.js").read_text()
+    match = re.search(r'^const SERVER = "([^"]+)";', source, re.MULTILINE)
+    assert match is not None
+    assert match[1] == CONNECTOR
+
+
+def _report_with(decision: Decision):
+    base = assemble({"grantspider": ()}, now=NOW)
+    return type(base)(
+        generated_at=base.generated_at, repos=base.repos, decisions=(decision,), epics=base.epics
+    )
+
+
+def _decision(**overrides) -> Decision:
+    fields = dict(
+        kind=DecisionKind.EPIC,
+        repo="grantspider",
+        ref="#40",
+        title="Epic: bare",
+        url="https://github.com/NathanKrupa/grantspider/issues/40",
+        ask="close it",
+        age_days=3,
+        target=Target(owner="NathanKrupa", repo="grantspider", number=40),
+        actions=(Action(Verb.SHELVE, "Close it", "Why", note_required=True),),
+    )
+    fields.update(overrides)
+    return Decision(**fields)
+
+
+def test_the_button_tells_the_script_whether_a_note_is_required():
+    required = render(_report_with(_decision()))
+    optional = render(
+        _report_with(_decision(actions=(Action(Verb.CLOSE, "Close", "Note", note_required=False),)))
+    )
+
+    assert 'data-note-required="1"' in required and 'data-note-required="0"' not in required
+    assert 'data-note-required="0"' in optional and 'data-note-required="1"' not in optional
+
+
+def test_a_decision_with_verbs_but_no_target_renders_no_card():
+    html = render(_report_with(_decision(target=None)))
+
+    assert "data-verb=" not in html and "<form" not in html
+
+
+def test_target_attributes_are_escaped():
+    html = render(_report_with(_decision(target=Target(owner='a"b', repo="r<s", number=1))))
+
+    assert 'data-owner="a&quot;b"' in html
+    assert 'data-repo="r&lt;s"' in html
+    assert 'a"b' not in html
 
 
 def test_the_inlined_script_cannot_end_or_escape_its_own_script_element():

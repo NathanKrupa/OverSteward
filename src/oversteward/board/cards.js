@@ -72,10 +72,17 @@ async function readIssue(mcp, target, options) {
     options,
   );
   const issue = result.payload;
-  if (!issue || typeof issue.state !== "string" || !Array.isArray(issue.labels)) {
+  if (!issue || typeof issue.state !== "string") {
     throw fail("bad_payload", "GitHub answered in a shape this page does not understand.");
   }
-  return issue;
+  // The server omits `labels` on an issue that has none.
+  return { ...issue, labels: Array.isArray(issue.labels) ? issue.labels : [] };
+}
+
+/* A created comment arrives as {id, url}; a listed one as {id, body, html_url}. */
+function commentUrl(comment) {
+  if (!comment) return null;
+  return comment.url || comment.html_url || null;
 }
 
 async function findComment(mcp, target, text) {
@@ -139,16 +146,22 @@ async function rule(mcp, request, deps) {
   try {
     await mcp.callTool(SERVER, TOOLS.write, { method: "update", ...args, ...spec.change(before) });
   } catch (err) {
-    if (!AMBIGUOUS.has(err && err.code)) throw err;
+    if (!AMBIGUOUS.has(err && err.code)) {
+      // The ruling is on the issue; a second tap would post it twice.
+      throw fail("state_write_failed", (err && err.message) || String(err), {
+        cause: err && err.code,
+        commentUrl: commentUrl(comment),
+      });
+    }
   }
 
   const after = await readIssue(mcp, target, { cache: { refresh: true } });
   if (!spec.settled(after)) {
     throw fail("unconfirmed", "The ruling was sent but GitHub does not show it yet.", {
-      commentUrl: comment && comment.html_url ? comment.html_url : null,
+      commentUrl: commentUrl(comment),
     });
   }
-  return { key, commentUrl: comment && comment.html_url ? comment.html_url : null };
+  return { key, commentUrl: commentUrl(comment) };
 }
 
 /* What to tell the viewer for each failure — and whether the card may be tapped again. */
@@ -162,6 +175,8 @@ function copyFor(err) {
       return { text: `${message} Rebuild the board to see the current queue.`, again: false };
     case "unconfirmed":
       return { text: `${message} Open the issue on GitHub before tapping again.`, again: false };
+    case "state_write_failed":
+      return { text: `The ruling is posted, but GitHub refused the change that follows it: ${message} Finish it on GitHub.`, again: false };
     case "needs_reauth":
       return { text: "GitHub's credentials have lapsed. Reconnect GitHub in claude.ai → Settings → Connectors, then tap again.", again: true };
     case "server_not_connected":
@@ -252,7 +267,7 @@ function wire(root, use) {
 }
 
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { rule, copyFor, VERBS, SERVER, TOOLS, AMBIGUOUS, marker };
+  module.exports = { rule, copyFor, VERBS, SERVER, TOOLS, AMBIGUOUS, marker, commentUrl };
 } else if (typeof document !== "undefined") {
   wire(document, (name) => (window.claude && window.claude.use ? window.claude.use(name) : Promise.resolve(null)));
 }

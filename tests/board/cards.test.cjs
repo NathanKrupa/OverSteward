@@ -25,9 +25,9 @@ function fakeMcp({ issue, comments = [], failures = {} }) {
       if (tool === "issue_read" && input.method === "get") return { payload: { ...state, labels: [...state.labels] } };
       if (tool === "issue_read" && input.method === "get_comments") return { payload: comments };
       if (tool === "add_issue_comment") {
-        const c = { id: 1, body: input.body, html_url: "https://github.com/x/y/issues/7#issuecomment-1" };
-        comments.push(c);
-        return { payload: c };
+        // Listed comments carry html_url; the created one is marshalled as {id, url}.
+        comments.push({ id: 1, body: input.body, html_url: "https://github.com/x/y/issues/7#issuecomment-1" });
+        return { payload: { id: 1, url: "https://github.com/x/y/issues/7#issuecomment-1" } };
       }
       if (tool === "issue_write") {
         if (input.labels) state = { ...state, labels: [...input.labels] };
@@ -154,6 +154,37 @@ test("an ambiguous comment failure with no marker on the issue is surfaced with 
 
   await assert.rejects(cards.rule(mcp, { ...TARGET, verb: "answer", note: "x", noteRequired: true }, deps), { code: "upstream_error" });
   assert.deepEqual(mcp.calls.map((c) => c.tool), ["issue_read", "add_issue_comment", "issue_read"]);
+});
+
+test("an issue the server marshals without a labels key is readable, not bad_payload", async () => {
+  const mcp = fakeMcp({ issue: { state: "open", labels: [] } });
+  const read = mcp.callTool.bind(mcp);
+  mcp.callTool = async (server, tool, input) => {
+    const result = await read(server, tool, input);
+    if (tool === "issue_read" && input.method === "get") delete result.payload.labels;
+    return result;
+  };
+
+  await cards.rule(mcp, { ...TARGET, verb: "shelve", note: "unbroken", noteRequired: true }, deps);
+
+  assert.equal(mcp.calls[2].input.state_reason, "not_planned");
+});
+
+test("a definite failure of the state write after the comment posted does not invite a second comment", async () => {
+  const mcp = fakeMcp({
+    issue: { state: "open", labels: ["needs-input"] },
+    failures: { issue_write: { code: "tool_error", message: "403 Resource not accessible by integration" } },
+  });
+
+  await assert.rejects(cards.rule(mcp, { ...TARGET, verb: "answer", note: "x", noteRequired: true }, deps), (err) => {
+    assert.equal(err.code, "state_write_failed");
+    assert.equal(err.cause, "tool_error");
+    assert.equal(err.commentUrl, "https://github.com/x/y/issues/7#issuecomment-1");
+    return true;
+  });
+  assert.deepEqual(mcp.calls.map((c) => c.tool), ["issue_read", "add_issue_comment", "issue_write"]);
+  assert.equal(cards.copyFor({ code: "state_write_failed", message: "m" }).again, false);
+  assert.match(cards.copyFor({ code: "state_write_failed", message: "m" }).text, /posted/);
 });
 
 test("a definite failure (GitHub 403) passes through with its code and makes no further write", async () => {

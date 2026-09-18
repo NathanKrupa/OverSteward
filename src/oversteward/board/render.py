@@ -22,7 +22,10 @@ from pathlib import Path
 from oversteward.board.assemble import Action, BoardReport, Decision, DecisionKind
 from oversteward.board.epics import DECISION_HEALTH, Epic, EpicHealth
 
-#: The connector's display name as the page calls it; the publish result confirms it.
+#: The connector's display name the page passes to every ``callTool``. ``cards.js``
+#: carries the same string as ``SERVER``; ``test_render`` pins the two equal. The
+#: artifact publish resolves the manifest's server segment to this display name
+#: and reports it — that report is read by the publishing session, not by code.
 CONNECTOR = "GitHub"
 
 _CARDS_JS = Path(__file__).with_name("cards.js")
