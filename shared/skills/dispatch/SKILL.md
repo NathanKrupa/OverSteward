@@ -177,11 +177,12 @@ If the agent returns prose with no YAML block (rare in foreground), treat it as 
 ### 5. Cleanup after `MERGED` — standing permission
 
 A merged PR leaves a worktree, often a `<name>.baseline` sibling, a bench
-database per worktree, a local branch and a remote branch. Every estate repo
-has `delete_branch_on_merge` on (set and verified by hand 2026-09-18; the
-`sync-status` check that would keep it measured is OS#510), so GitHub removes
-the remote branch the moment any PR merges — and **retargets** any open PR that used it as a base onto the
-merged PR's base, rather than closing it (measured on OS#508/#509). A dispatch
+database per worktree, a local branch and a remote branch. Every
+dispatch-target repo and OverSteward has `delete_branch_on_merge` on (set and
+verified by hand 2026-09-18; the `sync-status` check that would keep it
+measured is OS#510), so GitHub removes the remote branch the moment any PR
+merges — and **retargets** any open PR that used it as a base onto the merged
+PR's base, rather than closing it (measured on OS#508/#509). A dispatch
 run that reached its end has also torn its worktree down (playbook step 19),
 so this section is for what nothing else reached: an agent that died before
 step 19, a `.baseline` sibling it left, the local branch, and every
@@ -196,17 +197,19 @@ gh pr list --repo <owner>/<repo> --base <branch> --state open --json number   # 
 [ ! -d <repo>/.claude/worktrees/<name> ]          || scripts/dev/worktree_doctor.py teardown <repo>/.claude/worktrees/<name>
 [ ! -d <repo>/.claude/worktrees/<name>.baseline ] || scripts/dev/worktree_doctor.py teardown <repo>/.claude/worktrees/<name>.baseline
 scripts/dev/worktree_doctor.py sweep                # reports; must name nothing orphaned
-git -C <repo> branch -d <branch>                    # local before remote — see below
+! git -C <repo> show-ref --verify --quiet refs/heads/<branch> \
+    || git -C <repo> branch -d <branch>             # local before remote — see below
 ! git ls-remote --exit-code --heads origin <branch> > /dev/null \
     || gh api -X DELETE repos/<owner>/<repo>/git/refs/heads/<branch>
 ```
 
 Read each exit code. The two `gh` lines at the top are the conjuncts: the PR
 state is the merged-check, and the second line guards the **API** delete on
-the last line — the one path that closes children. GitHub's own auto-delete
-retargets an open child; `gh api -X DELETE` (and `gh pr merge --delete-branch`,
-which uses it) makes GitHub close that child and its review threads, so a
-non-empty list means retarget the child first, never delete under it. In
+the last line. GitHub's own auto-delete retargets an open child; a refs-API
+delete of a branch an open PR bases on closes that PR and its review threads
+(measured on OS#509 with no merged PR behind the branch — the after-merge
+case was not measured, so it is treated as the same), so a non-empty list
+means retarget the child first, never delete under it. In
 practice the remote branch is already gone by the time this runs, and the
 existence test makes the last line a no-op. The existence tests are what
 make "already gone" read as done rather than as a refusal: the doctor exits 1
@@ -235,11 +238,12 @@ child then merges, its cleanup runs the sequence for itself **and then again
 for each ancestor** — same lines, ancestor's `<name>` and `<branch>` — so a
 parent whose cleanup was skipped or refused at the time is finished now rather
 than left for Nathan. The existence tests make an ancestor that was already
-cleaned cost nothing. The one line that can refuse is `git branch -d` on an
-ancestor whose tracking ref was pruned while the primary checkout sits on a
-different trunk than the PR merged into (AG: checkout on `main`, PRs to
-`staging`) — `-d` then checks HEAD, which does not carry the commits. The
-answer is to give `-d` the right reference, never `-D`: prove the merge with
+cleaned cost nothing — the local-branch line included, which is why it carries
+`show-ref` in front of `-d`. `-d` can still refuse on an ancestor whose
+tracking ref was pruned while the primary checkout sits on a different trunk
+than the PR merged into (AG: checkout on `main`, PRs to `staging`) — `-d`
+then checks HEAD, which does not carry the commits. The answer is to give
+`-d` the right reference, never `-D`: prove the merge with
 `git merge-base --is-ancestor <branch> origin/<trunk>` (rc 0), then
 `git branch --set-upstream-to=origin/<trunk> <branch>` and `-d` again — its
 check is now "merged into that trunk", and it still refuses an unmerged branch
