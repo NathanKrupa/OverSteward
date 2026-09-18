@@ -190,13 +190,12 @@ From the repo's primary checkout:
 ```bash
 gh pr view <n> --repo <owner>/<repo> --json state --jq .state          # must print MERGED
 gh pr list --repo <owner>/<repo> --base <branch> --state open --json number   # must print []
-for w in <repo>/.claude/worktrees/<name> <repo>/.claude/worktrees/<name>.baseline; do
-    [ -d "$w" ] && scripts/dev/worktree_doctor.py teardown "$w"
-done
+[ ! -d <repo>/.claude/worktrees/<name> ]          || scripts/dev/worktree_doctor.py teardown <repo>/.claude/worktrees/<name>
+[ ! -d <repo>/.claude/worktrees/<name>.baseline ] || scripts/dev/worktree_doctor.py teardown <repo>/.claude/worktrees/<name>.baseline
 scripts/dev/worktree_doctor.py sweep                # reports; must name nothing orphaned
 git -C <repo> branch -d <branch>                    # local before remote — see below
-git ls-remote --exit-code --heads origin <branch> > /dev/null \
-    && gh api -X DELETE repos/<owner>/<repo>/git/refs/heads/<branch>
+! git ls-remote --exit-code --heads origin <branch> > /dev/null \
+    || gh api -X DELETE repos/<owner>/<repo>/git/refs/heads/<branch>
 ```
 
 Read each exit code. The two `gh` lines at the top are the conjuncts: the PR
@@ -206,7 +205,10 @@ GitHub close that PR and its review threads, so a non-empty list means
 retarget the child first, never delete under it. The existence tests are what
 make "already gone" read as done rather than as a refusal: the doctor exits 1
 on a path that is not a worktree and `gh api` returns 422 on a ref that is not
-there, and neither is a finding when the playbook did that work. `git branch
+there, and neither is a finding when the playbook did that work — so each of
+those lines exits 0 when its subject is absent and carries the tool's own code
+when it is present (`[ ! -d x ] || tool x`, not `[ -d x ] && tool x`, whose
+absent case exits 1 — the doctor's refusal code). `git branch
 -d` is not a merged-check either — it verifies against the branch's upstream
 tracking ref, which a server-side delete leaves in place until a prune — which
 is why it sits after the PR-state line and before the remote delete, and why
