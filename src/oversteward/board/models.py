@@ -28,20 +28,7 @@ _ISSUE_REF = re.compile(r"(?<![\w/])#(\d+)\b")
 NEEDS_INPUT = "needs-input"
 READY_FOR_AGENT = "ready-for-agent"
 AGENT_IN_PROGRESS = "agent-in-progress"
-
-#: Issues carrying any of these labels are not "scoping candidates" — they are
-#: already processed, in flight, declined, or deliberately deferred.
-UNSCOPED_EXCLUDES = frozenset({
-    READY_FOR_AGENT,
-    AGENT_IN_PROGRESS,
-    "agent-done",
-    "reject-close",
-    NEEDS_INPUT,
-    "wontfix",
-    "duplicate",
-    "invalid",
-    "backlog",
-})
+NEEDS_SCOPING = "needs-scoping"
 
 
 def _parse_iso(value: str | None) -> datetime | None:
@@ -109,6 +96,6 @@ __all__ = [
     "EPIC_LABEL_PREFIX",
     "Issue",
     "NEEDS_INPUT",
+    "NEEDS_SCOPING",
     "READY_FOR_AGENT",
-    "UNSCOPED_EXCLUDES",
 ]

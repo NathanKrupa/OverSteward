@@ -219,3 +219,10 @@ def test_a_comment_on_a_closed_child_is_not_motion():
 
     assert epic.last_motion_was_close is False
     assert epic.days_quiet(NOW) == 3
+
+
+def test_a_label_whose_every_child_is_closed_and_has_no_parent_is_history_not_an_epic():
+    done = issue(2, labels=("epic:ontology",), state="CLOSED", closed_days_ago=120)
+    also_done = issue(3, labels=("epic:ontology",), state="CLOSED", closed_days_ago=100)
+
+    assert build_epics((done, also_done)) == ()

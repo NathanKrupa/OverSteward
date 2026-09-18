@@ -41,9 +41,9 @@ def test_counts_per_repo_follow_the_label_vocabulary():
             issue(1, labels=("needs-input",), updated_days_ago=3),
             issue(2, labels=("ready-for-agent",)),
             issue(3, labels=("agent-in-progress",)),
-            issue(4),                                  # unlabelled: wants scoping
-            issue(5, labels=("bug",)),                 # labelled but unprocessed: wants scoping
-            issue(6, labels=("backlog",)),             # deliberately deferred: not scoping
+            issue(4, labels=("needs-scoping",)),
+            issue(5, labels=("needs-scoping", "bug")),
+            issue(6),                                  # untriaged, but not yet asked for scoping
             issue(7, "Epic: x", labels=("epic:x",)),   # a container, not a scoping candidate
             issue(8, state="CLOSED", closed_days_ago=1, labels=("epic:x",)),
         ),

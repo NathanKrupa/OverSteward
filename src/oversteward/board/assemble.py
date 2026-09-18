@@ -26,8 +26,8 @@ from oversteward.board.epics import DECISION_HEALTH, Epic, EpicHealth, build_epi
 from oversteward.board.models import (
     AGENT_IN_PROGRESS,
     NEEDS_INPUT,
+    NEEDS_SCOPING,
     READY_FOR_AGENT,
-    UNSCOPED_EXCLUDES,
     Issue,
 )
 
@@ -98,9 +98,7 @@ def _counts(repo: str, issues: Sequence[Issue], epics: Sequence[Epic]) -> RepoCo
         needs_input=sum(NEEDS_INPUT in i.labels for i in open_issues),
         ready=sum(READY_FOR_AGENT in i.labels for i in open_issues),
         in_progress=sum(AGENT_IN_PROGRESS in i.labels for i in open_issues),
-        needs_scoping=sum(
-            1 for i in open_issues if not i.is_epic and not (i.labels & UNSCOPED_EXCLUDES)
-        ),
+        needs_scoping=sum(NEEDS_SCOPING in i.labels for i in open_issues),
         epics=len(epics),
     )
 

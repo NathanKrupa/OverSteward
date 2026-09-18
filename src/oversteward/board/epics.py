@@ -121,7 +121,7 @@ class Epic:
 def build_epics(issues: Iterable[Issue]) -> tuple[Epic, ...]:
     """Group every issue into the epics it belongs to.
 
-    Epics whose parent and children are all closed are finished and omitted —
+    An epic with no open parent and no open child is finished and omitted —
     the board shows the living estate, not its history. Everything else is
     returned, sorted by repo then key, so the caller can judge each one.
     """
@@ -156,8 +156,8 @@ def build_epics(issues: Iterable[Issue]) -> tuple[Epic, ...]:
         for key in sorted(set(parents_by_key) | set(children_by_key)):
             parent = parents_by_key.get(key)
             children = tuple(sorted(children_by_key[key].values(), key=lambda c: c.number))
-            all_closed = all(not c.is_open for c in children)
-            if parent is not None and not parent.is_open and all_closed:
+            parent_open = parent is not None and parent.is_open
+            if not parent_open and all(not c.is_open for c in children):
                 continue
             epics.append(Epic(repo=repo, key=key, parent=parent, children=children))
     return tuple(epics)
