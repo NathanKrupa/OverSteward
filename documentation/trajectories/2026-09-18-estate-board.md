@@ -1,13 +1,13 @@
 ---
 date: 2026-09-18
 repo: oversteward
-pr: oversteward#TBD
+pr: oversteward#513
 branch: session/estate-board
 issues:
   - none — Nathan's standing ask of 2026-08-28 (memory: project_estate_board_interface), never filed
 session_kind: in-session-pickup
 duration: "~3h"
-reviewer: TBD
+reviewer: PASS-WITH-FINDINGS findings=5 tokens=90000
 ---
 
 # Trajectory — Estate Board read side: decision queue and epic health from gh
@@ -50,11 +50,22 @@ prefixes). The connector was the first-ordered step; the read side was second.
   subjects: 2026-07-08 was a bulk-update day, and the children are genuinely
   quiet since. The uniform figure is real.
 - Published the page over the 2026-08-28 draft artifact (same URL, version 2).
+- Adversarial review round 1: PASS-WITH-FINDINGS, 5. The substantive one: an
+  open epic whose body-named children had all closed *without* the slug label
+  read "no children", because the client fetched closed issues only by label.
+  Fixed by reading each unfetched ref of an open epic by number (404 and PRs
+  are not children); same-repo issue URLs now count as refs; registry errors
+  exit 2. Three of the live "childless" epics became "every child is closed"
+  (8 done-open, was 3). Republished as version 3.
+- Nathan's screenshot of Settings → Connectors showed the row is "GitHub
+  Integration" (the repo-sync integration), not the GitHub MCP connector — the
+  2026-08-29 hypothesis confirmed.
 
 ## What worked
 
 - [design] Following the liveness package's layering verbatim (models / client / config / service / render / thin script with 0-1-2 exit codes) — every architectural question was already answered, so the session spent its time on the model.
 - [functional] Running the real estate through the model before writing the renderer — it found two definition errors (history epics as decisions; a scoping count that disagreed with `/project-status`) that no fixture would have.
+- [process] The adversarial reviewer ran the script against live GitHub and resolved every "no children" verdict against the issues' bodies — that is how the closed-label-less-child defect surfaced; the author's fixtures all carried the label.
 - [tooling] Mutating by file with `PYTHONDONTWRITEBYTECODE=1` and `-p no:cacheprovider` — a same-size mutant restored within the same second had earlier left its `.pyc` behind and made the restored tree read red.
 - [process] Proving the secret-scan substitute could fire (a fake AWS key in a scratch repo) before trusting its clean result — the "clean" run was an empty binary exiting 0.
 
