@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from oversteward.board.assemble import STALE_ANSWER_HOURS, DecisionKind, assemble
+from oversteward.board.assemble import STALE_ANSWER_HOURS, DecisionKind, Target, Verb, assemble
 from oversteward.board.epics import STALLED_AFTER_DAYS
 from oversteward.board.models import Issue
 
@@ -198,3 +198,55 @@ def test_parent_closed_and_done_open_are_decisions_ranked_before_the_rest():
     assert "reopen" in by_ref["epic:abandoned"].ask
     assert "Every child is closed (2)" in by_ref["epic:finished"].ask
     assert "close the epic" in by_ref["epic:finished"].ask
+
+
+def _decisions_by_ref(issues):
+    return {d.ref: d for d in assemble(issues, now=NOW).decisions}
+
+
+def test_a_question_offers_one_answer_verb_aimed_at_its_issue():
+    by_ref = _decisions_by_ref({"grantspider": (issue(1, labels=("needs-input",)),)})
+    decision = by_ref["#1"]
+    assert decision.target == Target(owner="NathanKrupa", repo="grantspider", number=1)
+    assert [a.verb for a in decision.actions] == [Verb.ANSWER]
+    assert decision.actions[0].note_required is True
+
+
+def test_epic_verbs_follow_the_health_verdict():
+    by_ref = _decisions_by_ref(
+        {
+            "grantspider": (
+                issue(10, "Epic: finished", labels=("epic:finished",)),
+                issue(11, labels=("epic:finished",), state="CLOSED", closed_days_ago=2),
+                issue(20, "Epic: abandoned", labels=("epic:abandoned",), state="CLOSED", closed_days_ago=1),
+                issue(21, labels=("epic:abandoned",)),
+                issue(30, "Epic: dropped", labels=("epic:dropped",)),
+                issue(31, labels=("epic:dropped",), updated_days_ago=STALLED_AFTER_DAYS + 5),
+                issue(40, "Epic: bare"),
+                issue(51, labels=("epic:orphan",)),
+            )
+        }
+    )
+    verbs = {ref: [a.verb for a in d.actions] for ref, d in by_ref.items()}
+    assert verbs["epic:finished"] == [Verb.CLOSE]
+    assert by_ref["epic:finished"].actions[0].note_required is False
+    assert verbs["epic:abandoned"] == [Verb.REOPEN]
+    assert verbs["epic:dropped"] == [Verb.SHELVE]
+    assert by_ref["epic:dropped"].actions[0].note_required is True
+    assert verbs["#40"] == [Verb.SHELVE]
+    assert by_ref["#40"].target == Target(owner="NathanKrupa", repo="grantspider", number=40)
+    # A label-only epic has no issue to write to: nothing to tap, only the link.
+    assert verbs["epic:orphan"] == []
+    assert by_ref["epic:orphan"].target is None
+
+
+def test_epic_verbs_aim_at_the_parent_issue_never_a_child():
+    by_ref = _decisions_by_ref(
+        {
+            "grantspider": (
+                issue(20, "Epic: abandoned", labels=("epic:abandoned",), state="CLOSED", closed_days_ago=1),
+                issue(21, labels=("epic:abandoned",)),
+            )
+        }
+    )
+    assert by_ref["epic:abandoned"].target.number == 20

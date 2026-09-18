@@ -95,10 +95,62 @@ def test_an_empty_queue_says_nothing_waits():
     assert "Nothing waits on you" in html
 
 
-def test_the_page_names_what_it_cannot_yet_do():
+def test_each_decision_with_a_verb_carries_a_card_aimed_at_its_issue():
     html = render(report_with_decisions())
 
+    queue = html[html.index('id="decisions"') : html.index('id="epics"')]
+    at = queue.index("issues/1")
+    answer = queue[queue.rindex("<li", 0, at) : queue.index("</li>", at)]
+    assert 'data-owner="NathanKrupa"' in answer
+    assert 'data-repo="grantspider"' in answer
+    assert 'data-number="1"' in answer
+    assert 'data-verb="answer"' in answer
+    assert "<textarea" in answer and " required></textarea>" in answer
+    assert ">Answer<" in answer
+
+
+def test_an_optional_note_is_not_a_required_field():
+    report = assemble(
+        {
+            "grantspider": (
+                issue(10, "Epic: finished", labels=("epic:finished",)),
+                issue(11, labels=("epic:finished",), state="CLOSED", closed_days_ago=2),
+            )
+        },
+        now=NOW,
+    )
+
+    html = render(report)
+
+    card = html[html.index('data-verb="close"') - 400 : html.index('data-verb="close"')]
+    assert "<textarea" in card and " required></textarea>" not in card
+
+
+def test_a_label_only_epic_has_no_card():
+    report = assemble({"grantspider": (issue(51, labels=("epic:orphan",)),)}, now=NOW)
+
+    html = render(report)
+
+    assert "epic:orphan" in html
+    assert "data-verb=" not in html
+    assert "<textarea" not in html
+
+
+def test_the_page_carries_the_card_script_and_names_the_connector():
+    html = render(report_with_decisions())
+
+    assert "<script>" in html
+    assert 'SERVER = "GitHub"' in html
+    assert "estate-board" in html
     assert "GitHub connector" in html
+
+
+def test_the_inlined_script_cannot_end_or_escape_its_own_script_element():
+    html = render(report_with_decisions())
+
+    script = html[html.index("<script>") + len("<script>") : html.rindex("</script>")]
+    assert "</script" not in script.lower()
+    assert "<!--" not in script
 
 
 def test_an_agent_question_alone_is_not_an_empty_queue():
