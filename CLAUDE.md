@@ -104,6 +104,21 @@ nothing outside this repo's own stems, and never treats the shared
 `<project>_test` bench as a candidate. It exits 2 rather than reporting when it
 could not look.
 
+**Cleanup after a merged PR is standing-authorized.** Once `gh` reports the PR
+`MERGED` and no open PR uses the branch as its base (`gh pr list --base
+<branch> --state open` prints nothing — deleting under a child closes it), the
+session tears down the worktree (and any `<name>.baseline` sibling), sweeps,
+deletes the local branch with `git branch -d`, and deletes the remote ref with
+`gh api -X DELETE repos/<owner>/<repo>/git/refs/heads/<branch>` — in that
+order, without asking, and never as an operator step. The exact sequence, with
+the existence tests that let "already gone" read as done, is
+`.claude/skills/dispatch/SKILL.md` §5. `-d` is not the merged-check (it checks
+the upstream tracking ref, not the trunk); the PR state is. The one legitimate
+stop is the doctor's own refusal (exit 1 or 2): that is a finding to fix
+in-session — a stray untracked file to inspect, a capture to `repair` — not a
+step to hand to Nathan. Nothing in the sequence needs him, and the tree he next
+opens should already be clean.
+
 This family is canonical here in `shared/scripts/dev/` and deployed to every
 repo's `.claude/hooks/` + `scripts/dev/`. See OVERSTEWARD.md §
 "Session-per-worktree discipline" for the rollout and new-project bootstrap.
