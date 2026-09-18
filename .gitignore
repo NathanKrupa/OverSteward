@@ -98,3 +98,4 @@ reports/skill-drafts/
 
 # Estate Board page — a generated snapshot, published as an artifact, never committed
 data/estate_board.html
+.review-round-*.stderr
