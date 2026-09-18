@@ -50,7 +50,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT, help="where to write the page")
     args = parser.parse_args(argv)
 
-    repos = repos_from_registry(load_registry())
+    try:
+        repos = repos_from_registry(load_registry())
+    except ValueError as exc:
+        print(f"ERROR: registry.yaml — {exc}", file=sys.stderr)
+        return EXIT_MISCONFIGURED
     if not repos:
         print("ERROR: no dispatch_target repositories in registry.yaml", file=sys.stderr)
         return EXIT_MISCONFIGURED

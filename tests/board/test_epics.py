@@ -230,3 +230,12 @@ def test_a_label_whose_every_child_is_closed_and_has_no_parent_is_history_not_an
     also_done = issue(3, labels=("epic:ontology",), state="CLOSED", closed_days_ago=100)
 
     assert build_epics((done, also_done)) == ()
+
+
+def test_an_open_epic_whose_only_body_named_child_is_closed_and_label_less_is_done_open():
+    parent = issue(1, "Epic: x", body="- [x] #2")
+    child = issue(2, state="CLOSED", closed_days_ago=10)
+
+    (epic,) = build_epics((parent, child))
+
+    assert epic.health(NOW) is EpicHealth.DONE_OPEN

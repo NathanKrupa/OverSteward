@@ -99,3 +99,15 @@ def test_the_page_names_what_it_cannot_yet_do():
     html = render(report_with_decisions())
 
     assert "GitHub connector" in html
+
+
+def test_an_agent_question_alone_is_not_an_empty_queue():
+    report = assemble(
+        {"grantspider": (issue(1, "which schema?", labels=("needs-input",), updated_days_ago=3),)},
+        now=NOW,
+    )
+
+    html = render(report)
+
+    assert "Nothing waits on you" not in html
+    assert "Agents waiting on an answer" in html

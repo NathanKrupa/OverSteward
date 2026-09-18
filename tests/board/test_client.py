@@ -127,3 +127,102 @@ def test_read_estate_propagates_a_failed_repository_rather_than_dropping_it():
 
     with pytest.raises(GhError, match="grantspider"):
         read_estate([GS], reader=fail)
+
+
+def epic_raw(number: int, body: str, **overrides) -> dict:
+    return raw(number, title=f"Epic: {number}", body=body, **overrides)
+
+
+def rest(number: int, *, state: str = "closed", pull: bool = False) -> dict:
+    payload = {
+        "number": number,
+        "title": f"issue {number}",
+        "state": state,
+        "body": "",
+        "html_url": f"https://github.com/NathanKrupa/grantspider/issues/{number}",
+        "labels": [{"name": "bug"}],
+        "created_at": "2026-06-01T00:00:00Z",
+        "updated_at": "2026-07-20T00:00:00Z",
+        "closed_at": "2026-07-20T00:00:00Z" if state == "closed" else None,
+    }
+    if pull:
+        payload["pull_request"] = {"url": "…"}
+    return payload
+
+
+class RestRecorder(Recorder):
+    """Recorder that also answers per-number REST reads from a ``by_number`` map."""
+
+    def __init__(self, answers: dict[str, list], by_number: dict[int, dict | Exception]):
+        super().__init__(answers)
+        self.by_number = by_number
+
+    def __call__(self, args: list[str]):
+        if args[0] == "api":
+            self.calls.append(args)
+            number = int(args[1].rsplit("/", 1)[1])
+            answer = self.by_number[number]
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+        return super().__call__(args)
+
+
+def test_body_refs_of_open_epics_that_were_not_fetched_are_read_by_number():
+    from oversteward.board.client import NotFoundError
+
+    gh = RestRecorder(
+        {
+            "issue list open": [
+                epic_raw(1, body="- [x] #50\n- [x] #51\n- [ ] #2\n- [x] #52\n- [x] #53"),
+                raw(2),
+                epic_raw(3, body="#60", state="CLOSED", closedAt="2026-08-01T00:00:00Z"),
+                raw(4, body="#61"),
+            ],
+            "label list": [],
+        },
+        by_number={
+            50: rest(50),  # a closed, label-less child: the missing case
+            51: rest(51, pull=True),  # a merged PR: not a child
+            52: NotFoundError("HTTP 404"),  # a typo in the body: not a child
+            53: rest(53, state="open"),  # open but paged out: still a child
+        },
+    )
+
+    issues = read_repo(GS, run=gh)
+
+    fetched = {i.number: i for i in issues}
+    assert set(fetched) == {1, 2, 3, 4, 50, 53}
+    assert fetched[50].state == "CLOSED" and fetched[50].closed_at is not None
+    assert fetched[50].labels == frozenset({"bug"})
+    assert fetched[50].url.endswith("/issues/50")
+    assert fetched[53].state == "OPEN"
+    asked = sorted(int(c[1].rsplit("/", 1)[1]) for c in gh.calls if c[0] == "api")
+    assert asked == [
+        50,
+        51,
+        52,
+        53,
+    ]  # not #2 (fetched), not #60 (closed epic), not #61 (not an epic)
+    assert all(
+        c[1].startswith("repos/NathanKrupa/grantspider/issues/") for c in gh.calls if c[0] == "api"
+    )
+
+
+def test_a_failed_by_number_read_that_is_not_a_404_propagates():
+    from oversteward.board.client import GhError
+
+    gh = RestRecorder(
+        {"issue list open": [epic_raw(1, body="#50")], "label list": []},
+        by_number={50: GhError("gh api failed (exit 1): HTTP 502")},
+    )
+
+    with pytest.raises(GhError, match="502"):
+        read_repo(GS, run=gh)
+
+
+def test_gh_json_turns_a_404_into_not_found():
+    from oversteward.board.client import NotFoundError, gh_json
+
+    with pytest.raises(NotFoundError):
+        gh_json(["api", "repos/NathanKrupa/grantspider/issues/999999999"])

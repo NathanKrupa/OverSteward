@@ -5,8 +5,11 @@
 
 Three ``gh`` calls per repository: every open issue, the label list (to learn
 which ``epic:<slug>`` labels exist), and every *closed* issue carrying any of
-those labels — one OR-search, so GS's 900 closed issues are never paged. Closed
-issues without an epic label are history the board does not show.
+those labels — one OR-search, so GS's 900 closed issues are never paged. Then
+one read per issue an *open epic's body* names that none of those pages held —
+a closed child without the label is exactly the child that turns "no children"
+into "every child is closed". A number that is a pull request or does not
+exist is not a child; any other failure is the repository being unreadable.
 
 Each page is checked against its limit. ``gh`` truncates silently, and an
 estate read at exactly the limit is a smaller estate than exists — that is a
@@ -19,6 +22,7 @@ import json
 import subprocess
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from typing import Any
 
 from oversteward.board.config import RepoRef
 from oversteward.board.models import EPIC_LABEL_PREFIX, Issue
@@ -29,7 +33,10 @@ CLOSED_LIMIT = 1000
 
 _FIELDS = "number,title,url,state,labels,createdAt,updatedAt,closedAt,body"
 
-Runner = Callable[[list[str]], list]
+Runner = Callable[[list[str]], Any]
+
+#: Parallel by-number reads per repository.
+_BY_NUMBER_WORKERS = 8
 
 
 class GhError(RuntimeError):
@@ -40,12 +47,19 @@ class TruncatedReadError(GhError):
     """A page came back full; the repository holds more than was read."""
 
 
-def gh_json(args: list[str]) -> list:
+class NotFoundError(GhError):
+    """GitHub answered 404: the thing asked for does not exist."""
+
+
+def gh_json(args: list[str]) -> Any:
     proc = subprocess.run(
         ["gh", *args], capture_output=True, text=True, encoding="utf-8", check=False
     )
     if proc.returncode != 0:
-        raise GhError(f"gh {' '.join(args)} failed (exit {proc.returncode}): {proc.stderr.strip()}")
+        message = f"gh {' '.join(args)} failed (exit {proc.returncode}): {proc.stderr.strip()}"
+        if "HTTP 404" in proc.stderr:
+            raise NotFoundError(message)
+        raise GhError(message)
     out = proc.stdout.strip()
     return json.loads(out) if out else []
 
@@ -82,7 +96,49 @@ def read_repo(repo: RepoRef, *, run: Runner = gh_json) -> tuple[Issue, ...]:
             "closed epic issues",
             repo,
         )
-    return tuple(Issue.from_gh(repo.id, row) for row in [*open_rows, *closed_rows])
+    rows = [*open_rows, *closed_rows]
+    rows.extend(_read_missing_children(run, repo, rows))
+    return tuple(Issue.from_gh(repo.id, row) for row in rows)
+
+
+def _from_rest(payload: dict) -> dict:
+    """Reshape a REST issue payload to the ``gh issue list --json`` shape."""
+    return {
+        "number": payload["number"],
+        "title": payload.get("title", ""),
+        "url": payload.get("html_url", ""),
+        "state": payload.get("state", "open"),
+        "labels": [{"name": label["name"]} for label in payload.get("labels", ())],
+        "createdAt": payload.get("created_at"),
+        "updatedAt": payload.get("updated_at"),
+        "closedAt": payload.get("closed_at"),
+        "body": payload.get("body") or "",
+    }
+
+
+def _read_one(run: Runner, repo: RepoRef, number: int) -> dict | None:
+    try:
+        payload = run(["api", f"repos/{repo.full_name}/issues/{number}"])
+    except NotFoundError:
+        return None
+    if "pull_request" in payload:
+        return None
+    return _from_rest(payload)
+
+
+def _read_missing_children(run: Runner, repo: RepoRef, rows: list[dict]) -> list[dict]:
+    """Issues named in an open epic's body that no page above returned."""
+    have = {int(row["number"]) for row in rows}
+    wanted: set[int] = set()
+    for row in rows:
+        issue = Issue.from_gh(repo.id, row)
+        if issue.is_epic and issue.is_open:
+            wanted.update(n for n in issue.body_refs if n not in have)
+    if not wanted:
+        return []
+    with ThreadPoolExecutor(max_workers=min(_BY_NUMBER_WORKERS, len(wanted))) as pool:
+        found = pool.map(lambda n: _read_one(run, repo, n), sorted(wanted))
+    return [row for row in found if row is not None]
 
 
 def read_estate(
@@ -103,6 +159,7 @@ __all__ = [
     "LABEL_LIMIT",
     "OPEN_LIMIT",
     "GhError",
+    "NotFoundError",
     "TruncatedReadError",
     "gh_json",
     "read_estate",

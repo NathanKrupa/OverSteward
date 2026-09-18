@@ -87,3 +87,18 @@ def test_measured_answer_writes_the_page_and_names_what_it_read(monkeypatch, tmp
     printed = capsys.readouterr().out
     assert "1 repositories" in printed and "1 issues" in printed and "1 decisions" in printed
     assert "grantspider #1" in printed
+
+
+def test_misconfigured_when_a_dispatch_target_has_no_github_url(monkeypatch, tmp_path):
+    module = _module()
+    monkeypatch.setattr(
+        module,
+        "load_registry",
+        lambda: {
+            "contexts": [
+                {"id": "x", "repo": "git@bitbucket.org:o/x.git", "dispatch_target": True},
+            ]
+        },
+    )
+    assert module.main(["--out", str(tmp_path / "b.html")]) == _EXIT_MISCONFIGURED
+    assert not (tmp_path / "b.html").exists()

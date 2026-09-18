@@ -172,3 +172,29 @@ def test_a_closed_issue_still_wearing_needs_input_is_not_a_decision():
 
     assert report.decisions == ()
     assert report.repos[0].needs_input == 0
+
+
+def test_parent_closed_and_done_open_are_decisions_ranked_before_the_rest():
+    issues = {
+        "grantspider": (
+            issue(1, "Epic: dropped", labels=("epic:dropped",)),
+            issue(2, labels=("epic:dropped",), updated_days_ago=STALLED_AFTER_DAYS + 40),
+            issue(3, "Epic: finished", labels=("epic:finished",)),
+            issue(4, labels=("epic:finished",), state="CLOSED", closed_days_ago=9),
+            issue(5, labels=("epic:finished",), state="CLOSED", closed_days_ago=8),
+            issue(
+                6, "Epic: abandoned", labels=("epic:abandoned",), state="CLOSED", closed_days_ago=3
+            ),
+            issue(7, labels=("epic:abandoned",), updated_days_ago=1),
+            issue(8, labels=("epic:abandoned",), updated_days_ago=1),
+        )
+    }
+
+    report = assemble(issues, now=NOW)
+
+    assert [d.ref for d in report.decisions] == ["epic:abandoned", "epic:finished", "epic:dropped"]
+    by_ref = {d.ref: d for d in report.decisions}
+    assert "closed with 2 children open" in by_ref["epic:abandoned"].ask
+    assert "reopen" in by_ref["epic:abandoned"].ask
+    assert "Every child is closed (2)" in by_ref["epic:finished"].ask
+    assert "close the epic" in by_ref["epic:finished"].ask

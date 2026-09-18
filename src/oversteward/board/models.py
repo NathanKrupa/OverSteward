@@ -24,6 +24,21 @@ _EPIC_TITLE = re.compile(r"^\s*epic\b", re.IGNORECASE)
 #: ``#123`` mentions in a body — an epic's checklist names its children this way.
 _ISSUE_REF = re.compile(r"(?<![\w/])#(\d+)\b")
 
+
+def _body_refs(body: str, url: str) -> frozenset[int]:
+    """Issue numbers a body names: ``#N``, or this repository's own issue URL.
+
+    GitHub's task-list UI writes the URL form. Another repository's URL is not
+    a child, and a ``/pull/N`` URL never is.
+    """
+    refs = {int(n) for n in _ISSUE_REF.findall(body)}
+    repo_url = url.rsplit("/issues/", 1)[0]
+    if repo_url:
+        own_issue = re.compile(re.escape(repo_url) + r"/issues/(\d+)\b")
+        refs.update(int(n) for n in own_issue.findall(body))
+    return frozenset(refs)
+
+
 #: An issue is waiting on Nathan when the agent that worked it asked a question.
 NEEDS_INPUT = "needs-input"
 READY_FOR_AGENT = "ready-for-agent"
@@ -69,7 +84,7 @@ class Issue:
             created_at=created,
             updated_at=updated,
             closed_at=_parse_iso(raw.get("closedAt")),
-            body_refs=frozenset(int(n) for n in _ISSUE_REF.findall(raw.get("body") or "")),
+            body_refs=_body_refs(raw.get("body") or "", raw.get("url", "")),
         )
 
     @property
