@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import subprocess
+
 import pytest
 
 from oversteward.board.client import (
@@ -221,8 +223,30 @@ def test_a_failed_by_number_read_that_is_not_a_404_propagates():
         read_repo(GS, run=gh)
 
 
-def test_gh_json_turns_a_404_into_not_found():
+def _completed(returncode: int, stderr: str) -> subprocess.CompletedProcess:
+    return subprocess.CompletedProcess(args=["gh"], returncode=returncode, stdout="", stderr=stderr)
+
+
+def test_gh_json_turns_a_404_into_not_found(monkeypatch):
+    from oversteward.board import client
     from oversteward.board.client import NotFoundError, gh_json
 
-    with pytest.raises(NotFoundError):
+    monkeypatch.setattr(
+        client.subprocess, "run", lambda *_a, **_k: _completed(1, "gh: Not Found (HTTP 404)")
+    )
+
+    with pytest.raises(NotFoundError, match="HTTP 404"):
         gh_json(["api", "repos/NathanKrupa/grantspider/issues/999999999"])
+
+
+def test_gh_json_raises_a_plain_gh_error_for_any_other_failure(monkeypatch):
+    from oversteward.board import client
+    from oversteward.board.client import GhError, NotFoundError, gh_json
+
+    monkeypatch.setattr(
+        client.subprocess, "run", lambda *_a, **_k: _completed(4, "gh: set GH_TOKEN")
+    )
+
+    with pytest.raises(GhError, match="GH_TOKEN") as caught:
+        gh_json(["api", "repos/NathanKrupa/grantspider/issues/1"])
+    assert not isinstance(caught.value, NotFoundError)
