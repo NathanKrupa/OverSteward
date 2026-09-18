@@ -177,10 +177,13 @@ If the agent returns prose with no YAML block (rare in foreground), treat it as 
 ### 5. Cleanup after `MERGED` — standing permission
 
 A merged PR leaves a worktree, often a `<name>.baseline` sibling, a bench
-database per worktree, a local branch and a remote branch. A dispatch run that
-reached its end has already cleared most of this — the playbook's step 16
-deletes the remote branch on merge and step 19 tears the worktree down — so
-this section is for what the playbook did not reach: an agent that died before
+database per worktree, a local branch and a remote branch. Every estate repo
+has `delete_branch_on_merge` on (set and verified by hand 2026-09-18; the
+`sync-status` check that would keep it measured is OS#510), so GitHub removes
+the remote branch the moment any PR merges — and **retargets** any open PR that used it as a base onto the
+merged PR's base, rather than closing it (measured on OS#508/#509). A dispatch
+run that reached its end has also torn its worktree down (playbook step 19),
+so this section is for what nothing else reached: an agent that died before
 step 19, a `.baseline` sibling it left, the local branch, and every
 **in-session** worktree (`session/*`, back-merges, promotes), which no playbook
 tends. Nothing in it needs Nathan, so the session does it without asking and
@@ -199,10 +202,13 @@ git -C <repo> branch -d <branch>                    # local before remote — se
 ```
 
 Read each exit code. The two `gh` lines at the top are the conjuncts: the PR
-state is the merged-check, and the second line is the guard the estate already
-paid for once — deleting a branch that an open PR uses as its **base** makes
-GitHub close that PR and its review threads, so a non-empty list means
-retarget the child first, never delete under it. The existence tests are what
+state is the merged-check, and the second line guards the **API** delete on
+the last line — the one path that closes children. GitHub's own auto-delete
+retargets an open child; `gh api -X DELETE` (and `gh pr merge --delete-branch`,
+which uses it) makes GitHub close that child and its review threads, so a
+non-empty list means retarget the child first, never delete under it. In
+practice the remote branch is already gone by the time this runs, and the
+existence test makes the last line a no-op. The existence tests are what
 make "already gone" read as done rather than as a refusal: the doctor exits 1
 on a path that is not a worktree and `gh api` returns 422 on a ref that is not
 there, and neither is a finding when the playbook did that work — so each of
@@ -220,6 +226,24 @@ the stray file, run `repair`, start docker — not a step to hand over.
 (any push without a marker at HEAD); the `gh api` form works in every repo. A
 branch that was **not** merged (CI_FAILED, STOPPED_FOR_INPUT) keeps all of it:
 the worktree is the resumable state.
+
+**A stack is cleaned up by its last PR to merge.** When a parent PR merges
+under an open child, the parent's cleanup runs in full — its worktree and local
+branch go (the child carries every commit the parent had, so `-d` loses
+nothing), and GitHub has already retargeted the child onto the trunk. When the
+child then merges, its cleanup runs the sequence for itself **and then again
+for each ancestor** — same lines, ancestor's `<name>` and `<branch>` — so a
+parent whose cleanup was skipped or refused at the time is finished now rather
+than left for Nathan. The existence tests make an ancestor that was already
+cleaned cost nothing. The one line that can refuse is `git branch -d` on an
+ancestor whose tracking ref was pruned while the primary checkout sits on a
+different trunk than the PR merged into (AG: checkout on `main`, PRs to
+`staging`) — `-d` then checks HEAD, which does not carry the commits. The
+answer is to give `-d` the right reference, never `-D`: prove the merge with
+`git merge-base --is-ancestor <branch> origin/<trunk>` (rc 0), then
+`git branch --set-upstream-to=origin/<trunk> <branch>` and `-d` again — its
+check is now "merged into that trunk", and it still refuses an unmerged branch
+(both measured, 2026-09-18).
 
 ## Refusal messages (what to tell the user on preflight failure)
 
