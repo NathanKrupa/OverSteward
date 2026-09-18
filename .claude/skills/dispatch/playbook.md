@@ -35,7 +35,7 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
 1. **Concurrency check.** Scan repo for open PRs with branch pattern `^(fix|feat|docs|ci|refactor|cleanup)/issue-<n>-`. If a PR matching THIS issue number exists as a draft (STOPPED_FOR_INPUT re-dispatch case), remember its branch name for step 6. If any OTHER agent PR is open on the repo with ANY issue number, STOP — "another agent in flight, refusing to race."
 2. **Branch collision recovery.** Compute the target branch name `<type>/issue-<n>-<slug>`. Check if it exists on origin:
    - **Not present** → proceed.
-   - **Present, 0 commits ahead of default branch** (orphan from failed attempt) → delete it: `git push origin --delete <branch>`. Note the cleanup in final report. Proceed.
+   - **Present, 0 commits ahead of default branch** (orphan from failed attempt) → confirm no open PR uses it as its base (`gh pr list --repo <owner>/<repo> --base <branch> --state open --json number` prints `[]` — deleting a base branch makes GitHub close its child PRs), then delete it: `gh api -X DELETE repos/<owner>/<repo>/git/refs/heads/<branch>` (the AG/GS verify-marker pre-push hook refuses `git push --delete`). Note the cleanup in final report. Proceed.
    - **Present, has commits ahead** AND matches the step-1 draft PR → carry over (step 6 will check out this branch).
    - **Present, has commits ahead** AND no matching draft PR → STOP for input. Do not destroy work.
 3. **Label `agent-in-progress`** on the target issue: `gh issue edit <n> --add-label agent-in-progress --repo <owner>/<repo>`. Create the label first if it doesn't exist.
@@ -216,7 +216,7 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
 15. **Open or update PR.**
     - New: `gh pr create --base <default-branch> --title "..." --body "Closes #<n>\n..."` (use repo PR template).
     - Continuing draft: mark ready + update title/body if needed: `gh pr ready <existing-pr>` + `gh pr edit <existing-pr> --body "..."`.
-16. **Enable auto-merge immediately, then verify.** Run `gh pr merge <PR#> --auto --merge --delete-branch --repo <owner>/<repo>`. Then immediately `gh pr view <PR#> --json autoMergeRequest --jq .autoMergeRequest` — if the output is `null`, auto-merge silently dropped (can happen on branch-protection edge cases); re-run the merge command until it sticks. Do NOT proceed to step 17 until `autoMergeRequest` is non-null. If auto-merge remains unreachable ("auto-merge not allowed" or similar), report it in the final YAML and flip to manual-merge fallback: wait for all checks green, then run `gh pr merge <PR#> --merge --delete-branch --repo <owner>/<repo>` (no `--auto`).
+16. **Enable auto-merge immediately, then verify.** First confirm no open PR uses this branch as its base — `gh pr list --repo <owner>/<repo> --base <target-branch> --state open --json number` must print `[]`; `--delete-branch` on a branch a child PR bases on makes GitHub close the child and its review threads, so a non-empty list means retarget the child before merging, or omit `--delete-branch` and leave the branch for the post-merge cleanup. Then run `gh pr merge <PR#> --auto --merge --delete-branch --repo <owner>/<repo>`. Then immediately `gh pr view <PR#> --json autoMergeRequest --jq .autoMergeRequest` — if the output is `null`, auto-merge silently dropped (can happen on branch-protection edge cases); re-run the merge command until it sticks. Do NOT proceed to step 17 until `autoMergeRequest` is non-null. If auto-merge remains unreachable ("auto-merge not allowed" or similar), report it in the final YAML and flip to manual-merge fallback: wait for all checks green, then run `gh pr merge <PR#> --merge --delete-branch --repo <owner>/<repo>` (no `--auto`).
 
     **Merge method — estate policy: always `--merge` (plain merge commit). Never `--squash` or `--rebase`.** Every repo — including grantspider's `staging` — is locked merge-commit-only; squash and rebase are disabled, so both flatten to a single parent and are rejected. Confirm the repo's allowed methods if uncertain (`gh api repos/<owner>/<repo> --jq '{merge:.allow_merge_commit,squash:.allow_squash_merge,rebase:.allow_rebase_merge}'`).
 
@@ -292,6 +292,7 @@ oversteward#375 fixed.
 | Draft PRs for exploration | Intent-Capture Protocol, step 3 |
 | Write a trajectory note before opening the PR | step 13.5 |
 | A regression test never seen red is not a regression test | step 10.5 |
+| Cleanup after `MERGED` is standing-authorized, never an operator step | step 16 (`--delete-branch`, behind the child-PR check) + step 19 (doctor teardown, always). The orchestrating session's `SKILL.md` §5 covers what a run did not reach |
 
 **Doctrine to apply while implementing (step 9), not separate steps:**
 

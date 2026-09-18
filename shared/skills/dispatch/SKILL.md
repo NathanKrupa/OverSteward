@@ -177,30 +177,45 @@ If the agent returns prose with no YAML block (rare in foreground), treat it as 
 ### 5. Cleanup after `MERGED` — standing permission
 
 A merged PR leaves a worktree, often a `<name>.baseline` sibling, a bench
-database per worktree, a local branch and a remote branch. Nothing in clearing
-them needs Nathan, so the session does it without asking and without pushing an
-operator step — the tree he next opens is already clean. From the repo's
-primary checkout:
+database per worktree, a local branch and a remote branch. A dispatch run that
+reached its end has already cleared most of this — the playbook's step 16
+deletes the remote branch on merge and step 19 tears the worktree down — so
+this section is for what the playbook did not reach: an agent that died before
+step 19, a `.baseline` sibling it left, the local branch, and every
+**in-session** worktree (`session/*`, back-merges, promotes), which no playbook
+tends. Nothing in it needs Nathan, so the session does it without asking and
+without pushing an operator step — the tree he next opens is already clean.
+From the repo's primary checkout:
 
 ```bash
-gh pr view <n> --repo <owner>/<repo> --json state --jq .state      # must print MERGED
-scripts/dev/worktree_doctor.py teardown <repo>/.claude/worktrees/<name>
-scripts/dev/worktree_doctor.py teardown <repo>/.claude/worktrees/<name>.baseline   # if it exists
-scripts/dev/worktree_doctor.py sweep            # reports; must name nothing orphaned
-git -C <repo> branch -d <branch>                # local FIRST — see below
-gh api -X DELETE repos/<owner>/<repo>/git/refs/heads/<branch>
+gh pr view <n> --repo <owner>/<repo> --json state --jq .state          # must print MERGED
+gh pr list --repo <owner>/<repo> --base <branch> --state open --json number   # must print []
+for w in <repo>/.claude/worktrees/<name> <repo>/.claude/worktrees/<name>.baseline; do
+    [ -d "$w" ] && scripts/dev/worktree_doctor.py teardown "$w"
+done
+scripts/dev/worktree_doctor.py sweep                # reports; must name nothing orphaned
+git -C <repo> branch -d <branch>                    # local before remote — see below
+git ls-remote --exit-code --heads origin <branch> > /dev/null \
+    && gh api -X DELETE repos/<owner>/<repo>/git/refs/heads/<branch>
 ```
 
-Read each exit code. The merged-check is the PR state on the first line, not
-`git branch -d`: from a primary checkout that sits on a different trunk than
-the PR targeted (AG's sits on `main`, PRs merge to `staging`) `-d` passes only
-because the branch's upstream ref still exists, and refuses once the remote
-branch is gone — so the local delete precedes the remote one, and `-D` is never
-the answer to that refusal. The doctor's refusal (exit 1 = something still
-points here or the tree is dirty, exit 2 = it could not look) is the one
-legitimate stop, and it is a finding to fix in-session — inspect the stray
-file, run `repair`, start docker — not a step to hand over. `git push --delete`
-is refused by the pre-push guard; the `gh api` form is the sanctioned one. A
+Read each exit code. The two `gh` lines at the top are the conjuncts: the PR
+state is the merged-check, and the second line is the guard the estate already
+paid for once — deleting a branch that an open PR uses as its **base** makes
+GitHub close that PR and its review threads, so a non-empty list means
+retarget the child first, never delete under it. The existence tests are what
+make "already gone" read as done rather than as a refusal: the doctor exits 1
+on a path that is not a worktree and `gh api` returns 422 on a ref that is not
+there, and neither is a finding when the playbook did that work. `git branch
+-d` is not a merged-check either — it verifies against the branch's upstream
+tracking ref, which a server-side delete leaves in place until a prune — which
+is why it sits after the PR-state line and before the remote delete, and why
+`-D` is never the answer to its refusal. The doctor's own refusal (exit 1 =
+something still points here or the tree is dirty, exit 2 = it could not look)
+is the one legitimate stop, and it is a finding to fix in-session — inspect
+the stray file, run `repair`, start docker — not a step to hand over.
+`git push --delete` is refused in AG and GS by the verify-marker pre-push hook
+(any push without a marker at HEAD); the `gh api` form works in every repo. A
 branch that was **not** merged (CI_FAILED, STOPPED_FOR_INPUT) keeps all of it:
 the worktree is the resumable state.
 
