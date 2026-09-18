@@ -6,15 +6,29 @@
 Summary before detail: the tiles say how much waits, the queue says what, the
 epic table says why, and the repository table gives the scale. Every issue
 title is escaped — it is text people typed into GitHub, never markup.
+
+A decision that carries verbs renders a card: one form per verb, aimed at the
+decision's issue through ``data-`` attributes, driven by ``cards.js`` — the
+one script on the page, which writes to GitHub through the viewer's own
+connector and never stores anything here.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
 from html import escape
+from pathlib import Path
 
-from oversteward.board.assemble import BoardReport, Decision, DecisionKind
+from oversteward.board.assemble import Action, BoardReport, Decision, DecisionKind
 from oversteward.board.epics import DECISION_HEALTH, Epic, EpicHealth
+
+#: The connector's display name the page passes to every ``callTool``. ``cards.js``
+#: carries the same string as ``SERVER``; ``test_render`` pins the two equal. The
+#: artifact publish resolves the manifest's server segment to this display name
+#: and reports it — that report is read by the publishing session, not by code.
+CONNECTOR = "GitHub"
+
+_CARDS_JS = Path(__file__).with_name("cards.js")
 
 _STYLE = """
 :root{
@@ -92,6 +106,19 @@ tfoot td{font-weight:600;border-top:1px solid var(--line)}
 .list .t{min-width:0}
 .list .t .ask{display:block;color:var(--ink-2);font-size:13px}
 .empty{color:var(--ink-2);padding:14px 0}
+.card{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start;margin:0}
+.card textarea{flex:1 1 320px;min-height:56px;padding:8px 10px;font:14px/1.4 "IBM Plex Sans",system-ui,sans-serif;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:4px;resize:vertical}
+.card textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.card button{font:500 13px/1 "IBM Plex Sans",sans-serif;padding:10px 14px;border-radius:4px;border:1px solid var(--accent);background:var(--accent);color:#fff;cursor:pointer;min-height:44px}
+.card button:hover{filter:brightness(1.08)}
+.card button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.card button:disabled{opacity:.55;cursor:default}
+.card .status{flex-basis:100%;margin:0;font-size:13px;color:var(--ink-2);min-height:1em}
+.card.pending .status{color:var(--warn)}
+.card.done .status{color:var(--good)}
+.card.failed .status{color:var(--crit)}
+.card.done textarea,.card.done button{display:none}
+li[data-state="done"]>.repo,li[data-state="done"]>.id,li[data-state="done"]>.t,li[data-state="done"]>.pill{opacity:.5}
 .mono{font:13px "IBM Plex Mono",monospace}
 .note{font-size:13px;color:var(--ink-3);border-top:1px solid var(--line);padding-top:14px;max-width:70ch}
 .note code{font:12px "IBM Plex Mono",monospace;background:var(--line-soft);padding:2px 5px;border-radius:3px}
@@ -117,16 +144,37 @@ def _days(n: int | None) -> str:
     return f"{n} day{'s' if n != 1 else ''}"
 
 
+def _card(action: Action) -> str:
+    required = " required" if action.note_required else ""
+    return (
+        '<form class="card">'
+        f'<textarea name="note" rows="2" placeholder="{escape(action.prompt, quote=True)}"'
+        f' aria-label="{escape(action.prompt, quote=True)}"{required}></textarea>'
+        f'<button type="submit" data-verb="{action.verb.value}"'
+        f' data-note-required="{int(action.note_required)}">{escape(action.label)}</button>'
+        '<p class="status" aria-live="polite"></p></form>'
+    )
+
+
 def _decision_li(d: Decision) -> str:
     if d.kind is DecisionKind.ANSWER:
         pill = f'<span class="pill {"crit" if d.stale else "warn"}">{_days(d.age_days)}{" · stale" if d.stale else ""}</span>'
     else:
         pill = f'<span class="pill mute">{_days(d.age_days)}</span>'
+    attrs = ""
+    cards = ""
+    if d.target is not None and d.actions:
+        attrs = (
+            f' data-owner="{escape(d.target.owner, quote=True)}"'
+            f' data-repo="{escape(d.target.repo, quote=True)}"'
+            f' data-number="{d.target.number}"'
+        )
+        cards = "".join(_card(a) for a in d.actions)
     return (
-        f'<li><span class="repo">{escape(d.repo)}</span>'
+        f'<li{attrs}><span class="repo">{escape(d.repo)}</span>'
         f'<span class="id"><a href="{escape(d.url, quote=True)}">{escape(d.ref)}</a></span>'
         f'<span class="t">{escape(d.title)}<span class="ask">{escape(d.ask)}</span></span>'
-        f"{pill}</li>"
+        f"{pill}{cards}</li>"
     )
 
 
@@ -274,9 +322,10 @@ def render(report: BoardReport) -> str:
   {_repo_table(report)}
 </section>
 
-<p class="note">Read-only snapshot, derived entirely from GitHub issues by <code>scripts/estate_board.py</code> — nothing here is stored anywhere but GitHub. An epic is an <code>epic:</code> label or an epic-titled issue; its motion is its children's, never the parent's own edits. Quiet after 14 days, stalled after 30. Decision cards that write back — answer, dispatch, close with reason — arrive once the GitHub connector is mounted in a session; until then each row links to the page on GitHub where the decision is made.</p>
+<p class="note">Snapshot derived entirely from GitHub issues by <code>scripts/estate_board.py</code> — nothing here is stored anywhere but GitHub. An epic is an <code>epic:</code> label or an epic-titled issue; its motion is its children's, never the parent's own edits. Quiet after 14 days, stalled after 30. Each card is one ruling written to GitHub through your own GitHub connector: an answer posts the comment <code>/answer</code> would and moves the issue to <code>ready-for-agent</code>; closing, shelving and reopening post the ruling and change the state. A tap stays pending until GitHub shows the change; the page never writes anywhere else. Rebuild the board to see the queue after a ruling.</p>
 </div>
+<script>{_CARDS_JS.read_text(encoding="utf-8")}</script>
 """
 
 
-__all__ = ["render"]
+__all__ = ["CONNECTOR", "render"]

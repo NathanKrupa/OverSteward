@@ -5,9 +5,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from oversteward.board.assemble import assemble
+import re
+from pathlib import Path
+
+from oversteward.board.assemble import Action, Decision, DecisionKind, Target, Verb, assemble
 from oversteward.board.models import Issue
-from oversteward.board.render import render
+from oversteward.board.render import CONNECTOR, render
 
 NOW = datetime(2026, 9, 18, 12, 0, tzinfo=UTC)
 
@@ -95,10 +98,116 @@ def test_an_empty_queue_says_nothing_waits():
     assert "Nothing waits on you" in html
 
 
-def test_the_page_names_what_it_cannot_yet_do():
+def test_each_decision_with_a_verb_carries_a_card_aimed_at_its_issue():
     html = render(report_with_decisions())
 
+    queue = html[html.index('id="decisions"') : html.index('id="epics"')]
+    at = queue.index("issues/1")
+    answer = queue[queue.rindex("<li", 0, at) : queue.index("</li>", at)]
+    assert 'data-owner="NathanKrupa"' in answer
+    assert 'data-repo="grantspider"' in answer
+    assert 'data-number="1"' in answer
+    assert 'data-verb="answer"' in answer
+    assert "<textarea" in answer and " required></textarea>" in answer
+    assert ">Answer<" in answer
+
+
+def test_an_optional_note_is_not_a_required_field():
+    report = assemble(
+        {
+            "grantspider": (
+                issue(10, "Epic: finished", labels=("epic:finished",)),
+                issue(11, labels=("epic:finished",), state="CLOSED", closed_days_ago=2),
+            )
+        },
+        now=NOW,
+    )
+
+    html = render(report)
+
+    card = html[html.index('data-verb="close"') - 400 : html.index('data-verb="close"')]
+    assert "<textarea" in card and " required></textarea>" not in card
+
+
+def test_a_label_only_epic_has_no_card():
+    report = assemble({"grantspider": (issue(51, labels=("epic:orphan",)),)}, now=NOW)
+
+    html = render(report)
+
+    assert "epic:orphan" in html
+    assert "data-verb=" not in html
+    assert "<textarea" not in html
+
+
+def test_the_page_carries_the_card_script_and_names_the_connector():
+    html = render(report_with_decisions())
+
+    assert "<script>" in html
+    assert 'SERVER = "GitHub"' in html
+    assert "estate-board" in html
     assert "GitHub connector" in html
+
+
+def test_the_script_calls_the_connector_by_the_name_the_renderer_declares():
+    source = (Path(__file__).parents[2] / "src" / "oversteward" / "board" / "cards.js").read_text()
+    match = re.search(r'^const SERVER = "([^"]+)";', source, re.MULTILINE)
+    assert match is not None
+    assert match[1] == CONNECTOR
+
+
+def _report_with(decision: Decision):
+    base = assemble({"grantspider": ()}, now=NOW)
+    return type(base)(
+        generated_at=base.generated_at, repos=base.repos, decisions=(decision,), epics=base.epics
+    )
+
+
+def _decision(**overrides) -> Decision:
+    fields = dict(
+        kind=DecisionKind.EPIC,
+        repo="grantspider",
+        ref="#40",
+        title="Epic: bare",
+        url="https://github.com/NathanKrupa/grantspider/issues/40",
+        ask="close it",
+        age_days=3,
+        target=Target(owner="NathanKrupa", repo="grantspider", number=40),
+        actions=(Action(Verb.SHELVE, "Close it", "Why", note_required=True),),
+    )
+    fields.update(overrides)
+    return Decision(**fields)
+
+
+def test_the_button_tells_the_script_whether_a_note_is_required():
+    required = render(_report_with(_decision()))
+    optional = render(
+        _report_with(_decision(actions=(Action(Verb.CLOSE, "Close", "Note", note_required=False),)))
+    )
+
+    assert 'data-note-required="1"' in required and 'data-note-required="0"' not in required
+    assert 'data-note-required="0"' in optional and 'data-note-required="1"' not in optional
+
+
+def test_a_decision_with_verbs_but_no_target_renders_no_card():
+    html = render(_report_with(_decision(target=None)))
+
+    assert "data-verb=" not in html and "<form" not in html
+
+
+def test_target_attributes_are_escaped():
+    html = render(_report_with(_decision(target=Target(owner='a"b', repo="r<s", number=1))))
+
+    assert 'data-owner="a&quot;b"' in html
+    assert 'data-repo="r&lt;s"' in html
+    assert 'a"b' not in html
+
+
+def test_the_inlined_script_cannot_end_or_escape_its_own_script_element():
+    html = render(report_with_decisions())
+
+    script = html[html.index("<script>") + len("<script>") : html.rindex("</script>")]
+    assert "</script" not in script.lower()
+    assert "<!--" not in script
 
 
 def test_an_agent_question_alone_is_not_an_empty_queue():

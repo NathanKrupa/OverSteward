@@ -9,14 +9,16 @@ questions agents are waiting on, and the epics whose health asks for a ruling
 Everything else (in-flight PRs, 30-day metrics) is ``/project-status``'s.
 
 A decision is a plain record: where to look, what is being asked, how long it
-has waited. It carries no verb yet — the tappable cards that write back to
-GitHub arrive with the GitHub connector, and a page that cannot write must not
-pretend it can.
+has waited — and which verbs answer it. A verb is a GitHub write the page makes
+through the connector (a comment plus a label swap or a state change); the
+decision names the issue it aims at, so the page never derives a target from
+text. A decision with no issue to write to (a label-only epic) offers none.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -51,6 +53,74 @@ class DecisionKind(Enum):
     EPIC = "epic"
 
 
+class Verb(Enum):
+    """A write the page can make on a decision's issue.
+
+    Each verb is one comment carrying the ruling plus one state change:
+    ``ANSWER`` swaps ``needs-input`` for ``ready-for-agent`` in the exact form
+    ``/answer`` uses, so the re-dispatch reads it alike; ``CLOSE`` closes as
+    completed; ``SHELVE`` closes as not planned; ``REOPEN`` reopens.
+    """
+
+    ANSWER = "answer"
+    CLOSE = "close"
+    SHELVE = "shelve"
+    REOPEN = "reopen"
+
+
+@dataclass(frozen=True, slots=True)
+class Action:
+    """One tappable verb: what the button says and what the note box asks for."""
+
+    verb: Verb
+    label: str
+    prompt: str
+    #: A ruling that needs its reason on the record cannot be tapped blank.
+    note_required: bool
+
+
+@dataclass(frozen=True, slots=True)
+class Target:
+    """The GitHub issue a decision's verbs write to."""
+
+    owner: str
+    repo: str
+    number: int
+
+    @classmethod
+    def from_url(cls, url: str) -> Target | None:
+        match = _ISSUE_URL.match(url)
+        if match is None:
+            return None
+        return cls(owner=match[1], repo=match[2], number=int(match[3]))
+
+
+_ISSUE_URL = re.compile(r"^https://github\.com/([^/]+)/([^/]+)/issues/(\d+)$")
+
+_ANSWER_ACTION = Action(
+    Verb.ANSWER, "Answer", "Your answer to the agent's question", note_required=True
+)
+
+#: The verb each epic verdict offers. A ruling that ends a line of inquiry
+#: (shelving) must say why; closing a finished epic or reopening an abandoned
+#: one needs no reason beyond the verdict itself.
+_EPIC_ACTIONS: dict[EpicHealth, tuple[Action, ...]] = {
+    EpicHealth.DONE_OPEN: (
+        Action(Verb.CLOSE, "Close the epic", "Note for the record (optional)", note_required=False),
+    ),
+    EpicHealth.PARENT_CLOSED: (
+        Action(Verb.REOPEN, "Reopen the epic", "Why it reopens (optional)", note_required=False),
+    ),
+    EpicHealth.STALLED: (
+        Action(Verb.SHELVE, "Shelve", "Why this line of inquiry is shelved", note_required=True),
+    ),
+    EpicHealth.CHILDLESS: (
+        Action(Verb.SHELVE, "Close it", "Why this epic closes unbroken", note_required=True),
+    ),
+    EpicHealth.LABEL_ONLY: (),
+}
+
+
 @dataclass(frozen=True, slots=True)
 class Decision:
     """One thing waiting on Nathan."""
@@ -65,6 +135,9 @@ class Decision:
     ask: str
     age_days: int
     stale: bool = False
+    #: The issue the verbs write to; ``None`` when there is no issue (label-only epic).
+    target: Target | None = None
+    actions: tuple[Action, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +187,8 @@ def _answer_decision(issue: Issue, now: datetime) -> Decision:
         ask="Answer the agent's question",
         age_days=_days(issue.updated_at, now),
         stale=hours >= STALE_ANSWER_HOURS,
+        target=Target.from_url(issue.url),
+        actions=(_ANSWER_ACTION,),
     )
 
 
@@ -142,6 +217,7 @@ def _epic_decision(epic: Epic, now: datetime) -> Decision:
     else:
         url = _label_search_url(epic.children[0], epic.key)
     quiet = epic.days_quiet(now)
+    parent = epic.parent
     return Decision(
         kind=DecisionKind.EPIC,
         repo=epic.repo,
@@ -150,6 +226,8 @@ def _epic_decision(epic: Epic, now: datetime) -> Decision:
         url=url,
         ask=_epic_ask(epic, health, now),
         age_days=quiet if quiet is not None else _days(epic.parent.created_at, now),
+        target=None if parent is None else Target.from_url(parent.url),
+        actions=_EPIC_ACTIONS[health],
     )
 
 
@@ -191,9 +269,12 @@ def assemble(issues_by_repo: Mapping[str, Sequence[Issue]], *, now: datetime) ->
 
 __all__ = [
     "STALE_ANSWER_HOURS",
+    "Action",
     "BoardReport",
     "Decision",
     "DecisionKind",
     "RepoCounts",
+    "Target",
+    "Verb",
     "assemble",
 ]
