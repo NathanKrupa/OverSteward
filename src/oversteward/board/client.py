@@ -17,7 +17,8 @@ from __future__ import annotations
 
 import json
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 
 from oversteward.board.config import RepoRef
 from oversteward.board.models import EPIC_LABEL_PREFIX, Issue
@@ -40,7 +41,9 @@ class TruncatedReadError(GhError):
 
 
 def gh_json(args: list[str]) -> list:
-    proc = subprocess.run(["gh", *args], capture_output=True, text=True, encoding="utf-8")
+    proc = subprocess.run(
+        ["gh", *args], capture_output=True, text=True, encoding="utf-8", check=False
+    )
     if proc.returncode != 0:
         raise GhError(f"gh {' '.join(args)} failed (exit {proc.returncode}): {proc.stderr.strip()}")
     out = proc.stdout.strip()
@@ -62,12 +65,12 @@ def read_repo(repo: RepoRef, *, run: Runner = gh_json) -> tuple[Issue, ...]:
     open_rows = _page(
         run,
         ["issue", "list", *base, "--state", "open", "--json", _FIELDS],
-        OPEN_LIMIT, "open issues", repo,
+        OPEN_LIMIT,
+        "open issues",
+        repo,
     )
     labels = _page(run, ["label", "list", *base, "--json", "name"], LABEL_LIMIT, "labels", repo)
-    epic_labels = sorted(
-        row["name"] for row in labels if row["name"].startswith(EPIC_LABEL_PREFIX)
-    )
+    epic_labels = sorted(row["name"] for row in labels if row["name"].startswith(EPIC_LABEL_PREFIX))
     closed_rows: list = []
     if epic_labels:
         # GitHub's search syntax reads a comma-joined label list as OR.
@@ -75,9 +78,24 @@ def read_repo(repo: RepoRef, *, run: Runner = gh_json) -> tuple[Issue, ...]:
         closed_rows = _page(
             run,
             ["issue", "list", *base, "--state", "closed", "--search", search, "--json", _FIELDS],
-            CLOSED_LIMIT, "closed epic issues", repo,
+            CLOSED_LIMIT,
+            "closed epic issues",
+            repo,
         )
     return tuple(Issue.from_gh(repo.id, row) for row in [*open_rows, *closed_rows])
+
+
+def read_estate(
+    repos: Sequence[RepoRef], *, reader: Callable[[RepoRef], tuple[Issue, ...]] = read_repo
+) -> dict[str, tuple[Issue, ...]]:
+    """Every repository's issues, keyed by registry id, in the order given.
+
+    Reads run in parallel; any failure propagates, because a board missing a
+    repository is a smaller estate than exists.
+    """
+    with ThreadPoolExecutor(max_workers=max(1, len(repos))) as pool:
+        results = list(pool.map(reader, repos))
+    return {repo.id: issues for repo, issues in zip(repos, results, strict=True)}
 
 
 __all__ = [
@@ -87,5 +105,6 @@ __all__ = [
     "GhError",
     "TruncatedReadError",
     "gh_json",
+    "read_estate",
     "read_repo",
 ]

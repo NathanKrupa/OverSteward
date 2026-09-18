@@ -155,9 +155,7 @@ def _epic_decision(epic: Epic, now: datetime) -> Decision:
 
 def assemble(issues_by_repo: Mapping[str, Sequence[Issue]], *, now: datetime) -> BoardReport:
     """One report: counts per repo in the order given, decisions queued oldest-question-first."""
-    epics_by_repo = {
-        repo: build_epics(issues) for repo, issues in issues_by_repo.items()
-    }
+    epics_by_repo = {repo: build_epics(issues) for repo, issues in issues_by_repo.items()}
     repos = tuple(
         _counts(repo, issues, epics_by_repo[repo]) for repo, issues in issues_by_repo.items()
     )
@@ -172,7 +170,11 @@ def assemble(issues_by_repo: Mapping[str, Sequence[Issue]], *, now: datetime) ->
         key=lambda d: -d.age_days,
     )
     epic_decisions = [
-        (_EPIC_ORDER.index(epic.health(now)), -(epic.days_quiet(now) or 0), _epic_decision(epic, now))
+        (
+            _EPIC_ORDER.index(epic.health(now)),
+            -(epic.days_quiet(now) or 0),
+            _epic_decision(epic, now),
+        )
         for epics in epics_by_repo.values()
         for epic in epics
         if epic.health(now) in DECISION_HEALTH
@@ -182,7 +184,7 @@ def assemble(issues_by_repo: Mapping[str, Sequence[Issue]], *, now: datetime) ->
     return BoardReport(
         generated_at=now,
         repos=repos,
-        decisions=tuple([*answers, *(row[2] for row in epic_decisions)]),
+        decisions=(*answers, *(row[2] for row in epic_decisions)),
         epics=tuple(e for epics in epics_by_repo.values() for e in epics),
     )
 

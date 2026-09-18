@@ -95,3 +95,6 @@ reports/skill-drafts/
 .review-rounds
 .review-verdict*.md
 .review-round-*.json
+
+# Estate Board page — a generated snapshot, published as an artifact, never committed
+data/estate_board.html

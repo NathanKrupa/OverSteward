@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -15,7 +15,7 @@ from oversteward.board.epics import (
 )
 from oversteward.board.models import Issue
 
-NOW = datetime(2026, 9, 18, 12, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 9, 18, 12, 0, tzinfo=UTC)
 
 
 def issue(
@@ -155,7 +155,9 @@ def test_parent_motion_does_not_count_as_epic_motion():
 def test_last_motion_was_a_close_when_the_freshest_child_event_is_a_close():
     parent = issue(1, "Epic: x", labels=("epic:x",))
     still_open = issue(2, labels=("epic:x",), updated_days_ago=10)
-    just_closed = issue(3, labels=("epic:x",), state="CLOSED", closed_days_ago=2, updated_days_ago=2)
+    just_closed = issue(
+        3, labels=("epic:x",), state="CLOSED", closed_days_ago=2, updated_days_ago=2
+    )
 
     (epic,) = build_epics((parent, still_open, just_closed))
 
@@ -167,7 +169,9 @@ def test_last_motion_was_a_close_when_the_freshest_child_event_is_a_close():
 def test_last_motion_was_not_a_close_when_an_open_child_moved_more_recently():
     parent = issue(1, "Epic: x", labels=("epic:x",))
     still_open = issue(2, labels=("epic:x",), updated_days_ago=1)
-    closed_earlier = issue(3, labels=("epic:x",), state="CLOSED", closed_days_ago=2, updated_days_ago=2)
+    closed_earlier = issue(
+        3, labels=("epic:x",), state="CLOSED", closed_days_ago=2, updated_days_ago=2
+    )
 
     (epic,) = build_epics((parent, still_open, closed_earlier))
 

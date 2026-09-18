@@ -49,13 +49,15 @@ class EpicHealth(Enum):
 
 
 #: Verdicts that ask Nathan for a decision rather than report motion.
-DECISION_HEALTH = frozenset({
-    EpicHealth.STALLED,
-    EpicHealth.LABEL_ONLY,
-    EpicHealth.PARENT_CLOSED,
-    EpicHealth.DONE_OPEN,
-    EpicHealth.CHILDLESS,
-})
+DECISION_HEALTH = frozenset(
+    {
+        EpicHealth.STALLED,
+        EpicHealth.LABEL_ONLY,
+        EpicHealth.PARENT_CLOSED,
+        EpicHealth.DONE_OPEN,
+        EpicHealth.CHILDLESS,
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)

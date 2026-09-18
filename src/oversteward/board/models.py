@@ -34,7 +34,7 @@ NEEDS_SCOPING = "needs-scoping"
 def _parse_iso(value: str | None) -> datetime | None:
     if not value:
         return None
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return datetime.fromisoformat(value)
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,8 +94,8 @@ class Issue:
 __all__ = [
     "AGENT_IN_PROGRESS",
     "EPIC_LABEL_PREFIX",
-    "Issue",
     "NEEDS_INPUT",
     "NEEDS_SCOPING",
     "READY_FOR_AGENT",
+    "Issue",
 ]
