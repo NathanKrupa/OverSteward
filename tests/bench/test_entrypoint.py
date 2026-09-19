@@ -8,11 +8,12 @@ from pathlib import Path
 
 import yaml
 
-from oversteward.bench.config import ACCOUNT_VAR, TOKEN_VAR
+from oversteward.bench.config import ACCOUNT_VAR, TOKEN_VAR, PagesCredentials
 from oversteward.bench.wrangler import UploadError
 from oversteward.judge.models import manifest_from_mapping
 from tests.bench.test_checks import INDEXABLE_PAGE, NOINDEX_PAGE, _bench
 from tests.bench.test_publish import FakeUploader
+from tests.bench.test_wrangler import FakeRun
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FULL = {TOKEN_VAR: "tok-secret", ACCOUNT_VAR: "acct-1"}
@@ -35,6 +36,19 @@ class _Factory:
     def __call__(self, credentials):
         self.asked += 1
         return self.uploader
+
+
+class TestWranglerUploader:
+    def test_the_production_uploader_takes_directory_and_branch_positionally(self, tmp_path):
+        """The seam the fake stands in for: the service calls ``upload(directory, branch)``."""
+        run = FakeRun()
+        credentials = PagesCredentials(token="tok-secret", account_id="acct-1", project="ab-aigranthelper")
+        upload = _module()._wrangler_uploader(credentials, run=run)
+        deployment = upload(tmp_path, "smoke-2026-09-19")
+        command = run.calls[0]["command"]
+        assert command[command.index("--branch") + 1] == "smoke-2026-09-19"
+        assert str(tmp_path) in command
+        assert deployment.alias == "https://smoke-2026-09-19.ab-aigranthelper.pages.dev"
 
 
 class TestPublish:

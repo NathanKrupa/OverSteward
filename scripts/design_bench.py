@@ -40,10 +40,10 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import subprocess
 import sys
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
-from functools import partial
 from pathlib import Path
 
 import yaml
@@ -51,7 +51,7 @@ import yaml
 from oversteward.bench.config import BenchConfigError, PagesCredentials, credentials_from_env
 from oversteward.bench.manifest import DEFAULT_RUBRIC, build_manifest, page_urls, urls_from_listing
 from oversteward.bench.publish import RefusedError, Uploader, publish
-from oversteward.bench.wrangler import UploadError, deploy
+from oversteward.bench.wrangler import Deployment, Runner, UploadError, deploy
 from oversteward.judge.models import DEFAULT_SAMPLES, Rubric
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -65,8 +65,13 @@ EXIT_MISCONFIGURED = 2
 UploaderFactory = Callable[[PagesCredentials], Uploader]
 
 
-def _wrangler_uploader(credentials: PagesCredentials) -> Uploader:
-    return partial(deploy, credentials=credentials)
+def _wrangler_uploader(credentials: PagesCredentials, run: Runner = subprocess.run) -> Uploader:
+    """The wrangler connector in the ``(directory, branch)`` shape the publish service calls."""
+
+    def upload(directory: Path, branch: str) -> Deployment:
+        return deploy(directory, credentials=credentials, branch=branch, run=run)
+
+    return upload
 
 
 def build_parser() -> argparse.ArgumentParser:
