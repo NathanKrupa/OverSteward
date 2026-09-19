@@ -20,6 +20,12 @@ cd "$root"
 git config core.hooksPath .githooks
 chmod +x .githooks/pre-commit
 
+# Verify rather than assume. Git runs no hooks, and says nothing, when the
+# configured directory is missing — this checkout carried a path pointing at a
+# deleted pytest tmp dir for weeks (OS#379). An installer that does not read
+# back what it wrote is a guard satisfied by doing nothing.
+python3 scripts/dev/check_hooks_path.py --root "$root"
+
 echo "✓ hooks installed — git will run .githooks/pre-commit"
 echo "  gates: gaudi (architectural errors, changed files) + secret-scan"
 echo "  the shim no-ops with a message when pre-commit is not on PATH"

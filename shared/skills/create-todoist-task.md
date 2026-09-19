@@ -34,10 +34,33 @@ TODOIST_TOKEN=your_api_token_here
    ```
 
 4. Parse the JSON response and confirm to user:
-   - Task content
+   - TD reference number and task content
    - Project name
    - Due date
    - Priority level
+
+## Reference numbers
+
+Every task the estate creates carries a reference number at the front of its
+content — `TD12: Pay the Neon invoice` — so Nathan can name it in chat ("TD12
+is done") without reading a Todoist id. Name a task by its TD number in every
+message about it, and read his replies the same way.
+
+Allocate the number as one past the highest TD number Todoist still holds for
+the project, completed tasks as well as open ones. Close tasks rather than
+delete them — a deleted task's number comes back:
+
+1. Open tasks: `GET /api/v1/tasks?project_id=PROJECT_ID&limit=200`, following
+   `next_cursor` until it is null.
+2. Completed tasks: `GET /api/v1/tasks/completed/by_completion_date?project_id=PROJECT_ID&since=…&until=…&limit=200`,
+   in windows of at most 90 days from the project's `created_at` to now,
+   following `next_cursor` within each window.
+3. The number is the highest leading `TD<n>` seen plus one; prefix the content
+   with `TD<n>: `. A task with no number (added by hand) gets the next one on
+   sight.
+
+In OverSteward, `scripts/operator_steps.py` does all of this for the Operator
+Steps project — use it there instead of curl.
 
 ## Project Mappings
 

@@ -147,10 +147,28 @@ def test_worktree_mounts_common_git_dir(scan, tmp_path):
 # --- exit-code / fail-open-vs-closed logic ----------------------------------
 
 
-def test_docker_absent_skips_when_not_required(scan, monkeypatch):
+def test_docker_absent_is_could_not_look_not_clean(scan, monkeypatch):
+    # Was 0 — byte-for-byte identical to a scan that ran and found nothing, so a
+    # commit on a machine without docker was certified by a scanner that never
+    # started (OS#384).
     monkeypatch.setattr(scan, "docker_available", lambda: False)
     monkeypatch.delenv("SECRET_SCAN_REQUIRED", raising=False)
+    monkeypatch.delenv("SECRET_SCAN_ALLOW_UNAVAILABLE", raising=False)
+    assert scan.main(["--staged"]) == 2
+
+
+def test_the_gap_can_be_accepted_deliberately_on_a_machine_without_docker(scan, monkeypatch):
+    monkeypatch.setattr(scan, "docker_available", lambda: False)
+    monkeypatch.delenv("SECRET_SCAN_REQUIRED", raising=False)
+    monkeypatch.setenv("SECRET_SCAN_ALLOW_UNAVAILABLE", "1")
     assert scan.main(["--staged"]) == 0
+
+
+def test_the_escape_hatch_cannot_switch_off_the_required_mode(scan, monkeypatch):
+    monkeypatch.setattr(scan, "docker_available", lambda: False)
+    monkeypatch.setenv("SECRET_SCAN_REQUIRED", "1")
+    monkeypatch.setenv("SECRET_SCAN_ALLOW_UNAVAILABLE", "1")
+    assert scan.main(["--staged"]) == 2
 
 
 def test_docker_absent_fails_closed_when_required(scan, monkeypatch):

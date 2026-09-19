@@ -1,0 +1,137 @@
+crawl	size	domain	http	records	capped	distinct_urls	latest_ts
+CC-MAIN-2026-34	large	gatesfoundation.org	200	1000	yes	958	20260819203719
+CC-MAIN-2026-34	large	macfound.org	200	830	no	811	20260815220713
+CC-MAIN-2026-34	large	hewlett.org	200	14	no	9	20260819144851
+CC-MAIN-2026-34	large	kresge.org	200	563	no	557	20260819213753
+CC-MAIN-2026-34	large	mott.org	200	1000	yes	987	20260819183422
+CC-MAIN-2026-34	large	fordfoundation.org	200	1000	yes	961	20260819213728
+CC-MAIN-2026-34	large	rwjf.org	200	1000	yes	942	20260819001331
+CC-MAIN-2026-34	large	packard.org	200	713	no	704	20260817015721
+CC-MAIN-2026-34	large	rockefellerfoundation.org	200	1000	yes	993	20260819064600
+CC-MAIN-2026-34	large	carnegie.org	200	1000	yes	996	20260816051705
+CC-MAIN-2026-34	large	kauffman.org	200	473	no	449	20260819174705
+CC-MAIN-2026-34	large	luminafoundation.org	502	0	no	0	
+CC-MAIN-2026-34	large	wkkf.org	200	1000	yes	993	20260818060250
+CC-MAIN-2026-34	large	sloan.org	200	6	no	4	20260818201828
+CC-MAIN-2026-34	large	mellon.org	200	1000	yes	998	20260820003955
+CC-MAIN-2026-34	mid	siliconvalleycf.org	200	36	no	20	20260819201818
+CC-MAIN-2026-34	mid	cct.org	504	0	no	0	
+CC-MAIN-2026-34	mid	nycommunitytrust.org	200	19	no	19	20260817083427
+CC-MAIN-2026-34	mid	oregoncf.org	200	243	no	236	20260818090608
+CC-MAIN-2026-34	mid	seattlefoundation.org	200	127	no	126	20260817052726
+CC-MAIN-2026-34	small	adamscountyfoundation.org	504	0	no	0	
+CC-MAIN-2026-34	small	bentoncf.org	200	6	no	3	20260819211301
+CC-MAIN-2026-34	small	blackfordcofoundation.org	200	13	no	10	20260814162709
+CC-MAIN-2026-34	small	browncountygives.org	200	20	no	20	20260809140206
+CC-MAIN-2026-34	small	casscountycf.org	200	9	no	9	20260809021041
+CC-MAIN-2026-34	small	cf-cc.org	200	4	no	4	20260818211355
+CC-MAIN-2026-34	small	daviesscountycf.org	404	0	no	0	
+CC-MAIN-2026-34	small	dearborncf.org	504	0	no	0	
+CC-MAIN-2026-34	small	dccfound.org	200	96	no	91	20260819235622
+CC-MAIN-2026-34	small	cfdekalb.org	200	22	no	20	20260819113004
+CC-MAIN-2026-34	small	greenecountyfoundation.org	200	63	no	63	20260807223610
+CC-MAIN-2026-34	small	hccfindiana.org	404	0	no	0	
+CC-MAIN-2026-34	small	henrycountycf.org	200	345	no	333	20260819233556
+CC-MAIN-2026-34	small	huntingtonccf.org	200	78	no	72	20260817020316
+CC-MAIN-2026-34	small	jasperfdn.org	200	4	no	4	20260808062856
+CC-MAIN-2026-34	small	jenningsfoundation.net	404	0	no	0	
+CC-MAIN-2026-34	small	kcfoundation.org	200	125	no	124	20260812201901
+CC-MAIN-2026-34	small	lccf.net	200	146	no	117	20260819204539
+CC-MAIN-2026-34	small	marshallcountycf.org	200	2	no	2	20260819135530
+CC-MAIN-2026-34	small	mccf-in.org	502	0	no	0	
+CC-MAIN-2026-34	small	occfrisingsun.com	200	15	no	15	20260816232159
+CC-MAIN-2026-34	small	owencountycf.org	200	49	no	49	20260809202834
+CC-MAIN-2026-34	small	parkeccf.org	200	90	no	90	20260810181204
+CC-MAIN-2026-34	small	cfopc.org	200	14	no	4	20260819204500
+CC-MAIN-2026-34	small	randolphcountyfoundation.org	200	310	no	309	20260816172931
+CC-MAIN-2026-30	large	gatesfoundation.org	200	1000	yes	949	20260722235132
+CC-MAIN-2026-30	large	macfound.org	200	1000	yes	963	20260722113922
+CC-MAIN-2026-30	large	hewlett.org	200	11	no	4	20260720061811
+CC-MAIN-2026-30	large	kresge.org	200	843	no	828	20260721020212
+CC-MAIN-2026-30	large	mott.org	200	1000	yes	998	20260720104928
+CC-MAIN-2026-30	large	fordfoundation.org	200	1000	yes	967	20260722174951
+CC-MAIN-2026-30	large	rwjf.org	200	1000	yes	947	20260722080156
+CC-MAIN-2026-30	large	packard.org	200	799	no	789	20260722085107
+CC-MAIN-2026-30	large	rockefellerfoundation.org	200	1000	yes	985	20260722201233
+CC-MAIN-2026-30	large	carnegie.org	200	1000	yes	958	20260723000119
+CC-MAIN-2026-30	large	kauffman.org	200	692	no	662	20260720133339
+CC-MAIN-2026-30	large	luminafoundation.org	200	1000	yes	990	20260722205301
+CC-MAIN-2026-30	large	wkkf.org	200	1000	yes	987	20260721231245
+CC-MAIN-2026-30	large	sloan.org	200	6	no	3	20260722181908
+CC-MAIN-2026-30	large	mellon.org	200	1000	yes	995	20260722204629
+CC-MAIN-2026-30	mid	siliconvalleycf.org	200	23	no	23	20260713005720
+CC-MAIN-2026-30	mid	cct.org	200	12	no	4	20260722163008
+CC-MAIN-2026-30	mid	nycommunitytrust.org	200	19	no	17	20260721050940
+CC-MAIN-2026-30	mid	oregoncf.org	200	233	no	229	20260720104623
+CC-MAIN-2026-30	mid	seattlefoundation.org	200	154	no	146	20260720221912
+CC-MAIN-2026-30	small	adamscountyfoundation.org	200	58	no	43	20260722162141
+CC-MAIN-2026-30	small	bentoncf.org	200	6	no	3	20260722174331
+CC-MAIN-2026-30	small	blackfordcofoundation.org	200	46	no	36	20260722161311
+CC-MAIN-2026-30	small	browncountygives.org	200	19	no	17	20260717165134
+CC-MAIN-2026-30	small	casscountycf.org	200	11	no	11	20260720011437
+CC-MAIN-2026-30	small	cf-cc.org	404	0	no	0	
+CC-MAIN-2026-30	small	daviesscountycf.org	404	0	no	0	
+CC-MAIN-2026-30	small	dearborncf.org	200	135	no	130	20260722164640
+CC-MAIN-2026-30	small	dccfound.org	200	76	no	58	20260722160932
+CC-MAIN-2026-30	small	cfdekalb.org	200	43	no	41	20260719213143
+CC-MAIN-2026-30	small	greenecountyfoundation.org	200	100	no	96	20260717030418
+CC-MAIN-2026-30	small	hccfindiana.org	404	0	no	0	
+CC-MAIN-2026-30	small	henrycountycf.org	200	429	no	418	20260722162459
+CC-MAIN-2026-30	small	huntingtonccf.org	200	33	no	30	20260719182154
+CC-MAIN-2026-30	small	jasperfdn.org	200	4	no	4	20260712235133
+CC-MAIN-2026-30	small	jenningsfoundation.net	200	2	no	2	20260715043852
+CC-MAIN-2026-30	small	kcfoundation.org	200	158	no	156	20260722173838
+CC-MAIN-2026-30	small	lccf.net	200	153	no	141	20260719131535
+CC-MAIN-2026-30	small	marshallcountycf.org	502	0	no	0	
+CC-MAIN-2026-30	small	mccf-in.org	200	12	no	12	20260721172118
+CC-MAIN-2026-30	small	occfrisingsun.com	200	17	no	16	20260720164126
+CC-MAIN-2026-30	small	owencountycf.org	200	26	no	26	20260718124415
+CC-MAIN-2026-30	small	parkeccf.org	200	119	no	119	20260711060859
+CC-MAIN-2026-30	small	cfopc.org	200	5	no	4	20260719192531
+CC-MAIN-2026-30	small	randolphcountyfoundation.org	200	334	no	332	20260716052836
+CC-MAIN-2026-25	large	gatesfoundation.org	200	1000	yes	959	20260617170509
+CC-MAIN-2026-25	large	macfound.org	200	855	no	826	20260617071804
+CC-MAIN-2026-25	large	hewlett.org	200	12	no	4	20260613194403
+CC-MAIN-2026-25	large	kresge.org	200	526	no	519	20260617171114
+CC-MAIN-2026-25	large	mott.org	504	0	no	0	
+CC-MAIN-2026-25	large	fordfoundation.org	200	1000	yes	975	20260618181113
+CC-MAIN-2026-25	large	rwjf.org	200	896	no	857	20260618171631
+CC-MAIN-2026-25	large	packard.org	200	779	no	771	20260610191859
+CC-MAIN-2026-25	large	rockefellerfoundation.org	200	1000	yes	985	20260618181340
+CC-MAIN-2026-25	large	carnegie.org	200	648	no	632	20260618150019
+CC-MAIN-2026-25	large	kauffman.org	200	460	no	450	20260617171200
+CC-MAIN-2026-25	large	luminafoundation.org	200	408	no	403	20260617230453
+CC-MAIN-2026-25	large	wkkf.org	200	817	no	802	20260615183053
+CC-MAIN-2026-25	large	sloan.org	200	43	no	39	20260613215205
+CC-MAIN-2026-25	large	mellon.org	200	1000	yes	999	20260618181312
+CC-MAIN-2026-25	mid	siliconvalleycf.org	200	18	no	17	20260612135706
+CC-MAIN-2026-25	mid	cct.org	200	8	no	4	20260618163605
+CC-MAIN-2026-25	mid	nycommunitytrust.org	200	20	no	18	20260616065411
+CC-MAIN-2026-25	mid	oregoncf.org	200	256	no	249	20260618150506
+CC-MAIN-2026-25	mid	seattlefoundation.org	200	183	no	176	20260612143216
+CC-MAIN-2026-25	small	adamscountyfoundation.org	200	27	no	27	20260606022538
+CC-MAIN-2026-25	small	bentoncf.org	200	4	no	3	20260618173255
+CC-MAIN-2026-25	small	blackfordcofoundation.org	200	21	no	20	20260618114732
+CC-MAIN-2026-25	small	browncountygives.org	200	19	no	19	20260608152218
+CC-MAIN-2026-25	small	casscountycf.org	200	15	no	14	20260613154725
+CC-MAIN-2026-25	small	cf-cc.org	404	0	no	0	
+CC-MAIN-2026-25	small	daviesscountycf.org	404	0	no	0	
+CC-MAIN-2026-25	small	dearborncf.org	200	105	no	104	20260618150708
+CC-MAIN-2026-25	small	dccfound.org	200	111	no	100	20260616123744
+CC-MAIN-2026-25	small	cfdekalb.org	200	13	no	13	20260610222620
+CC-MAIN-2026-25	small	greenecountyfoundation.org	200	123	no	121	20260613060947
+CC-MAIN-2026-25	small	hccfindiana.org	404	0	no	0	
+CC-MAIN-2026-25	small	henrycountycf.org	200	88	no	87	20260614171619
+CC-MAIN-2026-25	small	huntingtonccf.org	200	19	no	19	20260616190434
+CC-MAIN-2026-25	small	jasperfdn.org	200	4	no	4	20260612105017
+CC-MAIN-2026-25	small	jenningsfoundation.net	404	0	no	0	
+CC-MAIN-2026-25	small	kcfoundation.org	200	420	no	418	20260612120650
+CC-MAIN-2026-25	small	lccf.net	200	123	no	119	20260618150422
+CC-MAIN-2026-25	small	marshallcountycf.org	200	2	no	2	20260616051204
+CC-MAIN-2026-25	small	mccf-in.org	200	18	no	18	20260614074355
+CC-MAIN-2026-25	small	occfrisingsun.com	200	16	no	15	20260615051708
+CC-MAIN-2026-25	small	owencountycf.org	200	64	no	62	20260617004554
+CC-MAIN-2026-25	small	parkeccf.org	200	118	no	118	20260609155101
+CC-MAIN-2026-25	small	cfopc.org	200	8	no	7	20260616121233
+CC-MAIN-2026-25	small	randolphcountyfoundation.org	200	327	no	324	20260615024943
+CC_PROBE_DONE

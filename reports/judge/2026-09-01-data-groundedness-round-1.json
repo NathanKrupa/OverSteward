@@ -1,0 +1,267 @@
+{
+  "name": "data-groundedness-round-1",
+  "kind": "score",
+  "rubric": "seeker",
+  "pages": [
+    {
+      "url": "https://www.aigranthelper.com/foundations/in/lilly-endowment-inc/",
+      "page_type": "foundation",
+      "title": "Lilly Endowment Inc Grants \u2014 Contact",
+      "mean": 3.71,
+      "scores": {
+        "can_i_apply": {
+          "score": 4,
+          "reason": "Clearly states unsolicited applications are accepted and details key restrictions and program focus areas."
+        },
+        "typical_giving": {
+          "score": 5,
+          "reason": "Provides median grant size ($50k), sector grant distributions, and total annual giving amounts."
+        },
+        "who_they_fund": {
+          "score": 5,
+          "reason": "Displays recipient revenue data, geographic breakdowns, and specific recent grant recipients with project descriptions."
+        },
+        "when_to_apply": {
+          "score": 1,
+          "reason": "No application deadlines, cycle schedules, or board meeting dates are listed on the page."
+        },
+        "where_to_apply": {
+          "score": 5,
+          "reason": "Includes complete address, phone number, website link, and extensive geographic giving breakdowns."
+        },
+        "clarity": {
+          "score": 5,
+          "reason": "Information is structured logically with clear headings, summaries, and graphical data representations."
+        },
+        "groundedness": {
+          "score": 1,
+          "reason": "4 claim(s) the ground truth does not support"
+        }
+      },
+      "unsupported_claims": [
+        "Grants Made 10,817",
+        "57% of dollars in Indiana",
+        "Typically funds organizations with budgets around $4.8M.",
+        "FY2024 \u2014 $2,281,221,212"
+      ]
+    },
+    {
+      "url": "https://www.aigranthelper.com/foundations/nc/dover-foundation-inc/",
+      "page_type": "foundation",
+      "title": "Dover Foundation Inc Grants \u2014 Application Requirements",
+      "mean": 4.29,
+      "scores": {
+        "can_i_apply": {
+          "score": 5,
+          "reason": "Explicitly states that unsolicited 501(c)(3) applications are accepted once per calendar year."
+        },
+        "typical_giving": {
+          "score": 4,
+          "reason": "Shows total giving, grant count, typical grant range, and recent award list, missing single typical figure."
+        },
+        "who_they_fund": {
+          "score": 5,
+          "reason": "Provides focus areas, named past grantees, specific project purposes, and recipient organization budget sizes."
+        },
+        "when_to_apply": {
+          "score": 5,
+          "reason": "Lists explicit quarterly submission deadlines for both 2025 and 2026."
+        },
+        "where_to_apply": {
+          "score": 5,
+          "reason": "Clearly states primary geographic focus on Cleveland County, NC and specifies applying via online portal."
+        },
+        "clarity": {
+          "score": 5,
+          "reason": "Well-structured headings and readable text make information easy to digest for non-experts."
+        },
+        "groundedness": {
+          "score": 1,
+          "reason": "4 claim(s) the ground truth does not support"
+        }
+      },
+      "unsupported_claims": [
+        "December 15, 2025 March 15, 2026 June 15, 2026 September 15, 2026",
+        "Applicants complete required information through the online Grant Application Portal",
+        "established in 1944 as a result of the success of Dover Textiles",
+        "middle half spans $711,099 to $2,526,356, with the median at $1,329,442"
+      ]
+    },
+    {
+      "url": "https://www.aigranthelper.com/foundations/ny/h-w-wilson-foundation-inc/",
+      "page_type": "foundation",
+      "title": "H W Wilson Foundation Inc \u2014 AI Grant Helper",
+      "mean": 3.86,
+      "scores": {
+        "can_i_apply": {
+          "score": 5,
+          "reason": "Clearly states unsolicited applications are accepted and describes the simple application method (letter)."
+        },
+        "typical_giving": {
+          "score": 5,
+          "reason": "Provides clear typical grant ranges, sector breakdowns, total giving, and specific grant examples."
+        },
+        "who_they_fund": {
+          "score": 5,
+          "reason": "Features detailed sector breakdowns, geographic focus, recipient size stats, and an extensive list of past grantees."
+        },
+        "when_to_apply": {
+          "score": 2,
+          "reason": "Does not state specific application deadlines or board meeting dates."
+        },
+        "where_to_apply": {
+          "score": 4,
+          "reason": "Shows geographic focus and foundation contact details, though full mailing street address is missing."
+        },
+        "clarity": {
+          "score": 5,
+          "reason": "Extremely clean and easy to navigate with structured charts, clear headings, and readable data."
+        },
+        "groundedness": {
+          "score": 1,
+          "reason": "4 claim(s) the ground truth does not support"
+        }
+      },
+      "unsupported_claims": [
+        "Typically funds organizations with budgets around $35.8M.",
+        "Grants Made 443",
+        "Assets $32.7M end of FY2025",
+        "Total Giving \u00b7 FY2025 $1.9M"
+      ]
+    },
+    {
+      "url": "https://www.aigranthelper.com/foundations/nc/bank-of-america-charitable-foundation-inc/",
+      "page_type": "foundation",
+      "title": "Bank Of America Charitable Foundation Inc Grants \u2014 Contact",
+      "mean": 3.71,
+      "scores": {
+        "can_i_apply": {
+          "score": 5,
+          "reason": "Explicitly states unsolicited applications are accepted and outlines basic eligibility rules plainly."
+        },
+        "typical_giving": {
+          "score": 3,
+          "reason": "Shows total giving and hundreds of sample grant amounts, though typical grant size is left blank."
+        },
+        "who_they_fund": {
+          "score": 4,
+          "reason": "Includes an extensive table of actual grant recipients with names, locations, and grant amounts."
+        },
+        "when_to_apply": {
+          "score": 4,
+          "reason": "Lists specific submission window dates for multiple program RFPs."
+        },
+        "where_to_apply": {
+          "score": 5,
+          "reason": "Specifies geographic presence requirements and provides direct links to the online application portal."
+        },
+        "clarity": {
+          "score": 4,
+          "reason": "Information is cleanly structured and accessible, despite raw IRS text formatting in some sections."
+        },
+        "groundedness": {
+          "score": 1,
+          "reason": "5 claim(s) the ground truth does not support"
+        }
+      },
+      "unsupported_claims": [
+        "Grants Made 177,371",
+        "Total Giving \u00b7 FY2024 \u25bc 4% vs FY2023",
+        "23% of dollars in North Carolina",
+        "FY2021 \u2014 $306,540,244",
+        "6000 Moms Nfp Glen Ellyn, IL $53"
+      ]
+    },
+    {
+      "url": "https://www.aigranthelper.com/foundations/wi/tomah-pta-scholarship-trust/",
+      "page_type": "foundation",
+      "title": "Tomah PTA Scholarship Trust \u2014 AI Grant Helper",
+      "mean": 2.86,
+      "scores": {
+        "can_i_apply": {
+          "score": 4,
+          "reason": "States unsolicited applications are accepted, but limits eligibility strictly to graduates of Tomah High School seeking higher education."
+        },
+        "typical_giving": {
+          "score": 4,
+          "reason": "Clear grant history shows individual $1,000 student awards alongside total annual giving stats."
+        },
+        "who_they_fund": {
+          "score": 4,
+          "reason": "Lists specific individual student recipients and local school district, clearly showing they fund students rather than nonprofits."
+        },
+        "when_to_apply": {
+          "score": 1,
+          "reason": "No deadlines, cycle dates, or submission timelines are listed on the page."
+        },
+        "where_to_apply": {
+          "score": 2,
+          "reason": "States geographic focus (Tomah, WI) and phone number, but omits an address, portal, or application instructions."
+        },
+        "clarity": {
+          "score": 4,
+          "reason": "Clean presentation quickly informs a nonprofit leader that this fund is exclusively for individual student scholarships."
+        },
+        "groundedness": {
+          "score": 1,
+          "reason": "5 claim(s) the ground truth does not support"
+        }
+      },
+      "unsupported_claims": [
+        "Total Giving \u00b7 FY2023 $221K",
+        "FY2023 \u2014 $221,284",
+        "FY2015 \u2014 $10,025",
+        "FY2019 \u2014 $9,087",
+        "Assets $229K end of FY2021, as filed"
+      ]
+    },
+    {
+      "url": "https://www.aigranthelper.com/foundations/ny/the-edna-mcconnell-clark-foundation/",
+      "page_type": "foundation",
+      "title": "The Edna Mcconnell Clark Foundation \u2014 AI Grant Helper",
+      "mean": 3.43,
+      "scores": {
+        "can_i_apply": {
+          "score": 4,
+          "reason": "Explicitly states unsolicited applications are accepted and directs applicants to the foundation website."
+        },
+        "typical_giving": {
+          "score": 4,
+          "reason": "Includes total giving, typical grant range, median grant amount, and historical annual totals."
+        },
+        "who_they_fund": {
+          "score": 5,
+          "reason": "Lists specific recipient organizations, grant amounts, project purposes, geographic breakdowns, and sector percentages."
+        },
+        "when_to_apply": {
+          "score": 1,
+          "reason": "No application deadlines, board meeting dates, or submission cycles are specified."
+        },
+        "where_to_apply": {
+          "score": 4,
+          "reason": "Clear geographic focus provided along with foundation phone number, city, and website address."
+        },
+        "clarity": {
+          "score": 5,
+          "reason": "Data is presented cleanly with plain-language summaries, helpful tables, and structured sections."
+        },
+        "groundedness": {
+          "score": 1,
+          "reason": "5 claim(s) the ground truth does not support"
+        }
+      },
+      "unsupported_claims": [
+        "Half its grants fall between $500,000 and $6,000,000, with a median of $2,000,000.",
+        "82% of dollars in New York",
+        "Total giving stands at $716.3 million.",
+        "Historical grants to 30 recipients across 13 states.",
+        "Human Services $232.5M \u00b7 87%"
+      ]
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 47138,
+    "output_tokens": 2173,
+    "cost_usd": 0.04350224999999999
+  }
+}

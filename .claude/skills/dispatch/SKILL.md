@@ -97,6 +97,25 @@ If all preflights pass: proceed.
 
 ### 3. Run the agent (foreground)
 
+**Scope first, and on the right model.** The session runs on Opus, and so does
+every `<repo>-dev` agent it launches. Fable is reserved for planning, and it is
+reached **by name**: a scope that crosses more than one repo, that touches an
+`architecture.md` §3 invariant, or that is itself an architecture decision goes
+to `architect` (fable, foreground — `shared/agents/architect.md`), and the
+session then dispatches from the `Dispatch brief` that card returns. **The
+session never switches itself to Fable in order to plan.** Switching the
+orchestrator spends the expensive model on deliberation and leaves nothing
+behind; launching `architect` spends it once, in a subagent, and returns a plan
+that has already been red-teamed against itself.
+
+`architect` reads and returns only — no write, no `gh` mutation, no dispatch,
+no poll. The card's `hooks:` frontmatter names `guard_architect_readonly.py`,
+a `PreToolUse` hook that refuses every write-shaped `Bash` command under the
+card (the session scratchpad is the one exempt sink), so a plan that reports
+having changed a file is a hook bypass to raise, not a convenience to accept.
+A scope small enough to state in the brief's own bullets does not need it; the
+issue's own acceptance is already the agreed scope.
+
 Invoke the `Agent` tool with:
 - `subagent_type: <repo>-dev`
 - **No `run_in_background`** (foreground — see billing/reliability note above)
@@ -119,17 +138,116 @@ uv run python scripts/dispatch/dispatch_watchdog.py <owner>/<repo> <n>
 
 It polls for the agent's `issue-<n>-…` branch and exits `0` (progressing) once the branch is pushed, or exits `3` with an alert if no branch appears within `--warn-min` (default 22). Run it via `run_in_background`; on a stall alert, inspect the agent transcript's turn count and `TaskStop` + re-dispatch if it is looping. Tune with `--warn-min` for issues expected to take longer before a first push.
 
+**The session never arms `Monitor`, `ScheduleWakeup` or a polling Bash loop
+directly; it launches `watch` (sonnet, foreground) and reads one report.**
+
+The watchdog above is the shape that survives that rule, and it survives on a
+count: **a single background command that exits once fires exactly one
+completion notification**, which costs the same one turn as reading a `watch`
+report. What the rule forbids is every shape that alerts *repeatedly* — a
+`Monitor` with a tick interval, a `ScheduleWakeup` chain, an
+`until gh pr view ...; do sleep 60; done` in the session's own Bash. Those go
+into a `watch` brief (`shared/agents/watch.md`), which absorbs each poll inside a
+Sonnet loop, writes every state change to an on-disk ledger, and returns one
+YAML report of at most 40 lines.
+
+The test is arithmetic rather than taste: count the notifications the shape will
+deliver to *this* session. One is allowed. More than one is a `watch` brief.
+
+Two measurements sit behind the rule. Over 2026-09-07 -> 09-14, **32% of Fable
+spend was waiting and watching** (OS#485). And a subagent cannot quietly take the
+watchdog's place by arming a Monitor on your behalf: a Monitor armed inside a
+subagent delivers its ticks to *nobody*, because the subagent's loop ends when it
+answers (delivery trial, 2026-09-16 — the parent saw 0 ticks and so did the
+subagent). Foreground polling is the only shape that observes anything, which is
+why `watch` is foreground and carries no Monitor tool.
+
 ### 4. Return to user
 
 When the agent returns, read its YAML report and relay the terminal state directly (no verification round-trip is needed — foreground returns the genuine final output):
 
-- `final_state: MERGED` → "✅ PR merged: <url>"
+- `final_state: MERGED` → "✅ PR merged: <url>", then the cleanup below — standing-authorized, in the same turn, never an operator step.
 - `final_state: CI_FAILED` → "❌ CI failed on <url> — check the Actions tab"
-- `final_state: STILL_RUNNING` → "⏱ PR open, CI pending: <url>. Will merge when green — re-poll with `gh pr view`."
+- `final_state: STILL_RUNNING` → "⏱ PR open, CI pending: <url>. Will merge when green." Hand it to `watch` with one `pr` subject rather than re-polling `gh pr view` by hand — repeated by-hand polling is the shape §3.5 forbids.
 - `final_state: STOPPED_FOR_INPUT` → "❓ Agent stopped with a question on issue #<n>. See comments. Answer with `/answer <repo> <n>`."
 - `final_state: REFUSED_PREFLIGHT` → "🚫 Agent refused: <reason>"
 
 If the agent returns prose with no YAML block (rare in foreground), treat it as incomplete: check branch/PR/label state directly with `gh` and report what you find, rather than trusting a bare "done."
+
+### 5. Cleanup after `MERGED` — standing permission
+
+A merged PR leaves a worktree, often a `<name>.baseline` sibling, a bench
+database per worktree, a local branch and a remote branch. Every
+dispatch-target repo and OverSteward has `delete_branch_on_merge` on (set and
+verified by hand 2026-09-18; the `sync-status` check that would keep it
+measured is OS#510), so GitHub removes the remote branch the moment any PR
+merges — and **retargets** any open PR that used it as a base onto the merged
+PR's base, rather than closing it (measured on OS#508/#509). A dispatch
+run that reached its end has also torn its worktree down (playbook step 19),
+so this section is for what nothing else reached: an agent that died before
+step 19, a `.baseline` sibling it left, the local branch, and every
+**in-session** worktree (`session/*`, back-merges, promotes), which no playbook
+tends. Nothing in it needs Nathan, so the session does it without asking and
+without pushing an operator step — the tree he next opens is already clean.
+From the repo's primary checkout:
+
+```bash
+gh pr view <n> --repo <owner>/<repo> --json state --jq .state          # must print MERGED
+gh pr list --repo <owner>/<repo> --base <branch> --state open --json number   # must print []
+[ ! -d <repo>/.claude/worktrees/<name> ]          || scripts/dev/worktree_doctor.py teardown <repo>/.claude/worktrees/<name>
+[ ! -d <repo>/.claude/worktrees/<name>.baseline ] || scripts/dev/worktree_doctor.py teardown <repo>/.claude/worktrees/<name>.baseline
+scripts/dev/worktree_doctor.py sweep                # reports; must name nothing orphaned
+! git -C <repo> show-ref --verify --quiet refs/heads/<branch> \
+    || git -C <repo> branch -d <branch>             # local before remote — see below
+! git ls-remote --exit-code --heads origin <branch> > /dev/null \
+    || gh api -X DELETE repos/<owner>/<repo>/git/refs/heads/<branch>
+```
+
+Read each exit code. The two `gh` lines at the top are the conjuncts: the PR
+state is the merged-check, and the second line guards the **API** delete on
+the last line. GitHub's own auto-delete retargets an open child; a refs-API
+delete of a branch an open PR bases on closes that PR and its review threads
+(measured on OS#509 with no merged PR behind the branch — the after-merge
+case was not measured, so it is treated as the same), so a non-empty list
+means retarget the child first, never delete under it. In
+practice the remote branch is already gone by the time this runs, and the
+existence test makes the last line a no-op. The existence tests are what
+make "already gone" read as done rather than as a refusal: the doctor exits 1
+on a path that is not a worktree and `gh api` returns 422 on a ref that is not
+there, and neither is a finding when the playbook did that work — so each of
+those lines exits 0 when its subject is absent and carries the tool's own code
+when it is present (`[ ! -d x ] || tool x`, not `[ -d x ] && tool x`, whose
+absent case exits 1 — the doctor's refusal code). `git branch
+-d` is not a merged-check either — it verifies against the branch's upstream
+tracking ref, which a server-side delete leaves in place until a prune — which
+is why it sits after the PR-state line and before the remote delete, and why
+`-D` is never the answer to its refusal. The doctor's own refusal (exit 1 =
+something still points here or the tree is dirty, exit 2 = it could not look)
+is the one legitimate stop, and it is a finding to fix in-session — inspect
+the stray file, run `repair`, start docker — not a step to hand over.
+`git push --delete` is refused in AG and GS by the verify-marker pre-push hook
+(any push without a marker at HEAD); the `gh api` form works in every repo. A
+branch that was **not** merged (CI_FAILED, STOPPED_FOR_INPUT) keeps all of it:
+the worktree is the resumable state.
+
+**A stack is cleaned up by its last PR to merge.** When a parent PR merges
+under an open child, the parent's cleanup runs in full — its worktree and local
+branch go (the child carries every commit the parent had, so `-d` loses
+nothing), and GitHub has already retargeted the child onto the trunk. When the
+child then merges, its cleanup runs the sequence for itself **and then again
+for each ancestor** — same lines, ancestor's `<name>` and `<branch>` — so a
+parent whose cleanup was skipped or refused at the time is finished now rather
+than left for Nathan. The existence tests make an ancestor that was already
+cleaned cost nothing — the local-branch line included, which is why it carries
+`show-ref` in front of `-d`. `-d` can still refuse on an ancestor whose
+tracking ref was pruned while the primary checkout sits on a different trunk
+than the PR merged into (AG: checkout on `main`, PRs to `staging`) — `-d`
+then checks HEAD, which does not carry the commits. The answer is to give
+`-d` the right reference, never `-D`: prove the merge with
+`git merge-base --is-ancestor <branch> origin/<trunk>` (rc 0), then
+`git branch --set-upstream-to=origin/<trunk> <branch>` and `-d` again — its
+check is now "merged into that trunk", and it still refuses an unmerged branch
+(both measured, 2026-09-18).
 
 ## Refusal messages (what to tell the user on preflight failure)
 

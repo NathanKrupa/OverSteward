@@ -283,6 +283,34 @@ echo '.claude/worktrees/' >> .gitignore
 
 Then document it in the repo's `CONTRIBUTING.md` (or `CLAUDE.md` where there is none).
 
+#### Resuming the sessions a reboot took (OS#486)
+
+A worktree survives a WSL restart; the *session* working in it does not. `claude -r <id>` restores a transcript for free, so the only thing missing is a record of which ids were alive — which is all `session_registry.py` is: two hooks that append one JSON line each to `~/.claude/session-registry.jsonl`, and a boot verb that reads them back.
+
+- **`session_registry.py`** — `record` (SessionStart) and `retire` (SessionEnd) upsert `{session_id, name, cwd, started_at, last_seen}` into an append-only JSONL store; `list` prints the live rows; `resume` opens one tmux window per live row, in that row's own `cwd`, running `claude -r <id>`. Liveness is the *absence* of a clean `SessionEnd` — a crashed or killed session never runs the hook, which is exactly the state `resume` exists for — and `--max-age-hours` (default 24) drops rows too stale to be "what was running when the machine went down". `resume` exits **2** when tmux is not on `PATH`: a skip must not read as a pass. Names come from the payload's `session_title` (an explicit `-n`), else the latest `ai-title` in the session's own transcript, else the `cwd` basename, with the tier stored beside the name so a later hook can improve a fallback and never demote an explicit one. `list` and `resume` re-resolve the name from the transcript again at read time — the crashed session this exists for fires no further hook, and a name frozen at `SessionStart` (before any `ai-title` was written) would always be its directory's.
+
+**Hook registration is global, in `~/.claude/settings.json`** — not a repo's `.claude/settings.json`, because sessions span repos and a per-repo registration misses every session started anywhere else. Apply it through the `update-config` skill so the JSON stays valid:
+
+```json
+"SessionStart": [
+  {"hooks": [{"type": "command",
+    "command": "python3 /home/natha/OverSteward/scripts/dev/session_registry.py record"}]}
+],
+"SessionEnd": [
+  {"hooks": [{"type": "command",
+    "command": "python3 /home/natha/OverSteward/scripts/dev/session_registry.py retire"}]}
+]
+```
+
+It points at the OverSteward checkout's deployed copy rather than a third copy under `~/.claude/hooks/`; a copy nothing compares is a copy that drifts.
+
+**Boot entry — the first tmux of the day, not a timer.** A resume opens interactive terminals, so there is deliberately no systemd unit; nothing useful happens if the windows open while nobody is attached:
+
+```bash
+/home/natha/OverSteward/scripts/dev/session_registry.py resume --dry-run   # read the plan first
+/home/natha/OverSteward/scripts/dev/session_registry.py resume
+```
+
 ### Workflow registry & descriptor convention
 
 The **tool registry** catalogs single entry points (CLI scripts, console commands). The **workflow registry** catalogs the higher-altitude thing: multi-step **Python↔Claude workflows** — a Claude Agent SDK Workflow script, a Python pipeline, or an operator-in-loop loop. It is the same durable, regenerable pattern, one level up.
@@ -485,6 +513,30 @@ Five production repos, each with a dedicated subagent type defined in `shared/ag
 | fiscus | `fiscus-dev` | Observation-and-kaizen platform — schemas, reviews, lessons corpus |
 
 Each subagent is briefed with the repo's architecture, conventions, self-critique ratchet, and dispatch playbook. Agents run **in-session, foreground** (Agent/Workflow tools) on the Max subscription — never background-async, which is API-metered and subject to silent-termination bug #47936.
+
+`shared/agents/` carries further cards that are **not** dispatch targets; the
+directory is the inventory, deliberately not a list here. One of them is doctrine
+rather than convenience: **`watch`** (sonnet, foreground) holds the polling a
+session would otherwise pay for. A `Monitor`, a `ScheduleWakeup` or a background
+Bash loop delivers its events to whichever agent armed it, so an orchestrator
+that arms them pays a turn per tick — 32% of measured Fable spend over
+2026-09-07 → 09-14 (OS#485). `watch` polls with foreground Bash calls, appends
+every state change to an on-disk ledger, and returns one YAML report of at most
+40 lines, so the session pays a single completion. The rule and its one
+surviving exception are in `/dispatch` § 3.5.
+
+The same directory carries **`architect`** (fable, foreground), which is the
+model split made launchable. The daily session and every dispatch agent run on
+Opus; Fable is reserved for planning. The built-in plan agent inherits the
+session's model, so an Opus session planning in plan mode plans on Opus and the
+split disappears without an error — `architect` is the name that keeps it real.
+It is read-only: it reads the repos its brief names, plans, red-teams its own
+plan, rebuilds from the red team, and returns a bounded plan block whose last
+section is a dispatch brief the session can paste into an issue. Its card
+forbids every write, every `gh` mutation and every poll, and enforces the
+rule through `guard_architect_readonly.py`, the `PreToolUse` hook its
+frontmatter names (canonical in `shared/scripts/dev/`, deployed to
+`.claude/hooks/`). When to reach for it is in `/dispatch` § 3.
 
 ### Dispatch loop
 

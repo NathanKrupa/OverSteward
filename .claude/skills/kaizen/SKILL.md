@@ -97,6 +97,44 @@ $KAIZEN resolve --key <key-from-step-2> --verdict promoted --note "→ CLAUDE.md
 `deferred` is deliberately non-terminal. Without it, "not today" silently becomes
 "never" — which is precisely the decay this queue was built to stop.
 
+### `promoted` means something different for a procedural lesson
+
+OS#424 measured the estate's 608 trajectory notes and found the split is not
+about how well a rule is written:
+
+| kind of lesson | example | prose enforcement |
+|---|---|---|
+| **procedural** — a rule that applies at a specific tool-call moment | "never pipe a gate through `\| tail`", "export PYTHONPATH in a worktree", "run each new test red first" | recurs **8+** times after the rule lands |
+| **dispositional** — a rule about judgment or manner | "never say *you're absolutely right*", "match the surrounding style" | no recurrence problem |
+
+The queue's own history says the same: 13 of 17 verdicts promoted a lesson into
+doctrine *text*, and the estate kept re-encountering those defects. So:
+
+- **A procedural lesson may be `promoted` only when the verdict names a
+  mechanism** — a hook, a gate, a CI job, an exit code, a test — **or records a
+  recurrence budget that re-opens the item.** Write it in `--note`:
+
+  ```bash
+  # mechanism
+  $KAIZEN resolve --key <key> --verdict promoted \
+      --note "mechanism: .claude/hooks/guard_gate_pipe.py (OS#434)"
+
+  # no mechanism available yet — the budget is the commitment
+  $KAIZEN resolve --key <key> --verdict promoted \
+      --note "prose only: shared/references/pr-workflow.md § False greens.
+              budget: 2 more recurrences re-opens this as a hook issue."
+  ```
+
+  A procedural `promoted` whose note names only a document is the verdict this
+  rule exists to stop. If neither a mechanism nor a budget is available, the
+  honest verdict is `deferred`.
+
+- **A dispositional lesson may promote to prose**, and needs no budget. Nothing
+  fires at a tool call to enforce manner, and a hook that tried would cry wolf.
+
+The test for which kind you have: *could a hook, a gate or an exit code see this
+happening?* If yes, it is procedural.
+
 **Recording the verdict is not optional bookkeeping.** The queue ranks by
 recurrence, so an unrecorded item is the head of the list again next session, and
 the backlog never drains. This is the defect that made the monthly promotion pass

@@ -28,6 +28,8 @@ contexts:
       - exchequer-dev
       - oversteward-dev
       - docs-author
+      - watch
+      - architect
     tags:
       - meta
       - governance
@@ -121,6 +123,8 @@ contexts:
       - wphelper-dev
       - fiscus-dev
       - exchequer-dev
+      - watch
+      - architect
     tags:
       - ai
       - design
@@ -146,6 +150,8 @@ contexts:
     skills_available: []
     agents_available:
       - grant-researcher
+      - watch
+      - architect
     tags:
       - grants
       - fundraising

@@ -1,0 +1,16 @@
+{
+  "catalogue_items": [
+    2
+  ],
+  "failure_class": "test-never-red",
+  "must_cite": [
+    "tests/dev/test_check_destructive_command.py"
+  ],
+  "must_mention": [
+    "test_a_client_in_a_substitution_does_not_suppress_the_sql"
+  ],
+  "provenance": "oversteward 083492e (PR#312, OS#307) \u2014 counterfactual, see README",
+  "reconstructed": true,
+  "verdict": "BLOCK",
+  "why": "Both parametrized cases put whitespace before the client (' ; psql', ' ; dbshell'), and the PRE-fix character class already carried \\s \u2014 so both pass against the unfixed regex and guard nothing. Only a client IMMEDIATELY preceded by '$(' or a backtick regresses. The third test pins a leading client, which also passed before. The fix itself is correct; the tests do not prove it."
+}

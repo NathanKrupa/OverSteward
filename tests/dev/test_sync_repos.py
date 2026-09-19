@@ -49,8 +49,11 @@ def test_absent_checkout():
     assert sr.plan_sync(_state(present=False)).action == "absent"
 
 
-def test_no_target_branch_skips():
-    assert sr.plan_sync(_state(target_branch="")).action == "skip"
+def test_no_target_branch_is_unreadable_not_a_deliberate_skip():
+    # An unreadable origin is a could-not-look, and filing it as `skip` is what
+    # let the nightly timer report SUCCESS over a mis-pathed registry entry
+    # (OS#384).
+    assert sr.plan_sync(_state(target_branch="")).action == sr.ACTION_UNREADABLE
 
 
 def test_dirty_tree_skips_untouched():

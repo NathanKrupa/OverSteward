@@ -85,3 +85,17 @@ scratchpad/
 # like its data/ siblings above — the durable record is the sync PR itself.
 .sow.lock
 reports/sow/
+
+# Skill-miner drafts are review artifacts copied out of transcripts; never tracked.
+reports/skill-drafts/
+
+# The adversarial reviewer's assembled input and the assembler's round ledger — per
+# worktree, never committed (a committed input would be reviewable as code).
+.review-input.md
+.review-rounds
+.review-verdict*.md
+.review-round-*.json
+
+# Estate Board page — a generated snapshot, published as an artifact, never committed
+data/estate_board.html
+.review-round-*.stderr

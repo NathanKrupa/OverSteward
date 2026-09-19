@@ -1,0 +1,112 @@
+[
+ {
+  "foundation_id": "8e6a5571-3d42-429b-8dd0-903241ec8445",
+  "foundation_name": "United Health Foundation",
+  "actual_subject": "UnitedHealth Group corporate website (parent company's business/insurance/AI/mission pages, not the Foundation's own grantmaking content)"
+ },
+ {
+  "foundation_id": "2689f749-54f1-478f-a5e5-65efab770be2",
+  "foundation_name": "Nationwide Foundation",
+  "actual_subject": "Nationwide (insurance company) Business Solutions Center blog \u2014 general small-business-grant advice and insurance product pages, not the Foundation's own site"
+ },
+ {
+  "foundation_id": "ce4c5bc5-6173-49ab-a80b-00d0a88b8f5a",
+  "foundation_name": "Salesforce Com Foundation",
+  "actual_subject": "Salesforce.com product marketing pages (CRM/ecommerce/automation/government content), not the Foundation's philanthropy site"
+ },
+ {
+  "foundation_id": "5cdf394c-f5d4-4fca-9631-1da9a32dcf2d",
+  "foundation_name": "William K Bowes Jr Foundation",
+  "actual_subject": "Atkinson Foundation / Crescent Porter Hale Foundation websites (cookie-consent boilerplate only, both a different foundation than Bowes)"
+ },
+ {
+  "foundation_id": "91620b72-27c2-4274-87cc-9e23cd67c141",
+  "foundation_name": "Merck Company Foundation",
+  "actual_subject": "Merck & Co., Inc. corporate/pharmaceutical website (drug-approval press releases, homepage, vulnerability disclosure program \u2014 not the Foundation's own philanthropy content)"
+ },
+ {
+  "foundation_id": "a9962734-d2bb-4083-a21f-4769b6970b5a",
+  "foundation_name": "Elbridge Stuart Foundation",
+  "actual_subject": "Stuart Foundation (California K-12 public-education funder, stuartfoundation.org) \u2014 a different organization; the source never once refers to itself as \"Elbridge Stuart Foundation,\" and its stated financials ($554M assets, ~$27M annual charitable expenditures) are inconsistent with the IRS-derived trusted_context for this row (5 grants/year each ~$21-25M, ~$118.7M total)"
+ },
+ {
+  "foundation_id": "edbdacb9-7a78-4899-a637-5f003921eadb",
+  "foundation_name": "Weill Family Foundation",
+  "actual_subject": "The Weil Foundation (Andrew Weil integrative-medicine foundation) website"
+ },
+ {
+  "foundation_id": "f95375b2-401d-4f96-86c6-c98a4eb5dc74",
+  "foundation_name": "Dorothy D & Joseph A Moller",
+  "actual_subject": "John J. Moller Family Foundation website"
+ },
+ {
+  "foundation_id": "ec52fae8-e7d4-4433-a3c5-d731177d7f01",
+  "foundation_name": "Gordon & Mary Cain Foundation",
+  "actual_subject": "The Gordon A. Cain Foundation website \u2014 its own text and GrantSpider's trusted funding_profile agree this is a distinct, related successor foundation (funded from the original's remaining assets, and separately a grant recipient of Gordon & Mary Cain Foundation in the 990 record), not the named foundation's own site"
+ },
+ {
+  "foundation_id": "6ce1af57-aa91-4ae3-b8f7-cfc03bd5f932",
+  "foundation_name": "T Rowe Price Foundation",
+  "actual_subject": "T. Rowe Price investment-fund product pages for Austria/Germany financial intermediaries (SICAV mutual funds), unrelated to the charitable Foundation"
+ },
+ {
+  "foundation_id": "144b113d-6fee-4b7a-83c2-796736aaf15d",
+  "foundation_name": "Huffington Foundation",
+  "actual_subject": "Huff Family Foundation website (hufffoundation.com) \u2014 an unrelated small family foundation with ties to Missouri/Colorado/Virginia and a Washington State University scholarship, not the Huffington Foundation"
+ },
+ {
+  "foundation_id": "c711890d-3238-4e10-97ea-c2a98358e38b",
+  "foundation_name": "St Louis Art Museum Foundation",
+  "actual_subject": "Saint Louis Art Museum website (the operating museum itself, not its supporting foundation) \u2014 no mention of the Foundation anywhere in the source"
+ },
+ {
+  "foundation_id": "6cc80f0d-a70a-4f7c-8d2c-76f48bb7687a",
+  "foundation_name": "Jhc Foundation",
+  "actual_subject": "James H. Cole Legacy Foundation website (Detroit, MI community-outreach foundation) \u2014 unrelated organization, coincidental JHC initials, no match to the Wilmington, DE-based JHC Foundation's giving profile"
+ },
+ {
+  "foundation_id": "981f9fa8-4c92-48a5-b9f0-66e0ce74cb11",
+  "foundation_name": "Charles E Cotting Charitable Corp",
+  "actual_subject": "Cotting School website (a Lexington, MA K-12 school for students with disabilities) \u2014 no mention of the Charitable Corp or grantmaking anywhere in the source"
+ },
+ {
+  "foundation_id": "6389128d-42bb-4ad0-bd9d-2423a223074c",
+  "foundation_name": "Veale Foundation",
+  "actual_subject": "Veale Youth Entrepreneurship Forum (VYEF) program website \u2014 a youth entrepreneurship competition site for high schoolers, not the Foundation's own general grantmaking pages"
+ },
+ {
+  "foundation_id": "1472f3b4-3dd2-4661-a8ff-93bb366133f3",
+  "foundation_name": "Baird Foundation Inc",
+  "actual_subject": "R.W. Baird & Co. public finance / investment banking website (staff bios and municipal bond case studies) \u2014 no Foundation content"
+ },
+ {
+  "foundation_id": "2f2dcb4b-70a3-4e3b-8ec4-1e14d9e671ec",
+  "foundation_name": "Allegis Group Foundation Inc",
+  "actual_subject": "Allegis Group corporate staffing/recruiting website \u2014 no Foundation or grantmaking content"
+ },
+ {
+  "foundation_id": "3b35276a-6cc0-4a93-9752-86aa858e5183",
+  "foundation_name": "Alcoa Foundation",
+  "actual_subject": "Alcoa Corporation aluminum/mining business website \u2014 no Foundation or grantmaking content"
+ },
+ {
+  "foundation_id": "06480df2-fed5-4512-a4fe-b3922555a1d7",
+  "foundation_name": "The David Belk Cannon Foundation",
+  "actual_subject": "The Cannon Foundation (Charles A. Cannon) website"
+ },
+ {
+  "foundation_id": "d5ab4fab-c8d7-4a2b-b48b-ae2644d37d5d",
+  "foundation_name": "Bms Family Foundation",
+  "actual_subject": "Bristol Myers Squibb corporate giving website"
+ },
+ {
+  "foundation_id": "9a87d48c-dc27-46ed-a277-d4320dba5916",
+  "foundation_name": "Ten Talents Foundation",
+  "actual_subject": "Ten Talents Foundation of Central California (donor-advised-fund community foundation) website \u2014 different organization"
+ },
+ {
+  "foundation_id": "6f7509f5-f1fd-402e-93a6-e0298544f5de",
+  "foundation_name": "Turner Family Charitable Foundation Inc",
+  "actual_subject": "The Turner Foundation (Santa Barbara, CA community charity) website"
+ }
+]

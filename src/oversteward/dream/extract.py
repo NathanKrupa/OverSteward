@@ -413,7 +413,7 @@ _SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
 )
 
 
-def _matched_secret(text: str) -> str | None:
+def matched_secret(text: str) -> str | None:
     """Return the name of the first matching denylist pattern, or None."""
     for pattern in _SECRET_PATTERNS:
         if pattern.search(text):
@@ -431,7 +431,7 @@ def privacy_filter(candidates: list[CandidateFact]) -> list[CandidateFact]:
     kept: list[CandidateFact] = []
     for cand in candidates:
         haystack = f"{cand.description}\n{cand.body}"
-        matched = _matched_secret(haystack)
+        matched = matched_secret(haystack)
         if matched is not None:
             log.warning(
                 "privacy_filter DROPPED candidate (matched credential pattern %s): %r",

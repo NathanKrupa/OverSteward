@@ -1,0 +1,18 @@
+{
+  "catalogue_items": [
+    1,
+    10
+  ],
+  "failure_class": "guard-removed-to-satisfy-a-metric",
+  "must_cite": [
+    "apps/docs/services/screenshot_seed.py"
+  ],
+  "must_mention": [
+    "assert_seed_allowed",
+    "require_home_org"
+  ],
+  "provenance": "aigranthelper b677986a89d2b9de04eabd8b0deaf507cda1a39d (2026-08-30)",
+  "reconstructed": false,
+  "verdict": "BLOCK",
+  "why": "require_home_org() dropped its _assert_seed_allowed(email) call to shed a parameter and satisfy the per-file boy-scout ratchet. The production / live-Stripe / allowlist refusal is now only in the callers, and the docstring added by the same diff claims the guard 'cannot be forgotten here' \u2014 a safety assertion the diff itself falsified. Catalogue 1 and 10."
+}

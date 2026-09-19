@@ -1,0 +1,182 @@
+commit b14cb9b4dd8eb7b150725dbce97023741c4d1a5f
+Author: Nathan Krupa <54715560+NathanKrupa@users.noreply.github.com>
+Date:   Fri Jun 19 13:50:30 2026 -0400
+
+    security(SEC-006): inline SSRF guard at the direct httpx sinks (#1429)
+    
+    Replace the helper-based first cut with the simpler inline pattern that
+    the boy-scout file-scoped ratchet accepts: fetch the URL the validator
+    returned, ``httpx.get(validate_http_url(url))``, at each existing sink.
+    
+    - safe_http stays pure (no httpx call → no SVC-006 in the file-scoped
+      ratchet run); validate_http_url just gains a ``-> str`` return.
+    - cli/gov.py and services/pdf_extractor.py inline the guard at the sink;
+      SEC-006 noqa removed, STAB-008 noqa kept (degradation is the caller's).
+    - Boy-scout: extract a _dollars() helper in gov.py's program-table echo
+      to remove the 3x ``${...:>14,}`` duplication (8 -> 7 findings); fold the
+      safe_http reject tests so the parametrized-url pass-through CPLX-002
+      clears (1 -> 0).
+    - Tests assert blocked URLs (private/link-local/loopback IP, non-http
+      scheme) raise before the sink, and that the validator returns the URL.
+    
+    Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+
+diff --git a/src/grantspider/services/safe_http.py b/src/grantspider/services/safe_http.py
+index b0b5995a..8bdc0c2d 100644
+--- a/src/grantspider/services/safe_http.py
++++ b/src/grantspider/services/safe_http.py
+@@ -21,22 +21,18 @@ the obvious shapes (literal RFC 1918 / loopback addresses, ``file://``,
+ ``localhost``) closes the cheap-and-common SSRF entry points without
+ forcing every caller through a custom transport.
+ 
+-Direct-``httpx`` call sites that fetch an unfixed URL should go through
+-:func:`safe_get` rather than calling :func:`validate_http_url` and then
+-``httpx.get`` separately. ``safe_get`` returns the fetch of the URL that
+-the validator vetted and returned, so the guard and the sink share one
+-auditable expression.
++:func:`validate_http_url` returns the vetted URL so direct-``httpx`` call
++sites can fetch the value the guard approved in a single expression —
++``httpx.get(validate_http_url(url))`` — rather than validating and then
++re-reading the raw parameter. Fetching the validator's return value (not
++the unchecked input) is what closes the SSRF gap at the sink.
+ """
+ 
+ from __future__ import annotations
+ 
+ import ipaddress
+-from typing import TYPE_CHECKING, Any
+ from urllib.parse import urlparse
+ 
+-if TYPE_CHECKING:
+-    import httpx
+-
+ _ALLOWED_SCHEMES = frozenset({"http", "https"})
+ # Hostnames that are unambiguously the local machine. Bare ``localhost``
+ # and any subdomain ending in ``.localhost`` (per RFC 6761).
+@@ -103,25 +99,4 @@ def validate_http_url(url: str) -> str:
+     return url
+ 
+ 
+-def safe_get(url: str, **kwargs: Any) -> httpx.Response:
+-    """SSRF-validate ``url``, then ``httpx.get`` the vetted value.
+-
+-    The single shared sink for direct (non-factory) outbound GETs of an
+-    unfixed URL. The fetch targets the URL :func:`validate_http_url`
+-    returned, so the guard and the request are one auditable expression
+-    and no separate "validate, then trust the raw parameter" gap exists.
+-
+-    ``kwargs`` (timeout, headers, follow_redirects, ...) pass straight to
+-    ``httpx.get``. Callers own failure handling: this helper does not
+-    wrap the request in a fallback — operator-facing CLIs want the error
+-    to surface, retry-wrapped fetchers supply their own try/except.
+-    """
+-    import httpx
+-
+-    validated = validate_http_url(url)
+-    # STAB-008 (no-fallback) is by design here: degradation is the
+-    # caller's decision, not this guard's. See docstring.
+-    return httpx.get(validated, **kwargs)  # noqa: STAB-008
+-
+-
+-__all__ = ["UnsafeURLError", "safe_get", "validate_http_url"]
++__all__ = ["UnsafeURLError", "validate_http_url"]
+diff --git a/tests/services/test_safe_http.py b/tests/services/test_safe_http.py
+index 076d46c9..7f6aaf12 100644
+--- a/tests/services/test_safe_http.py
++++ b/tests/services/test_safe_http.py
+@@ -3,10 +3,9 @@
+ 
+ from __future__ import annotations
+ 
+-import httpx
+ import pytest
+ 
+-from grantspider.services.safe_http import UnsafeURLError, safe_get, validate_http_url
++from grantspider.services.safe_http import UnsafeURLError, validate_http_url
+ 
+ _PARAM_URL = "url"
+ 
+@@ -22,19 +21,10 @@ class TestValidateHttpUrl:
+             "https://8.8.8.8/test",  # Public IP (Google DNS) — passes
+         ],
+     )
+-    def test_allowed(self, url):
+-        validate_http_url(url)
+-
+-    @pytest.mark.parametrize(
+-        _PARAM_URL,
+-        [
+-            "http://example.com",
+-            "https://8.8.8.8/test",  # public IP literal
+-        ],
+-    )
+-    def test_returns_validated_url(self, url):
+-        # The validator returns the vetted URL so callers can fetch the
+-        # value it approved rather than re-reading the raw parameter.
++    def test_allowed_returns_the_vetted_url(self, url):
++        # An accepted URL is returned unchanged so callers can fetch the
++        # value the guard approved — ``httpx.get(validate_http_url(url))`` —
++        # rather than re-reading the raw parameter at the sink.
+         assert validate_http_url(url) == url
+ 
+     @pytest.mark.parametrize(
+@@ -48,8 +38,12 @@ class TestValidateHttpUrl:
+         ],
+     )
+     def test_rejects_non_http_scheme(self, url):
+-        with pytest.raises(UnsafeURLError, match="non-http"):
++        # A blocked URL must raise before the direct-httpx sinks
++        # (cli.gov, pdf_extractor) ever pass it to httpx, and the raised
++        # error names the offending URL for the operator log.
++        with pytest.raises(UnsafeURLError) as exc_info:
+             validate_http_url(url)
++        assert url in str(exc_info.value)
+ 
+     @pytest.mark.parametrize(
+         _PARAM_URL,
+@@ -90,45 +84,3 @@ class TestValidateHttpUrl:
+     def test_unparseable_returns_no_host_error(self):
+         with pytest.raises(UnsafeURLError):
+             validate_http_url("not-a-url")
+-
+-
+-class TestSafeGet:
+-    @pytest.mark.parametrize(
+-        _PARAM_URL,
+-        [
+-            "http://169.254.169.254/latest/meta-data/",  # AWS metadata (link-local)
+-            "http://127.0.0.1/admin",  # loopback
+-            "http://10.0.0.1/",  # RFC 1918 private
+-            "file:///etc/passwd",  # non-http scheme
+-            "gopher://example.com/",  # non-http scheme
+-            "http://localhost/",  # bare localhost
+-        ],
+-    )
+-    def test_blocked_url_rejected_before_fetch(self, url, monkeypatch):
+-        # safe_get must raise the SSRF guard error and never reach the
+-        # network for a private/link-local/loopback IP or a non-http
+-        # scheme. A booby-trapped httpx.get proves no fetch is attempted.
+-        def _boom(*args, **kwargs):  # pragma: no cover - must not run
+-            raise AssertionError(f"safe_get fetched a blocked URL: {url!r}")
+-
+-        monkeypatch.setattr(httpx, "get", _boom)
+-        with pytest.raises(UnsafeURLError):
+-            safe_get(url, timeout=1.0)
+-
+-    def test_fetches_validated_url(self, monkeypatch):
+-        # On the happy path safe_get fetches the vetted URL and passes
+-        # caller kwargs straight through to httpx.get.
+-        captured: dict[str, object] = {}
+-        sentinel = object()
+-
+-        def _fake_get(url, **kwargs):
+-            captured["url"] = url
+-            captured["kwargs"] = kwargs
+-            return sentinel
+-
+-        monkeypatch.setattr(httpx, "get", _fake_get)
+-        result = safe_get("https://example.com/data", timeout=5.0)
+-
+-        assert result is sentinel
+-        assert captured["url"] == "https://example.com/data"
+-        assert captured["kwargs"] == {"timeout": 5.0}

@@ -1,0 +1,45 @@
+diff --git a/src/pkg/services/slugify.py b/src/pkg/services/slugify.py
+index 1111111..2222222 100644
+--- a/src/pkg/services/slugify.py
++++ b/src/pkg/services/slugify.py
+@@ -12,8 +12,14 @@ _NON_ALNUM = re.compile(r"[^a-z0-9]+")
+
+
+ def slugify(name: str) -> str:
+-    """Lowercase ``name`` and join its word characters with hyphens."""
+-    return _NON_ALNUM.sub("-", name.lower()).strip("-")
++    """Lowercase ``name`` and join its word characters with hyphens.
++
++    An empty result would produce a URL that collides with the collection
++    route, so a name carrying no alphanumerics falls back to a stable
++    placeholder rather than to the empty string.
++    """
++    slug = _NON_ALNUM.sub("-", name.lower()).strip("-")
++    return slug or "untitled"
+diff --git a/tests/services/test_slugify.py b/tests/services/test_slugify.py
+index 3333333..4444444 100644
+--- a/tests/services/test_slugify.py
++++ b/tests/services/test_slugify.py
+@@ -1,5 +1,7 @@
+ from __future__ import annotations
+
++import pytest
++
+ from pkg.services.slugify import slugify
+
+
+@@ -14,3 +16,13 @@ def test_punctuation_becomes_a_single_hyphen():
+
+ def test_leading_and_trailing_hyphens_are_trimmed():
+     assert slugify("  Hello  ") == "hello"
++
++
++@pytest.mark.parametrize("name", ["", "   ", "!!!", "—"])
++def test_a_name_with_no_alphanumerics_falls_back_to_untitled(name):
++    # Without the fallback each of these returns "", which routes to the
++    # collection URL instead of the detail URL.
++    assert slugify(name) == "untitled"
++
++
++def test_an_ordinary_name_is_unaffected_by_the_fallback():
++    assert slugify("Acme Foundation") == "acme-foundation"
