@@ -21,6 +21,15 @@ name: foundation-round-1
 # Per ordering; a pair therefore costs 2 x samples calls.
 samples: 3
 
+# Which instrument to run. Both `score` and `compare` honour it.
+#   design  the default, and what an old manifest that names no rubric gets:
+#           is this a good page — intent, E-E-A-T, unique substance, readability.
+#   seeker  the five questions a grant seeker arrives with, plus whether a
+#           non-expert can read the answers off the page. `compare` under this
+#           rubric reports which page answered EACH question better, not one
+#           overall winner — that is what an enrichment A/B needs to read.
+rubric: design
+
 page_types:
   foundation:
     - https://app.aigranthelper.com/foundations/pa/example-foundation/
@@ -39,3 +48,30 @@ page_types:
 pairs:
   - - https://app.aigranthelper.com/foundations/pa/sector/housing/
     - https://app.aigranthelper.com/grants-for/housing/
+
+# Optional. The facts a page may be checked against, keyed by URL. Either form
+# works: the facts written inline, or a path to the JSON file holding them
+# (a relative path resolves against THIS file's directory, so a manifest and its
+# fixtures travel together).
+#
+# Where a URL has facts, the model is asked only to LIST the claims those facts
+# do not support; the groundedness score is arithmetic over that list, computed
+# in code. A model asked how grounded a page is rewards whichever page sounds
+# most confident, which is the failure this dimension exists to catch.
+#
+#   score    judges each URL that has facts; the rest are judged on the rubric
+#            alone, and carry no groundedness column.
+#   compare  needs facts for BOTH sides of a pair, or neither. One side checked
+#            and the other not is exit 1 before any call is issued: it would
+#            read as if the unchecked page had invented nothing. Each side keeps
+#            its own list and its own score — they are never netted together.
+#
+# These keys are URLs, so replace them whenever you replace the URLs above.
+ground_truth:
+  https://app.aigranthelper.com/foundations/pa/sector/housing/:
+    sector: housing
+    state: PA
+    foundations_listed: 42
+    total_giving_usd: 18400000
+
+  https://app.aigranthelper.com/grants-for/housing/: facts/example-lead-page.json

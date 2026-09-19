@@ -231,18 +231,21 @@ class RubricScore:
         return cls(url=url, scores=scores, rubric=rubric, unsupported_claims=claims)
 
 
-def _unsupported_claims(payload: Mapping) -> tuple[str, ...]:
+def _unsupported_claims(payload: Mapping, key: str = "unsupported_claims") -> tuple[str, ...]:
     """The claims the ground truth could not support.
 
     A missing list is a read error, never an empty one. Ground truth was
     supplied, so "the judge found nothing" and "the judge said nothing" must not
     both come out as a perfect groundedness score — that is the shape of a
     check satisfied by doing nothing.
+
+    ``key`` names the list to read: one page scored on its own answers under
+    ``unsupported_claims``, a pair under one key per side.
     """
-    claims = payload.get("unsupported_claims")
+    claims = payload.get(key)
     if isinstance(claims, str) or not isinstance(claims, Sequence):
         raise JudgeReadError(
-            "the judge's answer carries no unsupported_claims list, but ground truth was supplied "
+            f"the judge's answer carries no {key} list, but ground truth was supplied "
             "— an absent list cannot be read as a page whose every claim is supported"
         )
     return tuple(str(claim).strip() for claim in claims)
@@ -265,25 +268,109 @@ def _dimension(payload: Mapping, name: str) -> Dimension:
     return Dimension(score=score, reason=str(entry.get("reason", "")).strip())
 
 
+#: The two per-side claim lists a grounded comparison answers with. Named here
+#: because the prompt that asks for them and the parser that reads them must agree.
+FIRST_CLAIMS = "unsupported_claims_first"
+SECOND_CLAIMS = "unsupported_claims_second"
+
+
 @dataclass(frozen=True, slots=True)
 class Verdict:
-    """Which presented page won, and why, in one line."""
+    """Which presented page won, and why, in one line.
+
+    Everything here is positional — the judge never learns which URL is "A", so
+    a caller that shows the pair in both orders maps the whole verdict back with
+    :attr:`flipped` rather than reading a name off it.
+
+    ``preferences`` is empty under the design rubric, which asks one overall
+    question. The seeker rubric asks one question per thing a grant seeker
+    arrives wanting to know, so its verdict carries one preference each: "which
+    page is better" is not a question a seeker has. The two claim lists are the
+    grounded reading, and they stay apart all the way to the report.
+    """
 
     winner: Winner
     reason: str
+    preferences: Mapping[str, Winner] = field(default_factory=dict)
+    first_claims: tuple[str, ...] = ()
+    second_claims: tuple[str, ...] = ()
+
+    @property
+    def flipped(self) -> Verdict:
+        """The same verdict, read against the opposite presentation order."""
+        return Verdict(
+            winner=self.winner.flipped,
+            reason=self.reason,
+            preferences={name: pick.flipped for name, pick in self.preferences.items()},
+            first_claims=self.second_claims,
+            second_claims=self.first_claims,
+        )
 
     @classmethod
-    def from_payload(cls, payload: object) -> Verdict:
+    def from_payload(
+        cls,
+        payload: object,
+        *,
+        rubric: Rubric = Rubric.DESIGN,
+        grounded: bool = False,
+    ) -> Verdict:
+        """Parse a comparison strictly — a partial answer is a read error, never a tie."""
         if not isinstance(payload, Mapping):
             raise JudgeReadError(f"the judge answered {type(payload).__name__}, not a JSON object")
-        raw = str(payload.get("winner", "")).strip().lower()
-        try:
-            winner = Winner(raw)
-        except ValueError:
-            raise JudgeReadError(
-                f"the judge named winner {raw!r}; expected one of first, second, tie"
-            ) from None
-        return cls(winner=winner, reason=str(payload.get("reason", "")).strip())
+        first: tuple[str, ...] = ()
+        second: tuple[str, ...] = ()
+        if grounded:
+            first = _unsupported_claims(payload, FIRST_CLAIMS)
+            second = _unsupported_claims(payload, SECOND_CLAIMS)
+        return cls(
+            winner=_preference(payload, "winner"),
+            reason=str(payload.get("reason", "")).strip(),
+            preferences=_preferences(payload, rubric),
+            first_claims=first,
+            second_claims=second,
+        )
+
+
+def _preference(payload: Mapping, key: str) -> Winner:
+    """One positional answer — first, second or tie — or a read error naming the key."""
+    raw = str(payload.get(key, "")).strip().lower()
+    try:
+        return Winner(raw)
+    except ValueError:
+        raise JudgeReadError(
+            f"the judge named {key} {raw!r}; expected one of first, second, tie"
+        ) from None
+
+
+def _preferences(payload: Mapping, rubric: Rubric) -> dict[str, Winner]:
+    """One preference per question the comparison asked, and every one is required.
+
+    The design comparison asks a single overall question, so there is nothing
+    per-question to read. Under a rubric that does ask per question, a missing
+    answer must not be read as a tie: that would let the questions the model
+    skipped look like the two pages agreeing.
+    """
+    if rubric is Rubric.DESIGN:
+        return {}
+    return {name: _preference(payload, name) for name in rubric.dimensions}
+
+
+@dataclass(frozen=True, slots=True)
+class SideGroundedness:
+    """One side of a pair, read against its own ground truth.
+
+    Per side on purpose. A variant that answers the seeker's questions better
+    while inventing more is exactly the finding an enrichment A/B exists to
+    surface, and netting the two sides into one number is what would hide it.
+    """
+
+    url: str
+    unsupported_claims: tuple[str, ...]
+
+    @property
+    def score(self) -> int:
+        """The deterministic reading of this side's list — arithmetic, never an opinion."""
+        return groundedness_score(len(self.unsupported_claims))
 
 
 @dataclass(frozen=True, slots=True)
@@ -312,8 +399,22 @@ NO_USAGE = Usage(prompt_tokens=0, output_tokens=0, cost_usd=0.0)
 
 
 @dataclass(frozen=True, slots=True)
+class QuestionTally:
+    """How one rubric question fared across every ordering and sample."""
+
+    a_wins: int
+    b_wins: int
+    ties: int
+
+
+@dataclass(frozen=True, slots=True)
 class CompareTally:
-    """How one pair fared across every ordering and sample."""
+    """How one pair fared across every ordering and sample.
+
+    ``per_question`` is empty unless the rubric asked per question.
+    ``groundedness`` is empty unless the pair was judged against facts, and
+    carries one entry per side — never a difference between them.
+    """
 
     a: str
     b: str
@@ -321,6 +422,8 @@ class CompareTally:
     b_wins: int
     ties: int
     samples: int
+    per_question: Mapping[str, QuestionTally] = field(default_factory=dict)
+    groundedness: tuple[SideGroundedness, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -388,10 +491,12 @@ def _rubric_of(data: Mapping) -> Rubric:
 __all__ = [
     "DIMENSIONS",
     "DIMENSION_QUESTIONS",
+    "FIRST_CLAIMS",
     "GROUNDEDNESS",
     "INPUT_USD_PER_MTOK",
     "NO_USAGE",
     "OUTPUT_USD_PER_MTOK",
+    "SECOND_CLAIMS",
     "SEEKER_DIMENSIONS",
     "SEEKER_QUESTIONS",
     "CompareTally",
@@ -399,8 +504,10 @@ __all__ = [
     "JudgeReadError",
     "Manifest",
     "PageText",
+    "QuestionTally",
     "Rubric",
     "RubricScore",
+    "SideGroundedness",
     "Usage",
     "Verdict",
     "Winner",

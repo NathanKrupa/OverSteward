@@ -86,10 +86,15 @@ def _judge_manifest(
     budget: Budget,
     ground_truth: dict,
 ) -> ScoreReport | CompareReport:
-    """Run the command the operator named. Only ``score`` is judged against facts."""
+    """Run the command the operator named, against the facts it was given.
+
+    ``score`` judges each URL that has facts and leaves the rest on the rubric
+    alone; ``compare`` needs both sides of a pair or neither, and refuses the
+    asymmetric case before it issues a call.
+    """
     if command == "score":
         return score_manifest(judge, fetch_page, manifest, budget, ground_truth=ground_truth)
-    return compare_manifest(judge, fetch_page, manifest, budget)
+    return compare_manifest(judge, fetch_page, manifest, budget, ground_truth=ground_truth)
 
 
 def _write(reports_dir: Path, name: str, markdown: str, payload: dict) -> Path:

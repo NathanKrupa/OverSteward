@@ -33,8 +33,22 @@ class Judge(Protocol):
         """
         ...
 
-    def compare(self, a: PageText, b: PageText) -> tuple[Verdict, Usage]:
-        """Prefer ``a`` or ``b`` *as presented* — the verdict is positional."""
+    def compare(
+        self,
+        a: PageText,
+        b: PageText,
+        *,
+        rubric: Rubric = Rubric.DESIGN,
+        ground_truth: tuple[Mapping, Mapping] | None = None,
+    ) -> tuple[Verdict, Usage]:
+        """Prefer ``a`` or ``b`` *as presented* — the verdict is positional.
+
+        ``rubric`` decides what is asked: one overall preference, or one per
+        question. ``ground_truth`` is the facts for the two pages in the order
+        presented, and is supplied only when BOTH sides have them — a comparison
+        that checked one page and not the other would read as if the unchecked
+        page had invented nothing.
+        """
         ...
 
 
