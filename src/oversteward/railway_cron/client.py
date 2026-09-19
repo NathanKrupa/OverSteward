@@ -65,16 +65,27 @@ def _run(command: Sequence[str], *, stdin: str | None = None) -> str:
     except subprocess.TimeoutExpired:
         raise RailwayUnavailableError(f"railway did not answer within {_TIMEOUT_SECONDS}s") from None
     if completed.returncode != 0:
-        detail = (completed.stderr or completed.stdout or "").strip().splitlines()
-        tail = detail[-1] if detail else "no output"
+        # stderr only: stdout is the payload channel, and for the decrypted
+        # config query that payload is every service's variable values.
+        detail = (completed.stderr or "").strip().splitlines()
+        tail = detail[-1] if detail else "no stderr"
         raise RailwayUnavailableError(f"railway api exited {completed.returncode}: {tail}")
     return completed.stdout
 
 
 def _query(document: str, variables: dict[str, Any], *, what: str, on_stdin: bool = False) -> dict[str, Any]:
-    """Run one GraphQL document and return its ``data``; errors are loud, never partial."""
+    """Run one GraphQL document and return its ``data``; errors are loud, never partial.
+
+    ``--allow-errors`` makes the CLI exit 0 on a GraphQL error and print the
+    envelope, so the ``errors[0].message`` Railway wrote ("Project not found",
+    "Not Authorized") is what the operator reads — without it the CLI exits 1
+    with a generic one-liner and the message never surfaces.
+    """
     encoded = json.dumps(variables)
-    command = ["railway", "api", document, "--compact", "--variables", "@-" if on_stdin else encoded]
+    command = [
+        "railway", "api", document, "--compact", "--allow-errors",
+        "--variables", "@-" if on_stdin else encoded,
+    ]
     text = _run(command, stdin=encoded if on_stdin else None)
     try:
         payload = json.loads(text)

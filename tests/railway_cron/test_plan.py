@@ -8,6 +8,7 @@ import pytest
 from oversteward.railway_cron.plan import (
     CronSpec,
     PlanError,
+    adoptable_service_id,
     build_patch,
     service_id_for,
 )
@@ -30,7 +31,9 @@ _CONFIG = {
                 "SECRET_KEY": {"value": "${{shared.SECRET_KEY}}"},
                 "DB_DSN": {"value": "postgresql://u:hunter2@${{Postgres.RAILWAY_PRIVATE_DOMAIN}}:5432/railway"},
             },
-        }
+        },
+        # A configured, running service — the shape a name clash looks like.
+        "web-1": {"source": {"repo": "NathanKrupa/aigranthelper", "branch": "main"}, "variables": {}},
     },
     "sharedVariables": {"SECRET_KEY": {"value": "s3cret"}},
 }
@@ -95,9 +98,25 @@ class TestBuildPatch:
         with pytest.raises(PlanError, match="sealed but not set: NOPE"):
             build_patch(_CONFIG, _SERVICES, _spec(sealed=frozenset({"NOPE"})), new_service_id="new-1")
 
-    def test_a_name_already_taken_is_an_error(self):
-        with pytest.raises(PlanError, match="already exists"):
+    def test_a_name_already_taken_by_a_configured_service_is_an_error(self):
+        with pytest.raises(PlanError, match="already exists and is configured"):
             build_patch(_CONFIG, _SERVICES, _spec(name="aigranthelper"), new_service_id="new-1")
+
+    def test_a_sibling_variable_with_no_readable_value_is_an_error(self):
+        config = {"services": {_SIBLING_ID: {**_CONFIG["services"][_SIBLING_ID], "variables": {
+            "SECRET_KEY": {"value": "${{shared.SECRET_KEY}}"},
+            "SEALED_ONE": {"value": None, "isSealed": True},
+        }}}}
+        with pytest.raises(PlanError, match=r"no readable value \(sealed\?\): SEALED_ONE"):
+            build_patch(config, _SERVICES, _spec(), new_service_id="new-1")
+
+    def test_a_sibling_sealed_variable_supplied_by_the_spec_is_not_an_error(self):
+        config = {"services": {_SIBLING_ID: {**_CONFIG["services"][_SIBLING_ID], "variables": {
+            "SEALED_ONE": {"value": None, "isSealed": True},
+        }}}}
+        spec = _spec(variables={"SEALED_ONE": "supplied"}, sealed=frozenset({"SEALED_ONE"}))
+        svc = build_patch(config, _SERVICES, spec, new_service_id="new-1")["services"]["new-1"]
+        assert svc["variables"]["SEALED_ONE"] == {"value": "supplied", "isSealed": True}
 
     def test_a_sibling_without_config_in_this_environment_is_an_error(self):
         with pytest.raises(PlanError, match="no config in this environment"):
@@ -107,6 +126,33 @@ class TestBuildPatch:
         patch = build_patch(_CONFIG, _SERVICES, _spec(), new_service_id="new-1")
         assert list(patch) == ["services"]
         assert list(patch["services"]) == ["new-1"]
+
+
+class TestAdoptableServiceId:
+    def test_no_service_of_that_name_is_none(self):
+        assert adoptable_service_id(_CONFIG, _SERVICES, "monitor_indexation") is None
+
+    def test_an_existing_service_with_no_config_is_adoptable(self):
+        services = [*_SERVICES, {"id": "empty-1", "name": "monitor_indexation"}]
+        assert adoptable_service_id(_CONFIG, services, "monitor_indexation") == "empty-1"
+
+    def test_an_existing_service_with_an_empty_config_entry_is_adoptable(self):
+        services = [*_SERVICES, {"id": "empty-1", "name": "monitor_indexation"}]
+        config = {"services": {**_CONFIG["services"], "empty-1": {"variables": {}, "deploy": {}}}}
+        assert adoptable_service_id(config, services, "monitor_indexation") == "empty-1"
+
+    @pytest.mark.parametrize(
+        "entry",
+        [
+            {"source": {"repo": "x/y"}},
+            {"deploy": {"startCommand": "python manage.py something"}},
+        ],
+    )
+    def test_an_existing_service_that_runs_is_a_clash(self, entry):
+        services = [*_SERVICES, {"id": "busy-1", "name": "monitor_indexation"}]
+        config = {"services": {**_CONFIG["services"], "busy-1": entry}}
+        with pytest.raises(PlanError, match="already exists and is configured"):
+            adoptable_service_id(config, services, "monitor_indexation")
 
 
 class TestRenderPreview:
@@ -119,6 +165,16 @@ class TestRenderPreview:
         assert "hunter2" not in text
         assert "service_account" not in text
         assert "sc-domain:example.com" not in text
+
+    def test_a_template_literal_that_starts_with_a_reference_is_still_a_literal(self):
+        config = {"services": {_SIBLING_ID: {**_CONFIG["services"][_SIBLING_ID], "variables": {
+            "MIXED": {"value": "${{shared.USER}}:hunter2@${{Postgres.HOST}}"},
+        }}}}
+        patch = build_patch(config, _SERVICES, _spec(), new_service_id="new-1")
+        text = render_preview(patch, "new-1", _spec())
+        assert "MIXED" in text
+        assert "hunter2" not in text
+        assert "literal (43 chars)" in text
 
     def test_marks_sealed_variables_and_literal_lengths(self):
         patch = build_patch(_CONFIG, _SERVICES, _spec(), new_service_id="new-1")

@@ -48,6 +48,29 @@ def service_id_for(services: list[dict[str, Any]], name: str) -> str:
     raise PlanError(f"no service named {name!r} in this project")
 
 
+def adoptable_service_id(config: dict[str, Any], services: list[dict[str, Any]], name: str) -> str | None:
+    """The id of an existing service called ``name`` that is still empty, else None.
+
+    A service that exists but carries no source and no start command in this
+    environment is what an earlier run leaves behind when it created the
+    service and then failed to commit its config. Adopting it is the recovery
+    path; a service that already *runs* under that name is a clash, and stays
+    one.
+    """
+    for service in services:
+        if service.get("name") != name:
+            continue
+        existing = config.get("services", {}).get(str(service["id"])) or {}
+        if _is_configured(existing):
+            raise PlanError(f"a service named {name!r} already exists and is configured in this environment")
+        return str(service["id"])
+    return None
+
+
+def _is_configured(service: dict[str, Any]) -> bool:
+    return bool(service.get("source")) or bool(service.get("deploy", {}).get("startCommand"))
+
+
 def build_patch(
     config: dict[str, Any],
     services: list[dict[str, Any]],
@@ -55,21 +78,31 @@ def build_patch(
     *,
     new_service_id: str,
 ) -> dict[str, Any]:
-    """The ``railway environment edit --json`` patch that configures ``new_service_id``.
+    """The environment-config patch that configures ``new_service_id``.
 
-    ``config`` is ``railway environment config --json`` for the target
-    environment; ``services`` is ``railway service list --json``. The sibling's
-    ``source``, ``build``, ``deploy`` and ``variables`` are copied verbatim —
-    variable values included, because a ``${{shared.X}}`` reference and a
-    template literal are both things the new service must carry unchanged —
-    then the spec's start command, schedule and variables are laid over them.
+    ``config`` is the environment's config (the shape ``railway environment
+    config --json`` prints); ``services`` is the project's service list. The
+    sibling's ``source``, ``build``, ``deploy`` and ``variables`` are copied
+    verbatim — variable values included, because a ``${{shared.X}}`` reference
+    and a template literal are both things the new service must carry
+    unchanged — then the spec's start command, schedule and variables are laid
+    over them.
     """
-    if any(service.get("name") == spec.name for service in services):
-        raise PlanError(f"a service named {spec.name!r} already exists in this project")
+    adoptable_service_id(config, services, spec.name)
     sibling_id = service_id_for(services, spec.like)
     sibling = config.get("services", {}).get(sibling_id)
     if sibling is None:
         raise PlanError(f"sibling {spec.like!r} has no config in this environment")
+    unreadable = sorted(
+        name
+        for name, entry in sibling.get("variables", {}).items()
+        if entry.get("value") is None and name not in spec.variables
+    )
+    if unreadable:
+        raise PlanError(
+            f"sibling variable(s) with no readable value (sealed?): {', '.join(unreadable)} — "
+            "supply each with --var-file or --var"
+        )
     missing = sorted(spec.sealed - spec.variables.keys())
     if missing:
         raise PlanError(f"sealed but not set: {', '.join(missing)}")

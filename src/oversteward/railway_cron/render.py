@@ -3,19 +3,23 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from oversteward.railway_cron.plan import CronSpec
 
 #: A Railway variable reference (``${{shared.KEY}}``, ``${{Postgres.HOST}}``)
 #: names another variable rather than holding a secret, so it is safe to show.
-_REFERENCE_PREFIX = "${{"
+#: Anchored at both ends: a template literal that merely *starts* with a
+#: reference (``${{shared.USER}}:hunter2@…``) carries a value between the
+#: braces and is a literal for this purpose.
+_REFERENCE = re.compile(r"^\$\{\{[^{}]*\}\}$")
 
 
 def _describe(name: str, entry: dict[str, Any]) -> str:
     value = str(entry.get("value", ""))
     sealed = "sealed " if entry.get("isSealed") else ""
-    if value.startswith(_REFERENCE_PREFIX) and value.endswith("}}"):
+    if _REFERENCE.fullmatch(value):
         shape = value
     else:
         shape = f"{sealed}literal ({len(value)} chars)"

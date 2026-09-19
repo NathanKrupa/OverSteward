@@ -15,9 +15,11 @@ A dry run is the default and touches nothing. ``--apply`` creates the service,
 commits the config, then re-reads it and refuses to report success unless the
 schedule and every variable name are there.
 
-Variable values never reach a command line or this tool's output: ``--var``
-values are shown only as a length, ``--var-file`` reads a file in-process, and
-the patch goes to Railway on stdin.
+``--var`` is for non-secret values (a site URL, a path): its value is on this
+tool's own command line, where shell history and ``ps`` can read it. A secret
+goes through ``--var-file``, which reads the file in-process. Neither value
+appears in the preview (a literal is shown only as a length), and the patch
+travels to Railway on stdin.
 
 Usage:
     scripts/railway_cron.py --project <id> --environment production \\

@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from oversteward.railway_cron import client
-from oversteward.railway_cron.plan import CronSpec, PlanError, build_patch
+from oversteward.railway_cron.plan import CronSpec, PlanError, adoptable_service_id, build_patch
 from oversteward.railway_cron.render import render_preview
 
 #: A placeholder id for the dry run's preview — no service exists yet.
@@ -57,11 +57,13 @@ def provision(
     if not apply:
         return f"{preview}\n\n(dry run — nothing created; pass --apply to provision)"
 
-    service_id = calls.create_service(project_id, spec.name)
+    adopted = adoptable_service_id(config, services, spec.name)
+    service_id = adopted or calls.create_service(project_id, spec.name)
     patch = {"services": {service_id: planned["services"][_PLANNED_ID]}}
     calls.apply_patch(environment_id, patch, message=f"provision cron {spec.name} (cloned from {spec.like})")
-    _verify(calls.read_config(environment_id), service_id, spec)
-    return f"{preview}\n\napplied: service {spec.name} = {service_id} in {environment}"
+    _verify(calls.read_config(environment_id), service_id, patch)
+    how = "adopted empty service" if adopted else "service"
+    return f"{preview}\n\napplied: {how} {spec.name} = {service_id} in {environment}"
 
 
 def _environment_id(environments: list[dict[str, Any]], name: str) -> str:
@@ -71,15 +73,28 @@ def _environment_id(environments: list[dict[str, Any]], name: str) -> str:
     raise PlanError(f"no environment named {name!r} in this project")
 
 
-def _verify(config: dict[str, Any], service_id: str, spec: CronSpec) -> None:
-    """Refuse to report success unless the re-read config shows the schedule and every variable."""
+#: The deploy keys the read-back must show exactly as committed — the two the
+#: spec sets and the one the plan forces.
+_VERIFIED_DEPLOY_KEYS = ("startCommand", "cronSchedule", "restartPolicyType")
+
+
+def _verify(config: dict[str, Any], service_id: str, patch: dict[str, Any]) -> None:
+    """Refuse to report success unless the re-read config shows what was committed.
+
+    Checked against the *committed patch*, not the spec: the cloned variables
+    are the ones this tool exists to get right, and a read-back that looked
+    only at the two the operator typed would certify a cron missing its
+    ``SENTRY_DSN``.
+    """
     service = config.get("services", {}).get(service_id)
     if service is None:
         raise VerifyError(f"service {service_id} is absent from the re-read config")
-    schedule = service.get("deploy", {}).get("cronSchedule")
-    if schedule != spec.schedule:
-        raise VerifyError(f"re-read cronSchedule is {schedule!r}, expected {spec.schedule!r}")
-    missing = sorted(spec.variables.keys() - service.get("variables", {}).keys())
+    committed = patch["services"][service_id]
+    for key in _VERIFIED_DEPLOY_KEYS:
+        got = service.get("deploy", {}).get(key)
+        if got != committed["deploy"].get(key):
+            raise VerifyError(f"re-read deploy.{key} is {got!r}, expected {committed['deploy'].get(key)!r}")
+    missing = sorted(committed["variables"].keys() - service.get("variables", {}).keys())
     if missing:
         raise VerifyError(f"re-read config lacks variables: {', '.join(missing)}")
 
