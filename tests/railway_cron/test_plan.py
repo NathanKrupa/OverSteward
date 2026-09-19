@@ -22,7 +22,8 @@ _CONFIG = {
             "deploy": {
                 "startCommand": "python manage.py submit_seo_urls",
                 "cronSchedule": "0 3 * * *",
-                "restartPolicyType": "NEVER",
+                # A sibling that restarts: the plan must set NEVER, not inherit it.
+                "restartPolicyType": "ON_FAILURE",
                 "multiRegionConfig": {"us-west2": {"numReplicas": 1}},
             },
             "variables": {
