@@ -20,6 +20,7 @@ from itertools import combinations
 from pathlib import Path
 from typing import Any
 
+from oversteward.bench.checks import html_pages
 from oversteward.judge.models import DEFAULT_SAMPLES, Rubric, manifest_from_mapping
 
 #: The bench judges whether a page answers a seeker's questions — Workstream B's rubric (OS#421).
@@ -34,19 +35,22 @@ def all_pairs(urls: Iterable[str]) -> tuple[tuple[str, str], ...]:
 def page_urls(base_url: str, directory: Path) -> tuple[str, ...]:
     """The URL Pages serves each ``.html`` under ``directory`` at, beneath ``base_url``.
 
-    ``index.html`` is its directory (``/``, ``/v2/``); any other page is its
-    extensionless path (``/v3``), which is the canonical form Pages redirects
-    ``/v3.html`` to.
+    ``index.html`` is its directory (``/``, ``/v2/``); any other ``.html``
+    page is its extensionless path (``/v3``), the canonical form Pages
+    redirects ``/v3.html`` to. Any other spelling (``.htm``, ``.HTML``) is
+    served at its own path and listed as such.
     """
     base = base_url.rstrip("/")
     urls = []
-    for page in sorted(directory.rglob("*.html")):
+    for page in html_pages(directory):
         relative = page.relative_to(directory)
         if relative.name == "index.html":
             parent = relative.parent.as_posix()
             urls.append(f"{base}/" if parent == "." else f"{base}/{parent}/")
-        else:
+        elif relative.suffix == ".html":
             urls.append(f"{base}/{relative.with_suffix('').as_posix()}")
+        else:
+            urls.append(f"{base}/{relative.as_posix()}")
     return tuple(urls)
 
 

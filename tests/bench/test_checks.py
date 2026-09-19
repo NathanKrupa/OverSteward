@@ -65,6 +65,19 @@ class TestRefusals:
         (bench / "_headers").write_text("/*\n  Cache-Control: no-store\n", encoding="utf-8")
         assert any("X-Robots-Tag" in reason for reason in refusals(bench))
 
+    def test_a_noindex_tag_scoped_to_a_subpath_leaves_the_rest_indexable_and_refuses(self, tmp_path):
+        bench = _bench(tmp_path, **{"index.html": NOINDEX_PAGE})
+        (bench / "_headers").write_text("/drafts/*\n  X-Robots-Tag: noindex\n", encoding="utf-8")
+        assert any("X-Robots-Tag" in reason and "/*" in reason for reason in refusals(bench))
+
+    def test_a_noindex_tag_under_the_catch_all_block_passes_whatever_else_is_there(self, tmp_path):
+        bench = _bench(tmp_path, **{"index.html": NOINDEX_PAGE})
+        (bench / "_headers").write_text(
+            "# bench headers\n/drafts/*\n  Cache-Control: no-store\n/*\n  Cache-Control: no-store\n  X-Robots-Tag: noindex, nofollow\n",
+            encoding="utf-8",
+        )
+        assert refusals(bench) == ()
+
     def test_a_missing_robots_txt_refuses(self, tmp_path):
         bench = _bench(tmp_path, **{"index.html": NOINDEX_PAGE})
         (bench / "robots.txt").unlink()
@@ -74,6 +87,25 @@ class TestRefusals:
         bench = _bench(tmp_path, **{"index.html": NOINDEX_PAGE})
         (bench / "robots.txt").write_text("User-agent: *\nDisallow: /private/\n", encoding="utf-8")
         assert any("Disallow: /" in reason for reason in refusals(bench))
+
+    def test_a_disallow_all_for_one_bot_only_leaves_every_other_crawler_in_and_refuses(self, tmp_path):
+        bench = _bench(tmp_path, **{"index.html": NOINDEX_PAGE})
+        (bench / "robots.txt").write_text("User-agent: BadBot\nDisallow: /\n\nUser-agent: *\nAllow: /\n", encoding="utf-8")
+        assert any("Disallow: /" in reason and "User-agent: *" in reason for reason in refusals(bench))
+
+    def test_a_disallow_all_in_a_group_that_names_every_agent_passes(self, tmp_path):
+        bench = _bench(tmp_path, **{"index.html": NOINDEX_PAGE})
+        (bench / "robots.txt").write_text(
+            "# bench\nUser-agent: Googlebot\nUser-agent: *\nDisallow: /\n\nSitemap: https://x/s.xml\n", encoding="utf-8"
+        )
+        assert refusals(bench) == ()
+
+    @pytest.mark.parametrize("name", ["v2.htm", "V2.HTML", "deep/Page.Htm"])
+    def test_a_page_served_as_html_under_any_extension_spelling_is_checked(self, tmp_path, name):
+        bench = _bench(tmp_path, **{"index.html": NOINDEX_PAGE, name: INDEXABLE_PAGE})
+        reasons = refusals(bench)
+        assert len(reasons) == 1
+        assert name in reasons[0]
 
     def test_a_directory_with_no_html_at_all_refuses(self, tmp_path):
         bench = _bench(tmp_path)

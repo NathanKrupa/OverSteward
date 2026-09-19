@@ -37,6 +37,13 @@ DEFAULT_WRANGLER: tuple[str, ...] = ("npx", "--yes", "wrangler@4")
 _DEPLOYMENT_URL = re.compile(r"Deployment complete! Take a peek over at (https://\S+)")
 _ALIAS_URL = re.compile(r"Deployment alias URL: (https://\S+)")
 
+#: wrangler colours its stderr even when captured.
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+#: wrangler's error line and the trailer it always ends on.
+_ERROR_MARK = "[ERROR]"
+_LOG_TRAILER = "Logs were written to"
+_ISSUE_NUDGE = "If you think this is a bug"
+
 Runner = Callable[..., subprocess.CompletedProcess]
 
 
@@ -61,8 +68,9 @@ def deploy(
     wrangler: Sequence[str] = DEFAULT_WRANGLER,
 ) -> Deployment:
     """Upload ``directory`` to the credentials' project on ``branch`` and return where it landed."""
+    # Absolute: the child runs from a scratch cwd, where a caller-relative path does not exist.
     command = [
-        *wrangler, "pages", "deploy", str(directory),
+        *wrangler, "pages", "deploy", str(directory.resolve()),
         "--project-name", credentials.project, "--branch", branch, "--commit-dirty=true",
     ]
     env = {
@@ -88,15 +96,26 @@ def _run(run: Runner, command: list[str], *, env: dict[str, str], cwd: str) -> s
     except subprocess.TimeoutExpired:
         raise UploadError(f"wrangler did not finish within {_TIMEOUT_SECONDS}s") from None
     if completed.returncode != 0:
-        raise UploadError(f"wrangler exited {completed.returncode}: {_last_line(completed.stderr, completed.stdout)}")
+        raise UploadError(f"wrangler exited {completed.returncode}: {_failure_detail(completed.stderr, completed.stdout)}")
     return completed
 
 
-def _last_line(*streams: str | None) -> str:
+def _failure_detail(*streams: str | None) -> str:
+    """wrangler's ``[ERROR]`` line and the detail beneath it, colour stripped; never its log trailer."""
     for stream in streams:
-        lines = [line.strip() for line in (stream or "").splitlines() if line.strip()]
-        if lines:
-            return lines[-1]
+        lines = [
+            stripped for line in (stream or "").splitlines()
+            if (stripped := _ANSI.sub("", line).strip()) and _LOG_TRAILER not in stripped
+        ]
+        if not lines:
+            continue
+        for index, line in enumerate(lines):
+            if _ERROR_MARK in line:
+                detail = lines[index + 1 : index + 2]
+                if detail and not detail[0].startswith(_ISSUE_NUDGE):
+                    return f"{line.lstrip('✘ ')} {detail[0]}"
+                return line.lstrip("✘ ")
+        return lines[-1]
     return "no output"
 
 

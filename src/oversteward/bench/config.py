@@ -46,7 +46,9 @@ def credentials_from_env(
 ) -> PagesCredentials:
     """Read the Pages token, account id and project name (ARCH-020).
 
-    This is the only place that touches ``os.environ``. Matches
+    This is the only place that reads *configuration* from ``os.environ``
+    (the connector inherits the process environment into wrangler's, for
+    ``PATH`` and ``HOME``, and reads nothing from it). Matches
     ``load_dotenv``'s ``override=False`` default: an exported value wins over
     the file.
     """

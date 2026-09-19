@@ -20,6 +20,22 @@ SUCCESS = (
 )
 
 
+#: wrangler 4.135.0's stderr for a rejected request, captured verbatim (bogus credentials, nothing published).
+REAL_FAILURE = (
+    "\x1b[31m✘ \x1b[41;31m[\x1b[41;97mERROR\x1b[41;31m]\x1b[0m \x1b[1mA request to the Cloudflare API "
+    "(/accounts/bogus/pages/projects/ab-aigranthelper) failed.\x1b[0m\n"
+    "\n"
+    "  Could not route to /client/v4/accounts/bogus/pages/projects/ab-aigranthelper, perhaps your object "
+    "identifier is invalid? [code: 7003]\n"
+    "  \n"
+    "  If you think this is a bug, please open an issue at: "
+    "\x1b[4mhttps://github.com/cloudflare/workers-sdk/issues/new/choose\x1b[0m\n"
+    "\n"
+    "\n"
+    "🪵  Logs were written to \"/home/natha/.config/.wrangler/logs/wrangler-2026-09-19_03-46-32_899.log\"\n"
+)
+
+
 class FakeRun:
     def __init__(self, returncode: int = 0, stdout: str = SUCCESS, stderr: str = "", raise_: Exception | None = None):
         self.calls: list[dict] = []
@@ -60,6 +76,17 @@ class TestCommand:
         assert cwd != tmp_path
         assert tmp_path not in cwd.parents and cwd not in tmp_path.parents
 
+    def test_a_relative_directory_is_handed_to_wrangler_absolute(self, tmp_path, monkeypatch):
+        """The child runs from a scratch cwd, so a path relative to the caller's cwd would not exist there."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "renders").mkdir()
+        run = FakeRun()
+        deploy(Path("renders"), credentials=CREDS, branch="smoke", run=run)
+        command = run.calls[0]["command"]
+        handed = Path(command[command.index("deploy") + 1])
+        assert handed.is_absolute()
+        assert handed == (tmp_path / "renders").resolve()
+
     def test_never_runs_through_a_shell(self, tmp_path):
         run = FakeRun()
         deploy(tmp_path, credentials=CREDS, branch="smoke", run=run)
@@ -82,10 +109,20 @@ class TestResult:
         with pytest.raises(UploadError, match="no deployment URL"):
             deploy(tmp_path, credentials=CREDS, branch="smoke", run=FakeRun(stdout=stdout))
 
-    def test_a_non_zero_exit_is_an_upload_error_carrying_the_last_stderr_line(self, tmp_path):
-        run = FakeRun(returncode=1, stdout="", stderr="✘ [ERROR] Authentication error [code: 10000]\n\n")
-        with pytest.raises(UploadError, match=r"exited 1: .*Authentication error"):
-            deploy(tmp_path, credentials=CREDS, branch="smoke", run=run)
+    def test_a_non_zero_exit_is_an_upload_error_carrying_wranglers_error_line(self, tmp_path):
+        """The fixture is wrangler 4.135's real stderr: ANSI-coloured [ERROR] line, detail, then the log trailer."""
+        with pytest.raises(UploadError, match=r"exited 1: .*") as info:
+            deploy(tmp_path, credentials=CREDS, branch="smoke", run=FakeRun(returncode=1, stdout="", stderr=REAL_FAILURE))
+        message = str(info.value)
+        assert "[ERROR] A request to the Cloudflare API (/accounts/bogus/pages/projects/ab-aigranthelper) failed." in message
+        assert "[code: 7003]" in message
+        assert "Logs were written" not in message
+        assert "\x1b[" not in message
+
+    def test_a_failure_without_an_error_line_carries_the_last_line_that_is_not_the_log_trailer(self, tmp_path):
+        stderr = "something odd happened\n\n🪵  Logs were written to \"/home/x/.wrangler/logs/w.log\"\n"
+        with pytest.raises(UploadError, match="exited 1: something odd happened$"):
+            deploy(tmp_path, credentials=CREDS, branch="smoke", run=FakeRun(returncode=1, stdout="", stderr=stderr))
 
     def test_a_failure_message_never_carries_the_token(self, tmp_path):
         run = FakeRun(returncode=1, stdout="", stderr="boom\n")

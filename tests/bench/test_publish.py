@@ -86,6 +86,11 @@ class TestPublish:
         report = publish(bench, branch="smoke", upload=upload)
         assert report.page_urls == ("https://abc123.ab-aigranthelper.pages.dev/",)
 
+    def test_an_uploader_that_answers_no_url_is_an_upload_failure(self, tmp_path):
+        bench = _bench(tmp_path, **{"index.html": NOINDEX_PAGE})
+        with pytest.raises(UploadError, match="no deployment URL"):
+            publish(bench, branch="smoke", upload=FakeUploader(Deployment(url="", alias=None)))
+
     def test_an_upload_failure_propagates(self, tmp_path):
         bench = _bench(tmp_path, **{"index.html": NOINDEX_PAGE})
         with pytest.raises(UploadError, match="exited 1"):
