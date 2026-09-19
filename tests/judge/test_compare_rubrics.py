@@ -304,7 +304,92 @@ class TestPerSideGroundedness:
             )
 
 
+class TestTheRealJudgeUnderTheSeekerRubricWithFacts:
+    """The one place the real judge is driven grounded: the prompt it sends and the answer it reads."""
+
+    _OTHER = "https://app.example.test/foundations/oh/sector/education/"
+    _EXTRA = f"rubric: seeker\nground_truth:\n  {_A}:\n    state: PA\n  {_B}:\n    sector: housing\n"
+
+    def _judge(self, *answers: dict) -> tuple[GeminiJudge, FakeGenaiClient]:
+        client = FakeGenaiClient([FakeResponse(json.dumps(answer)) for answer in answers])
+        return GeminiJudge(api_key="unused-because-client-is-injected", client=client), client
+
+    def test_each_prompt_names_both_claim_keys_and_carries_each_sides_facts_under_its_own_heading(
+        self, tmp_path
+    ):
+        answer = _seeker_payload(unsupported_claims_first=[], unsupported_claims_second=[])
+        judge, client = self._judge(answer, answer)
+
+        code = _run(["compare", str(_manifest_file(tmp_path, self._EXTRA))], tmp_path, judge)
+
+        assert code == _EXIT_OK
+        a_first, b_first = (call["contents"] for call in client.models.calls)
+        for prompt in (a_first, b_first):
+            # The seeker questions, not the design rubric, under the seeker rubric.
+            assert "Can I apply?" in prompt
+            # The keys are asked for in the order the pages are presented.
+            assert prompt.index("unsupported_claims_first") < prompt.index("unsupported_claims_second")
+        # Presented A-first: A's facts under the first heading, B's under the second.
+        assert (
+            a_first.index("FOR THE FIRST PAGE")
+            < a_first.index('"state": "PA"')
+            < a_first.index("FOR THE SECOND PAGE")
+            < a_first.index('"sector": "housing"')
+        )
+        # Presented B-first: the facts swap with the pages.
+        assert (
+            b_first.index("FOR THE FIRST PAGE")
+            < b_first.index('"sector": "housing"')
+            < b_first.index("FOR THE SECOND PAGE")
+            < b_first.index('"state": "PA"')
+        )
+        assert list(_tally(tmp_path)["per_question"]) == list(Rubric.SEEKER.dimensions)
+
+    def test_claims_are_unioned_across_orderings_in_the_order_first_raised(self, tmp_path):
+        judge, _ = self._judge(
+            _seeker_payload(unsupported_claims_first=["a1"], unsupported_claims_second=["b1"]),
+            _seeker_payload(unsupported_claims_first=["b2"], unsupported_claims_second=["a2"]),
+        )
+
+        code = _run(["compare", str(_manifest_file(tmp_path, self._EXTRA))], tmp_path, judge)
+
+        assert code == _EXIT_OK
+        assert [(g["url"], g["unsupported_claims"]) for g in _tally(tmp_path)["groundedness"]] == [
+            (_A, ["a1", "a2"]),
+            (_B, ["b1", "b2"]),
+        ]
+
+    def test_an_answer_missing_one_sides_claims_is_exit_one(self, tmp_path, capsys):
+        answer = _seeker_payload(unsupported_claims_first=[])
+        judge, _ = self._judge(answer, answer)
+
+        code = _run(["compare", str(_manifest_file(tmp_path, self._EXTRA))], tmp_path, judge)
+
+        assert code == _EXIT_COULD_NOT_LOOK
+        assert "unsupported_claims_second" in capsys.readouterr().err
+
+
 class TestGroundTruthForOneSideOnly:
+    def test_a_later_pair_with_one_sided_truth_is_refused_before_any_fetch(self):
+        fetched: list[str] = []
+
+        def counting_fetch(url, *args, **kwargs):
+            fetched.append(url)
+            return _fetch(url, *args, **kwargs)
+
+        other = "https://app.example.test/foundations/oh/sector/education/"
+        judge = FakeJudge()
+        with pytest.raises(JudgeReadError, match="one side only"):
+            compare_manifest(
+                judge,
+                counting_fetch,
+                _manifest(pairs=((_A, _B), (_A, other))),
+                Budget(limit_usd=10.0),
+                ground_truth={_A: {"state": "PA"}, _B: {"sector": "housing"}},
+            )
+        assert fetched == []
+        assert judge.calls == 0
+
     def test_it_exits_one_before_any_call_is_issued(self, tmp_path, capsys):
         judge = FakeJudge()
         extra = f"ground_truth:\n  {_A}:\n    state: PA\n"
@@ -335,6 +420,8 @@ class TestTheExampleManifest:
         return manifest_from_mapping(data)
 
     def test_it_parses_and_names_a_rubric(self):
+        # The parse alone cannot see the key go missing: DESIGN is also the default.
+        assert "rubric" in yaml.safe_load(EXAMPLE_MANIFEST.read_text(encoding="utf-8"))
         assert self._example().rubric is Rubric.DESIGN
 
     def test_it_documents_ground_truth_written_inline_and_as_a_path(self):
