@@ -40,9 +40,9 @@ canonicalisation fixed-point test in `tests/test_docs_apply_drafts_workflow.py`)
 adversarial reviewer. A draft merged to `staging` sits in the repo until the next
 `staging → main` promotion; that push runs Docs Apply Drafts with `--publish`
 (aigranthelper #2098, shipped in PR #2105 — Nathan's ruling 2026-09-18), which writes the
-draft and promotes it to `body` in one run. The workflow copy on `main` is what GitHub
-runs for a push, so the first promote after #2105 reaches `main` is the first one that
-publishes; until then a promote writes `draft_body` only and Nathan publishes in the admin. A manual `workflow_dispatch` of the same workflow without
+draft and promotes it to `body` in one run. A push run evaluates the workflow copy in the
+pushed commit, so the promote that carries #2105 to `main` is already the first one that
+publishes. A manual `workflow_dispatch` of the same workflow without
 `publish=true` writes `draft_body` only, for anyone who wants to stage prose — that is an
 operator's choice, not yours.
 
