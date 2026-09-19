@@ -258,6 +258,16 @@ class TestPerSideGroundedness:
             {"url": _B, "score": 2, "unsupported_claims": list(self._B_CLAIMS)},
         ]
 
+    def test_each_sides_facts_follow_its_page_through_the_swap(self, tmp_path):
+        _, judge = self._run_grounded(tmp_path)
+
+        # Presented B-first, the judge must be handed B's facts first — or the
+        # swapped ordering checks each page against the other page's truth.
+        assert judge.compare_facts == [
+            ({"state": "PA"}, {"sector": "housing"}),
+            ({"sector": "housing"}, {"state": "PA"}),
+        ]
+
     def test_the_report_prints_both_sides_claims_verbatim(self, tmp_path):
         self._run_grounded(tmp_path)
 

@@ -50,6 +50,9 @@ class FakeJudge:
     compared: list[tuple[str, str]] = field(default_factory=list)
     compare_rubrics: list[Rubric] = field(default_factory=list)
     compare_grounded: list[tuple[str, str]] = field(default_factory=list)
+    #: The facts each grounded compare was handed, in presentation order — so a
+    #: test can see that a side's facts followed its page through the swap.
+    compare_facts: list[tuple[Mapping, Mapping]] = field(default_factory=list)
 
     @property
     def calls(self) -> int:
@@ -89,6 +92,7 @@ class FakeJudge:
         if ground_truth is None:
             return Verdict(winner=self.winner, reason="fixed", preferences=preferences), self.usage
         self.compare_grounded.append((a.url, b.url))
+        self.compare_facts.append(ground_truth)
         return Verdict(
             winner=self.winner,
             reason="fixed",
