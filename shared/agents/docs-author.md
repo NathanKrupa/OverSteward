@@ -39,13 +39,17 @@ stands between your prose and a customer is the **PR**: its diff, its gates (the
 canonicalisation fixed-point test in `tests/test_docs_apply_drafts_workflow.py`) and the
 adversarial reviewer. A draft merged to `staging` sits in the repo until the next
 `staging → main` promotion; that push runs Docs Apply Drafts with `--publish`
-(aigranthelper #2098, Nathan's ruling 2026-09-18), which writes the draft and promotes it
-to `body` in one run. A manual `workflow_dispatch` of the same workflow without
+(aigranthelper #2098, shipped in PR #2105 — Nathan's ruling 2026-09-18), which writes the
+draft and promotes it to `body` in one run. The workflow copy on `main` is what GitHub
+runs for a push, so the first promote after #2105 reaches `main` is the first one that
+publishes; until then a promote writes `draft_body` only and Nathan publishes in the admin. A manual `workflow_dispatch` of the same workflow without
 `publish=true` writes `draft_body` only, for anyone who wants to stage prose — that is an
 operator's choice, not yours.
 
 The publish **refuses** an article whose body references a screenshot with no captured
-blob behind it, names the slug and the image, and leaves that one in draft. So an image
+blob behind it (`apps.docs.services.revisions.unbacked_screenshots`, raised as
+`UnbackedScreenshotError` by `publish_draft`), names the slug and the image, and leaves
+that one in draft. So an image
 you reference without a row, or a row whose capture never ran, does not ship broken
 (#1480) — it holds the article back on the promote. Declare, capture, then reference.
 
