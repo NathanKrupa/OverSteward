@@ -1358,7 +1358,7 @@ Heavy delivery between 2026-04-15 and 2026-05-07. Center of gravity moved here.
 | AG home page A/B conversion read AG#1932, #1989 | no conversion read recorded this pass; the price-pitch experiment (AG#1931) started 09-21 is a second experiment on the same surface; carried |
 | Dispatch agents → adversarial reviewer OS#459, #460 | open; every dispatch this fortnight used the headless `claude -p` path; carried |
 | Review-loop residue OS#454, #467, #468, #470 | open; carried |
-| `guard_main_worktree` resolves the primary from `CLAUDE_PROJECT_DIR` | still unfiled; carried as a row (its only record) |
+| `guard_main_worktree` resolves the primary from `CLAUDE_PROJECT_DIR` | **the §3.11 row was wrong about the mechanism** — the 09-22 review fed the hook PreToolUse JSON directly: it has never read `CLAUDE_PROJECT_DIR` (`git log -S` over its whole history is empty) and does not over-refuse; the real defect is the opposite — `_is_branch_op` requires `argv[1]` to be `checkout`/`switch`, so any `git -C <path> checkout\|switch` passes, and the primary checkout can be switched from any cwd via `-C` (rc=0 measured in all three byte-identical deployed copies). Still unfiled; carried as a corrected row |
 | AG#1208 foundation-code-15 search interim fix | **closed** — the interim fix was never needed; AG#1216's hotfix (#2142) is the proper resolution Nathan asked for on 07-09 |
 | AG session worktrees with uncommitted entries | five session worktrees remain in the AG checkout from other lanes as of 09-22; whether any holds real work is unverified |
 
@@ -1396,7 +1396,7 @@ Heavy delivery between 2026-04-15 and 2026-05-07. Center of gravity moved here.
 | AG home page A/B conversion read | AG#1932, #1989 | no conversion read yet; the price-pitch experiment (AG#1931) is Running since 09-21 on the same surface |
 | Dispatch agents → adversarial reviewer | OS#459, #460 | open; the headless `claude -p` path is what every dispatch used |
 | Review-loop residue | OS#454, #467, #468, #470 | open |
-| `guard_main_worktree` resolves the primary from `CLAUDE_PROJECT_DIR` | (unfiled, carried since §3.11) | refuses safe `git -C <linked-worktree>` switches from another repo's session; no issue exists — this row is its only record |
+| `guard_main_worktree` is blind to `git -C` | (unfiled, carried since §3.11 under a wrong description) | `_is_branch_op` only classifies `argv[1] in {checkout, switch}`, so `git -C /home/natha/OverSteward checkout -b x` from any cwd passes the guard — a bypass of the primary-checkout control in OS, AG and GS (measured 09-22 by the adversarial reviewer); the fix is its own PR with a red pin on `_is_branch_op(["git","-C","/x","checkout","-b","y"])`; no issue exists — this row is its only record until the waking session files it |
 
 ---
 
