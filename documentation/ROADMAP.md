@@ -1195,8 +1195,9 @@ Heavy delivery between 2026-04-15 and 2026-05-07. Center of gravity moved here.
 > the firm wizard, the cutover command and the Firm page landed in one week,
 > and on 09-21 Nathan's own account was cut over on production — The Almoner
 > is now a consultancy organization and Golden Harvest a free client. **GS
-> promoted five times in five days** — the verification spine, the verdict
-> sink, the deep-pass stack (four PRs, three promotes on 09-19), and the
+> promoted seven times in five days (09-17 → 09-21)** — the verification
+> spine, the verdict sink, the deep-pass stack (four PRs, two promotes on
+> 09-19), the drain hardening, and the
 > facsimile drain survived a worker's death, bounded its memory, and finished
 > the 490,667-filing cohort on 09-21. And **three production controls were
 > found satisfied by the failing state**: the `grantmaker_status` drain had
@@ -1317,7 +1318,7 @@ Heavy delivery between 2026-04-15 and 2026-05-07. Center of gravity moved here.
   laptop; OS#525 registers it here. Named Thinkathon for its first hours; TD44
   (DonorPerfect key) and TD45 (Golden Harvest Railway workspace) still wear
   that title.
-- **Operator steps: seventeen closed in one sitting (09-21).** TD27, 30, 32,
+- **Operator steps: sixteen closed in one sitting (09-21).** TD27, 30, 32,
   33, 34, 41, 16 (Access bypass for the staging Stripe webhook — staging
   webhooks can now deliver), 26, 17, 9 (`ag_visitor` cookie bypasses the
   homepage cache), 10 (price-pitch experiment Running — AG#1931), 13, 14, 12,
@@ -1338,7 +1339,7 @@ Heavy delivery between 2026-04-15 and 2026-05-07. Center of gravity moved here.
 | AG Stripe account profile | not verified this pass; carried |
 | AG renewal notices | unverified; carried |
 | Edge purge that does not evict AG#2012 | **root cause narrowed** — files purge inert, hosts purge evicts, Cache Reserve exonerated; the key-mismatch question and its three probes are on the issue; `purge_zone` command filed as AG#2133 |
-| Verification spine + consistency engine GS#2667 | phases 1–2 and the sink **shipped and promoted** 09-17; #2655/#2657/#2672 not verified |
+| Verification spine + consistency engine GS#2667 | phases 1–2 and the sink **shipped and promoted** 09-17; GS#2657 **closed** (its deep-pass stack GS#2697 promoted 09-19); #2655/#2672 not verified |
 | Resolver and config classes GS#2648 | #2685 shipped the directory-host filter; #2633/#2643 not verified |
 | 990 facsimile drain GS#2398, #2678 | **backlog done** 09-21; GS#2398 re-scoped as the keep-current prerequisite (→ #2759 → #2760); the TY2018/2019 form maps are the next coverage build |
 | PyMuPDF licensing GS#2602 | **ruled 09-18** — option 3, the permissive stack (pypdf + pdfplumber to read, reportlab + pypdf to write); PyMuPDF rejected |
@@ -1348,8 +1349,18 @@ Heavy delivery between 2026-04-15 and 2026-05-07. Center of gravity moved here.
 | Dream engine residue | unchanged; the two 09-19/09-22 cycles ran clean (18 + 15 transcripts, 0 holds) |
 | exchequer verify exit collapse exchequer#22 | not verified; exchequer #23 (pip-audit anyio CVEs) and #24/#25 (September amounts) merged 09-21 |
 | Cloudflare Verified Bots, competitive follow-throughs, AG LLM cost gaps, lapsed-org residue, index-frontier epic, Fiscus embeddings | not verified this pass; carried |
+| Grants re-ingest GS#2630, #2623 | not verified this pass; carried |
+| `neon-integration` red on main GS#2599 | not verified this pass; carried |
+| Board connections (unfiled intent) | no issue filed; carried as a row |
+| Google Ads developer-token sunset ai-assistants#10 | unchanged; H1 2027; carried |
+| GS#2452 section 2 residue, then section 3 | not verified this pass; carried |
+| GS#2465 / GS#2468 post-merge steps | not verified; carried |
+| AG home page A/B conversion read AG#1932, #1989 | no conversion read recorded this pass; the price-pitch experiment (AG#1931) started 09-21 is a second experiment on the same surface; carried |
+| Dispatch agents → adversarial reviewer OS#459, #460 | open; every dispatch this fortnight used the headless `claude -p` path; carried |
+| Review-loop residue OS#454, #467, #468, #470 | open; carried |
+| `guard_main_worktree` resolves the primary from `CLAUDE_PROJECT_DIR` | still unfiled; carried as a row (its only record) |
 | AG#1208 foundation-code-15 search interim fix | **closed** — the interim fix was never needed; AG#1216's hotfix (#2142) is the proper resolution Nathan asked for on 07-09 |
-| AG session worktrees with uncommitted entries | six session worktrees remain in the AG checkout from other lanes as of 09-21; unverified |
+| AG session worktrees with uncommitted entries | five session worktrees remain in the AG checkout from other lanes as of 09-22; whether any holds real work is unverified |
 
 ### Started, not yet landed (September 22 watch-list)
 
@@ -1376,6 +1387,16 @@ Heavy delivery between 2026-04-15 and 2026-05-07. Center of gravity moved here.
 | Operator steps remaining | TD20 (due 09-30), TD11, TD6, TD25, TD3, TD38, TD44, TD45, TD46 | Google Ads pair, two customer emails, GSC batch, Securly rule, Thankathon pair, SMTP variable |
 | `verification_records` at zero rows | (memory) | consistent with #2695 post-dating the last correction; wrong if a verify-websites run has happened since — check after the next run |
 | Nightly Stripe smoke | AG#2016 | green from 09-21 (TD41); watch the first unattended night |
+| Grants re-ingest | GS#2630, #2623 | the pairs the old key collapsed, from the XML cache; not verified this pass |
+| `neon-integration` red on main | GS#2599 | known; confirm a red matches it before calling it a finding |
+| Board connections | (unfiled intent, Nathan-originated) | phase 1 is the own-990 officer join against the `people` table — no data entry, no LLM; gated on the GS#1673 PII barrier; the 09-19 roster binding (#2124) is the first step on the AG side |
+| Google Ads developer-token sunset | ai-assistants#10 | the OAuth client must belong to the Cloud project that holds the access level; H1 2027; TD20 (due 09-30) is the ownership check |
+| GS#2452 section 2 residue, then section 3 | GS#2464, #2466 → #2469–#2481 | not verified this pass; Nathan's 09-19 directive (every foundation gets the community-foundation data quality) names #2452 as the vehicle |
+| GS#2465 / GS#2468 post-merge steps | GS#2468 | closed but its corpus refresh and Dagster-history confirmation were never recorded; not verified |
+| AG home page A/B conversion read | AG#1932, #1989 | no conversion read yet; the price-pitch experiment (AG#1931) is Running since 09-21 on the same surface |
+| Dispatch agents → adversarial reviewer | OS#459, #460 | open; the headless `claude -p` path is what every dispatch used |
+| Review-loop residue | OS#454, #467, #468, #470 | open |
+| `guard_main_worktree` resolves the primary from `CLAUDE_PROJECT_DIR` | (unfiled, carried since §3.11) | refuses safe `git -C <linked-worktree>` switches from another repo's session; no issue exists — this row is its only record |
 
 ---
 
