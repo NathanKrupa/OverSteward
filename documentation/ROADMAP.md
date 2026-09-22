@@ -1188,6 +1188,218 @@ Heavy delivery between 2026-04-15 and 2026-05-07. Center of gravity moved here.
 
 ---
 
+## §3.14 Late September 2026 — the consultancy becomes real, the deep pass ships, and the controls that were satisfied by failure (reconciled 2026-09-22)
+
+> Eighth dream-produced pass, over 33 transcripts across two cycles (09-19 and
+> 09-22). Three through-lines. **AG's consultancy stopped being a plan flag**:
+> the firm wizard, the cutover command and the Firm page landed in one week,
+> and on 09-21 Nathan's own account was cut over on production — The Almoner
+> is now a consultancy organization and Golden Harvest a free client. **GS
+> promoted seven times in five days (09-17 → 09-21)** — the verification
+> spine, the verdict sink, the deep-pass stack (four PRs, two promotes on
+> 09-19), the drain hardening, and the
+> facsimile drain survived a worker's death, bounded its memory, and finished
+> the 490,667-filing cohort on 09-21. And **three production controls were
+> found satisfied by the failing state**: the `grantmaker_status` drain had
+> died hourly for nineteen days on a transaction timeout, three hung crawl runs
+> had held Dagster's whole queue for eleven hours behind a heartbeat that ticks
+> without progress, and every run-failure alert had been dropped for want of
+> one variable — while the liveness sweep reported "all 20 accounted for"
+> throughout. The customer-facing symptom ("Aldi doesn't show up") was the
+> only detector.
+
+### Shipped (2026-09-16 → 09-22)
+
+- **AG consultancy entity, part 2 and children (epic AG#2019).** #2068 (firm
+  wizard, firm-setup gate, provisioning on the checkout fix — AG#2051/#2058),
+  #2060 (bill the firm a consultant already owns — AG#2057), #2071 (consultant
+  access reads the firm's kind + plan; `billing_org_for` everywhere — AG#2031),
+  #2072 (`migrate_consultant_home`, dry-run-first, with the cutover runbook —
+  AG#2034), #2076 (client staff choose Pro or Builder at invite-accept —
+  AG#2032), #2078 (consultant-initiated access request — AG#2033), #2086/#2087/
+  #2089/#2097 (Consultant price refused for non-admins; one organization per
+  Stripe customer via a partial unique index; portal and cancel interstitial
+  admin-only). Promoted 09-21 (#2126). **The cutover ran on production the
+  same day (TD27)**: The Almoner is Nathan's consultancy home with the Creator
+  coupon (100% off, forever) on the Consultant subscription; Golden Harvest
+  dropped to `free`. Found on the way: Golden Harvest's `stripe_customer_id`
+  held a *subscription* id where a customer id belongs — repaired by hand
+  before the apply, guard filed as AG#2134. The **Firm page** (AG#2135,
+  #2136) followed on staging that evening — the fiscal section had reused a
+  form whose blank EIN is the "setup unfinished" marker, so one save would
+  have gated the whole firm; the reviewer caught it.
+- **AG foundation surfaces gate on `grantmaker_status` (AG#1216 hotfix
+  #2142 → main, #2144 back-merge, 09-21).** Closes AG#1208 after its fifth
+  beta report ("The Community Foundation for Greater Atlanta"); 13,660 code-15
+  grantmakers, 1,128 of them community foundations, become reachable by name.
+  The GS-owned `ag_research.match_foundations` semantic arm still bakes
+  `foundation_code <= 4` (GS#2761), nine older `FoundationView` columns had no
+  migration (AG#2141 — Django never autodetects field changes on unmanaged
+  models), and the last miss on Nathan's literal spelling is Typesense dropping
+  tokens right-to-left with no stopword set (AG#2145 → GS#2762).
+- **AG help centre publishes on the promote (AG#2098, #2105/#2107).** Drafts
+  are PR-gated and the publish refuses an uncaptured screenshot; screenshots
+  moved to their own B2 bucket. Four articles reconciled against the enforced
+  roles and the four-tier ladder (#2109, #2110, #2114, #2118, #2121).
+- **AG research page.** Board roster bound to IRS rows; site staff render as
+  name + role beside the funder's general inbox — Nathan's 09-17 ruling, never a
+  personal email or extension (#2124, AG#2116). Sticky "On this page" rail
+  (#2117, AG#2075). Funder type label and filings heading derive from the
+  seam, not a hard-coded "Private Foundation / 990-PF" (#2113). Every hub-listed
+  funder is open to applications, counts from rendered rows (#2084). Website
+  rendered only when trusted (#2081). Nightly Stripe smoke over the whole price
+  catalogue (#2100, AG#2016) — red until TD41 set the six test-mode ids on
+  09-21, then green.
+- **AG matchmaker golden set (AG#1678, #2139).** Nathan's 25 in-app grades
+  exported from production; the regression gate is live at its honest
+  baseline — **Spearman −0.11** between the heuristic score and his grades, so
+  the scorer ranks his strong funders below his wrong ones. Filed as AG#2138
+  with the three signals his notes point at (service-area containment,
+  unsolicited-application policy as a veto, precedent as the strongest
+  positive) — the Stage A answer, and it says re-weight before any model.
+- **GS verification spine, phases 1–2 + the verdict sink (GS#2667 stack).**
+  Verdict vocabulary (#2681), deterministic pre-checks before Haiku (#2682),
+  admission by stage verdict (#2686), disposition-story and sparse-source
+  gates as flagged verdicts (#2688), `verification_records` append-only sink
+  (#2693/#2694/#2702), every remaining status writer recording (#2720),
+  `ag_research.verification_v` with the reader-privilege correction
+  (#2710/#2715). Promoted 09-17 (two migrations, #2705) and 09-17b (#2716).
+- **GS deep-pass stack (GS#2697 → #2736–#2739), promoted 09-19.** Cohort
+  predicate + Stage 0 admission (#2742), programme site columns and people
+  provenance (#2743), funding restrictions / site contacts / blank-only
+  phone-address / the $ gate (#2744), per-page programme inventory (#2747).
+  Nathan's three rulings on the way: **no country bound** ("we're going to add
+  other countries"), the philanthropy gate dropped (it cut 850 of 9,631
+  grantmakers), and the migration PR covered by his 09-17 standing promote
+  authorization. The 09-19 promote is what reddened the next AG promotion
+  (below).
+- **GS facsimile drain: survives, bounded, done.** A worker's death ends one
+  filing, not the drain (#2729); memory bounded so an OOM kills a render worker,
+  never the VM (#2680); statement layout chunked (#2733, GS#2727); supervisor
+  breaker (#2732). Promoted 09-18 and 09-18b. After the 09-20 VM death
+  mid-segment 15, the 22,412 rendered-but-unsynced filings were flushed
+  through the drain's own `write_back` (B2 headed first: 22,412 present, 0
+  mismatches) and the engine relaunched; **cohort exhausted 00:36 local
+  09-21** — `filing_facsimiles` at 469,924 of 490,667, the 20,743 uncovered
+  almost entirely the TY2018/2019 form-map gap. Epics GS#2329/#2384 closed.
+- **GS corporate-direct registry and the resolver deny-list.** ALDI (GS#2696/
+  #2721, #2725) — corporate-direct rows carry `website_source='operator'`;
+  registry-authored `grantmaker_kind` survives the classifier (#2723); twelve
+  directory hosts filtered before top-1 (#2685, GS#2648) plus `grantwriters.org`
+  and `upstategiving.com` (#2768, 09-22). Blank address/ZIP backfilled from
+  the BMF and the CoF locator (#2704). TD34 ran the backfill and the ALDI
+  ingest on prod 09-21 — Salesforce's 302 exposed that the connector follows no
+  redirects (GS#2758).
+- **GS prod data repairs by Nathan's hand (09-21).** TD13 cleared the 417
+  mis-resolved websites from the 09-10 report (206,003 links retired; 0 refilled
+  by the resolver since); TD14 restored Ford Foundation's June profile rows —
+  the JustFilms residue in the nine in-place `foundations` columns is GS#2659's
+  re-enrichment, by design of the restore.
+- **OverSteward: the Fable split and its cards.** `architect` (Fable, read-only
+  by its own PreToolUse hook — #491/#496, OS#490/#492), `watch` (Sonnet, absorbs
+  monitor ticks — #489, OS#485), session registry hooks + boot resume (#488,
+  OS#486), dev cards launch the reviewer headlessly with the exact stdin form
+  (#495). Estate Board read side and decision cards (#513, #515). `docs-author`
+  delivers PR-gated drafts (#517, OS#396). `railway_cron.py` provisions a cron
+  service cloned from a sibling — TD4 became one command (#519, OS#518).
+  Design bench publishes renders to `ab.aigranthelper.com` with judge
+  manifests (#521, OS#422); the compare judge honours the seeker rubric and
+  per-side groundedness (#520, OS#427). Doctrine: auto-delete on merge
+  retargets children and a stack is cleaned up by its last PR (#507/#508/#512 —
+  measured with fixtures #508/#509); a surviving test indicts the mutant before
+  the test (#503, six trajectory notes across three repos). Secrets registry
+  carries the cache-admin token (#524, TD26). CCCF-vs-Hinchilla report behind
+  the deep-pass stack (#523).
+- **Thankathon scaffolded (09-21).** Golden Harvest's donor-calling tool —
+  Django 5.2 on Railway, DonorPerfect read-only over its SQL-over-HTTPS XML API
+  with a connector that can only ever send `SELECT`, nightly XLSX report that
+  claims outcomes by FK rather than a time window. Private repo, root commit
+  green on Postgres CI, draft PR #13 (models) and issues #1–#11 await the work
+  laptop; OS#525 registers it here. Named Thinkathon for its first hours; TD44
+  (DonorPerfect key) and TD45 (Golden Harvest Railway workspace) still wear
+  that title.
+- **Operator steps: sixteen closed in one sitting (09-21).** TD27, 30, 32,
+  33, 34, 41, 16 (Access bypass for the staging Stripe webhook — staging
+  webhooks can now deliver), 26, 17, 9 (`ag_visitor` cookie bypasses the
+  homepage cache), 10 (price-pitch experiment Running — AG#1931), 13, 14, 12,
+  15 (`nathan@aigranthelper.com` → Proton), 1. Exchequer's September ledger
+  now computes ≈ $468/month (Neon $125, Railway $137, Anthropic $200, Hetzner,
+  B2) before the Registrar and Stripe-fee rows. TD26's token settled AG#2012's
+  first hard evidence: on this zone a **files** purge is accepted and evicts
+  nothing, a **hosts** purge evicts in seconds, and Cache Reserve was not the
+  culprit.
+
+### Corrections to the §3.13 watch-list
+
+| §3.13 row | Correction as of 2026-09-22 |
+|---|---|
+| Consultancy entity, part 2 and children | **shipped** — #2068, #2060, #2071, #2072, #2076, #2078 on main since 09-21; cutover applied on production (TD27); Firm page AG#2135 on staging |
+| Lifecycle epic AG#2042 → #2043–#2049 | not verified this pass; carried |
+| Help-doc auto import AG#2039 | **superseded** by AG#2098 (#2105): drafts publish on the promote to main; `import_docs` is no longer a per-PR operator step |
+| AG Stripe account profile | not verified this pass; carried |
+| AG renewal notices | unverified; carried |
+| Edge purge that does not evict AG#2012 | **root cause narrowed** — files purge inert, hosts purge evicts, Cache Reserve exonerated; the key-mismatch question and its three probes are on the issue; `purge_zone` command filed as AG#2133 |
+| Verification spine + consistency engine GS#2667 | phases 1–2 and the sink **shipped and promoted** 09-17; GS#2657 **closed** (its deep-pass stack GS#2697 promoted 09-19); #2655/#2672 not verified |
+| Resolver and config classes GS#2648 | #2685 shipped the directory-host filter; #2633/#2643 not verified |
+| 990 facsimile drain GS#2398, #2678 | **backlog done** 09-21; GS#2398 re-scoped as the keep-current prerequisite (→ #2759 → #2760); the TY2018/2019 form maps are the next coverage build |
+| PyMuPDF licensing GS#2602 | **ruled 09-18** — option 3, the permissive stack (pypdf + pdfplumber to read, reportlab + pypdf to write); PyMuPDF rejected |
+| Fable spend: watch agent, session registry, settings default | #489, #488 shipped; the session runs on Opus and delegates planning to the `architect` card (Fable) — the settings change landed 09-16 |
+| gaudi PEP 758 skip OS#479, AG#2050 | still open; the skip was rediscovered on `apps/research/views.py` and `typesense_search.py` this fortnight — gaudi itself, not only the assembler |
+| Sibling-slug teardown, branch=HEAD ledger, prod `.env` reviewer OS#480/#483/#477 | open, carried |
+| Dream engine residue | unchanged; the two 09-19/09-22 cycles ran clean (18 + 15 transcripts, 0 holds) |
+| exchequer verify exit collapse exchequer#22 | not verified; exchequer #23 (pip-audit anyio CVEs) and #24/#25 (September amounts) merged 09-21 |
+| Cloudflare Verified Bots, competitive follow-throughs, AG LLM cost gaps, lapsed-org residue, index-frontier epic, Fiscus embeddings | not verified this pass; carried |
+| Grants re-ingest GS#2630, #2623 | not verified this pass; carried |
+| `neon-integration` red on main GS#2599 | not verified this pass; carried |
+| Board connections (unfiled intent) | no issue filed; carried as a row |
+| Google Ads developer-token sunset ai-assistants#10 | unchanged; H1 2027; carried |
+| GS#2452 section 2 residue, then section 3 | not verified this pass; carried |
+| GS#2465 / GS#2468 post-merge steps | not verified; carried |
+| AG home page A/B conversion read AG#1932, #1989 | no conversion read recorded this pass; the price-pitch experiment (AG#1931) started 09-21 is a second experiment on the same surface; carried |
+| Dispatch agents → adversarial reviewer OS#459, #460 | open; every dispatch this fortnight used the headless `claude -p` path; carried |
+| Review-loop residue OS#454, #467, #468, #470 | open; carried |
+| `guard_main_worktree` resolves the primary from `CLAUDE_PROJECT_DIR` | **the §3.11 row was wrong about the mechanism** — the 09-22 review fed the hook PreToolUse JSON directly: it has never read `CLAUDE_PROJECT_DIR` (`git log -S` over its whole history is empty) and does not over-refuse; the real defect is the opposite — `_is_branch_op` requires `argv[1]` to be `checkout`/`switch`, so any `git -C <path> checkout\|switch` passes, and the primary checkout can be switched from any cwd via `-C` (rc=0 measured in all three byte-identical deployed copies). Still unfiled; carried as a corrected row |
+| AG#1208 foundation-code-15 search interim fix | **closed** — the interim fix was never needed; AG#1216's hotfix (#2142) is the proper resolution Nathan asked for on 07-09 |
+| AG session worktrees with uncommitted entries | five session worktrees remain in the AG checkout from other lanes as of 09-22; whether any holds real work is unverified |
+
+### Started, not yet landed (September 22 watch-list)
+
+| Item | Where | State |
+|---|---|---|
+| `grantmaker_status` dirty-drain batching | GS#2764 | fails every hour since 09-02 on Neon's 600 s `transaction_timeout`; 101,125 dirty rows, 3,090 with no verdict, all invisible to AG; the first GS dispatch owed |
+| Dagster queue saturation and the missing `max_runtime` tag | GS#2765 | queue freed 02:19 UTC 09-22 by redeploy + the 45-minute zombie reaper (Dagster's own `run_monitoring` is inert on `DefaultRunLauncher`); the tag fix not dispatched |
+| Dagster run-failure alerts dropped | GS#2766, TD46 | `dagster-code` lacks `GRANTSPIDER_SMTP_PASSWORD`; the classifier refused even the Railway reference form, so it is Nathan's click |
+| Liveness measures containers, not work | (unfiled) | "all 20 accounted for" held through a 19-day dead drain and an 11-hour starved queue; a queue-depth or `max(<computed_at>)` line in the sweep is the gap |
+| Keep-current cadence for IRS drops | GS#2398 → #2759 → #2760 | scoped, **held until Wed 09-23**; measured gap 11,187 filings (6,904 in the unfetched `2026_TEOS_XML_08A`, 4,283 in archives already on disk that the watermark ingest skipped) |
+| Form 990 facsimile | GS#2763 | epic filed 09-21 (THDF II as the evidence); spike first, after Wednesday |
+| Foundation media tracking | (memory pointer) | Fable planning research epic for Wed 09-23 — start from the GDELT `foundation_news` pipeline |
+| Meta corporate giving via ChangeX | GS#2767 | registry entry + the sponsor↔administrator link; not dispatched |
+| Test fixtures live in production | GS#2722 | Pathway Test Corp. et al. reachable through AG search; scoped, prod apply is a live-session step |
+| AG feedback-triage design | (unfiled, Nathan-originated) | Nathan's ruling: a correction is a pinned override with provenance, never re-derived from the 990 ("the 990s are sometimes where the errors come from"); `foundation set` already is that override; classifier's home (Max session vs Grok Bot) undecided; first confirm `/ag-triage` sweeps at all |
+| AG residue from the hotfix and the train | AG#2127, #2132, #2133, #2137, #2140, #2141, #2145 → GS#2761, #2762 | render `funding_restrictions`; Smoke ↔ Docs Refresh race (twice on 09-21); `purge_zone` CLI; nplusone 500 on section POSTs; `grantmaker_kind` facet; unmigrated mirror columns; Typesense stopwords |
+| AG#2134 `sub_` guard on `stripe_customer_id` | AG#2134 | `ready-for-agent` |
+| Matchmaker re-weighting | AG#2138 | Stage A finding; five more grades reach the binding 30; "added" labels would measure retrieval recall, which nobody has |
+| Promotion train: check the GS end first | (memory, `ag-promotion-mechanics`) | merge the bot's pin-bump draft before cutting the AG promote; smoke green before the purge |
+| Thankathon build | thankathon #1–#11, OS#525 | connector, pull, distribute, volunteer pages, export, nightly report, retention, security, Railway, DB role; TD44/TD45 pending |
+| exchequer lacks the doctor | (unfiled, sync-status) | `worktree_doctor.py` absent; capture check done by hand 09-21 |
+| Steward probe challenged on `/foundations/*` | OS#526 | 403 "Just a moment" with the token on 09-22; the skip rule needs re-checking |
+| Cache-admin token and AG#2012's key-mismatch probes | AG#2012 | token minted and registered (#524); the three probes on the issue not yet run |
+| Operator steps remaining | TD20 (due 09-30), TD11, TD6, TD25, TD3, TD38, TD44, TD45, TD46 | Google Ads pair, two customer emails, GSC batch, Securly rule, Thankathon pair, SMTP variable |
+| `verification_records` at zero rows | (memory) | consistent with #2695 post-dating the last correction; wrong if a verify-websites run has happened since — check after the next run |
+| Nightly Stripe smoke | AG#2016 | green from 09-21 (TD41); watch the first unattended night |
+| Grants re-ingest | GS#2630, #2623 | the pairs the old key collapsed, from the XML cache; not verified this pass |
+| `neon-integration` red on main | GS#2599 | known; confirm a red matches it before calling it a finding |
+| Board connections | (unfiled intent, Nathan-originated) | phase 1 is the own-990 officer join against the `people` table — no data entry, no LLM; gated on the GS#1673 PII barrier; the 09-19 roster binding (#2124) is the first step on the AG side |
+| Google Ads developer-token sunset | ai-assistants#10 | the OAuth client must belong to the Cloud project that holds the access level; H1 2027; TD20 (due 09-30) is the ownership check |
+| GS#2452 section 2 residue, then section 3 | GS#2464, #2466 → #2469–#2481 | not verified this pass; Nathan's 09-19 directive (every foundation gets the community-foundation data quality) names #2452 as the vehicle |
+| GS#2465 / GS#2468 post-merge steps | GS#2468 | closed but its corpus refresh and Dagster-history confirmation were never recorded; not verified |
+| AG home page A/B conversion read | AG#1932, #1989 | no conversion read yet; the price-pitch experiment (AG#1931) is Running since 09-21 on the same surface |
+| Dispatch agents → adversarial reviewer | OS#459, #460 | open; the headless `claude -p` path is what every dispatch used |
+| Review-loop residue | OS#454, #467, #468, #470 | open |
+| `guard_main_worktree` is blind to `git -C` | (unfiled, carried since §3.11 under a wrong description) | `_is_branch_op` only classifies `argv[1] in {checkout, switch}`, so `git -C /home/natha/OverSteward checkout -b x` from any cwd passes the guard — a bypass of the primary-checkout control in OS, AG and GS (measured 09-22 by the adversarial reviewer); the fix is its own PR with a red pin on `_is_branch_op(["git","-C","/x","checkout","-b","y"])`; no issue exists — this row is its only record until the waking session files it |
+
+---
+
 ## §4 In flight
 
 Active or partially-shipped items as of 2026-05-07.
@@ -1293,4 +1505,4 @@ Captured in `IDEA_STORE.md` from gstack research and conversational drift. None 
 - If §2-§3 grow past readable length, extract to a `documentation/changelog.md` and keep this doc thin.
 - This doc is the single answer to "what are we trying to do, what's done, what's next?" If it can't answer that in under 60 seconds of reading, it's grown past its purpose — restructure rather than expand.
 
-*Last updated: 2026-09-15 (mid-September reconciliation — §3.13 added; the Builder ladder and AG's own Stripe account, the consultancy re-scope ruling, GS#2088 closed and the enrichment cliff root-caused, the ~1,183-foundation cohort, and the WSL2 out-of-memory measurement behind the session deaths).*
+*Last updated: 2026-09-22 (late-September reconciliation — §3.14 added; the consultancy cutover on production, the AG grantmaker_status hotfix, the GS verification spine and deep-pass stack promoted, the facsimile cohort finished, Thankathon scaffolded, and the three GS production controls found satisfied by their own failure).*
