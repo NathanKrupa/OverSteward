@@ -252,6 +252,12 @@ def test_a_measurement_row_with_no_known_field_still_shows_what_it_carries() -> 
     assert "unknown" not in text
 
 
+def test_a_zero_count_is_rendered_not_dropped() -> None:
+    text = render_sweep(sweep(alerting_seam([alert_row("orphan_users", "no orphans", 0)])))
+
+    assert "orphan_users · no orphans · 0" in text
+
+
 @pytest.mark.parametrize("bad_id", [None, "", "missing"])
 def test_a_verdict_queue_row_without_an_id_is_drift(bad_id) -> None:
     row = feedback_row()
