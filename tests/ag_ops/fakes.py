@@ -19,6 +19,7 @@ BASE_URL = "https://ag.test"
 FEEDBACK_QUEUE = "feedback_queue"
 CORRECTIONS_QUEUE = "corrections_queue"
 KPI_OVERVIEW = "kpi_overview"
+PLATFORM_ALERTS = "platform_alerts"
 
 FEEDBACK_ID = "1f4a3c2e-0000-4000-8000-000000000001"
 CORRECTION_ID = "1f4a3c2e-0000-4000-8000-000000000002"
@@ -87,6 +88,19 @@ def correction_row(item_id: str = CORRECTION_ID) -> dict:
         "status": "open",
         "page_url": "https://www.aigranthelper.com/foundations/x/",
     }
+
+
+def alert_row(alert_type: str = "trial_expiring", message: str = "3 trial(s) expire within 7 days", count: int = 3) -> dict:
+    """One raised platform-health alert, as ``asdict(apps.ops.services.Alert)`` emits it."""
+    return {"type": alert_type, "message": message, "count": count}
+
+
+def alerting_seam(alerts: list[dict], reports: dict[str, dict] | None = None) -> FakeSeam:
+    """A seam whose manifest also names ``platform_alerts``, as production's does."""
+    entries = [*MANIFEST_ENTRIES, {"name": PLATFORM_ALERTS, "description": "Actionable platform-health alerts."}]
+    base = reports if reports is not None else default_reports()
+    base[PLATFORM_ALERTS] = queue_envelope(PLATFORM_ALERTS, alerts)
+    return FakeSeam(manifest_envelope=manifest(entries=entries), reports=base)
 
 
 def verdict_envelope(results: list[dict]) -> dict:

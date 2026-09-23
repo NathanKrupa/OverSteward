@@ -26,14 +26,19 @@ from .fakes import (
     FEEDBACK_ID,
     FEEDBACK_QUEUE,
     KPI_OVERVIEW,
+    PLATFORM_ALERTS,
     UNCONFIGURED_MESSAGE,
     FakeSeam,
+    alert_row,
+    alerting_seam,
     blind_seam,
     busy_seam,
     clean_seam,
     computed_envelope,
+    correction_row,
     default_reports,
     edge_blocked_seam,
+    feedback_row,
     manifest,
     queue_envelope,
     recorded_result,
@@ -208,6 +213,91 @@ def test_a_busy_sweep_lists_every_waiting_row_with_its_id() -> None:
     assert "responded" in text
 
 
+# --- measurements versus verdict queues (OS#399) ------------------------------
+
+TWO_ALERTS = [
+    alert_row("orphan_users", "3 user(s) have no organization", 3),
+    alert_row("inactive_orgs", "4 org(s) have no pipeline activity after 7+ days", 4),
+]
+
+
+def test_platform_alerts_alone_leave_nothing_awaiting_a_verdict() -> None:
+    result = sweep(alerting_seam(TWO_ALERTS))
+
+    assert result.total_waiting == 0
+    assert result.is_clean
+
+
+def test_alerts_beside_waiting_queue_rows_do_not_inflate_the_waiting_count() -> None:
+    result = sweep(alerting_seam(TWO_ALERTS, reports=waiting_reports()))
+
+    assert result.total_waiting == 2
+
+
+def test_an_alert_renders_its_type_message_and_count_on_a_clean_sweep() -> None:
+    text = render_sweep(sweep(alerting_seam(TWO_ALERTS)))
+
+    assert QUEUES_CURRENT in text
+    assert "orphan_users · 3 user(s) have no organization · 3" in text
+    assert "inactive_orgs · 4 org(s) have no pipeline activity after 7+ days · 4" in text
+    assert f"{PLATFORM_ALERTS:<20} scanned 2 measurement(s)" in text
+    assert "unknown" not in text
+
+
+def test_a_measurement_row_with_no_known_field_still_shows_what_it_carries() -> None:
+    text = render_sweep(sweep(alerting_seam([{"severity": "high"}])))
+
+    assert "severity" in text
+    assert "high" in text
+    assert "unknown" not in text
+
+
+def test_a_zero_count_is_rendered_not_dropped() -> None:
+    text = render_sweep(sweep(alerting_seam([alert_row("orphan_users", "no orphans", 0)])))
+
+    assert "orphan_users · no orphans · 0" in text
+
+
+def test_a_verdict_queue_row_is_listed_once_never_as_a_measurement() -> None:
+    text = render_sweep(sweep(alerting_seam(TWO_ALERTS, reports=waiting_reports())))
+
+    assert text.count(FEEDBACK_ID) == 1
+    assert text.count(CORRECTION_ID) == 1
+
+
+@pytest.mark.parametrize("bad_id", [None, "", "missing", "not-a-dict"])
+def test_a_verdict_queue_row_without_an_id_is_drift(bad_id) -> None:
+    row = feedback_row()
+    if bad_id == "missing":
+        del row["id"]
+    elif bad_id == "not-a-dict":
+        row = "x"
+    else:
+        row["id"] = bad_id
+    reports = default_reports()
+    reports[FEEDBACK_QUEUE] = queue_envelope(FEEDBACK_QUEUE, [row])
+
+    with pytest.raises(ContractDriftError, match=f"{FEEDBACK_QUEUE}.*'id'"):
+        sweep(FakeSeam(reports=reports))
+
+
+def test_an_unclassified_row_list_report_is_drift_naming_it() -> None:
+    entries = [*manifest()["reports"], {"name": "grant_queue", "description": "?"}]
+    reports = default_reports()
+    reports["grant_queue"] = queue_envelope("grant_queue", [{"id": "x"}])
+
+    with pytest.raises(ContractDriftError, match="grant_queue"):
+        sweep(FakeSeam(manifest_envelope=manifest(entries=entries), reports=reports))
+
+
+def test_a_verdict_queue_answering_a_computed_body_is_drift() -> None:
+    reports = default_reports()
+    reports[CORRECTIONS_QUEUE] = computed_envelope(CORRECTIONS_QUEUE, {"open": 5})
+
+    with pytest.raises(ContractDriftError, match=CORRECTIONS_QUEUE):
+        sweep(FakeSeam(reports=reports))
+
+
 # --- record: the write side --------------------------------------------------
 
 
@@ -289,6 +379,33 @@ def test_a_sweep_with_a_queue_exits_zero_and_lists_it(cli, capsys) -> None:
     assert code == 0
     assert FEEDBACK_ID in out
     assert QUEUES_CURRENT not in out
+
+
+def test_a_sweep_with_only_alerts_standing_exits_zero_clean_and_shows_them(cli, capsys) -> None:
+    code = cli.main(SWEEP, client_factory=lambda: alerting_seam(TWO_ALERTS))
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert QUEUES_CURRENT in out
+    assert "awaiting a verdict." not in out.replace(QUEUES_CURRENT, "")
+    assert "orphan_users · 3 user(s) have no organization · 3" in out
+    assert "inactive_orgs · 4 org(s) have no pipeline activity after 7+ days · 4" in out
+    assert out.count("scanned") == 4
+
+
+def test_a_queue_row_without_an_id_exits_one_as_drift(cli, capsys) -> None:
+    row = correction_row()
+    del row["id"]
+    reports = default_reports()
+    reports[CORRECTIONS_QUEUE] = queue_envelope(CORRECTIONS_QUEUE, [row])
+
+    code = cli.main(SWEEP, client_factory=lambda: FakeSeam(reports=reports))
+
+    captured = capsys.readouterr()
+    assert code == 1
+    assert DRIFT in captured.err
+    assert "'id'" in captured.err
+    assert captured.out == ""
 
 
 def test_an_unreadable_seam_exits_one_and_says_it_could_not_look(cli, capsys) -> None:

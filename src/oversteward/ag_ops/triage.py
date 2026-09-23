@@ -17,6 +17,13 @@ Three rules shape this module:
   producer's allowlist is the authority; this copy exists so an unreachable
   verdict is refused before a token is ever spent on it, and so the two
   GrantSpider-only statuses stay visibly out of reach.
+- **Only a verdict queue is waiting on anyone.** A row list is not a queue by
+  its shape: ``platform_alerts`` answers rows too, but an alert has no id and no
+  verdict, so counting it made the sweep undrainable (OS#399). The producer's
+  manifest publishes only a name and a description, so which reports carry
+  verdicts is this consumer's knowledge, stated in :data:`VERDICT_QUEUES`. A row
+  list named in neither table is drift — counting it would re-open OS#399 and
+  ignoring it could hide a real queue, so the sweep stops and says which.
 """
 
 from __future__ import annotations
@@ -61,6 +68,20 @@ REACHABLE_STATUSES: dict[str, tuple[str, ...]] = {
     CORRECTION: ("reviewed", "rejected"),
 }
 
+#: Reports whose rows await a verdict, and the ``kind`` each row is ruled on as.
+#: Every row in one of these must carry an ``id``, the handle a verdict names.
+VERDICT_QUEUES: dict[str, str] = {
+    "feedback_queue": FEEDBACK,
+    "corrections_queue": CORRECTION,
+}
+
+#: Reports that answer a row list but are measurements — nothing to rule on,
+#: nothing waiting. Rendered, never counted.
+MEASUREMENT_ROW_REPORTS = ("platform_alerts",)
+
+#: The per-row handle a verdict addresses.
+ROW_ID_KEY = "id"
+
 #: Statuses the producer owns but this token deliberately cannot reach — named
 #: so a refusal can say why rather than merely that.
 TOKEN_UNREACHABLE_STATUSES = ("applied", "gs_dismissed")
@@ -84,16 +105,22 @@ class ReportResult:
     complete: bool
     items: tuple[dict, ...] | None = None
     body: dict | None = None
+    verdict_kind: str | None = None
 
     @property
     def is_queue(self) -> bool:
-        """True for a row list — a computed body has nothing awaiting a verdict."""
-        return self.items is not None
+        """True for a verdict queue — a measurement has nothing awaiting a verdict."""
+        return self.verdict_kind is not None
 
     @property
     def waiting(self) -> int:
-        """How many rows this page carries; zero for a computed report."""
-        return len(self.items) if self.items is not None else 0
+        """How many verdict-bearing rows this page carries; zero for a measurement."""
+        return len(self.items or ()) if self.is_queue else 0
+
+    @property
+    def measurements(self) -> tuple[dict, ...]:
+        """The rows of a row-list measurement, for display; empty for a verdict queue."""
+        return () if self.is_queue else self.items or ()
 
 
 @dataclass(frozen=True)
@@ -257,6 +284,7 @@ def _result(name: str, description: str, envelope: dict) -> ReportResult:
             f"report {name!r} carries {'both' if items is not None else 'neither'} "
             f"{ITEMS_KEY!r} and {BODY_KEY!r} — expected exactly one."
         )
+    verdict_kind = _verdict_kind(name, items)
     return ReportResult(
         name=name,
         description=description,
@@ -264,7 +292,39 @@ def _result(name: str, description: str, envelope: dict) -> ReportResult:
         complete=bool(envelope[COMPLETE_KEY]),
         items=tuple(items) if items is not None else None,
         body=body,
+        verdict_kind=verdict_kind,
     )
+
+
+def _verdict_kind(name: str, items) -> str | None:
+    """The verdict kind ``name``'s rows are ruled on as, or ``None`` for a measurement.
+
+    Refuses every answer a sweep could misread: a verdict queue that sent a
+    computed body (it would read as an empty queue), a queue row a verdict could
+    not address, and a row list this consumer has not classified.
+    """
+    kind = VERDICT_QUEUES.get(name)
+    if kind is None:
+        if items is not None and name not in MEASUREMENT_ROW_REPORTS:
+            raise ContractDriftError(
+                f"report {name!r} answers a row list this consumer has not classified — "
+                f"add it to VERDICT_QUEUES (rows await a verdict) or MEASUREMENT_ROW_REPORTS."
+            )
+        return None
+    if not isinstance(items, list):
+        raise ContractDriftError(f"verdict queue {name!r} answered no {ITEMS_KEY!r} row list")
+    for index, row in enumerate(items, 1):
+        _assert_addressable(name, index, row)
+    return kind
+
+
+def _assert_addressable(name: str, index: int, row) -> None:
+    """A verdict queue row must carry the id a verdict names, or it can never drain."""
+    if not isinstance(row, dict) or not row.get(ROW_ID_KEY):
+        raise ContractDriftError(
+            f"verdict queue {name!r} row {index} carries no {ROW_ID_KEY!r} — "
+            f"a verdict cannot address it; the producer's row shape moved."
+        )
 
 
 def _check_reachable(request: VerdictRequest) -> None:

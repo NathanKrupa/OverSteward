@@ -35,6 +35,19 @@ It pulls the manifest from `/internal/ops/reports/`, then every report the
 manifest names — no hardcoded report list, so a report AG adds appears here the
 day it ships.
 
+**Only a verdict queue is waiting on anyone** (OS#399). `feedback_queue` and
+`corrections_queue` are verdict queues: their rows count toward "awaiting a
+verdict", and every row must carry the `id` a verdict names. Everything else is
+a measurement, and is shown but never counted — `beta_funnel` and `kpi_overview`
+answer a computed body, and `platform_alerts` answers a row list printed as
+`type · message · count` on every sweep, clean or not. An alert is not ruled on
+here; it is fixed in AG or it keeps printing. The manifest publishes only a name
+and a description, so the classification lives in the consumer
+(`VERDICT_QUEUES` / `MEASUREMENT_ROW_REPORTS` in `ag_ops/triage.py`). A new
+*computed* report needs nothing; a new *row-list* report is refused as drift
+(exit 1) until it is classified there, because counting it could make the sweep
+undrainable and ignoring it could hide a queue.
+
 **Exit codes carry meaning — do not collapse them.**
 
 - **0** — a measured answer. Either a queue, or `AG ops queues current —
@@ -47,7 +60,9 @@ day it ships.
   Django, so it says nothing about our token — OS#394) — **or its contract
   drifted**. The
   consumer pins the producer's `contract_version` major and asserts the envelope
-  keys; a mismatch is a red exit naming what moved, never a best-effort read.
+  keys; a mismatch is a red exit naming what moved, never a best-effort read. A
+  verdict-queue row without an `id`, a verdict queue answering a computed body,
+  and an unclassified row-list report are drift too.
 - **2** — not configured to look. A token missing from OverSteward's `.env`, a
   producer that answers "endpoint not configured" (its unprovisioned-token 503),
   a rejected credential, or the surface not mounted at all (404 on the manifest).
