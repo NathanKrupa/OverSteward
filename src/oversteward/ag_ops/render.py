@@ -17,6 +17,9 @@ from .triage import RecordResult, ReportResult, SweepResult
 QUEUES_CURRENT = "AG ops queues current — nothing awaiting a verdict."
 
 _QUEUE_ROW_FIELDS = ("subject", "field_name", "category")
+#: What names a measurement row — ``asdict(apps.ops.services.Alert)``'s fields.
+_MEASUREMENT_ROW_FIELDS = ("type", "message", "count")
+_LABEL_JOIN = " · "
 _VERDICT_HINT = "Verdict per item: feedback → responded | closed;  correction → reviewed | rejected"
 
 
@@ -29,6 +32,7 @@ def render_sweep(result: SweepResult) -> str:
     )
     lines = [head, f"Swept {len(result.reports)} report(s) at {result.base_url}:"]
     lines.extend(_render_scanned(report) for report in result.reports)
+    lines.extend(_render_measurements(result))
     lines.extend(_render_queues(result))
     return "\n".join(lines) + "\n"
 
@@ -38,6 +42,27 @@ def _render_scanned(report: ReportResult) -> str:
     shape = "row(s)" if report.is_queue else "measurement(s)"
     completeness = "" if report.complete else " (PAGE CAPPED — more remain)"
     return f"  {report.name:<20} scanned {report.scanned} {shape}{completeness}"
+
+
+def _render_measurements(result: SweepResult) -> list[str]:
+    """Every row-list measurement's rows — shown whether or not anything is waiting."""
+    lines = []
+    for report in result.reports:
+        if report.measurements:
+            lines.append("")
+            lines.append(f"{report.name} — {report.description}")
+            lines.extend(
+                f"{index:>3}. {_measurement_label(row)}" for index, row in enumerate(report.measurements, 1)
+            )
+    return lines
+
+
+def _measurement_label(row) -> str:
+    """``type · message · count``, or the row itself when it carries none of them."""
+    if not isinstance(row, dict):
+        return str(row)
+    parts = [str(row[field]) for field in _MEASUREMENT_ROW_FIELDS if row.get(field) not in (None, "")]
+    return _LABEL_JOIN.join(parts) or str(row)
 
 
 def _render_queues(result: SweepResult) -> list[str]:
@@ -65,7 +90,7 @@ def _render_row(index: int, row: dict) -> str:
 def _row_label(row: dict) -> str:
     """The most human field this row carries, whichever queue it came from."""
     parts = [str(row[field]) for field in _QUEUE_ROW_FIELDS if row.get(field)]
-    return " · ".join(parts)
+    return _LABEL_JOIN.join(parts)
 
 
 def render_record(result: RecordResult) -> str:
