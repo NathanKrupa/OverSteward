@@ -258,11 +258,20 @@ def test_a_zero_count_is_rendered_not_dropped() -> None:
     assert "orphan_users · no orphans · 0" in text
 
 
-@pytest.mark.parametrize("bad_id", [None, "", "missing"])
+def test_a_verdict_queue_row_is_listed_once_never_as_a_measurement() -> None:
+    text = render_sweep(sweep(alerting_seam(TWO_ALERTS, reports=waiting_reports())))
+
+    assert text.count(FEEDBACK_ID) == 1
+    assert text.count(CORRECTION_ID) == 1
+
+
+@pytest.mark.parametrize("bad_id", [None, "", "missing", "not-a-dict"])
 def test_a_verdict_queue_row_without_an_id_is_drift(bad_id) -> None:
     row = feedback_row()
     if bad_id == "missing":
         del row["id"]
+    elif bad_id == "not-a-dict":
+        row = "x"
     else:
         row["id"] = bad_id
     reports = default_reports()
