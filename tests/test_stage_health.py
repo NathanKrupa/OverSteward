@@ -259,11 +259,11 @@ def test_a_red_finding_without_a_rule_is_refused_rather_than_dropped() -> None:
 
 
 def test_a_clean_run_names_stages_days_and_canaries(cli, store, capsys) -> None:
-    doc = _doc("measured", findings=[], verdict="GREEN")
+    doc = _doc("measured", findings=[], verdict="GREEN", counts={"stages": 9, "days": 5})
     assert _sweep_cli(cli, store, _run(doc)) == 0
 
     out = capsys.readouterr().out
-    assert "9 stages, 7 of 7 days, canaries not configured" in out
+    assert "9 stages, 5 of 7 days, canaries not configured" in out
     assert "ledger current" in out
 
 
