@@ -67,6 +67,11 @@ data/dream/kaizen.json
 data/sentry/ledger.jsonl
 data/sentry/pending.json
 
+# Per-machine stage-health verdict ledger and last-sweep snapshot (OS#536) — runtime
+# state like the Sentry pair; the durable record of a filed RED row is its GS issue.
+.claude/skills/stage-health/ledger.jsonl
+.claude/skills/stage-health/pending.json
+
 # Dispatch agent worktrees (registered git worktrees, ephemeral per-machine)
 .claude/worktrees/
 

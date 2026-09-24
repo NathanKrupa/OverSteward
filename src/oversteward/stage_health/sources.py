@@ -1,0 +1,139 @@
+# ABOUTME: INNER transports for /stage-health — GrantSpider's `dq health --json` CLI, and GitHub issue state.
+# ABOUTME: No decisions: each runs one external system and maps its failures onto named exceptions.
+
+"""The two external systems the stage-health sweep reads.
+
+:class:`GrantspiderHealthCli` runs ``grantspider dq health --json`` from the
+GrantSpider primary checkout named in ``registry.yaml`` — the checkout that
+tracks what production runs. The command is a read-only production read. It
+must run with that checkout as its working directory: the thresholds file it
+reads is a relative path, and its settings load that checkout's own ``.env``.
+Its stderr is captured and never echoed, because a traceback from a database
+driver is where a connection string would leak (credential-hygiene.md).
+
+:class:`GithubIssueStates` answers whether an issue a verdict points at is still
+open, through the estate's existing ``gh`` transport. The two classes share a
+module, not a connection: each talks to exactly one system.
+"""
+
+from __future__ import annotations
+
+import subprocess
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from oversteward.board.client import GhError, NotFoundError, gh_json
+
+#: The registry context whose checkout holds the producer.
+GRANTSPIDER_CONTEXT_ID = "grantspider"
+#: The producer, relative to that checkout.
+PRODUCER_BINARY = Path(".venv") / "bin" / "grantspider"
+PRODUCER_COMMAND = ("dq", "health", "--json")
+#: Generous: the producer reads one Neon table, but a cold Neon compute takes a while to wake.
+DEFAULT_TIMEOUT_SECONDS = 600.0
+
+#: What :class:`GithubIssueStates` returns for an issue GitHub answers 404 for.
+STATE_MISSING = "missing"
+
+
+class ProducerConfigError(RuntimeError):
+    """Nothing is configured to look at: the registry names no GrantSpider checkout."""
+
+
+class ProducerUnavailableError(RuntimeError):
+    """The producer could not be run at all — a missing binary, or a timeout."""
+
+
+class IssueStateUnavailableError(RuntimeError):
+    """GitHub could not be read for an issue's state."""
+
+
+@dataclass(frozen=True)
+class ProducerRun:
+    """What the producer process left behind: its exit code and its stdout."""
+
+    returncode: int
+    stdout: str
+
+
+def checkout_from_registry(registry: dict[str, Any]) -> Path:
+    """The GrantSpider checkout ``registry.yaml`` declares. Takes loaded data, never a path."""
+    for context in registry.get("contexts") or []:
+        if context.get("id") == GRANTSPIDER_CONTEXT_ID and context.get("local_path"):
+            return Path(context["local_path"])
+    raise ProducerConfigError(
+        f"registry.yaml has no {GRANTSPIDER_CONTEXT_ID!r} context with a local_path"
+    )
+
+
+class GrantspiderHealthCli:
+    """Runs ``grantspider dq health --json`` in the GrantSpider checkout."""
+
+    def __init__(
+        self,
+        checkout: Path,
+        *,
+        days: int | None = None,
+        timeout: float = DEFAULT_TIMEOUT_SECONDS,
+        run: Callable[..., Any] = subprocess.run,
+    ) -> None:
+        self._checkout = checkout
+        self._days = days
+        self._timeout = timeout
+        self._run = run
+
+    def argv(self) -> list[str]:
+        argv = [str(self._checkout / PRODUCER_BINARY), *PRODUCER_COMMAND]
+        if self._days is not None:
+            argv += ["--days", str(self._days)]
+        return argv
+
+    def run(self) -> ProducerRun:
+        try:
+            proc = self._run(
+                self.argv(),
+                cwd=self._checkout,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=self._timeout,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise ProducerUnavailableError(
+                f"could not run {self._checkout / PRODUCER_BINARY}: {type(exc).__name__}"
+            ) from exc
+        return ProducerRun(returncode=proc.returncode, stdout=proc.stdout or "")
+
+
+class GithubIssueStates:
+    """``(repo, number) -> "open" | "closed" | "missing"`` through ``gh api``."""
+
+    def __init__(self, *, run: Callable[[list[str]], Any] = gh_json) -> None:
+        self._run = run
+
+    def __call__(self, repo: str, number: int) -> str:
+        try:
+            payload = self._run(["api", f"repos/{repo}/issues/{number}"])
+        except NotFoundError:
+            return STATE_MISSING
+        except (GhError, ValueError) as exc:
+            raise IssueStateUnavailableError(f"{repo}#{number}: {exc}") from exc
+        if not isinstance(payload, dict):
+            raise IssueStateUnavailableError(f"{repo}#{number}: gh returned no issue object")
+        return str(payload.get("state", ""))
+
+
+__all__ = [
+    "GRANTSPIDER_CONTEXT_ID",
+    "STATE_MISSING",
+    "GithubIssueStates",
+    "GrantspiderHealthCli",
+    "IssueStateUnavailableError",
+    "ProducerConfigError",
+    "ProducerRun",
+    "ProducerUnavailableError",
+    "checkout_from_registry",
+]

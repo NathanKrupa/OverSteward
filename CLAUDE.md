@@ -216,7 +216,7 @@ systemctl --user daemon-reload
 systemctl --user enable --now sync-repos.timer   # 03:00, ahead of the dream cycle
 ```
 
-## Session start — the four sweeps
+## Session start — the five sweeps
 
 Run these at the start of every session, after the `git pull --ff-only`. **They
 are passes, not gates: if Nathan opened the session with a task, his task goes
@@ -229,6 +229,7 @@ simply at the head of the list again next session.
 .venv/bin/python scripts/sentry_triage.py sweep      # what errored
 .venv/bin/python scripts/service_liveness.py         # what is down
 .venv/bin/python scripts/ag_ops_triage.py sweep      # what AG's users are waiting on
+.venv/bin/python scripts/stage_health.py sweep       # what GS's pipeline stopped doing
 .venv/bin/python scripts/operator_steps.py list      # what Nathan owes
 ```
 
@@ -242,6 +243,7 @@ for" is a measurement, "ok" is a claim.
 - **Sentry** (`.claude/skills/sentry-triage/`) drives to inbox zero on *issues*, not events: every issue fixed, filed as a repo issue, or resolved-with-reason, never left unread. `sentry_triage.py record <shortId> fixed|filed|noise-resolved`, with `--resolve` rather than ignore, so a regression reopens loudly.
 - **Liveness** reads every `registry.yaml` context carrying a `railway:` block and reports services that are `CRASHED`/`FAILED` or in a state it cannot classify. The Sentry sweep is blind to this — a crashed service emits no Sentry issue, so inbox zero is fully compatible with a core service being dead. A scheduled one-shot that ended `SUCCESS` is completed, not a finding; a one-shot whose last run crashed is down. A project that cannot be read fails the whole sweep rather than silently contributing zero services.
 - **AG ops** sweeps untriaged in-app feedback and visitor-reported data corrections over the `/internal/ops/` seam (`.claude/skills/ag-triage/`). Exit 2 today, until `OPS_REPORTS_TOKEN` and `OPS_VERDICTS_TOKEN` are minted.
+- **Stage health** (`.claude/skills/stage-health/`) reads GrantSpider's `grantspider dq health --json` — whether each pipeline stage is still doing its work, not merely whether data is present (GS#2075 cut snapshot fetches ~10x for weeks and nothing alerted). The producer's exit code passes through unchanged; its **2** is "no `stage_health` rows in the window": the nightly asset is not running, and nothing was there to look at — a finding of its own, never a quiet morning. A document with an unknown `schema` is exit 1. Every RED row takes `stage_health.py record <row> fixed|filed|known --ref GS#<n>`; `fixed` holds for the ledger day it was recorded on, `filed`/`known` re-print as `FILED→GS#n`/`KNOWN→GS#n` until that issue closes, and there is no `later`.
 
 Adding a Railway project to the liveness sweep is one block in `registry.yaml`:
 
