@@ -408,6 +408,16 @@ def test_a_key_that_was_not_red_in_the_last_sweep_is_refused(cli, store, capsys)
     assert "not a RED row" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("status", ["no_rows", "unreadable"])
+def test_only_a_measured_sweep_replaces_the_pending_snapshot(cli, store, status) -> None:
+    _sweep_cli(cli, store, _run(_doc("measured")))
+    before = store.pending_path.read_bytes()
+
+    _sweep_cli(cli, store, _run(_doc(status)))
+
+    assert store.pending_path.read_bytes() == before
+
+
 def test_a_ruling_is_stamped_with_the_ledger_day_it_ruled_on(store) -> None:
     store.save_pending(parse_document(json.dumps(_doc("measured")), 0))
 
