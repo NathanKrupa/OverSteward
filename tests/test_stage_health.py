@@ -376,6 +376,45 @@ def test_an_unreadable_ref_fails_the_sweep_rather_than_reading_as_tracked(
     assert "could not read" in capsys.readouterr().err
 
 
+def test_the_last_ruling_for_a_row_wins(store) -> None:
+    doc = parse_document(json.dumps(_doc("measured")), 0)
+    store.save_pending(doc)
+    record(store, ATTEMPTS_KEY, "known", "GS#1", WHEN)
+    record(store, ATTEMPTS_KEY, "filed", "GS#2", WHEN)
+    issues = FakeIssues({("NathanKrupa/grantspider", 1): "closed",
+                         ("NathanKrupa/grantspider", 2): "open"})
+
+    result = sweep(doc, store, issues)
+
+    assert [(t.finding.key, t.ruling.ref) for t in result.tracked] == [(ATTEMPTS_KEY, "GS#2")]
+
+
+@pytest.mark.parametrize(
+    ("verdict", "ref", "reason"),
+    [("later", "GS#1", "unknown verdict"), ("known", "soon", "unreadable ref")],
+)
+def test_a_damaged_ruling_sends_its_row_back_to_the_queue(store, verdict, ref, reason) -> None:
+    doc = parse_document(json.dumps(_doc("measured")), 0)
+    line = {"key": ATTEMPTS_KEY, "verdict": verdict, "ref": ref, "ledgerDay": "2026-09-23"}
+    store.ledger_path.parent.mkdir(parents=True)
+    store.ledger_path.write_text(json.dumps(line) + "\n", encoding="utf-8")
+
+    result = sweep(doc, store, FakeIssues({("NathanKrupa/grantspider", 1): "open"}))
+
+    queued = {q.finding.key: q.reason for q in result.queue}
+    assert reason in queued[ATTEMPTS_KEY]
+
+
+def test_record_before_any_measured_sweep_is_refused(store) -> None:
+    with pytest.raises(VerdictError, match="no measured sweep"):
+        record(store, ATTEMPTS_KEY, "fixed", "", WHEN)
+
+
+def test_a_boolean_exit_code_is_refused_even_where_it_equals_one() -> None:
+    with pytest.raises(StageHealthUnreadable, match="exit_code"):
+        parse_document(json.dumps(_doc("unreadable", exit_code=True)), 1)
+
+
 def test_an_unexpected_issue_state_is_unreadable(store) -> None:
     doc = parse_document(json.dumps(_doc("measured")), 0)
     store.save_pending(doc)
