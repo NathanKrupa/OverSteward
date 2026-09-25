@@ -12,6 +12,10 @@ The producer's exit code is handed back unchanged, and must not be collapsed:
   document itself (an unknown ``schema`` included), or a verdict's issue.
 * **2** — no stage_health rows in the window: the asset is not running. Also
   the registry naming no GrantSpider checkout, or an impossible ``record``.
+
+A local read that cannot reach the database is retried once inside the
+production service via ``railway ssh``; the headline names the route that
+answered, and that route's own failure is exit 1, never 2.
 """
 
 from __future__ import annotations
@@ -36,17 +40,18 @@ from oversteward.stage_health.sources import (
     IssueStateUnavailableError,
     ProducerConfigError,
     ProducerUnavailableError,
+    RailwayHealthSsh,
     checkout_from_registry,
 )
 from oversteward.stage_health.triage import (
     STATUS_MEASURED,
     STATUS_NO_ROWS,
     VERDICTS,
+    HealthReader,
     IssueStates,
     StageHealthUnreadable,
     VerdictError,
     VerdictStore,
-    parse_document,
     record,
     sweep,
 )
@@ -63,10 +68,13 @@ def default_store() -> VerdictStore:
     return VerdictStore(LEDGER_DIR / "ledger.jsonl", LEDGER_DIR / "pending.json")
 
 
-def default_producer(days: int | None) -> GrantspiderHealthCli:
+def default_producer(days: int | None) -> HealthReader:
     with open(REGISTRY_PATH, encoding="utf-8") as handle:
         registry = yaml.safe_load(handle) or {}
-    return GrantspiderHealthCli(checkout_from_registry(registry), days=days)
+    checkout = checkout_from_registry(registry)
+    return HealthReader(
+        GrantspiderHealthCli(checkout, days=days), RailwayHealthSsh(checkout, days=days)
+    )
 
 
 def _fail(message: str, code: int) -> int:
@@ -80,8 +88,7 @@ def _cmd_sweep(args, producer_factory: Callable, store: VerdictStore, issues: Is
     except ProducerConfigError as exc:
         return _fail(f"not configured — {exc}", EXIT_MISCONFIGURED)
     try:
-        run = producer.run()
-        document = parse_document(run.stdout, run.returncode)
+        document = producer.read()
     except (ProducerUnavailableError, StageHealthUnreadable) as exc:
         return _fail(f"could not read stage health — {exc}", EXIT_COULD_NOT_READ)
     if document.status == STATUS_NO_ROWS:

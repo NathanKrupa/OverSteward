@@ -1,5 +1,5 @@
 # ABOUTME: Text rendering for the /stage-health sweep and record steps — formatting only.
-# ABOUTME: Every outcome names its count; "ledger current" is unreachable from no_rows or a failed read.
+# ABOUTME: Every outcome names its count and its route; "ledger current" is unreachable from no_rows.
 
 from __future__ import annotations
 
@@ -62,13 +62,17 @@ def _label(ruling: Ruling) -> str:
 
 def render_no_rows(document: HealthDocument) -> str:
     return (
-        f"No stage_health rows in {_window(document)}: the stage_health_snapshot asset is not "
+        f"No stage_health rows in {_window(document)} (via: {document.via}): the "
+        "stage_health_snapshot asset is not "
         f"running. That is a finding of its own, not a quiet window ({scope_line(document)})."
     )
 
 
 def render_unreadable(document: HealthDocument) -> str:
-    return f"could not read stage health for {_window(document)}: {document.error}"
+    return (
+        f"could not read stage health for {_window(document)} (via: {document.via}): "
+        f"{document.error}"
+    )
 
 
 def _table(document: HealthDocument) -> list[str]:
@@ -92,7 +96,8 @@ def render_sweep(result: SweepResult) -> str:
     """The measured report: headline with its count, the table, the ruled rows, the queue."""
     doc = result.document
     lines = [
-        f"Stage health {doc.verdict} for {_window(doc)} (latest ledger day {doc.latest_day}): "
+        f"Stage health {doc.verdict} for {_window(doc)} (latest ledger day {doc.latest_day}, "
+        f"via: {doc.via}): "
         f"{scope_line(doc)}.",
         "",
         *_table(doc),

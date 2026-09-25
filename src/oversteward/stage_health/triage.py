@@ -30,6 +30,14 @@ verdicts. There is no "later".
   An issue whose state cannot be read fails the sweep: a tracked row that
   could not be checked must not print as tracked.
 
+**Which route answered is part of the answer** (OS#540). The document is read
+locally first. Only a local read that could not reach the database — a document
+naming a DBAPI connection error class, or a producer that timed out — is retried,
+once, inside the production service via ``railway ssh``. A local ``no_rows`` is
+an answer, not a transport failure, and is never retried. The document records
+``via`` and the headline prints it: a remote read is a measurement of
+production, not of the laptop's view.
+
 There are no LLM calls here. It decides what is *unruled*, never the fix.
 """
 
@@ -41,9 +49,14 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
-from .sources import STATE_MISSING
+from .sources import (
+    STATE_MISSING,
+    ProducerRun,
+    ProducerTimeoutError,
+    ProducerUnavailableError,
+)
 
 #: The only ``--json`` document version this reader understands.
 REPORT_SCHEMA = 1
@@ -55,6 +68,15 @@ STATUS_NO_ROWS = "no_rows"
 STATUS_EXIT: Mapping[str, int] = {STATUS_MEASURED: 0, STATUS_UNREADABLE: 1, STATUS_NO_ROWS: 2}
 
 RED = "RED"
+
+VIA_LOCAL = "local"
+VIA_RAILWAY_SSH = "railway-ssh"
+#: The producer's ``error`` when its database could not be reached: it prints
+#: ``database unreadable: <class>``, and these DBAPI classes mean a connection
+#: failure rather than a bad query.
+CONNECTION_FAILURES = frozenset(
+    f"database unreadable: {name}" for name in ("OperationalError", "InterfaceError")
+)
 
 VERDICT_FIXED = "fixed"
 VERDICT_FILED = "filed"
@@ -133,6 +155,7 @@ class HealthDocument:
     canaries_evaluated: int | None
     canaries_failed: int | None
     error: str | None
+    via: str = VIA_LOCAL
 
     @property
     def reds(self) -> tuple[Finding, ...]:
@@ -210,7 +233,7 @@ def _metrics(stages: dict) -> tuple[MetricRow, ...]:
     return tuple(rows)
 
 
-def parse_document(stdout: str, returncode: int) -> HealthDocument:
+def parse_document(stdout: str, returncode: int, via: str = VIA_LOCAL) -> HealthDocument:
     """The producer's stdout as a :class:`HealthDocument`, or :class:`StageHealthUnreadable`."""
     try:
         doc = json.loads(stdout)
@@ -242,7 +265,51 @@ def parse_document(stdout: str, returncode: int) -> HealthDocument:
         canaries_evaluated=_field(canaries, "evaluated", (int, type(None)), "canaries"),
         canaries_failed=_optional_field(canaries, "failed", (int, type(None)), "canaries"),
         error=_field(doc, "error", (str, type(None)), "document"),
+        via=via,
     )
+
+
+# --- the route ----------------------------------------------------------------
+
+
+class Producer(Protocol):
+    def run(self) -> ProducerRun: ...
+
+
+def _unreachable(document: HealthDocument) -> bool:
+    """True when the producer ran but could not connect to its database."""
+    return document.status == STATUS_UNREADABLE and document.error in CONNECTION_FAILURES
+
+
+@dataclass(frozen=True)
+class HealthReader:
+    """Reads the document locally; on a connection failure, once more via ``remote``."""
+
+    local: Producer
+    remote: Producer | None = None
+
+    def read(self) -> HealthDocument:
+        try:
+            run = self.local.run()
+        except ProducerTimeoutError as exc:
+            if self.remote is None:
+                raise
+            return self._read_remote(self.remote, str(exc))
+        document = parse_document(run.stdout, run.returncode, VIA_LOCAL)
+        if self.remote is not None and _unreachable(document):
+            return self._read_remote(self.remote, str(document.error))
+        return document
+
+    @staticmethod
+    def _read_remote(remote: Producer, local_reason: str) -> HealthDocument:
+        """One attempt, never a loop; its failure names the local one that sent it here."""
+        try:
+            run = remote.run()
+            return parse_document(run.stdout, run.returncode, VIA_RAILWAY_SSH)
+        except (ProducerUnavailableError, StageHealthUnreadable) as exc:
+            raise type(exc)(
+                f"local read failed ({local_reason}); {VIA_RAILWAY_SSH} fallback failed: {exc}"
+            ) from exc
 
 
 # --- issue refs -------------------------------------------------------------------
