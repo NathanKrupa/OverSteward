@@ -27,19 +27,31 @@ producer's stderr is never echoed — a driver traceback is where a connection
 string would leak.
 
 **Fallback: `railway ssh` (OS#540).** Behind a VPN that black-holes port 5432,
-the local read cannot reach Neon. When the local document is `unreadable` with
-`database unreadable: OperationalError` (or `InterfaceError`), or the local
-producer times out, the sweep retries **once** inside the production service:
+the local read cannot reach Neon. The sweep retries **once** inside the
+production service when any of these happens:
+
+- The local document is `unreadable` with `database unreadable: OperationalError`
+  (or `InterfaceError`).
+- The local producer times out.
+- The local producer exits 1 with **no document** and its stderr names
+  `psycopg.OperationalError`/`InterfaceError` or
+  `sqlalchemy.exc.OperationalError`/`InterfaceError`. GrantSpider's
+  migration-head guard connects before `dq health` runs, so behind the VPN it
+  dies there. Only the exception class names are read out of stderr, and none
+  of its text is printed (OS#542).
+
+The retry runs
 `railway ssh --service grantspider --environment production -- grantspider dq
 health --json`, run from the Railway-linked checkout (120 s timeout). A local
 producer that hangs costs its full 600 s timeout before the fallback runs. Nothing
 else is retried. A local `no_rows` (exit 2) is an answer, and so is any other
 `unreadable`, e.g. a `thresholds:` error. Only the document's span of the
 remote stdout is parsed, so Railway CLI notices never pass as the document.
-Every headline names its route: `(… via: local)` or `(… via: railway-ssh)`. A
-remote read measures production, not the laptop's view. Until GS#2842 ships the
-thresholds and canary files in the production image, the remote route answers
-exit 1 `thresholds: cannot read …`.
+Every headline names its route: `(… via: local)`, or `(… via: railway-ssh;
+local: OperationalError at connect)` with the reason the local route was
+dropped. A remote read measures production, not the laptop's view. Any other
+no-document failure (an `ImportError`, a traceback naming no connection class)
+stays exit 1 "printed no JSON document", with no fallback.
 
 ## Step 1 — sweep
 
