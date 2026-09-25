@@ -19,9 +19,10 @@ on stderr when measured on 2026-09-25; the deprecation warning's stream was not
 measured. So the transport does not rely on stdout being clean. It keeps only
 the document's span of stdout, from the first line opening with ``{`` to the
 last closing with ``}``, and treats a stdout with no such span as the route
-having failed. Its stderr carries the remote's stderr too, so it is withheld for
-the same reason. ``railway ssh`` passes the remote command's exit code through
-(measured the same day), and that code is what the document is checked against.
+having failed. Its stderr can carry the remote's stderr too (unmeasured), so it
+is withheld for the same reason. ``railway ssh`` handed back the remote
+producer's exit code (measured the same day: a document saying exit 1 arrived
+with exit 1), and that code is what the document is checked against.
 
 :class:`GithubIssueStates` answers whether an issue a verdict points at is still
 open, through the estate's existing ``gh`` transport. The two classes share a
@@ -198,7 +199,7 @@ class RailwayHealthSsh:
         if not document:
             raise ProducerUnavailableError(
                 f"railway ssh exited {proc.returncode} with no health document on stdout "
-                "(its stderr is withheld: it carries the remote's)"
+                "(its stderr is withheld: it can carry the remote's)"
             )
         return ProducerRun(returncode=proc.returncode, stdout=document)
 

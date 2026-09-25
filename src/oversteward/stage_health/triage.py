@@ -72,8 +72,10 @@ RED = "RED"
 VIA_LOCAL = "local"
 VIA_RAILWAY_SSH = "railway-ssh"
 #: The producer's ``error`` when its database could not be reached: it prints
-#: ``database unreadable: <class>``, and these DBAPI classes mean a connection
-#: failure rather than a bad query.
+#: ``database unreadable: <SQLAlchemy exception class>``, and a failed connection
+#: arrives as one of these two. ``OperationalError`` also covers other operational
+#: faults (a statement timeout, a dropped connection); for those the fallback
+#: spends one more read-only call and answers from production.
 CONNECTION_FAILURES = frozenset(
     f"database unreadable: {name}" for name in ("OperationalError", "InterfaceError")
 )

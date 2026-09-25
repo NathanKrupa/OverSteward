@@ -31,7 +31,8 @@ the local read cannot reach Neon. When the local document is `unreadable` with
 `database unreadable: OperationalError` (or `InterfaceError`), or the local
 producer times out, the sweep retries **once** inside the production service:
 `railway ssh --service grantspider --environment production -- grantspider dq
-health --json`, run from the Railway-linked checkout (120 s timeout). Nothing
+health --json`, run from the Railway-linked checkout (120 s timeout). A local
+producer that hangs costs its full 600 s timeout before the fallback runs. Nothing
 else is retried. A local `no_rows` (exit 2) is an answer, and so is any other
 `unreadable`, e.g. a `thresholds:` error. Only the document's span of the
 remote stdout is parsed, so Railway CLI notices never pass as the document.
