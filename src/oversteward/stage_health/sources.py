@@ -9,7 +9,10 @@ tracks what production runs. The command is a read-only production read. It
 must run with that checkout as its working directory: the thresholds file it
 reads is a relative path, and its settings load that checkout's own ``.env``.
 Its stderr is captured and never echoed, because a traceback from a database
-driver is where a connection string would leak (credential-hygiene.md).
+driver is where a connection string would leak (credential-hygiene.md). All that
+leaves this module is the set of exception class names stderr mentions
+(:func:`error_names`). A producer that dies connecting, before it can print a
+document, is recognisable by those names (OS#542).
 
 :class:`RailwayHealthSsh` runs the same command inside the production
 GrantSpider service through ``railway ssh`` (OS#540), for a laptop whose route
@@ -31,6 +34,7 @@ module, not a connection: each talks to exactly one system.
 
 from __future__ import annotations
 
+import re
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -55,6 +59,9 @@ RAILWAY_ENVIRONMENT = "production"
 REMOTE_PRODUCER = "grantspider"
 DEFAULT_REMOTE_TIMEOUT_SECONDS = 120.0
 
+#: An exception class name, optionally module-qualified: ``sqlalchemy.exc.OperationalError``.
+_ERROR_NAME = re.compile(r"(?<![\w.])((?:[a-z_][a-z0-9_]*\.)*[A-Z][A-Za-z0-9_]*(?:Error|Exception))\b")
+
 #: What :class:`GithubIssueStates` returns for an issue GitHub answers 404 for.
 STATE_MISSING = "missing"
 
@@ -77,10 +84,17 @@ class IssueStateUnavailableError(RuntimeError):
 
 @dataclass(frozen=True)
 class ProducerRun:
-    """What the producer process left behind: its exit code and its stdout."""
+    """What the producer process left behind: its exit code, its stdout, and the
+    exception class names on its stderr — never the stderr text itself."""
 
     returncode: int
     stdout: str
+    stderr_errors: frozenset[str] = frozenset()
+
+
+def error_names(stderr: str) -> frozenset[str]:
+    """Every exception class name ``stderr`` mentions, and nothing else from it."""
+    return frozenset(_ERROR_NAME.findall(stderr))
 
 
 def checkout_from_registry(registry: dict[str, Any]) -> Path:
@@ -134,7 +148,11 @@ class GrantspiderHealthCli:
             raise ProducerUnavailableError(
                 f"could not run {self._checkout / PRODUCER_BINARY}: {type(exc).__name__}"
             ) from exc
-        return ProducerRun(returncode=proc.returncode, stdout=proc.stdout or "")
+        return ProducerRun(
+            returncode=proc.returncode,
+            stdout=proc.stdout or "",
+            stderr_errors=error_names(proc.stderr or ""),
+        )
 
 
 def document_span(stdout: str) -> str:
@@ -235,4 +253,5 @@ __all__ = [
     "RailwayHealthSsh",
     "checkout_from_registry",
     "document_span",
+    "error_names",
 ]

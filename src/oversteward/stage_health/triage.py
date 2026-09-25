@@ -31,9 +31,11 @@ verdicts. There is no "later".
   could not be checked must not print as tracked.
 
 **Which route answered is part of the answer** (OS#540). The document is read
-locally first. Only a local read that could not reach the database — a document
-naming a DBAPI connection error class, or a producer that timed out — is retried,
-once, inside the production service via ``railway ssh``. A local ``no_rows`` is
+locally first. Only a local read that could not reach the database is retried,
+once, inside the production service via ``railway ssh``: a document naming a
+DBAPI connection error class, a producer that timed out, or a producer that
+exited 1 with no document and a psycopg/SQLAlchemy connection error on stderr
+(GrantSpider's migration guard connects before ``dq health`` runs, OS#542). A local ``no_rows`` is
 an answer, not a transport failure, and is never retried. The document records
 ``via`` and the headline prints it: a remote read is a measurement of
 production, not of the laptop's view.
@@ -46,7 +48,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
@@ -76,8 +78,11 @@ VIA_RAILWAY_SSH = "railway-ssh"
 #: arrives as one of these two. ``OperationalError`` also covers other operational
 #: faults (a statement timeout, a dropped connection); for those the fallback
 #: spends one more read-only call and answers from production.
-CONNECTION_FAILURES = frozenset(
-    f"database unreadable: {name}" for name in ("OperationalError", "InterfaceError")
+CONNECTION_CLASSES = ("OperationalError", "InterfaceError")
+CONNECTION_FAILURES = frozenset(f"database unreadable: {name}" for name in CONNECTION_CLASSES)
+#: The same failure raised before any document is printed, as stderr names it.
+CONNECTION_ERROR_NAMES = frozenset(
+    f"{module}.{name}" for module in ("psycopg", "sqlalchemy.exc") for name in CONNECTION_CLASSES
 )
 
 VERDICT_FIXED = "fixed"
@@ -105,6 +110,10 @@ IssueStates = Callable[[str, int], str]
 
 class StageHealthUnreadable(RuntimeError):
     """The producer's output cannot be trusted as a measurement."""
+
+
+class NoDocumentError(StageHealthUnreadable):
+    """The producer printed nothing that parses as JSON."""
 
 
 class VerdictError(ValueError):
@@ -158,6 +167,8 @@ class HealthDocument:
     canaries_failed: int | None
     error: str | None
     via: str = VIA_LOCAL
+    #: Why the local route was abandoned, when another route answered.
+    fallback_reason: str | None = None
 
     @property
     def reds(self) -> tuple[Finding, ...]:
@@ -240,7 +251,7 @@ def parse_document(stdout: str, returncode: int, via: str = VIA_LOCAL) -> Health
     try:
         doc = json.loads(stdout)
     except (json.JSONDecodeError, TypeError) as exc:
-        raise StageHealthUnreadable(
+        raise NoDocumentError(
             f"the producer printed no JSON document (exit {returncode})"
         ) from exc
     _check_schema(doc)
@@ -278,6 +289,14 @@ class Producer(Protocol):
     def run(self) -> ProducerRun: ...
 
 
+def _connect_error(run: ProducerRun) -> str | None:
+    """The connection class a document-less exit 1 died of, e.g. ``OperationalError``."""
+    if run.returncode != STATUS_EXIT[STATUS_UNREADABLE]:
+        return None
+    found = sorted(run.stderr_errors & CONNECTION_ERROR_NAMES)
+    return found[0].rsplit(".", 1)[1] if found else None
+
+
 def _unreachable(document: HealthDocument) -> bool:
     """True when the producer ran but could not connect to its database."""
     return document.status == STATUS_UNREADABLE and document.error in CONNECTION_FAILURES
@@ -296,10 +315,16 @@ class HealthReader:
         except ProducerTimeoutError as exc:
             if self.remote is None:
                 raise
-            return self._read_remote(self.remote, str(exc))
-        document = parse_document(run.stdout, run.returncode, VIA_LOCAL)
+            return self._read_remote(self.remote, f"local: {exc}")
+        try:
+            document = parse_document(run.stdout, run.returncode, VIA_LOCAL)
+        except NoDocumentError:
+            connect_error = _connect_error(run)
+            if self.remote is None or connect_error is None:
+                raise
+            return self._read_remote(self.remote, f"local: {connect_error} at connect")
         if self.remote is not None and _unreachable(document):
-            return self._read_remote(self.remote, str(document.error))
+            return self._read_remote(self.remote, f"local: {document.error}")
         return document
 
     @staticmethod
@@ -307,11 +332,12 @@ class HealthReader:
         """One attempt, never a loop; its failure names the local one that sent it here."""
         try:
             run = remote.run()
-            return parse_document(run.stdout, run.returncode, VIA_RAILWAY_SSH)
+            document = parse_document(run.stdout, run.returncode, VIA_RAILWAY_SSH)
         except (ProducerUnavailableError, StageHealthUnreadable) as exc:
             raise type(exc)(
-                f"local read failed ({local_reason}); {VIA_RAILWAY_SSH} fallback failed: {exc}"
+                f"{local_reason}; {VIA_RAILWAY_SSH} fallback failed: {exc}"
             ) from exc
+        return replace(document, fallback_reason=local_reason)
 
 
 # --- issue refs -------------------------------------------------------------------

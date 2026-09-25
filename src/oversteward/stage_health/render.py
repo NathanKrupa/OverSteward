@@ -44,6 +44,13 @@ def scope_line(document: HealthDocument) -> str:
     )
 
 
+def _route(document: HealthDocument) -> str:
+    """``via: <route>``, and why the local route was abandoned when it was."""
+    if document.fallback_reason:
+        return f"via: {document.via}; {document.fallback_reason}"
+    return f"via: {document.via}"
+
+
 def _window(document: HealthDocument) -> str:
     return f"{document.first_day}..{document.last_day}"
 
@@ -62,7 +69,7 @@ def _label(ruling: Ruling) -> str:
 
 def render_no_rows(document: HealthDocument) -> str:
     return (
-        f"No stage_health rows in {_window(document)} (via: {document.via}): the "
+        f"No stage_health rows in {_window(document)} ({_route(document)}): the "
         "stage_health_snapshot asset is not "
         f"running. That is a finding of its own, not a quiet window ({scope_line(document)})."
     )
@@ -70,7 +77,7 @@ def render_no_rows(document: HealthDocument) -> str:
 
 def render_unreadable(document: HealthDocument) -> str:
     return (
-        f"could not read stage health for {_window(document)} (via: {document.via}): "
+        f"could not read stage health for {_window(document)} ({_route(document)}): "
         f"{document.error}"
     )
 
@@ -97,7 +104,7 @@ def render_sweep(result: SweepResult) -> str:
     doc = result.document
     lines = [
         f"Stage health {doc.verdict} for {_window(doc)} (latest ledger day {doc.latest_day}, "
-        f"via: {doc.via}): "
+        f"{_route(doc)}): "
         f"{scope_line(doc)}.",
         "",
         *_table(doc),

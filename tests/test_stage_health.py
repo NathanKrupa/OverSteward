@@ -25,6 +25,7 @@ from oversteward.stage_health.sources import (
     ProducerUnavailableError,
     RailwayHealthSsh,
     checkout_from_registry,
+    error_names,
 )
 from oversteward.stage_health.triage import (
     HealthReader,
@@ -564,7 +565,7 @@ def test_the_producer_runs_the_json_command_from_the_grantspider_checkout(tmp_pa
 
     def fake_run(argv, **kwargs):
         seen["argv"], seen["cwd"] = argv, kwargs["cwd"]
-        return type("P", (), {"returncode": 0, "stdout": "{}"})()
+        return type("P", (), {"returncode": 0, "stdout": "{}", "stderr": ""})()
 
     GrantspiderHealthCli(tmp_path, days=3, run=fake_run).run()
 
@@ -726,7 +727,7 @@ def test_an_unreadable_remote_document_names_its_route(cli, store, capsys, tmp_p
 
     err = capsys.readouterr().err
     assert code == 1
-    assert "(via: railway-ssh): thresholds: cannot read" in err
+    assert "(via: railway-ssh; local: database unreadable: OperationalError): thresholds: " in err
 
 
 def test_the_default_sweep_carries_the_railway_route(cli) -> None:
@@ -860,3 +861,122 @@ def test_railway_ssh_runs_the_producer_in_production_from_the_checkout(tmp_path)
     assert seen["cwd"] == tmp_path
     assert seen["timeout"] == 120.0
     assert seen["stdin"] == subprocess.DEVNULL
+
+
+# --- a connect failure before the producer can print a document (OS#542) --------
+
+#: The tail of the GrantSpider migration guard's uncaught traceback behind the VPN:
+#: the guard connects before ``dq health`` runs, so stdout is empty.
+GUARD_TRACEBACK = (
+    "Traceback (most recent call last):\n"
+    '  File "/home/natha/grantspider/src/grantspider/db/migration_guard.py", line 116\n'
+    "psycopg.OperationalError: connection failed: connection to server at \"203.0.113.9\", "
+    "port 5432 failed: timeout expired\n"
+    "The above exception was the direct cause of the following exception:\n"
+    "sqlalchemy.exc.OperationalError: (psycopg.OperationalError) connection failed: "
+    "postgresql://neondb_owner:hunter2secret@ep-x.neon.tech/neondb?sslmode=require\n"
+    "(Background on this error at: https://sqlalche.me/e/20/e3q8)\n"
+)
+
+
+def _no_document(stderr: str, returncode: int = 1) -> ProducerRun:
+    return ProducerRun(returncode=returncode, stdout="", stderr_errors=error_names(stderr))
+
+
+def test_a_connect_failure_with_no_document_is_answered_by_railway_ssh(
+    cli, store, capsys, tmp_path
+) -> None:
+    remote = _railway(tmp_path, _railway_stdout(_doc("no_rows")), returncode=2)
+
+    code = _sweep_routes(cli, store, FakeProducer(_no_document(GUARD_TRACEBACK)), remote)
+
+    out = capsys.readouterr().out
+    assert code == 2
+    assert "via: railway-ssh; local: OperationalError at connect" in out.splitlines()[0]
+
+
+@pytest.mark.parametrize(
+    "stderr",
+    [
+        "sqlalchemy.exc.InterfaceError: connection is closed\n",
+        "sqlalchemy.exc.OperationalError: connection failed\n",
+        "psycopg.OperationalError: connection failed\n",
+        "psycopg.InterfaceError: connection is closed\n",
+    ],
+    ids=["sqlalchemy-interface", "sqlalchemy-operational", "psycopg-operational",
+         "psycopg-interface"],
+)
+def test_each_connection_class_on_stderr_falls_back(cli, store, tmp_path, stderr) -> None:
+    remote = CountingProducer(_run(_doc("no_rows")))
+
+    code = _sweep_routes(cli, store, FakeProducer(_no_document(stderr)), remote)
+
+    assert (code, remote.calls) == (2, 1)
+
+
+@pytest.mark.parametrize(
+    ("stderr", "returncode"),
+    [
+        ("ImportError: cannot import name 'defs' from 'grantspider.orchestration'\n", 1),
+        ("sqlalchemy.exc.ProgrammingError: relation \"x\" does not exist\n", 1),
+        ("OperationalError: something unqualified\n", 1),
+        (GUARD_TRACEBACK, 2),
+        ("", 1),
+    ],
+    ids=["import-error", "not-a-connection-class", "unqualified", "exit-two", "silent"],
+)
+def test_any_other_no_document_failure_never_falls_back(
+    cli, store, capsys, stderr, returncode
+) -> None:
+    remote = CountingProducer(_run(_doc("measured")))
+
+    code = _sweep_routes(cli, store, FakeProducer(_no_document(stderr, returncode)), remote)
+
+    assert (code, remote.calls) == (1, 0)
+    assert "printed no JSON document" in capsys.readouterr().err
+
+
+def test_a_connect_failure_with_no_document_and_a_failed_fallback_names_both(
+    cli, store, capsys, tmp_path
+) -> None:
+    remote = _railway(tmp_path, FileNotFoundError("railway"))
+
+    code = _sweep_routes(cli, store, FakeProducer(_no_document(GUARD_TRACEBACK)), remote)
+
+    err = capsys.readouterr().err
+    assert code == 1
+    assert "local: OperationalError at connect" in err
+    assert "railway CLI not found" in err
+
+
+@pytest.mark.parametrize("remote_answers", [True, False], ids=["fallback-ok", "fallback-fails"])
+def test_nothing_url_like_from_stderr_reaches_the_output(
+    cli, store, capsys, tmp_path, remote_answers
+) -> None:
+    remote = (
+        _railway(tmp_path, _railway_stdout(_doc("no_rows")), returncode=2)
+        if remote_answers
+        else _railway(tmp_path, RAILWAY_NOISE_BEFORE, returncode=1)
+    )
+
+    _sweep_routes(cli, store, FakeProducer(_no_document(GUARD_TRACEBACK)), remote)
+
+    printed = "".join(capsys.readouterr())
+    for secret in ("hunter2secret", "postgresql://", "neon.tech", "sqlalche.me", "203.0.113.9"):
+        assert secret not in printed
+
+
+def test_stderr_is_reduced_to_exception_names() -> None:
+    names = error_names(GUARD_TRACEBACK)
+
+    assert names == frozenset({"psycopg.OperationalError", "sqlalchemy.exc.OperationalError"})
+
+
+def test_the_local_producer_reads_its_stderr_for_error_names(tmp_path) -> None:
+    def fake_run(argv, **kwargs):
+        return type("P", (), {"returncode": 1, "stdout": "", "stderr": GUARD_TRACEBACK})()
+
+    result = GrantspiderHealthCli(tmp_path, run=fake_run).run()
+
+    assert "sqlalchemy.exc.OperationalError" in result.stderr_errors
+    assert "hunter2secret" not in repr(result)
