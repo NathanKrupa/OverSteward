@@ -299,6 +299,12 @@ def test_evaluated_beyond_expected_is_red_in_the_headline(cli, store, capsys) ->
     assert headline.endswith("canaries RED: 13 of 12 evaluated (evaluated ≠ expected), 0 failed.")
 
 
+def test_configured_canaries_without_an_expected_count_are_red(cli, store, capsys) -> None:
+    headline = _canary_headline(cli, store, capsys, evaluated=12, failed=0)
+
+    assert headline.endswith("canaries RED: 12 of ? evaluated (evaluated ≠ expected), 0 failed.")
+
+
 def test_no_canary_rows_is_a_finding_not_zero_evaluated(cli, store, capsys) -> None:
     headline = _canary_headline(cli, store, capsys, expected=12, evaluated=None, failed=None)
 
