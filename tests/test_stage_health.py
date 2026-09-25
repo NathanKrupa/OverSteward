@@ -719,7 +719,7 @@ def test_a_measured_document_carrying_an_error_never_falls_back(cli, store, caps
 
 
 def test_an_unreadable_remote_document_names_its_route(cli, store, capsys, tmp_path) -> None:
-    """Production's answer today (GS#2842): its thresholds file is absent from the image."""
+    """Production's answer on 2026-09-25 before GS#2842 shipped its thresholds file."""
     doc = _doc("unreadable", error="thresholds: cannot read config/stage_health_thresholds.yaml")
     remote = _railway(tmp_path, _railway_stdout(doc), returncode=1)
 
