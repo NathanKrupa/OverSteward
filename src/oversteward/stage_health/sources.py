@@ -13,11 +13,15 @@ driver is where a connection string would leak (credential-hygiene.md).
 
 :class:`RailwayHealthSsh` runs the same command inside the production
 GrantSpider service through ``railway ssh`` (OS#540), for a laptop whose route
-to Neon is black-holed. The Railway CLI wraps the command's output in its own
-notices, so the transport keeps only the document's span of stdout — from the
-first line opening with ``{`` to the last closing with ``}`` — and treats a
-stdout with no such span as the route having failed. Its stderr carries the
-remote's stderr too, so it is withheld for the same reason.
+to Neon is black-holed. The Railway CLI prints notices of its own ("Using SSH
+key from file …", a "Config as Code … is deprecated" warning). The first landed
+on stderr when measured on 2026-09-25; the deprecation warning's stream was not
+measured. So the transport does not rely on stdout being clean. It keeps only
+the document's span of stdout, from the first line opening with ``{`` to the
+last closing with ``}``, and treats a stdout with no such span as the route
+having failed. Its stderr carries the remote's stderr too, so it is withheld for
+the same reason. ``railway ssh`` passes the remote command's exit code through
+(measured the same day), and that code is what the document is checked against.
 
 :class:`GithubIssueStates` answers whether an issue a verdict points at is still
 open, through the estate's existing ``gh`` transport. The two classes share a
@@ -187,7 +191,9 @@ class RailwayHealthSsh:
                 f"railway ssh timed out after {self._timeout:.0f}s"
             ) from exc
         except OSError as exc:
-            raise ProducerUnavailableError(f"could not run railway ssh: {type(exc).__name__}") from exc
+            raise ProducerUnavailableError(
+                f"could not run railway ssh: {type(exc).__name__}"
+            ) from exc
         document = document_span(proc.stdout or "")
         if not document:
             raise ProducerUnavailableError(

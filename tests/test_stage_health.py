@@ -578,6 +578,14 @@ def test_a_missing_producer_binary_is_unavailable(tmp_path) -> None:
         GrantspiderHealthCli(tmp_path / "nowhere").run()
 
 
+def test_a_local_producer_timeout_is_a_timeout_the_fallback_can_see(tmp_path) -> None:
+    def hang(argv, **kwargs):
+        raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+
+    with pytest.raises(ProducerTimeoutError, match="timed out after 5s"):
+        GrantspiderHealthCli(tmp_path, timeout=5, run=hang).run()
+
+
 def test_the_checkout_comes_from_the_registry() -> None:
     registry = {"contexts": [{"id": "fiscus", "local_path": "/f"},
                              {"id": "grantspider", "local_path": "/g"}]}
@@ -716,6 +724,21 @@ def test_a_local_timeout_is_answered_by_railway_ssh(cli, store, capsys, tmp_path
 
     assert code == 2
     assert "via: railway-ssh" in capsys.readouterr().out
+
+
+def test_the_fallback_is_one_attempt_never_a_loop(cli, store) -> None:
+    local = CountingProducer(_connection_failure())
+    remote = CountingProducer(_run(_doc("no_rows")))
+
+    assert _sweep_routes(cli, store, local, remote) == 2
+    assert (local.calls, remote.calls) == (1, 1)
+
+
+def test_a_local_timeout_with_no_remote_route_exits_one(cli, store, capsys) -> None:
+    code = _sweep_cli(cli, store, ProducerTimeoutError("grantspider timed out after 600s"))
+
+    assert code == 1
+    assert "timed out after 600s" in capsys.readouterr().err
 
 
 def test_local_no_rows_is_an_answer_and_never_falls_back(cli, store, capsys) -> None:
