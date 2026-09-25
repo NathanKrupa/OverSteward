@@ -26,6 +26,21 @@ one on `main`, what production runs). It is a **read-only** production read. The
 producer's stderr is never echoed — a driver traceback is where a connection
 string would leak.
 
+**Fallback: `railway ssh` (OS#540).** Behind a VPN that black-holes port 5432,
+the local read cannot reach Neon. When the local document is `unreadable` with
+`database unreadable: OperationalError` (or `InterfaceError`), or the local
+producer times out, the sweep retries **once** inside the production service:
+`railway ssh --service grantspider --environment production -- grantspider dq
+health --json`, run from the Railway-linked checkout (120 s timeout). A local
+producer that hangs costs its full 600 s timeout before the fallback runs. Nothing
+else is retried. A local `no_rows` (exit 2) is an answer, and so is any other
+`unreadable`, e.g. a `thresholds:` error. Only the document's span of the
+remote stdout is parsed, so Railway CLI notices never pass as the document.
+Every headline names its route: `(… via: local)` or `(… via: railway-ssh)`. A
+remote read measures production, not the laptop's view. Until GS#2842 ships the
+thresholds and canary files in the production image, the remote route answers
+exit 1 `thresholds: cannot read …`.
+
 ## Step 1 — sweep
 
 ```bash
@@ -46,7 +61,9 @@ the filter's, and a red sweep would read green.
 - **1** — could not read. The producer's database or thresholds, the document
   itself (no JSON, a `status`/`exit_code` that disagree, or any `schema` other
   than `1`), a producer that would not start, or the GitHub state of an issue a
-  verdict points at.
+  verdict points at. Also a failed `railway ssh` fallback (no `railway` CLI,
+  not linked, SSH refused, a timeout, or no document on stdout). Its message
+  names both the local failure and the fallback's, and it is **never** 2.
 - **2** — no `stage_health` rows in the window: the `stage_health_snapshot`
   asset is not running. **This is a finding of its own, never a quiet morning** —
   report it. (Also: the registry names no GrantSpider checkout.)

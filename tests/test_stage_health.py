@@ -7,6 +7,7 @@ import importlib.util
 import json
 import re
 import stat
+import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -20,10 +21,13 @@ from oversteward.stage_health.sources import (
     IssueStateUnavailableError,
     ProducerConfigError,
     ProducerRun,
+    ProducerTimeoutError,
     ProducerUnavailableError,
+    RailwayHealthSsh,
     checkout_from_registry,
 )
 from oversteward.stage_health.triage import (
+    HealthReader,
     StageHealthUnreadable,
     VerdictError,
     VerdictStore,
@@ -143,7 +147,7 @@ def cli():
 def _sweep_cli(cli, store, result, issues=None, argv=("sweep",)) -> int:
     return cli.main(
         list(argv),
-        producer_factory=lambda _days: FakeProducer(result),
+        producer_factory=lambda _days: HealthReader(FakeProducer(result)),
         store=store,
         issue_states=issues if issues is not None else FakeIssues(),
     )
@@ -574,6 +578,14 @@ def test_a_missing_producer_binary_is_unavailable(tmp_path) -> None:
         GrantspiderHealthCli(tmp_path / "nowhere").run()
 
 
+def test_a_local_producer_timeout_is_a_timeout_the_fallback_can_see(tmp_path) -> None:
+    def hang(argv, **kwargs):
+        raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+
+    with pytest.raises(ProducerTimeoutError, match="timed out after 5s"):
+        GrantspiderHealthCli(tmp_path, timeout=5, run=hang).run()
+
+
 def test_the_checkout_comes_from_the_registry() -> None:
     registry = {"contexts": [{"id": "fiscus", "local_path": "/f"},
                              {"id": "grantspider", "local_path": "/g"}]}
@@ -620,3 +632,231 @@ def test_no_stage_health_invocation_is_piped_through_a_filter(doc) -> None:
     invocations = [line for line in text.splitlines() if re.search(r"stage_health\.py|\$SH\b", line)]
     assert invocations, f"{doc} never invokes the sweep"
     assert not [line for line in invocations if re.search(r"\|\s*(tail|head)\b", line)]
+
+
+# --- the railway-ssh fallback (OS#540) -----------------------------------------
+
+#: What the Railway CLI prints around a remote command's output (measured 2026-09-25).
+RAILWAY_NOISE_BEFORE = (
+    "Using SSH key from file /home/natha/.ssh/claude-code-grantspider-readonly\n"
+    "Config as Code (railway.json / railway.toml) is deprecated and will be removed.\n"
+    "Existing files keep working until 2026-12-01.\n"
+)
+RAILWAY_NOISE_AFTER = "Connection to grantspider closed.\n"
+
+
+def _connection_failure(error_class: str = "OperationalError") -> ProducerRun:
+    """The local producer behind the VPN: it ran, and could not reach its database."""
+    return _run(_doc("unreadable", error=f"database unreadable: {error_class}"))
+
+
+class CountingProducer(FakeProducer):
+    def __init__(self, result: ProducerRun | Exception) -> None:
+        super().__init__(result)
+        self.calls = 0
+
+    def run(self) -> ProducerRun:
+        self.calls += 1
+        return super().run()
+
+
+def _railway_stdout(doc: dict) -> str:
+    """The remote document as ``railway ssh`` prints it: indented, wrapped in CLI noise."""
+    return RAILWAY_NOISE_BEFORE + json.dumps(doc, indent=2) + "\n" + RAILWAY_NOISE_AFTER
+
+
+def _railway(tmp_path: Path, stdout: str | Exception, returncode: int = 0, seen=None):
+    def fake_run(argv, **kwargs):
+        if seen is not None:
+            seen.update(argv=argv, **kwargs)
+        if isinstance(stdout, Exception):
+            raise stdout
+        return type("P", (), {"returncode": returncode, "stdout": stdout, "stderr": ""})()
+
+    return RailwayHealthSsh(tmp_path, days=3, run=fake_run)
+
+
+def _sweep_routes(cli, store, local, remote) -> int:
+    return cli.main(
+        ["sweep"],
+        producer_factory=lambda _days: HealthReader(local, remote),
+        store=store,
+        issue_states=FakeIssues(),
+    )
+
+
+@pytest.mark.parametrize("status", ["measured", "no_rows"])
+def test_a_local_connection_failure_is_answered_by_railway_ssh(
+    cli, store, capsys, tmp_path, status
+) -> None:
+    doc = _doc(status)
+    remote = _railway(tmp_path, _railway_stdout(doc), returncode=doc["exit_code"])
+
+    code = _sweep_routes(cli, store, FakeProducer(_connection_failure()), remote)
+
+    assert code == doc["exit_code"]
+    assert "via: railway-ssh" in capsys.readouterr().out.splitlines()[0]
+
+
+def test_an_interface_error_is_a_connection_failure_too(cli, store, capsys, tmp_path) -> None:
+    remote = _railway(tmp_path, _railway_stdout(_doc("no_rows")), returncode=2)
+
+    code = _sweep_routes(cli, store, FakeProducer(_connection_failure("InterfaceError")), remote)
+
+    assert code == 2
+    assert "via: railway-ssh" in capsys.readouterr().out
+
+
+def test_a_measured_document_carrying_an_error_never_falls_back(cli, store, capsys) -> None:
+    local = _run(_doc("measured", error="database unreadable: OperationalError"))
+    remote = CountingProducer(_run(_doc("no_rows")))
+
+    code = _sweep_routes(cli, store, FakeProducer(local), remote)
+
+    assert (code, remote.calls) == (0, 0)
+    assert "via: local" in capsys.readouterr().out
+
+
+def test_an_unreadable_remote_document_names_its_route(cli, store, capsys, tmp_path) -> None:
+    """Production's answer today (GS#2842): its thresholds file is absent from the image."""
+    doc = _doc("unreadable", error="thresholds: cannot read config/stage_health_thresholds.yaml")
+    remote = _railway(tmp_path, _railway_stdout(doc), returncode=1)
+
+    code = _sweep_routes(cli, store, FakeProducer(_connection_failure()), remote)
+
+    err = capsys.readouterr().err
+    assert code == 1
+    assert "(via: railway-ssh): thresholds: cannot read" in err
+
+
+def test_the_default_sweep_carries_the_railway_route(cli) -> None:
+    reader = cli.default_producer(3)
+
+    assert isinstance(reader.local, GrantspiderHealthCli)
+    assert isinstance(reader.remote, RailwayHealthSsh)
+    assert reader.remote.argv()[-2:] == ["--days", "3"]
+
+
+def test_a_local_timeout_is_answered_by_railway_ssh(cli, store, capsys, tmp_path) -> None:
+    remote = _railway(tmp_path, _railway_stdout(_doc("no_rows")), returncode=2)
+
+    code = _sweep_routes(cli, store, FakeProducer(ProducerTimeoutError("timed out")), remote)
+
+    assert code == 2
+    assert "via: railway-ssh" in capsys.readouterr().out
+
+
+def test_the_fallback_is_one_attempt_never_a_loop(cli, store) -> None:
+    local = CountingProducer(_connection_failure())
+    remote = CountingProducer(_run(_doc("no_rows")))
+
+    assert _sweep_routes(cli, store, local, remote) == 2
+    assert (local.calls, remote.calls) == (1, 1)
+
+
+def test_a_local_timeout_with_no_remote_route_exits_one(cli, store, capsys) -> None:
+    code = _sweep_cli(cli, store, ProducerTimeoutError("grantspider timed out after 600s"))
+
+    assert code == 1
+    assert "timed out after 600s" in capsys.readouterr().err
+
+
+def test_local_no_rows_is_an_answer_and_never_falls_back(cli, store, capsys) -> None:
+    remote = CountingProducer(_run(_doc("measured")))
+
+    code = _sweep_routes(cli, store, FakeProducer(_run(_doc("no_rows"))), remote)
+
+    assert (code, remote.calls) == (2, 0)
+    assert "via: local" in capsys.readouterr().out
+
+
+def test_a_local_measurement_names_its_route_and_never_falls_back(cli, store, capsys) -> None:
+    remote = CountingProducer(_run(_doc("no_rows")))
+
+    code = _sweep_routes(cli, store, FakeProducer(_run(_doc("measured"))), remote)
+
+    assert (code, remote.calls) == (0, 0)
+    assert "via: local" in capsys.readouterr().out.splitlines()[0]
+
+
+@pytest.mark.parametrize(
+    "local",
+    [
+        _run(_doc("unreadable", error="thresholds: no such file")),
+        _run(_doc("unreadable", error="database unreadable: ProgrammingError")),
+        ProducerUnavailableError("could not run grantspider: FileNotFoundError"),
+    ],
+    ids=["thresholds", "not-a-connection-error", "no-binary"],
+)
+def test_a_local_failure_that_is_not_a_connection_failure_never_falls_back(
+    cli, store, capsys, local
+) -> None:
+    remote = CountingProducer(_run(_doc("measured")))
+
+    code = _sweep_routes(cli, store, FakeProducer(local), remote)
+
+    assert (code, remote.calls) == (1, 0)
+    assert "could not read" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("failure", "returncode", "reason"),
+    [
+        (FileNotFoundError("railway"), 0, "railway CLI not found"),
+        (subprocess.TimeoutExpired(["railway"], 120), 0, "timed out after 120s"),
+        (RAILWAY_NOISE_BEFORE + "No linked project found.\n", 1, "exited 1"),
+        (RAILWAY_NOISE_BEFORE, 2, "exited 2"),
+    ],
+    ids=["absent", "timeout", "not-linked", "warnings-only-exit-two"],
+)
+def test_a_failing_fallback_exits_one_naming_its_reason(
+    cli, store, capsys, tmp_path, failure, returncode, reason
+) -> None:
+    remote = _railway(tmp_path, failure, returncode=returncode)
+
+    code = _sweep_routes(cli, store, FakeProducer(_connection_failure()), remote)
+
+    err = capsys.readouterr().err
+    assert code == 1
+    assert reason in err
+    assert "railway-ssh" in err
+    assert "OperationalError" in err  # the local failure that sent it there is named too
+
+
+def test_warning_text_alone_on_a_zero_exit_is_not_a_pass(cli, store, capsys, tmp_path) -> None:
+    remote = _railway(tmp_path, RAILWAY_NOISE_BEFORE + RAILWAY_NOISE_AFTER, returncode=0)
+
+    code = _sweep_routes(cli, store, FakeProducer(_connection_failure()), remote)
+
+    assert code == 1
+    assert "no health document" in capsys.readouterr().err
+
+
+def test_the_railway_noise_around_the_document_is_discarded(tmp_path) -> None:
+    doc = _doc("measured")
+    result = _railway(tmp_path, _railway_stdout(doc), returncode=0).run()
+
+    assert "Config as Code" not in result.stdout
+    assert "Using SSH key" not in result.stdout
+    assert json.loads(result.stdout) == doc
+    assert parse_document(result.stdout, result.returncode).exit_code == 0
+
+
+def test_the_remote_exit_code_is_the_one_checked_against_the_document(tmp_path) -> None:
+    result = _railway(tmp_path, _railway_stdout(_doc("no_rows")), returncode=0).run()
+
+    with pytest.raises(StageHealthUnreadable, match="exit"):
+        parse_document(result.stdout, result.returncode)
+
+
+def test_railway_ssh_runs_the_producer_in_production_from_the_checkout(tmp_path) -> None:
+    seen: dict = {}
+    _railway(tmp_path, _railway_stdout(_doc("no_rows")), returncode=2, seen=seen).run()
+
+    assert seen["argv"] == [
+        "railway", "ssh", "--service", "grantspider", "--environment", "production",
+        "--", "grantspider", "dq", "health", "--json", "--days", "3",
+    ]
+    assert seen["cwd"] == tmp_path
+    assert seen["timeout"] == 120.0
+    assert seen["stdin"] == subprocess.DEVNULL
