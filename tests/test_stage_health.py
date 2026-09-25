@@ -936,6 +936,23 @@ def test_any_other_no_document_failure_never_falls_back(
     assert "printed no JSON document" in capsys.readouterr().err
 
 
+def test_a_refused_document_with_connection_names_on_stderr_never_falls_back(
+    cli, store, capsys
+) -> None:
+    """Only "no JSON at all" falls back on stderr; a document refused on its schema does not."""
+    local = ProducerRun(
+        returncode=1,
+        stdout=json.dumps(_doc("unreadable", schema=2)),
+        stderr_errors=frozenset({"psycopg.OperationalError"}),
+    )
+    remote = CountingProducer(_run(_doc("no_rows")))
+
+    code = _sweep_routes(cli, store, FakeProducer(local), remote)
+
+    assert (code, remote.calls) == (1, 0)
+    assert "schema" in capsys.readouterr().err
+
+
 def test_a_connect_failure_with_no_remote_route_is_still_no_document(cli, store, capsys) -> None:
     code = _sweep_cli(cli, store, _no_document(GUARD_TRACEBACK))
 
