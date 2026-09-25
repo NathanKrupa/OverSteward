@@ -717,6 +717,26 @@ def test_a_measured_document_carrying_an_error_never_falls_back(cli, store, caps
     assert "via: local" in capsys.readouterr().out
 
 
+def test_an_unreadable_remote_document_names_its_route(cli, store, capsys, tmp_path) -> None:
+    """Production's answer today (GS#2842): its thresholds file is absent from the image."""
+    doc = _doc("unreadable", error="thresholds: cannot read config/stage_health_thresholds.yaml")
+    remote = _railway(tmp_path, _railway_stdout(doc), returncode=1)
+
+    code = _sweep_routes(cli, store, FakeProducer(_connection_failure()), remote)
+
+    err = capsys.readouterr().err
+    assert code == 1
+    assert "(via: railway-ssh): thresholds: cannot read" in err
+
+
+def test_the_default_sweep_carries_the_railway_route(cli) -> None:
+    reader = cli.default_producer(3)
+
+    assert isinstance(reader.local, GrantspiderHealthCli)
+    assert isinstance(reader.remote, RailwayHealthSsh)
+    assert reader.remote.argv()[-2:] == ["--days", "3"]
+
+
 def test_a_local_timeout_is_answered_by_railway_ssh(cli, store, capsys, tmp_path) -> None:
     remote = _railway(tmp_path, _railway_stdout(_doc("no_rows")), returncode=2)
 
