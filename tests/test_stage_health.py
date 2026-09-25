@@ -267,12 +267,82 @@ def test_a_clean_run_names_stages_days_and_canaries(cli, store, capsys) -> None:
     assert "ledger current" in out
 
 
-def test_configured_canaries_are_counted_by_number(cli, store, capsys) -> None:
+def _canary_headline(cli, store, capsys, **canaries) -> str:
+    """The first line a sweep prints, for a document carrying ``canaries``."""
     doc = _doc("measured", findings=[], verdict="GREEN",
-               canaries={"configured": True, "evaluated": 12})
+               canaries={"configured": True, **canaries})
     _sweep_cli(cli, store, _run(doc))
+    return capsys.readouterr().out.splitlines()[0]
 
-    assert "12 canaries evaluated" in capsys.readouterr().out
+
+def test_passing_canaries_headline_evaluated_expected_and_failed(cli, store, capsys) -> None:
+    headline = _canary_headline(cli, store, capsys, expected=12, evaluated=12, failed=0)
+
+    assert headline.endswith("canaries: 12 of 12 evaluated, 0 failed.")
+
+
+def test_a_failed_canary_is_red_in_the_headline(cli, store, capsys) -> None:
+    headline = _canary_headline(cli, store, capsys, expected=12, evaluated=12, failed=3)
+
+    assert headline.endswith("canaries RED: 12 of 12 evaluated, 3 failed.")
+
+
+def test_evaluated_short_of_expected_is_red_in_the_headline(cli, store, capsys) -> None:
+    headline = _canary_headline(cli, store, capsys, expected=12, evaluated=10, failed=0)
+
+    assert headline.endswith("canaries RED: 10 of 12 evaluated (evaluated ≠ expected), 0 failed.")
+
+
+def test_evaluated_beyond_expected_is_red_in_the_headline(cli, store, capsys) -> None:
+    headline = _canary_headline(cli, store, capsys, expected=12, evaluated=13, failed=0)
+
+    assert headline.endswith("canaries RED: 13 of 12 evaluated (evaluated ≠ expected), 0 failed.")
+
+
+def test_configured_canaries_without_an_expected_count_are_red(cli, store, capsys) -> None:
+    headline = _canary_headline(cli, store, capsys, evaluated=12, failed=0)
+
+    assert headline.endswith("canaries RED: 12 of ? evaluated (evaluated ≠ expected), 0 failed.")
+
+
+def test_no_canary_rows_is_a_finding_not_zero_evaluated(cli, store, capsys) -> None:
+    headline = _canary_headline(cli, store, capsys, expected=12, evaluated=None, failed=None)
+
+    assert headline.endswith("canaries RED: no canary rows (12 expected).")
+    assert "0 canaries" not in headline
+
+
+def test_a_missing_failed_count_is_red_rather_than_read_as_zero(cli, store, capsys) -> None:
+    headline = _canary_headline(cli, store, capsys, expected=12, evaluated=12, failed=None)
+
+    assert headline.endswith("canaries RED: 12 of 12 evaluated, failed count not reported.")
+
+
+def test_the_pre_2834_canary_block_parses_without_expected_or_failed() -> None:
+    doc = _doc("measured", canaries={"configured": False, "evaluated": None})
+
+    parsed = parse_document(json.dumps(doc), 0)
+
+    assert (parsed.canaries_expected, parsed.canaries_failed) == (None, None)
+
+
+def test_the_canary_counts_are_read_from_the_document() -> None:
+    canaries = {"configured": True, "expected": 12, "evaluated": 11, "failed": 3}
+
+    parsed = parse_document(json.dumps(_doc("measured", canaries=canaries)), 0)
+
+    assert (parsed.canaries_expected, parsed.canaries_evaluated, parsed.canaries_failed) == (
+        12, 11, 3,
+    )
+
+
+@pytest.mark.parametrize("key", ["expected", "failed"])
+@pytest.mark.parametrize("value", ["3", True, 3.0])
+def test_a_canary_count_of_the_wrong_type_is_refused(key: str, value) -> None:
+    canaries = {"configured": True, "expected": 12, "evaluated": 12, "failed": 0, key: value}
+
+    with pytest.raises(StageHealthUnreadable, match=f"canaries.{key}"):
+        parse_document(json.dumps(_doc("measured", canaries=canaries)), 0)
 
 
 def test_the_per_stage_table_prints_the_latest_value(cli, store, capsys) -> None:

@@ -129,7 +129,9 @@ class HealthDocument:
     not_evaluated_count: int
     metrics: tuple[MetricRow, ...]
     canaries_configured: bool
+    canaries_expected: int | None
     canaries_evaluated: int | None
+    canaries_failed: int | None
     error: str | None
 
     @property
@@ -148,6 +150,18 @@ def _field(mapping: Any, key: str, kinds: tuple[type, ...], where: str) -> Any:
     """``mapping[key]``, refused unless present and of one of ``kinds``."""
     if not isinstance(mapping, dict) or key not in mapping:
         raise StageHealthUnreadable(f"{where}: no {key!r}")
+    return _expect(mapping[key], kinds, f"{where}.{key}")
+
+
+def _optional_field(mapping: dict, key: str, kinds: tuple[type, ...], where: str) -> Any:
+    """``mapping[key]`` of one of ``kinds`` when present, else ``None``.
+
+    For keys added to schema 1 after the fact: GrantSpider PR #2834 added ``canaries.expected``
+    and ``canaries.failed``, and a producer older than it omits them. Present,
+    they are read as strictly as any other field.
+    """
+    if key not in mapping:
+        return None
     return _expect(mapping[key], kinds, f"{where}.{key}")
 
 
@@ -224,7 +238,9 @@ def parse_document(stdout: str, returncode: int) -> HealthDocument:
         not_evaluated_count=len(_field(doc, "not_evaluated", (list,), "document")),
         metrics=_metrics(_field(doc, "stages", (dict,), "document")),
         canaries_configured=_field(canaries, "configured", (bool,), "canaries"),
+        canaries_expected=_optional_field(canaries, "expected", (int, type(None)), "canaries"),
         canaries_evaluated=_field(canaries, "evaluated", (int, type(None)), "canaries"),
+        canaries_failed=_optional_field(canaries, "failed", (int, type(None)), "canaries"),
         error=_field(doc, "error", (str, type(None)), "document"),
     )
 

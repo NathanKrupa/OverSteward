@@ -39,6 +39,10 @@ the filter's, and a red sweep would read green.
 
 - **0** — measured. The ledger was read; the verdict may still be RED. The
   headline names its count: `9 stages, 7 of 7 days, canaries not configured`.
+  Configured canaries headline as `canaries: 12 of 12 evaluated, 0 failed`;
+  any failure, an evaluated count that differs from the expected one, a failed
+  count the producer did not report, or no canary rows at all reads
+  `canaries RED: …` — report it even when the verdict is GREEN.
 - **1** — could not read. The producer's database or thresholds, the document
   itself (no JSON, a `status`/`exit_code` that disagree, or any `schema` other
   than `1`), a producer that would not start, or the GitHub state of an issue a
