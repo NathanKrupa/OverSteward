@@ -936,6 +936,13 @@ def test_any_other_no_document_failure_never_falls_back(
     assert "printed no JSON document" in capsys.readouterr().err
 
 
+def test_a_connect_failure_with_no_remote_route_is_still_no_document(cli, store, capsys) -> None:
+    code = _sweep_cli(cli, store, _no_document(GUARD_TRACEBACK))
+
+    assert code == 1
+    assert "printed no JSON document (exit 1)" in capsys.readouterr().err
+
+
 def test_a_connect_failure_with_no_document_and_a_failed_fallback_names_both(
     cli, store, capsys, tmp_path
 ) -> None:

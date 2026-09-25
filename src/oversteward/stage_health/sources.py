@@ -60,7 +60,9 @@ REMOTE_PRODUCER = "grantspider"
 DEFAULT_REMOTE_TIMEOUT_SECONDS = 120.0
 
 #: An exception class name, optionally module-qualified: ``sqlalchemy.exc.OperationalError``.
-_ERROR_NAME = re.compile(r"(?<![\w.])((?:[a-z_][a-z0-9_]*\.)*[A-Z][A-Za-z0-9_]*(?:Error|Exception))\b")
+_ERROR_NAME = re.compile(
+    r"(?<![\w.])((?:[a-z_][a-z0-9_]*\.)*[A-Z][A-Za-z0-9_]*(?:Error|Exception))\b"
+)
 
 #: What :class:`GithubIssueStates` returns for an issue GitHub answers 404 for.
 STATE_MISSING = "missing"
