@@ -12,17 +12,35 @@ VERDICT_HINT = (
 )
 
 
+def _canary_phrase(document: HealthDocument) -> str:
+    """The canaries' state for the headline; ``RED`` unless every expected canary ran and passed.
+
+    Missing canary rows, a failed count that was not reported, an evaluated
+    count that differs from the expected one, and any failure each read RED,
+    so canaries that did not run or did not pass never headline as a pass.
+    """
+    if not document.canaries_configured:
+        return "canaries not configured"
+    expected = "?" if document.canaries_expected is None else document.canaries_expected
+    evaluated = document.canaries_evaluated
+    if evaluated is None:
+        return f"canaries RED: no canary rows ({expected} expected)"
+    counted = f"{evaluated} of {expected} evaluated"
+    mismatch = evaluated != document.canaries_expected
+    if mismatch:
+        counted += " (evaluated ≠ expected)"
+    failed = document.canaries_failed
+    if failed is None:
+        return f"canaries RED: {counted}, failed count not reported"
+    state = "canaries RED" if mismatch or failed else "canaries"
+    return f"{state}: {counted}, {failed} failed"
+
+
 def scope_line(document: HealthDocument) -> str:
     """The count a result names: stages, days seen of the window, canaries."""
-    if document.canaries_configured and document.canaries_evaluated is not None:
-        canaries = f"{document.canaries_evaluated} canaries evaluated"
-    elif document.canaries_configured:
-        canaries = "canaries configured but none evaluated"
-    else:
-        canaries = "canaries not configured"
     return (
         f"{document.stage_count} stages, {document.day_count} of {document.window_days} days, "
-        f"{canaries}"
+        f"{_canary_phrase(document)}"
     )
 
 
