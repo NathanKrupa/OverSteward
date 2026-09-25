@@ -156,7 +156,7 @@ def _field(mapping: Any, key: str, kinds: tuple[type, ...], where: str) -> Any:
 def _optional_field(mapping: dict, key: str, kinds: tuple[type, ...], where: str) -> Any:
     """``mapping[key]`` of one of ``kinds`` when present, else ``None``.
 
-    For keys added to schema 1 after the fact: GS#2834 added ``canaries.expected``
+    For keys added to schema 1 after the fact: GrantSpider PR #2834 added ``canaries.expected``
     and ``canaries.failed``, and a producer older than it omits them. Present,
     they are read as strictly as any other field.
     """
