@@ -1398,6 +1398,153 @@ Heavy delivery between 2026-04-15 and 2026-05-07. Center of gravity moved here.
 | Review-loop residue | OS#454, #467, #468, #470 | open |
 | `guard_main_worktree` is blind to `git -C` | (unfiled, carried since §3.11 under a wrong description) | `_is_branch_op` only classifies `argv[1] in {checkout, switch}`, so `git -C /home/natha/OverSteward checkout -b x` from any cwd passes the guard — a bypass of the primary-checkout control in OS, AG and GS (measured 09-22 by the adversarial reviewer); the fix is its own PR with a red pin on `_is_branch_op(["git","-C","/x","checkout","-b","y"])`; no issue exists — this row is its only record until the waking session files it |
 
+## §3.15 End of September 2026 — the fifth sweep, and find-website learns to distrust its own agent (reconciled 2026-09-29)
+
+> Ninth dream-produced pass, over the 09-29 cycle's 13 transcripts (eight of
+> them adversarial-reviewer verdicts on GS find-website PRs). Two
+> through-lines. **OverSteward gained its fifth session-start sweep**:
+> `/stage-health` reads GrantSpider's `dq health --json`, the answer to §3.14's
+> finding that liveness counts containers, not work. It shipped late on 09-24
+> and was hardened three times within the next sixteen hours: once for an
+> honest headline, and twice because the laptop behind the VPN cannot reach
+> Neon. **GS's find-and-confirm pipeline
+> was reworked in one day (09-28)**, closing five issues:
+> - the identity check alone confirms, and the agent's quote becomes advisory;
+> - refusals were added for directory, gift, article and trade-down pages;
+> - a deterministic stored-URL fallback was added.
+>
+> Three of those round-1 reviews measured defects that the precision keep-set
+> could not see: false refusals of a foundation's own site, and a stored site
+> written off for good.
+
+### Shipped (2026-09-23 → 09-29)
+
+- **`/stage-health`, the fifth sweep (OS#536 → #537, 09-24).** It reads
+  `grantspider dq health --json` (schema 1) and passes its exit code through
+  unchanged. Every RED row gets `fixed`, `filed` or `known`, with no `later`.
+  - The headline states canaries as evaluated / expected / failed and never
+    reads "N evaluated" as green (#539, OS#538).
+  - When the laptop cannot reach Neon, it falls back to `railway ssh` into the
+    production service (#541, OS#540). It also falls back when the local
+    producer dies connecting before printing any document, which is the GS
+    migration-head guard's traceback (#543, OS#542).
+  - Found on the way: production could not read its own thresholds file.
+- **AG ops: `platform_alerts` is a measurement, not a verdict queue (#532,
+  OS#399).** It closes the #446/#450/#475 duplicates. A queue row with no `id`
+  now fails the contract with exit 1, where it used to print `? unknown`.
+- **Review doctrine, PR A of OS#534 (#535, 09-24).** Four rules in
+  `pr-workflow.md`:
+  - plan first, and size each PR to clear review in one round;
+  - check every claim a comment makes before round 1;
+  - never edit the branch while a review runs;
+  - read the rows a rate rests on.
+  The tooling half (PR C) and the `shared/` deploy are still owed.
+- **GS find-website rework (09-28).**
+  - GS#2937: an acronym confirms only when every name token is on the page.
+  - GS#2945: the identity check alone confirms, and the quote gate is retired
+    under Nathan's option A of 09-28.
+  - GS#2954: refuses company-directory and gift/donor-recognition pages.
+  - GS#2956: refuses a same-host trade-down from a correct stored page.
+  - GS#2958: a deterministic stored-URL fallback when the blinded agent says
+    "no website".
+  - Round-1 reviews measured false refusals on acronym-domain community
+    foundations (`gcfdn.org/giving/`), on a named subpage replaced by the
+    foundation's own root, and on foundations named "Story" or "Press".
+  - On 09-28 they also measured that an unanswered fetch of the stored URL,
+    when the agent had proposed it, is written off permanently.
+  - All were verdicts of PASS-WITH-FINDINGS. Whether each fix landed with its
+    red mutant is recorded in each PR body and was not re-verified here.
+- **GS CI cost guards (GS#2944, 09-28).** A 60 s per-test `pytest-timeout`,
+  `timeout-minutes` on every job, and a ceiling on the tests step: this is
+  Nathan's 09-28 law against long-running CI tests. The ">300 s never in the
+  `ci` selection" rule was unenforced at review.
+  - The merge adds a pytest ini option under `--strict-config`, so the shared
+    primary venv must be synced before local pytest runs there.
+- **GS `LocalRateLimiter` first request no longer sleeps (GS#2914, 09-28).**
+  The limiter's monotonic start made the first request wait until uptime
+  exceeded the delay: up to an hour after a reboot.
+- **GS `neon-integration` red on main closed (GS#2599, 09-26).**
+
+### Corrections to the §3.14 watch-list
+
+Every §3.14 watch-list row, in order:
+
+| §3.14 row | Correction as of 2026-09-29 |
+|---|---|
+| `grantmaker_status` dirty-drain batching GS#2764 | **still open**; a week after it was called "the first GS dispatch owed", it has not been dispatched |
+| Dagster queue saturation GS#2765 | still open; a second zombie-reaper kill (`givefreely_website_hourly_job`) came in from Sentry as GS#2941 |
+| Dagster run-failure alerts GS#2766, TD46 | still open; TD46 is still in Todoist, past its 09-22 due date |
+| Liveness measures containers, not work | **answered** by `/stage-health` (#537–#543); the liveness sweep itself is unchanged |
+| Keep-current cadence GS#2398 → #2759 → #2760 | all three open; the hold until Wed 09-23 has passed with nothing merged |
+| Form 990 facsimile GS#2763 | open; carried |
+| Foundation media tracking | no issue filed and not raised in any transcript this pass; carried |
+| Meta corporate giving GS#2767 | open; carried |
+| Test fixtures live in production GS#2722 | open; carried |
+| AG feedback-triage design | not verified this pass; carried |
+| AG residue AG#2127, #2132, #2133, #2137, #2140, #2141, #2145 → GS#2761, #2762 | all nine still open; carried |
+| AG#2134 `sub_` guard | open; carried |
+| Matchmaker re-weighting AG#2138 | open; carried |
+| Promotion train: check the GS end first | a practice, not an item; still standing (memory `ag-promotion-mechanics`) |
+| Thankathon build, OS#525 | OS#525 open; TD44 is gone from the open steps, and TD45 and TD53 (Resend) remain; a local demo ran from `~/thankathon-demo` in this window, reachable only from this machine |
+| exchequer lacks the doctor | not verified this pass; carried |
+| Steward probe challenged OS#526 | open; carried |
+| Cache-admin token and AG#2012's probes | AG#2012 open; whether the probes were run is not verified; carried |
+| Operator steps remaining | TD44 is no longer open; TD3, TD6, TD11, TD20 (due 09-30), TD25, TD38, TD45, TD46 are still open, and TD51, TD53, TD56, TD60 and TD61 were added |
+| `verification_records` at zero rows | not re-measured; find-and-confirm runs since 09-27 should have written rows; carried |
+| Nightly Stripe smoke AG#2016 | the issue **closed** 09-18; whether the first unattended nights passed was not verified this pass; dropped as a tracked row |
+| Grants re-ingest GS#2630 | open; carried |
+| `neon-integration` red on main GS#2599 | **closed** 09-26; dropped |
+| Board connections | no issue filed, and GS#1673 (PII barrier) is still open; carried |
+| Google Ads developer-token sunset ai-assistants#10 | open; TD20 is due 09-30; carried |
+| GS#2452 section 2 residue, then section 3 | #2452, #2464 and #2466 open; carried |
+| GS#2465 / GS#2468 post-merge steps | still unrecorded; carried |
+| AG home page A/B conversion read | the epic AG#1932 **closed** 09-18; no conversion read appears in any transcript; carried |
+| Dispatch agents → adversarial reviewer OS#459, #460 | open; carried |
+| Review-loop residue OS#454, #467, #468, #470 | open; carried. OS#544 was added on 09-25: the reviewer leaks scratch worktrees and bench databases |
+| `guard_main_worktree` is blind to `git -C` | still no issue; carried |
+
+### Started, not yet landed (September 29 watch-list)
+
+| Item | Where | State |
+|---|---|---|
+| Government lane in the matchmaker | AG#945 | slated for **Wed 09-30**. The July plan is stale because AG's copy of the opportunities omits the vectors, so an architect rescope comes first, then a dispatch |
+| Duplicate, query-carrying canonicals on hub pages | AG#2228 | filed 09-28 from a Gemini page review; its other claims were artefacts of a fetch blocked by Cloudflare |
+| Hub rankings carry funders that are not open to applications | GS#2940 | 17 funders across about 70 hub pages. AG's guard hides them, so each list runs one short. Customer-facing |
+| Weekly indexation read aborts on one GSC 500 | AG#2224 | the week's reading was lost at 233 of 1,000 |
+| `blocklist list` DetachedInstanceError | GS#2939 | filed from Sentry |
+| Hand-typed `db scratch` typos reach Sentry | AG#1743, GS#2166, GS#2345 | about 25 noise verdicts so far, which is a case for moving these up |
+| Find-website residue from the 09-28 reviews | GS find PRs | confirm each fix landed: gift pages on acronym domains; the article rule with no "story"/"press" exemption; the stored-URL write-off; dry-run lines that cannot mark a stored confirmation |
+| Find-and-confirm on the 53k unverified | TD61 | waits on Nathan's authorization |
+| GitHub Actions billing refuses CI jobs | TD60 | was due 09-27; still open |
+| `workflow_registry.md` still describes the retired quote gate | GS | regenerate it from the primary checkout |
+| Review tooling, PR C of OS#534 | OS#534 | open; the deployed `shared/` still lags |
+| `grantmaker_status` dirty-drain batching | GS#2764 | fails every hour on Neon's 600 s `transaction_timeout`; still no dispatch |
+| Dagster queue saturation, alert variable, zombie reaps | GS#2765, GS#2766/TD46, GS#2941 | open |
+| Keep-current cadence for IRS drops | GS#2398 → #2759 → #2760 | scoped, not built |
+| Form 990 facsimile | GS#2763 | epic; spike first |
+| Foundation media tracking | (memory pointer) | Fable research epic; start from the GDELT `foundation_news` pipeline |
+| Meta corporate giving via ChangeX | GS#2767 | not dispatched |
+| Test fixtures live in production | GS#2722 | the production apply is a live-session step |
+| AG feedback-triage design | (unfiled, Nathan-originated) | a correction is a pinned override with provenance; where the classifier lives is undecided |
+| AG residue from the hotfix and the train | AG#2127, #2132, #2133, #2137, #2140, #2141, #2145 → GS#2761, #2762 | open |
+| AG#2134 `sub_` guard on `stripe_customer_id` | AG#2134 | `ready-for-agent` |
+| Matchmaker re-weighting | AG#2138 | the Stage A finding; five more grades are needed to reach the binding 30 |
+| Thankathon build | thankathon #1–#11, OS#525 | TD45, TD53 pending |
+| exchequer lacks the doctor | (unfiled, sync-status) | `worktree_doctor.py` absent |
+| Steward probe challenged on `/foundations/*` | OS#526 | the skip rule needs re-checking |
+| AG#2012's key-mismatch probes | AG#2012 | not yet run |
+| Operator steps remaining | TD3, TD6, TD11, TD20, TD25, TD38, TD45, TD46, TD51, TD53, TD56, TD60, TD61 | 13 open |
+| `verification_records` row count | (memory) | re-measure after the find-and-confirm runs |
+| Grants re-ingest | GS#2630 | the pairs the old key collapsed |
+| Board connections | (unfiled intent, Nathan-originated) | own-990 officer join; gated on GS#1673 |
+| Google Ads developer-token sunset | ai-assistants#10 | H1 2027; TD20 is the ownership check |
+| GS#2452 section 2 residue, then section 3 | GS#2464, #2466 → #2469–#2481 | open |
+| GS#2465 / GS#2468 post-merge steps | GS#2468 | corpus refresh and Dagster-history confirmation still unrecorded |
+| AG home page A/B conversion read | AG#1931 experiment | no read yet |
+| Dispatch agents → adversarial reviewer | OS#459, #460 | open |
+| Review-loop residue | OS#454, #467, #468, #470, #544 | open |
+| `guard_main_worktree` is blind to `git -C` | (unfiled) | `_is_branch_op` only classifies `argv[1] in {checkout, switch}`; the fix needs a red pin on `_is_branch_op(["git","-C","/x","checkout","-b","y"])`; this row is still its only record |
+
 ---
 
 ## §4 In flight
@@ -1505,4 +1652,4 @@ Captured in `IDEA_STORE.md` from gstack research and conversational drift. None 
 - If §2-§3 grow past readable length, extract to a `documentation/changelog.md` and keep this doc thin.
 - This doc is the single answer to "what are we trying to do, what's done, what's next?" If it can't answer that in under 60 seconds of reading, it's grown past its purpose — restructure rather than expand.
 
-*Last updated: 2026-09-22 (late-September reconciliation — §3.14 added; the consultancy cutover on production, the AG grantmaker_status hotfix, the GS verification spine and deep-pass stack promoted, the facsimile cohort finished, Thankathon scaffolded, and the three GS production controls found satisfied by their own failure).*
+*Last updated: 2026-09-29 (end-of-September reconciliation — §3.15 added: the `/stage-health` fifth sweep and its Neon fallbacks, `platform_alerts` as a measurement, the plan-first review doctrine, and GS's one-day find-website rework with the defects its reviews measured).*
