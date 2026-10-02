@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CANONICAL_DIR = REPO_ROOT / "shared" / "agents"
@@ -350,6 +351,67 @@ def test_every_dev_card_states_that_a_block_stops_the_pickup(card: Path) -> None
     assert early_stop is None, (
         f"{card.parent.name}/{card.name} stops on a second BLOCK, one round short of "
         f"the cap it states beneath: {early_stop.group(0)!r}"
+    )
+
+
+REGISTRY = REPO_ROOT / "registry.yaml"
+
+#: The base branch a card hands the review assembler. A wrong base feeds the
+#: reviewer every commit between the two trunks instead of the PR's own diff
+#: (OS#547: AG PR #2263's round 1 read 35 merged staging commits).
+REVIEW_BASE = re.compile(r"--repo\s+NathanKrupa/[\w.-]+\s+--base\s+origin/([\w./-]+)")
+
+#: The branch a card substitutes into the playbook, which every worktree is
+#: branched from and every PR opened against.
+PLAYBOOK_BASE = re.compile(r"Substitute `<default-branch>` = `([^`]+)`")
+
+
+def _registry_branches() -> dict[str, str]:
+    """Each registry context id mapped to the branch its work lands on."""
+    contexts = yaml.safe_load(REGISTRY.read_text(encoding="utf-8"))["contexts"]
+    return {context["id"]: context["branch"] for context in contexts}
+
+
+@pytest.mark.parametrize("card", _dev_cards(), ids=lambda p: f"{p.parent.name}/{p.name}")
+def test_every_dev_card_bases_its_work_on_the_registry_branch(card: Path) -> None:
+    """`registry.yaml`'s `branch` is the base; a card that types its own drifts from it."""
+    branches = _registry_branches()
+    context_id = card.stem.removesuffix(DEV_CARD_SUFFIX)
+    assert context_id in branches, (
+        f"{card.parent.name}/{card.name} names no registry context `{context_id}`, so its "
+        f"base branch cannot be checked."
+    )
+    expected = branches[context_id]
+    prose = _unwrapped(card.read_text(encoding="utf-8"))
+    for role, pattern in (("review base", REVIEW_BASE), ("playbook base", PLAYBOOK_BASE)):
+        found = pattern.findall(prose)
+        assert found, f"{card.parent.name}/{card.name} states no {role}; the regex has rotted."
+        wrong = sorted({branch for branch in found if branch != expected})
+        assert not wrong, (
+            f"{card.parent.name}/{card.name} sets its {role} to {wrong}, but registry.yaml "
+            f"says `{context_id}` work lands on `{expected}`."
+        )
+
+
+#: The mobile-excellent rule (Nathan-law 2026-10-02, OS#548) is stated twice:
+#: in the AG dev card for dispatch agents and in a shared reference for live
+#: sessions. Its checklist is the bullet list opening at the widths line.
+MOBILE_REFERENCE = REPO_ROOT / "shared" / "references" / "mobile-excellence.md"
+MOBILE_RULE = re.compile(r"^- \*\*Widths:\*\*.*?(?=\n\n)", re.MULTILINE | re.DOTALL)
+
+
+def _mobile_rule(document: Path) -> str:
+    found = MOBILE_RULE.findall(document.read_text(encoding="utf-8"))
+    assert len(found) == 1, f"{document.name} states the mobile rule {len(found)} times, not once"
+    return found[0]
+
+
+def test_the_ag_card_and_live_sessions_read_the_same_mobile_rule() -> None:
+    """Two copies of a checklist drift unless something holds them together."""
+    card_rule = _mobile_rule(CANONICAL_DIR / "aigranthelper-dev.md")
+    assert card_rule == _mobile_rule(MOBILE_REFERENCE), (
+        "the mobile-excellent checklist in shared/agents/aigranthelper-dev.md differs from "
+        "shared/references/mobile-excellence.md; edit one and copy it to the other."
     )
 
 

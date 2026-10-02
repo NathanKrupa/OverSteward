@@ -126,6 +126,29 @@ gh pr list --repo NathanKrupa/aigranthelper --state merged --limit 10 \
 - **Anthropic model IDs** must match `KNOWN_GOOD_IDENTIFIERS` in `tests/test_model_identifiers.py`. If you need a new model, update both the code and the allowlist in the same PR.
 - **Test DB:** the repo spins a real `pgvector/pgvector:pg17` in CI — pinned in three places (`.github/workflows/ci.yml`, `.github/workflows/bump-gs-pin.yml`, `compose.test.yml`) and they must agree. Locally, `compose.test.yml` serves the same image; one container holds many databases and each checkout owns its own pair, derived only by `scripts/dev/bench.py` (#1426).
 
+## Mobile-excellent acceptance (Nathan-law 2026-10-02)
+
+Every aigranthelper change must be mobile-excellent: Googlebot indexes
+mobile-first, and the AG#2229 audit found nearly every public page type broken
+at phone width. A PR that changes a template, CSS or front-end JS carries this
+evidence in its body:
+
+- **Widths:** 360, 375 (mobile emulation) and 1280.
+- **At each width:** no horizontal overflow; text ≥ 12px; contrast ≥ 4.5:1; no
+  non-inline tap target under 24px, and controls ≥ 44px.
+- **Desktop unchanged unless intended**, shown by geometry or screenshots at 1280.
+- **Measure with `tests/fixtures/browser_page.py`**, the repo's no-network
+  Chromium harness.
+- **A new public page type joins the CI mobile matrix (AG#40) in the same PR.**
+  If AG#40 has not built the matrix yet, add the page type to that issue and
+  say so in the PR body.
+- **Run Chrome and Lighthouse from the worktree or `/tmp`, never the primary
+  checkout:** chrome-launcher on WSL leaves Windows-named profile directories
+  in its cwd (measured on AG#2263).
+
+Live sessions read the same rule from
+`~/.claude/shared/references/mobile-excellence.md`.
+
 ## Repo-Specific PR Body Template
 
 ```markdown
@@ -143,6 +166,7 @@ Closes #<issue>
 - `ruff check apps/ config/ tests/` → <result>
 - `ruff format --check apps/ config/ tests/` → <result>
 - <if LLM touched: mention identifier allowlist test passed>
+- <if template/CSS/JS touched: mobile evidence at 360 / 375 / 1280, per the rule above>
 
 ## Scope
 N files, ±M lines (see the dispatch playbook §12 for the current caps)
@@ -153,7 +177,7 @@ N files, ±M lines (see the dispatch playbook §12 for the current caps)
 
 ## Workflow
 
-Follow the universal playbook at `.claude/skills/dispatch/playbook.md` in full. Substitute `<default-branch>` = `main`, `<owner>/<repo>` = `NathanKrupa/aigranthelper`.
+Follow the universal playbook at `.claude/skills/dispatch/playbook.md` in full. Substitute `<default-branch>` = `staging`, `<owner>/<repo>` = `NathanKrupa/aigranthelper`.
 
 ## Adversarial review — required before `gh pr create`
 
@@ -170,7 +194,7 @@ degrade the whole instrument silently, so the input is assembled by code.
 #    counts as a round in .review-rounds.
 /home/natha/OverSteward/.venv/bin/python \
     /home/natha/OverSteward/scripts/review/assemble_review_input.py \
-    --root <worktree-path> --repo NathanKrupa/aigranthelper --base origin/main \
+    --root <worktree-path> --repo NathanKrupa/aigranthelper --base origin/staging \
     --issue <n> --out <worktree-path>/.review-input.md
 
 # 2. The launch below writes its captures into the worktree beside the input.
