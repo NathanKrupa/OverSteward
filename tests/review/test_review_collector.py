@@ -5,10 +5,21 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 
 import pytest
 
 from oversteward.review_collector import ShellCollector, gaudi_binary
+from oversteward.review_input import GAUDI_SECTION, assemble
+
+#: Python 3.14's parenthesis-free multi-except (PEP 758) — the AG PR #2335 shape.
+PEP758_SOURCE = (
+    "def to_cents(value):\n"
+    "    try:\n"
+    "        return int(value)\n"
+    "    except ValueError, TypeError:\n"
+    "        return 0\n"
+)
 
 
 @pytest.fixture
@@ -79,6 +90,48 @@ class TestGaudiResolution:
         bindir = tmp_path / "venv" / "bin"
         bindir.mkdir(parents=True)
         assert gaudi_binary(str(bindir / "python")) is None
+
+
+def _stub_gaudi(path, marker):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f"#!/bin/sh\necho '{{\"marker\": \"{marker}\", \"skipped\": []}}'\n",
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
+
+
+class TestTheReviewedRepoPinsItsOwnGaudi:
+    """The gaudi that reads a repo's files is the one that repo pins (OS#552).
+
+    The assembler runs under OverSteward's interpreter (Python 3.12), so the
+    gaudi beside it cannot parse AG's Python 3.14 sources; AG's own venv gaudi
+    can. The reviewed checkout's `.venv` comes first.
+    """
+
+    def test_the_checkouts_own_venv_gaudi_is_the_one_that_runs(self, repo):
+        _stub_gaudi(repo / ".venv" / "bin" / "gaudi", "repo-pinned")
+        report = json.loads(ShellCollector(repo).gaudi_json(["keep.py"]))
+        assert report["keep.py"]["marker"] == "repo-pinned"
+
+
+@pytest.mark.skipif(gaudi_binary() is None, reason="no gaudi beside this interpreter")
+@pytest.mark.skipif(sys.version_info >= (3, 14), reason="this gaudi can parse PEP 758")
+class TestAnOldGaudiThatCannotParseAFileIsUnmeasured:
+    """The real gaudi, on a Python that predates PEP 758, against a real file."""
+
+    def test_the_unparseable_file_is_named_and_the_gate_unmeasured(self, repo):
+        (repo / "money.py").write_text(PEP758_SOURCE, encoding="utf-8")
+        subprocess.run(["git", "-C", str(repo), "add", "money.py"], check=True)
+        subprocess.run(
+            ["git", "-C", str(repo), "commit", "-qm", "pep758"], check=True, capture_output=True
+        )
+        collector = ShellCollector(repo, gaudi=gaudi_binary())
+        result = assemble(collector, repo="o/r", base="master", issue=None, no_issue=True)
+        section = next(s for s in result.sections if s.name == GAUDI_SECTION)
+        assert not section.measured
+        assert "money.py" in section.reason
+        assert "parenthesized" in section.reason
 
 
 class TestDiffProbes:

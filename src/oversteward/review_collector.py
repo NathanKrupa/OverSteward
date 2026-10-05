@@ -32,6 +32,21 @@ _DIFF = "diff"
 _AUTODETECT = object()
 
 
+def repo_gaudi(root: Path) -> Path | None:
+    """The gaudi the reviewed checkout pins in its own `.venv`, else the one beside us (OS#552).
+
+    The assembler runs under OverSteward's interpreter, but the files it lints
+    belong to the reviewed repo. AG runs Python 3.14; the gaudi beside a 3.12
+    interpreter cannot parse PEP 758 `except A, B:` and skips such files, while
+    AG's own gaudi reads them. The checkout's pin comes first. A repo that pins
+    no gaudi gets the interpreter's: a file that gaudi cannot parse is still
+    caught by the skip check in `review_input` and turns the section
+    unmeasured, but a difference in gaudi *version* (its rule set) between
+    that fallback and anything the repo would run is not detected.
+    """
+    return gaudi_binary(str(root / ".venv" / "bin" / "python")) or gaudi_binary()
+
+
 def _run(args: list[str], cwd: Path) -> str | None:
     """Stdout of a successful command, or None. Never raises, never returns ''."""
     try:
@@ -51,7 +66,7 @@ class ShellCollector:
         # `gaudi=None` means "there is none" — a caller must be able to say
         # that, or the absent-gaudi branch is unreachable from a test and the
         # COULD-NOT-LOOK path ships unproven.
-        self._gaudi = gaudi_binary() if gaudi is _AUTODETECT else gaudi
+        self._gaudi = repo_gaudi(root) if gaudi is _AUTODETECT else gaudi
 
     def _merge_base(self, base: str) -> str | None:
         out = _run([_GIT, "merge-base", base, _HEAD], self._root)

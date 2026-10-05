@@ -24,6 +24,7 @@ must run under a bare interpreter in any repo.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -453,6 +454,42 @@ def _gaudi_body(report: str, note: str) -> str:
     )
 
 
+def _unread_files(report: str, submitted: Sequence[str]) -> dict[str, str] | None:
+    """Each submitted file gaudi did not read, with why; None when the report is not gaudi's.
+
+    gaudi lists a file it cannot parse under `skipped` and still exits 0 —
+    gaudi 0.3.0 on Python 3.12 does this to PEP 758 `except A, B:` (OS#552). A
+    file with no report, or a report with no `skipped` list, is unread too:
+    without the list a clean file and an unparsed one look the same.
+    """
+    try:
+        reports = json.loads(report)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(reports, dict):
+        return None
+    unread: dict[str, str] = {}
+    for path in submitted:
+        file_report = reports.get(path)
+        skipped = file_report.get("skipped") if isinstance(file_report, dict) else None
+        if not isinstance(skipped, list):
+            unread[path] = "gaudi's report does not say whether this file was parsed"
+        elif skipped:
+            unread[path] = "; ".join(
+                str(entry.get("reason", entry)) if isinstance(entry, dict) else str(entry)
+                for entry in skipped
+            )
+    return unread
+
+
+def _unread_reason(unread: dict[str, str], body: str) -> str:
+    named = "\n".join(f"- {path}: {why}" for path, why in sorted(unread.items()))
+    return (
+        "gaudi did not read these files, so the gate is UNMEASURED for them — "
+        "do not treat them as lint-clean:\n" + named + "\n\nWhat gaudi did read:\n\n" + body
+    )
+
+
 def _gaudi_section(
     collector: Collector, changed: Sequence[str], deleted: frozenset[str] | None
 ) -> Section:
@@ -482,7 +519,25 @@ def _gaudi_section(
     report = collector.gaudi_json(present)
     if report is None:
         return Section(name=GAUDI_SECTION, body=COULD_NOT_LOOK, measured=False)
-    return Section(name=GAUDI_SECTION, body=_gaudi_body(report, note), measured=True)
+    return _gaudi_report_section(report, present, note)
+
+
+def _gaudi_report_section(report: str, present: Sequence[str], note: str) -> Section:
+    """Measured only when gaudi says it parsed every file it was handed."""
+    body = _gaudi_body(report, note)
+    unread = _unread_files(report, present)
+    if unread is None:
+        return Section(
+            name=GAUDI_SECTION,
+            body=body,
+            measured=False,
+            reason="gaudi's output is not a per-file JSON report:\n\n" + body,
+        )
+    if unread:
+        return Section(
+            name=GAUDI_SECTION, body=body, measured=False, reason=_unread_reason(unread, body)
+        )
+    return Section(name=GAUDI_SECTION, body=body, measured=True)
 
 
 def assemble(

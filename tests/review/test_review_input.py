@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from oversteward.review_input import (
@@ -27,6 +29,28 @@ from oversteward.review_input import (
 )
 
 
+#: The fake's default: a clean report, in gaudi 0.3.0's shape, for every file asked about.
+_CLEAN_GAUDI = object()
+
+#: What gaudi 0.3.0 on Python < 3.14 says about a PEP 758 `except A, B:` (AG PR #2335).
+PEP758_SKIP = "syntax error at line 4: multiple exception types must be parenthesized"
+
+
+def _gaudi_report(skips: dict[str, list[str]]) -> str:
+    """The collector's merged report: one gaudi 0.3.0 JSON document per file, keyed by path."""
+    return json.dumps(
+        {
+            path: {
+                "version": "0.3.0",
+                "findings": [],
+                "skipped": [{"file": path.rsplit("/", 1)[-1], "reason": r} for r in reasons],
+                "examined": True,
+            }
+            for path, reasons in skips.items()
+        }
+    )
+
+
 class _Collector:
     """A scripted stand-in for the git/gh/gaudi probes assembly depends on.
 
@@ -44,7 +68,7 @@ class _Collector:
         file_bodies: dict[str, str] | None = None,
         base_bodies: dict[str, str] | None = None,
         claude_md: str | None = "# CLAUDE.md\n",
-        gaudi: str | None = '{"findings": []}',
+        gaudi: str | None | object = _CLEAN_GAUDI,
     ) -> None:
         self._diff = diff
         self._changed = ["src/x.py", "tests/test_x.py"] if changed is None else changed
@@ -101,6 +125,8 @@ class _Collector:
 
     def gaudi_json(self, relpaths: list[str]) -> str | None:
         self.gaudi_calls.append(list(relpaths))
+        if self._gaudi is _CLEAN_GAUDI:
+            return _gaudi_report({path: [] for path in relpaths})
         return self._gaudi
 
 
@@ -291,6 +317,72 @@ class TestAnUnreadableDeletionListNamesItselfRatherThanFoldingAway:
         section = next(s for s in result.sections if s.name == GAUDI_SECTION)
         assert "Skipped by design" in section.body
         assert DELETION_LIST_UNREADABLE not in section.body
+
+
+class TestAFileGaudiSkippedIsUnmeasuredNotClean:
+    """A file gaudi could not parse is a file nobody linted (OS#552).
+
+    gaudi 0.3.0 on Python 3.12 cannot parse PEP 758 `except A, B:`. It lists the
+    file under `skipped` and exits 0, so on AG PR #2335 the section read as
+    measured while two changed files had never been read.
+    """
+
+    def _skipping(self) -> _Collector:
+        return _Collector(
+            changed=["src/money.py", "src/x.py"],
+            gaudi=_gaudi_report({"src/money.py": [PEP758_SKIP], "src/x.py": []}),
+        )
+
+    def test_a_skipped_file_makes_the_gaudi_section_unmeasured(self):
+        result = _assemble(collector=self._skipping())
+        section = next(s for s in result.sections if s.name == GAUDI_SECTION)
+        assert not section.measured
+        assert exit_code_for(result) == EXIT_COULD_NOT_LOOK
+
+    def test_the_skipped_file_and_gaudis_reason_reach_the_reviewer(self):
+        text = render(_assemble(collector=self._skipping()))
+        assert "UNMEASURED INPUTS: gaudi-warn" in text
+        assert "src/money.py" in text
+        assert PEP758_SKIP in text
+
+    def test_the_skipped_file_is_named_with_its_reason_and_the_read_file_is_not(self):
+        # Asserted before the embedded report, which carries both paths and the
+        # reason anyway: the named list is what tells the reviewer which file.
+        result = _assemble(collector=self._skipping())
+        section = next(s for s in result.sections if s.name == GAUDI_SECTION)
+        named = section.reason.split("What gaudi did read", 1)[0]
+        assert f"src/money.py: {PEP758_SKIP}" in named
+        assert "src/x.py" not in named
+
+    def test_a_report_that_does_not_say_what_it_skipped_is_unmeasured(self):
+        # Without a `skipped` list there is no telling a clean file from one
+        # gaudi never parsed, so the absence must not read as "none skipped".
+        report = json.dumps({"src/x.py": {"version": "0.3.0", "findings": []}})
+        result = _assemble(collector=_Collector(changed=["src/x.py"], gaudi=report))
+        section = next(s for s in result.sections if s.name == GAUDI_SECTION)
+        assert not section.measured
+        assert "src/x.py" in section.reason
+
+    def test_a_file_missing_from_the_report_is_unmeasured(self):
+        report = _gaudi_report({"src/x.py": []})
+        collector = _Collector(changed=["src/money.py", "src/x.py"], gaudi=report)
+        result = _assemble(collector=collector)
+        section = next(s for s in result.sections if s.name == GAUDI_SECTION)
+        assert not section.measured
+        assert "src/money.py" in section.reason
+
+    def test_a_report_that_is_not_json_is_unmeasured(self):
+        result = _assemble(collector=_Collector(gaudi="usage: gaudi check [OPTIONS]"))
+        section = next(s for s in result.sections if s.name == GAUDI_SECTION)
+        assert not section.measured
+
+    def test_a_report_with_every_file_parsed_stays_measured(self):
+        report = _gaudi_report({"src/money.py": [], "src/x.py": []})
+        collector = _Collector(changed=["src/money.py", "src/x.py"], gaudi=report)
+        section = next(
+            s for s in _assemble(collector=collector).sections if s.name == GAUDI_SECTION
+        )
+        assert section.measured
 
 
 class TestAssemblyIsDeterministic:
