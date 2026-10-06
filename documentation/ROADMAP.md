@@ -1545,6 +1545,147 @@ Every §3.14 watch-list row, in order:
 | Review-loop residue | OS#454, #467, #468, #470, #544 | open |
 | `guard_main_worktree` is blind to `git -C` | (unfiled) | `_is_branch_op` only classifies `argv[1] in {checkout, switch}`; the fix needs a red pin on `_is_branch_op(["git","-C","/x","checkout","-b","y"])`; this row is still its only record |
 
+## §3.16 Early October 2026 — an outage traced to a cache, a mobile train, and the deep pass reaches the community foundations (reconciled 2026-10-06)
+
+> Tenth dream-produced pass, over the 10-06 cycle's 9 transcripts (five of them
+> adversarial-reviewer verdicts). Three through-lines. **AG had a real
+> production outage on the night of 10-03/04**. Two causes were traced: every
+> home-page render rewrote one `django_cache` row, and per-foundation
+> `{% cache %}` fragments churned the 300-entry database cache at about 65 MB
+> of WAL every 5 minutes. It was fixed and hotfixed to `main` the same day.
+> **AG's mobile audit shipped as two promotes** (10-04, 10-05), once a
+> GrantSpider mirror drift that blocked the first one was synced. **GS's
+> sectioned deep-pass profile (GS#2978) went from schema to a community-foundation
+> drain in a week.** The laptop crawl of the verified-grantmaker cohort
+> finished, and the Council on Foundations directory became GS data. OverSteward
+> itself merged only two PRs; most of its week was spent in the other repos.
+
+### Shipped (2026-09-30 → 10-06)
+
+- **OverSteward.**
+  - The `aigranthelper-dev` card assembles review input against `staging`,
+    and every AG UI change carries the mobile-excellent acceptance, a
+    Nathan-law of 10-02 (#550, OS#547, OS#548;
+    `shared/references/mobile-excellence.md`).
+  - The review assembler reports a gaudi run that skipped unparseable files
+    as UNMEASURED, and runs the reviewed repo's gaudi (#554, OS#552).
+- **AG outage fix (AG#2306 → #2309, hotfixed to `main` as #2312, 10-04).**
+  - The home page writes the corpus counts only when they change.
+  - The giving fragments use the per-replica file cache, and a guard test
+    requires `using=` on every cache tag.
+  - The degraded fallback resets a broken connection instead of failing
+    again with "another command is already in progress".
+- **AG promotes #2310 (10-04) and #2343 (10-05).**
+  - #2310 waited on AG#2311 (#2316), which synced AG's profile mirrors to
+    GS `main`'s `foundation_facts_v`. Only `ci-heavy` saw the drift.
+  - Together they carried about twenty mobile PRs: a phone nav, 24/44 px tap
+    targets, a 12 px text floor, WCAG AA contrast and self-hosted fonts.
+    Lighthouse mobile now reads 97 on `/data/` and 96 on a foundation page.
+  - `/gov-programs/` went from 242,000 px to an agency index with 142
+    per-agency hubs (#2337).
+  - A mobile-matrix CI job was added (#2272, #2274).
+  - `/gov*` is edge-cached: #2322 with the rule applied 10-05 (#2346); all
+    four probed page types return `HIT`.
+  - On 10-06, #2354 and #2357 closed AG#2328 and AG#2333.
+- **AG enriched pages indexable (AG#2321 → #2323, hotfixed as #2329, 10-05).**
+  Under Nathan's 10-04 ruling, a sectioned profile counts as enriched.
+  AG#2324 (readers outside the gate) stays open.
+- **AG build tokens (10-04/05).** The dead `WPHELPER_INSTALLATION_TOKEN`
+  failed nine production cron deploys; the web service survived only on a
+  cached layer. It was replaced on all 13 services (TD65, closed on a fresh
+  wphelper clone). A follow-on mix-up in the CI secret broke PR installs for
+  about 2.5 hours until the build token replaced it.
+- **GS deep pass (GS#2978) and page selection (GS#2920, closed).**
+  - The sectioned-profile schema and writer, then `foundation_facts` with
+    page-quote and IRS provenance (migration `3dcdc697a021`).
+  - The hybrid research drain, and a community-foundation cohort.
+  - Nav-link discovery, second-hop discovery and facet pins.
+  - Nine promotes (#2984 → #3074), followed by enrich-drain hardening:
+    slice isolation (#3084), the re-pull fix (#3097, GS#3092), and one Bash
+    prefix with a bound on every step (#3110, #3113, GS#3089).
+  - #3118 (promoted in #3119) stops a disposition story from retiring the
+    generation its own request wrote (GS#3107). Its repair is TD73.
+- **GS crawl cohort finished.** After a WSL crash, the laptop crawl resumed
+  for pass 3 (10-04) and pass 4 (10-05), with nothing cut. Then 633
+  verified COF community foundations were crawled, and 618 now have the 3
+  usable pages the drain needs.
+- **COF directory as GS data (GS#3101 → #3105, #3109, #3111; promote #3114,
+  migration `5d6a20445170`).** The `--apply` is held (see the watch-list).
+
+### Corrections to the §3.15 watch-list
+
+| §3.15 row | Correction as of 2026-10-06 |
+|---|---|
+| Government lane in the matchmaker AG#945 | still open; the 09-30 slot passed with no transcript showing the rescope |
+| Duplicate canonicals AG#2228 | open; carried |
+| Hub rankings carry closed funders GS#2940 | open; carried |
+| Indexation read aborts on one GSC 500 AG#2224 | open; carried |
+| `blocklist list` GS#2939 | open; carried |
+| `db scratch` typos reach Sentry AG#1743, GS#2166, GS#2345 | all open; carried |
+| Find-website residue from 09-28 | not re-verified this pass; carried |
+| Find-and-confirm on the 53k, TD61 | TD61 still open, past its 09-30 due date |
+| GitHub Actions billing, TD60 | **TD60 no longer open**. The 10-05 promote stall was GitHub's own Actions incident, not billing; dropped |
+| `workflow_registry.md` describes the retired quote gate | not verified; carried |
+| Review tooling PR C, OS#534 | open; carried |
+| `grantmaker_status` batching GS#2764 | **still open**; two weeks undispatched |
+| Dagster GS#2765, GS#2766/TD46, GS#2941 | all open; TD46 is still in Todoist |
+| Keep-current GS#2398 → #2759 → #2760 | all open |
+| Form 990 facsimile GS#2763 | open |
+| Foundation media tracking | not raised; carried |
+| Meta corporate giving GS#2767 | open |
+| Test fixtures in production GS#2722 | open |
+| AG feedback-triage design | not raised; carried |
+| AG residue AG#2127–#2145 → GS#2761, #2762 | all nine open |
+| AG#2134 `sub_` guard | open |
+| Matchmaker re-weighting AG#2138 | open |
+| Thankathon, OS#525 | OS#525 open; TD45 and TD53 still open |
+| exchequer lacks the doctor | not verified; carried |
+| Steward probe challenged OS#526 | open. TD68 (10-05) rotates `STEWARD_PROBE_TOKEN`, which a measurement harness leaked to B2 through a redirect |
+| AG#2012 probes | open |
+| Operator steps | TD3, TD6, TD11, TD20, TD25, TD38, TD45, TD46, TD53, TD56 and TD61 still open; **TD51 and TD60 closed**. TD62–TD64, TD66–TD70, TD72 and TD73 were added, and TD65 was added and closed |
+| `verification_records` row count | not re-measured; carried |
+| Grants re-ingest GS#2630 | open |
+| Board connections | still gated on GS#1673 (open) |
+| Google Ads sunset ai-assistants#10 | open; TD20 overdue |
+| GS#2452 section 2 residue | #2452, #2464, #2466 open |
+| GS#2465 / GS#2468 post-merge steps | GS#2468 is closed; the corpus refresh is still unrecorded |
+| AG home-page A/B conversion read | still none. TD66 (10-05) asks Nathan to end the price experiment so `/` can be edge-cached |
+| Dispatch agents → reviewer OS#459, #460 | open |
+| Review-loop residue OS#454, #467, #468, #470, #544 | all open. **OS#454 may be answered by #554**, which runs the reviewed repo's gaudi; it needs checking against #554 and closing |
+| `guard_main_worktree` blind to `git -C` | still unfiled |
+
+### Started, not yet landed (October 6 watch-list)
+
+| Item | Where | State |
+|---|---|---|
+| Reviewer scratch copies orphan bench DBs | OS#553 | branch `fix/issue-553-reviewer-scratch-db` pushed; its round-1 review returned PASS-WITH-FINDINGS (three findings). **No PR is open** |
+| Reviewer worktrees outside `.claude/worktrees/` share a DB | OS#555, #546 | open |
+| Dispatch playbook's `--auto` is an instant merge with no required checks | OS#551 | open; it recurred on AG#2323 |
+| Assembler takes one `--issue` | OS#549 | open |
+| COF directory `--apply` | GS#3101 follow-on | held on Nathan's scope ruling (every COF-listed grantmaker, or only community foundations) and on an importer fix for 3 dead and 7 alias directory URLs; unfiled |
+| COF contact PII stored | GS#3106 | 510 prod rows; open |
+| `migrate-prod` refused by its own boot guard | GS#3116 | open; the `GRANTSPIDER_SKIP_MIGRATION_CHECK=1` workaround stands |
+| Crawl plan read outlives `transaction_timeout` | GS#3069 | open |
+| Indexability readers outside the gate | AG#2324 | open |
+| Home-page A/B Worker | AG#2353, TD70 | open |
+| AG follow-ons from the mobile and edge pass | AG#2318 (cold-staging smoke), #2336 (CLS on slow 4G), #2302, #2349 (`/data/` 18 s), #2350 (noindex in the sitemap), #2351 (home TBT), #2251 home half (TD66) | open |
+| Uptime monitors to `/healthz`, PetalBot block | TD63, TD64 | the classifier refused both from the session; they are Nathan's |
+| `GS_Installation_Token` expiry | AG Railway `GH_INSTALLATION_TOKEN` | expires 2026-11-12; there is no expiry check (unfiled) |
+| §3.15 carried rows | see the table above | every row marked open or carried |
+
+**Unfiled intent seen in this pass's transcripts (flagged, not filed):**
+
+- the drain stops cleanly before the 1,000-call cap (only a comment on the
+  closed GS#3089);
+- the Kearney write-up gap (28 facts verified, no history written);
+- the wave 1a notification-date refresh after #3072, and wave 1b's 426
+  refreshes;
+- the leftover active `profile_attempt` row after a successful apply;
+- `geography_text` missing from the American-spelling exceptions;
+- a fetch path for the 121–136 bot-blocking community-foundation sites;
+- a hook refusing `pkill -f` by pattern (third recurrence);
+- a Railway build-token expiry check.
+
 ---
 
 ## §4 In flight
@@ -1652,4 +1793,4 @@ Captured in `IDEA_STORE.md` from gstack research and conversational drift. None 
 - If §2-§3 grow past readable length, extract to a `documentation/changelog.md` and keep this doc thin.
 - This doc is the single answer to "what are we trying to do, what's done, what's next?" If it can't answer that in under 60 seconds of reading, it's grown past its purpose — restructure rather than expand.
 
-*Last updated: 2026-09-29 (end-of-September reconciliation — §3.15 added: the `/stage-health` fifth sweep and its Neon fallbacks, `platform_alerts` as a measurement, the plan-first review doctrine, and GS's one-day find-website rework with the defects its reviews measured).*
+*Last updated: 2026-10-06 (early-October reconciliation — §3.16 added: the AG cache outage and its hotfix, the mobile train's two promotes, the build-token expiry, GS's deep pass reaching the community foundations, the finished crawl cohort and the COF directory import).*
