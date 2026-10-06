@@ -209,26 +209,6 @@ def test_a_worktree_git_no_longer_records_gets_no_name(wdb, checkout: Path) -> N
         wdb.database_name(worktree)
 
 
-def test_worktrees_outside_the_home_never_share_a_name(
-    wdb, checkout: Path, tmp_path: Path
-) -> None:
-    """Two scratchpads each holding a registered worktree called ``ag``.
-
-    Only ``.claude/worktrees/`` makes a directory name unique; anywhere else the
-    name is qualified by the path, so the database is unique and still claimed
-    by the doctor's ``_<digest>`` suffix.
-    """
-    names = []
-    for owner in ("session-one", "session-two"):
-        tree = tmp_path / owner / "scratchpad" / "ag"
-        tree.parent.mkdir(parents=True)
-        _git(checkout, "worktree", "add", "-q", "--detach", str(tree))
-        name = wdb.database_name(tree)
-        assert name == f"grantspider_test_ag_{wdb.path_digest(str(tree))}"
-        names.append(name)
-    assert len(set(names)) == 2
-
-
 def test_base_override_wins(wdb, checkout: Path) -> None:
     assert wdb.database_name(checkout, base="other_test") == "other_test"
 

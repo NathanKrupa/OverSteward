@@ -56,13 +56,6 @@ _DIGEST_LENGTH = 8
 
 SUFFIX = "_test"
 
-#: Where a checkout keeps its worktrees, relative to the primary. Every tree here
-#: is a sibling in one directory, so the filesystem keeps their names unique —
-#: and with them the bare ``_<slug>`` each database is named by. Anywhere else
-#: two trees can share a directory name (every session scratchpad has its own
-#: ``ag/``), so the name is qualified by the path.
-WORKTREE_HOME = Path(".claude") / "worktrees"
-
 
 class UnregisteredTree(FileNotFoundError):
     """A tree git calls linked, but whose registration names another directory.
@@ -214,10 +207,6 @@ def database_name(tree: Path | None = None, *, base: str | None = None) -> str:
     Raises ``FileNotFoundError`` when ``tree`` is not inside a git checkout —
     the name is derived from the repository, so there is nothing to guess — and
     :class:`UnregisteredTree` when it is a copy of a worktree rather than one.
-
-    A worktree outside ``<primary>/.claude/worktrees/`` gets its path digest
-    after its slug: ``<stem>_<slug>_<digest>``. The doctor claims that shape by
-    the ``_<digest>`` suffix it already matches for shortened names.
     """
     tree = Path(tree) if tree is not None else Path.cwd()
     primary = primary_checkout(tree)
@@ -229,14 +218,12 @@ def database_name(tree: Path | None = None, *, base: str | None = None) -> str:
     root = toplevel(tree) or tree
     registered = registered_root(tree)
     if registered is None or registered.resolve() != root.resolve():
+        owner = f"the worktree git registered at {registered}" if registered else "a worktree"
         raise UnregisteredTree(
-            f"{root} is a copy of the worktree git registered at {registered}, not a "
-            "worktree itself — make a real one with `git worktree add` and name its "
-            "database there"
+            f"{root} is a copy of {owner}, not one git lists — make a real worktree "
+            "with `git worktree add` and name its database there"
         )
-    if root.parent.resolve() == (primary / WORKTREE_HOME).resolve():
-        return derive(stem, root.name, key=str(root))
-    return derive(stem, f"{root.name}_{path_digest(str(root))}", key=str(root))
+    return derive(stem, root.name, key=str(root))
 
 
 def main(argv: list[str] | None = None) -> int:
