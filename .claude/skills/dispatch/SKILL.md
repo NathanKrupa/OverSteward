@@ -176,16 +176,17 @@ If the agent returns prose with no YAML block (rare in foreground), treat it as 
 
 ### 5. Cleanup after `MERGED` — standing permission
 
-A merged PR leaves a worktree, often a `<name>.baseline` sibling, a bench
-database per worktree, a local branch and a remote branch. Every
-dispatch-target repo and OverSteward has `delete_branch_on_merge` on (set and
+A merged PR leaves a worktree, often a `<name>.baseline` or `<name>.review`
+sibling, a bench database per worktree, a local branch and a remote branch.
+Every dispatch-target repo and OverSteward has `delete_branch_on_merge` on (set and
 verified by hand 2026-09-18; the `sync-status` check that would keep it
 measured is OS#510), so GitHub removes the remote branch the moment any PR
 merges — and **retargets** any open PR that used it as a base onto the merged
 PR's base, rather than closing it (measured on OS#508/#509). A dispatch
 run that reached its end has also torn its worktree down (playbook step 19),
 so this section is for what nothing else reached: an agent that died before
-step 19, a `.baseline` sibling it left, the local branch, and every
+step 19, a `.baseline` sibling it left, a `.review` sibling an adversarial
+reviewer left when it died mid-review (OS#553), the local branch, and every
 **in-session** worktree (`session/*`, back-merges, promotes), which no playbook
 tends. Nothing in it needs Nathan, so the session does it without asking and
 without pushing an operator step — the tree he next opens is already clean.
@@ -196,6 +197,7 @@ gh pr view <n> --repo <owner>/<repo> --json state --jq .state          # must pr
 gh pr list --repo <owner>/<repo> --base <branch> --state open --json number   # must print []
 [ ! -d <repo>/.claude/worktrees/<name> ]          || scripts/dev/worktree_doctor.py teardown <repo>/.claude/worktrees/<name>
 [ ! -d <repo>/.claude/worktrees/<name>.baseline ] || scripts/dev/worktree_doctor.py teardown <repo>/.claude/worktrees/<name>.baseline
+[ ! -d <repo>/.claude/worktrees/<name>.review ]   || scripts/dev/worktree_doctor.py teardown <repo>/.claude/worktrees/<name>.review
 scripts/dev/worktree_doctor.py sweep                # reports; must name nothing orphaned
 ! git -C <repo> show-ref --verify --quiet refs/heads/<branch> \
     || git -C <repo> branch -d <branch>             # local before remote — see below
