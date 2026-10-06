@@ -268,6 +268,8 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
 
     A `.baseline` worktree from the baseline-comparison pattern is torn down the same way.
 
+    So is a `<worktree-path>.review` worktree, if one exists: the adversarial reviewer's scratch copy. The reviewer removes its own before it returns, but one that died mid-review leaves it behind, databases and all, named after a path only its owner's teardown would think to look at (OS#553).
+
 ### Final
 
 20. **Emit structured report** (see format below). This is your final message and IS the result returned to the session — make it the last thing you output.
