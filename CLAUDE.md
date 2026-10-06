@@ -112,7 +112,7 @@ PR's base (measured, OS#508/#509). Never `gh pr merge --delete-branch` — a
 no-op under `--auto`, an unmeasured refs-API delete otherwise, and a refs-API
 delete of a branch an open PR bases on is the measured way to **close** that
 PR. Once `gh` reports the PR `MERGED`, the session tears down the worktree
-(and any `<name>.baseline` sibling), sweeps, deletes the local branch with `git branch -d`, and — only if
+(and any `<name>.baseline` or `<name>.review` sibling), sweeps, deletes the local branch with `git branch -d`, and — only if
 the remote ref somehow survived, and only after `gh pr list --base <branch>
 --state open` prints nothing — deletes it with `gh api -X DELETE
 repos/<owner>/<repo>/git/refs/heads/<branch>`. Without asking, never as an
