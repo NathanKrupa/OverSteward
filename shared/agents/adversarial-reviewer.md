@@ -78,6 +78,42 @@ recall. You are expected to:
 Work in a scratch copy. **Never commit, never push, never edit the author's
 branch.** Your mutations are experiments and must leave no trace.
 
+**The scratch copy is a real worktree at one path: `<D>.review`**, where `<D>`
+is the directory holding the review-input file you were handed — the author's
+worktree. Its tests create bench databases named from that path, so the path
+names whose they are and the doctor can always find them again. A copy made any
+other way — `rsync`, `cp -a`, an `ag/` in your scratchpad — names its databases
+after a directory every other session also uses, and the canonical
+`worktree_db.py` refuses to name one for a copy at all (OS#553). `<P>` below
+is the primary checkout: the first `worktree` line of
+`git -C <D> worktree list --porcelain`.
+
+1. If `<D>.review` already exists, a previous review left it: remove it as in
+   step 4 before you start, restoring or deleting each path its
+   `git status --porcelain` lists.
+2. `git -C <D> worktree add --detach <D>.review HEAD`, then
+   `ln -s <P>/.venv <D>.review/.venv`.
+3. **Prove the copy is what Python imports before trusting any result.** The
+   shared `.venv`'s editable install points at `<P>`'s source, so without an
+   absolute `PYTHONPATH` into `<D>.review` (`<D>.review/src` for a `src/`
+   layout) on every command, every gate measures the primary checkout instead.
+   `.venv/bin/python -c "import <pkg>; print(<pkg>.__file__)"` must print a
+   path inside `<D>.review`. Where the repo doctrine says `PYTHONPATH` cannot
+   shadow a package, do what it says instead.
+   Run the tests through the repo's own bench tooling, which derives every
+   database name from the tree's path. **Never name a database yourself** or
+   point a `DATABASE_URL` at a name you chose: a hand-named database is one no
+   tool can attribute, so nobody can ever prove it dead.
+4. **Before you return — whatever the verdict, and also when you stop early
+   because something failed** — remove the copy and its databases. Restore each
+   file you mutated (`git -C <D>.review restore -- <path>`) and delete each file
+   you added; keep your own scripts and logs in your scratchpad, never in the
+   tree. When `git -C <D>.review status --porcelain` prints nothing, run
+   `<P>/scripts/dev/worktree_doctor.py teardown <D>.review`, which drops the
+   databases after removing the tree. Never `git worktree remove`: it leaves the
+   databases behind with nothing left to name them. If the doctor refuses, say
+   so in your findings rather than forcing past it.
+
 ## The estate failure catalogue
 
 Each entry is a rule the estate already paid for. Check every one against the

@@ -57,6 +57,18 @@ _DIGEST_LENGTH = 8
 SUFFIX = "_test"
 
 
+class UnregisteredTree(FileNotFoundError):
+    """A tree git calls linked, but whose registration names another directory.
+
+    A copy of a linked worktree — rsync, ``cp -a`` — carries the original's
+    ``.git`` file, so git answers every question as the original would, while
+    ``git worktree list`` never names the copy. A database named after it is
+    shared with every other copy of the same name and is claimed by no live
+    worktree: an orphan from birth (OS#553). A ``FileNotFoundError`` so every
+    caller that already refuses "not a checkout" refuses this the same way.
+    """
+
+
 def sanitize(text: str) -> str:
     """Fold ``text`` into the lowercase identifier alphabet.
 
@@ -164,6 +176,26 @@ def is_linked_worktree(tree: Path) -> bool:
     return Path(own).resolve() != Path(common).resolve()
 
 
+def registered_root(tree: Path) -> Path | None:
+    """The directory git registered for the linked worktree ``tree`` answers as.
+
+    Read from ``<git-dir>/gitdir``, the back-pointer ``git worktree add`` writes
+    and ``git worktree list`` reads. A relative entry is resolved against the
+    file's own directory, as git does. None when there is no such record.
+    """
+    git_dir = _git(tree, "rev-parse", "--path-format=absolute", "--git-dir")
+    if git_dir is None:
+        return None
+    record = Path(git_dir) / "gitdir"
+    try:
+        recorded = Path(record.read_text(encoding="utf-8").strip())
+    except OSError:
+        return None
+    if not recorded.is_absolute():
+        recorded = record.parent / recorded
+    return recorded.parent
+
+
 def base_name(primary: Path) -> str:
     """``<project>_test`` — the stem every tree of one repo shares."""
     return f"{sanitize(primary.name)}{SUFFIX}"
@@ -173,7 +205,8 @@ def database_name(tree: Path | None = None, *, base: str | None = None) -> str:
     """The database ``tree`` owns on the shared test container.
 
     Raises ``FileNotFoundError`` when ``tree`` is not inside a git checkout —
-    the name is derived from the repository, so there is nothing to guess.
+    the name is derived from the repository, so there is nothing to guess — and
+    :class:`UnregisteredTree` when it is a copy of a worktree rather than one.
     """
     tree = Path(tree) if tree is not None else Path.cwd()
     primary = primary_checkout(tree)
@@ -183,6 +216,13 @@ def database_name(tree: Path | None = None, *, base: str | None = None) -> str:
     if not is_linked_worktree(tree):
         return stem
     root = toplevel(tree) or tree
+    registered = registered_root(tree)
+    if registered is None or registered.resolve() != root.resolve():
+        owner = f"the worktree git registered at {registered}" if registered else "a worktree"
+        raise UnregisteredTree(
+            f"{root} is a copy of {owner}, not one git lists — make a real worktree "
+            "with `git worktree add` and name its database there"
+        )
     return derive(stem, root.name, key=str(root))
 
 
