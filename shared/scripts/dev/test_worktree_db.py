@@ -182,6 +182,24 @@ def test_a_copy_of_a_worktree_gets_no_name(wdb, checkout: Path, tmp_path: Path) 
     assert wdb.database_name(worktree) == "grantspider_test_dispatch_2304"
 
 
+def test_a_copy_keeping_the_original_name_gets_no_name(
+    wdb, checkout: Path, tmp_path: Path
+) -> None:
+    """``cp -a <D> <scratchpad>/`` keeps the basename — and with it the author's database.
+
+    The registration is compared as a whole path; a comparison of names alone
+    would hand this copy the very database its original is gating against.
+    """
+    worktree = checkout / ".claude" / "worktrees" / "dispatch-2304"
+    worktree.parent.mkdir(parents=True)
+    _git(checkout, "worktree", "add", "-q", "-b", "session/x", str(worktree))
+    copy = tmp_path / "scratchpad" / "dispatch-2304"
+    shutil.copytree(worktree, copy, symlinks=True)
+
+    with pytest.raises(FileNotFoundError, match="copy"):
+        wdb.database_name(copy)
+
+
 def test_a_relative_registration_is_still_a_worktree(wdb, checkout: Path) -> None:
     """git 2.48+ can record the back-pointer relative to its own directory.
 

@@ -93,7 +93,14 @@ is the primary checkout: the first `worktree` line of
    `git status --porcelain` lists.
 2. `git -C <D> worktree add --detach <D>.review HEAD`, then
    `ln -s <P>/.venv <D>.review/.venv`.
-3. Run the tests through the repo's own bench tooling, which derives every
+3. **Prove the copy is what Python imports before trusting any result.** The
+   shared `.venv`'s editable install points at `<P>`'s source, so without an
+   absolute `PYTHONPATH` into `<D>.review` (`<D>.review/src` for a `src/`
+   layout) on every command, every gate measures the primary checkout instead.
+   `.venv/bin/python -c "import <pkg>; print(<pkg>.__file__)"` must print a
+   path inside `<D>.review`. Where the repo doctrine says `PYTHONPATH` cannot
+   shadow a package, do what it says instead.
+   Run the tests through the repo's own bench tooling, which derives every
    database name from the tree's path. **Never name a database yourself** or
    point a `DATABASE_URL` at a name you chose: a hand-named database is one no
    tool can attribute, so nobody can ever prove it dead.
