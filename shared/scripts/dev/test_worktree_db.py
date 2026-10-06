@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -161,6 +162,73 @@ def test_two_worktrees_of_one_repo_get_two_databases(wdb, checkout: Path) -> Non
     assert len(set(names)) == 2
 
 
+def test_a_copy_of_a_worktree_gets_no_name(wdb, checkout: Path, tmp_path: Path) -> None:
+    """An rsync'd copy carries the original's ``.git`` file, so git calls it linked.
+
+    Named from its own directory it derived ``<stem>_ag`` in every session that
+    copied a worktree to ``<scratchpad>/ag`` — one database shared by strangers,
+    which no ``git worktree list`` entry ever claimed (OS#553).
+    """
+    worktree = checkout / ".claude" / "worktrees" / "dispatch-2304"
+    worktree.parent.mkdir(parents=True)
+    _git(checkout, "worktree", "add", "-q", "-b", "session/x", str(worktree))
+    copy = tmp_path / "scratchpad" / "ag"
+    shutil.copytree(worktree, copy, symlinks=True)
+
+    assert wdb.is_linked_worktree(copy) is True
+    with pytest.raises(FileNotFoundError, match="copy"):
+        wdb.database_name(copy)
+    # The original is untouched by the refusal.
+    assert wdb.database_name(worktree) == "grantspider_test_dispatch_2304"
+
+
+def test_a_relative_registration_is_still_a_worktree(wdb, checkout: Path) -> None:
+    """git 2.48+ can record the back-pointer relative to its own directory.
+
+    Read as relative to the caller's cwd instead, every worktree made that way
+    would be refused as a copy of itself.
+    """
+    worktree = checkout / ".claude" / "worktrees" / "beta"
+    worktree.parent.mkdir(parents=True)
+    _git(checkout, "worktree", "add", "-q", "-b", "session/beta", str(worktree))
+    record = checkout / ".git" / "worktrees" / "beta" / "gitdir"
+    record.write_text(os.path.relpath(worktree / ".git", record.parent) + "\n", encoding="utf-8")
+
+    assert wdb.database_name(worktree) == "grantspider_test_beta"
+
+
+def test_a_worktree_git_no_longer_records_gets_no_name(wdb, checkout: Path) -> None:
+    """Its ``gitdir`` record gone, git lists it as prunable and the sweep cannot claim it."""
+    worktree = checkout / ".claude" / "worktrees" / "gamma"
+    worktree.parent.mkdir(parents=True)
+    _git(checkout, "worktree", "add", "-q", "-b", "session/gamma", str(worktree))
+    (checkout / ".git" / "worktrees" / "gamma" / "gitdir").unlink()
+
+    assert wdb.is_linked_worktree(worktree) is True
+    with pytest.raises(FileNotFoundError, match="copy"):
+        wdb.database_name(worktree)
+
+
+def test_worktrees_outside_the_home_never_share_a_name(
+    wdb, checkout: Path, tmp_path: Path
+) -> None:
+    """Two scratchpads each holding a registered worktree called ``ag``.
+
+    Only ``.claude/worktrees/`` makes a directory name unique; anywhere else the
+    name is qualified by the path, so the database is unique and still claimed
+    by the doctor's ``_<digest>`` suffix.
+    """
+    names = []
+    for owner in ("session-one", "session-two"):
+        tree = tmp_path / owner / "scratchpad" / "ag"
+        tree.parent.mkdir(parents=True)
+        _git(checkout, "worktree", "add", "-q", "--detach", str(tree))
+        name = wdb.database_name(tree)
+        assert name == f"grantspider_test_ag_{wdb.path_digest(str(tree))}"
+        names.append(name)
+    assert len(set(names)) == 2
+
+
 def test_base_override_wins(wdb, checkout: Path) -> None:
     assert wdb.database_name(checkout, base="other_test") == "other_test"
 
@@ -194,3 +262,21 @@ def test_cli_reports_a_non_checkout_on_stderr(tmp_path: Path) -> None:
     assert result.returncode == 1
     assert result.stdout == ""
     assert "not inside a git checkout" in result.stderr
+
+
+def test_cli_refuses_a_copy_of_a_worktree(checkout: Path, tmp_path: Path) -> None:
+    """A Makefile ``$(shell …)`` must see a failure, never a stranger's name."""
+    worktree = checkout / ".claude" / "worktrees" / "alpha"
+    worktree.parent.mkdir(parents=True)
+    _git(checkout, "worktree", "add", "-q", "-b", "session/alpha", str(worktree))
+    copy = tmp_path / "scratchpad" / "ag"
+    shutil.copytree(worktree, copy, symlinks=True)
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "--tree", str(copy)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert "copy" in result.stderr
