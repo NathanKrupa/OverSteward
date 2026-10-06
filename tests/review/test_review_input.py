@@ -44,11 +44,27 @@ def _gaudi_report(skips: dict[str, list[str]]) -> str:
                 "version": "0.3.0",
                 "findings": [],
                 "skipped": [{"file": path.rsplit("/", 1)[-1], "reason": r} for r in reasons],
+                "pack_errors": [],
                 "examined": True,
             }
             for path, reasons in skips.items()
         }
     )
+
+
+def _clean_report_except(path: str, **fields) -> str:
+    """A clean one-file report with ``fields`` overridden; None removes the key.
+
+    Each negative fixture breaks exactly one conjunct, so a mutant that deletes
+    another conjunct cannot be what turns the section unmeasured.
+    """
+    file_report = json.loads(_gaudi_report({path: []}))[path]
+    for key, value in fields.items():
+        if value is None:
+            file_report.pop(key, None)
+        else:
+            file_report[key] = value
+    return json.dumps({path: file_report})
 
 
 class _Collector:
@@ -357,7 +373,25 @@ class TestAFileGaudiSkippedIsUnmeasuredNotClean:
     def test_a_report_that_does_not_say_what_it_skipped_is_unmeasured(self):
         # Without a `skipped` list there is no telling a clean file from one
         # gaudi never parsed, so the absence must not read as "none skipped".
-        report = json.dumps({"src/x.py": {"version": "0.3.0", "findings": []}})
+        report = _clean_report_except("src/x.py", skipped=None)
+        result = _assemble(collector=_Collector(changed=["src/x.py"], gaudi=report))
+        section = next(s for s in result.sections if s.name == GAUDI_SECTION)
+        assert not section.measured
+        assert "src/x.py" in section.reason
+
+    def test_a_rule_pack_that_failed_to_load_is_unmeasured(self):
+        # gaudi parsed the file but had no rules to apply: nothing was linted.
+        report = _clean_report_except(
+            "src/x.py", pack_errors=[{"pack": "python", "error": "ImportError"}]
+        )
+        result = _assemble(collector=_Collector(changed=["src/x.py"], gaudi=report))
+        section = next(s for s in result.sections if s.name == GAUDI_SECTION)
+        assert not section.measured
+        assert "ImportError" in section.reason.split("What gaudi did read", 1)[0]
+
+    @pytest.mark.parametrize("examined", [False, None])
+    def test_a_file_gaudi_did_not_examine_is_unmeasured(self, examined):
+        report = _clean_report_except("src/x.py", examined=examined)
         result = _assemble(collector=_Collector(changed=["src/x.py"], gaudi=report))
         section = next(s for s in result.sections if s.name == GAUDI_SECTION)
         assert not section.measured

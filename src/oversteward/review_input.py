@@ -454,14 +454,35 @@ def _gaudi_body(report: str, note: str) -> str:
     )
 
 
-def _unread_files(report: str, submitted: Sequence[str]) -> dict[str, str] | None:
-    """Each submitted file gaudi did not read, with why; None when the report is not gaudi's.
+def _why_unread(file_report: object) -> str | None:
+    """Why gaudi did not fully read one file, or None when its report says it did.
 
-    gaudi lists a file it cannot parse under `skipped` and still exits 0 —
-    gaudi 0.3.0 on Python 3.12 does this to PEP 758 `except A, B:` (OS#552). A
-    file with no report, or a report with no `skipped` list, is unread too:
-    without the list a clean file and an unparsed one look the same.
+    gaudi 0.3.0's JSON carries three kinds of "could not look", and every one
+    exits 0: a file it cannot parse goes under `skipped` (gaudi on Python 3.12
+    does this to PEP 758 `except A, B:`, OS#552), a rule pack that failed to
+    load goes under `pack_errors`, and `examined` is false when nothing was
+    read. A report missing `skipped` is unread too: without the list a clean
+    file and an unparsed one look the same.
     """
+    if not isinstance(file_report, dict):
+        return "gaudi returned no report for this file"
+    skipped = file_report.get("skipped")
+    if not isinstance(skipped, list):
+        return "gaudi's report does not say whether this file was parsed"
+    if skipped:
+        return "; ".join(
+            str(entry.get("reason", entry)) if isinstance(entry, dict) else str(entry)
+            for entry in skipped
+        )
+    if file_report.get("pack_errors"):
+        return f"gaudi rule packs failed to load: {file_report['pack_errors']}"
+    if file_report.get("examined") is not True:
+        return "gaudi reports it did not examine this file"
+    return None
+
+
+def _unread_files(report: str, submitted: Sequence[str]) -> dict[str, str] | None:
+    """Each submitted file gaudi did not read, with why; None when the report is not gaudi's."""
     try:
         reports = json.loads(report)
     except json.JSONDecodeError:
@@ -470,15 +491,9 @@ def _unread_files(report: str, submitted: Sequence[str]) -> dict[str, str] | Non
         return None
     unread: dict[str, str] = {}
     for path in submitted:
-        file_report = reports.get(path)
-        skipped = file_report.get("skipped") if isinstance(file_report, dict) else None
-        if not isinstance(skipped, list):
-            unread[path] = "gaudi's report does not say whether this file was parsed"
-        elif skipped:
-            unread[path] = "; ".join(
-                str(entry.get("reason", entry)) if isinstance(entry, dict) else str(entry)
-                for entry in skipped
-            )
+        why = _why_unread(reports.get(path))
+        if why is not None:
+            unread[path] = why
     return unread
 
 
