@@ -196,10 +196,13 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
     Measure it rather than estimating, then drop the deployed half of each proven pair by hand:
 
     ```bash
-    paths=$(git diff --raw --no-renames origin/<default-branch>... | awk '$2 != "120000" {print $NF}')
-    echo "$paths" | grep -c .                                     # files, symlinks excluded
-    git diff --numstat origin/<default-branch>... -- $paths | awk '{n += $1 + $2} END {print n}'   # lines
+    git diff --raw --numstat --no-renames origin/<default-branch>... | awk -F'\t' '
+      /^:/ { split($1, m, " "); link[$2] = (m[2] == "120000"); next }
+      !link[$3] { files++; lines += $1 + $2 }
+      END { print files+0 " files, " lines+0 " lines (symlinks excluded)" }'
     ```
+
+    One pass over git's own output: the `--raw` lines mark which paths are links now, the `--numstat` lines are counted unless marked. A diff of nothing but links prints `0 files, 0 lines`.
 
     1. **File-to-acceptance mapping.** For each changed file, name which acceptance bullet(s) justify it. If any file cannot be traced to a bullet, it is scope creep — revert that file.
     2. **Breadth cap (files).** After reverts, if >10 files remain changed, STOP for input. Breadth is where unrelated changes hide.
