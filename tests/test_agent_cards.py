@@ -354,6 +354,70 @@ def test_every_dev_card_states_that_a_block_stops_the_pickup(card: Path) -> None
     )
 
 
+#: The cards that carry the pre-round-1 sequence (OS#563): a lite gate and the
+#: diff ceiling before round 1, then one full `make verify` after the findings
+#: are fixed. Running the full gate before review as well doubled its cost on
+#: every PR, and checking the ceiling only after the rounds let the largest
+#: diffs spend those rounds first (`shared/references/pr-workflow.md`).
+PRE_ROUND_SEQUENCE_CARDS = ("aigranthelper-dev.md", "grantspider-dev.md")
+
+#: Each step of the sequence as the command or sentence that carries it, in the
+#: order the card must give them.
+PRE_ROUND_SEQUENCE = (
+    ("lite gate", "scripts/lint/gaudi_check_files.py"),
+    ("diff ceiling", "diff --shortstat"),
+    ("review assembly", "assemble_review_input.py"),
+    ("findings step", "`PASS-WITH-FINDINGS` gets no re-review"),
+)
+
+FULL_GATE = "make verify"
+
+#: A line that runs the full gate, bare or through the sanctioned `.env` runner.
+FULL_GATE_RUN = re.compile(
+    r"^[ \t]*(?:\S*with_test_env\.py(?:[ \t]+--env-file[ \t]+\S+)?[ \t]+)?make verify[ \t]*$",
+    re.MULTILINE,
+)
+
+REVIEW_BLOCK = re.compile(r"^## Adversarial review\b.*?(?=^## )", re.MULTILINE | re.DOTALL)
+
+
+def _pre_round_sequence_cards() -> list[Path]:
+    return [directory / name for name in PRE_ROUND_SEQUENCE_CARDS for directory in (CANONICAL_DIR, DEPLOYED_DIR)]
+
+
+@pytest.mark.parametrize(
+    "card", _pre_round_sequence_cards(), ids=lambda p: f"{p.parent.name}/{p.name}"
+)
+def test_the_review_block_checks_the_ceiling_first_and_runs_the_full_gate_once_last(
+    card: Path,
+) -> None:
+    """Lite gate, ceiling, review, fixes, then the one full run — reordering any step is red."""
+    text = card.read_text(encoding="utf-8")
+    block = REVIEW_BLOCK.search(text)
+    assert block is not None, f"{card.parent.name}/{card.name} has no review block"
+    review = block.group(0)
+    positions = []
+    for step, marker in PRE_ROUND_SEQUENCE:
+        assert marker in review, f"{card.parent.name}/{card.name} review block lacks the {step}"
+        positions.append((review.index(marker), step))
+    assert positions == sorted(positions), (
+        f"{card.parent.name}/{card.name} gives the pre-round-1 steps out of order: "
+        f"{[step for _, step in sorted(positions)]}; the order is "
+        f"{[step for step, _ in PRE_ROUND_SEQUENCE]}."
+    )
+    runs = FULL_GATE_RUN.findall(review)
+    assert len(runs) == 1, (
+        f"{card.parent.name}/{card.name} runs `{FULL_GATE}` {len(runs)} times in its "
+        f"review block; the sequence runs it once, after the findings are fixed."
+    )
+    findings_at = text.index(PRE_ROUND_SEQUENCE[-1][1])
+    early = [m.start() for m in re.finditer(re.escape(FULL_GATE), text) if m.start() < findings_at]
+    assert not early, (
+        f"{card.parent.name}/{card.name} names `{FULL_GATE}` before the findings step "
+        f"(line {text.count(chr(10), 0, early[0]) + 1}); the full run comes after review."
+    )
+
+
 REGISTRY = REPO_ROOT / "registry.yaml"
 
 #: The base branch a card hands the review assembler. A wrong base feeds the
