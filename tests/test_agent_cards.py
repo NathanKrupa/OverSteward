@@ -374,19 +374,25 @@ MAKE_VERIFY_NAMED = re.compile(re.escape("make verify"))
 class PreRoundSequence:
     """One card's lite gate, and the line that runs its one full gate.
 
-    ``full_gate_run`` matches the line that runs the full gate; it must occur
-    once in the review block, after the findings step. ``full_gate_named``
+    Each of ``full_gate_runs`` matches a line that runs part of the full gate;
+    each must occur once in the review block, after the findings step.
+    ``full_gate_named``
     matches any mention of that gate, and none may come before the findings
     step anywhere in the card: a card that names its full gate earlier is
     prescribing it before review.
     """
 
     lite_gate: tuple[tuple[str, str], ...]
-    full_gate_run: re.Pattern[str]
+    full_gate_runs: tuple[re.Pattern[str], ...]
     full_gate_named: re.Pattern[str]
 
 
-MAKE_VERIFY_SEQUENCE = (MAKE_VERIFY_RUN, MAKE_VERIFY_NAMED)
+MAKE_VERIFY_SEQUENCE = ((MAKE_VERIFY_RUN,), MAKE_VERIFY_NAMED)
+
+#: ai-assistants' full gate is its whole suite and then `make verify`, which
+#: runs only the lint matrix there.
+MAKE_CI_TEST_RUN = re.compile(r"^[ \t]*make ci-test[ \t]*$", re.MULTILINE)
+AI_ASSISTANTS_FULL_NAMED = re.compile(r"make (?:verify|ci-test)\b")
 
 #: wphelper has no `make verify`: its full gate is CI's lint, test and
 #: security jobs run locally, and the unscoped pytest is the line that only
@@ -430,10 +436,14 @@ PRE_ROUND_SEQUENCE_CARDS = {
             ("lite-gate gaudi", "scripts/lint/gaudi_gate.py"),
             TOUCHED_TESTS,
         ),
-        WPHELPER_FULL_PYTEST,
+        (WPHELPER_FULL_PYTEST,),
         WPHELPER_FULL_PYTEST,
     ),
-    "ai-assistants-dev.md": PreRoundSequence((RUFF_CHECK, TOUCHED_TESTS), *MAKE_VERIFY_SEQUENCE),
+    "ai-assistants-dev.md": PreRoundSequence(
+        (RUFF_CHECK, TOUCHED_TESTS),
+        (MAKE_CI_TEST_RUN, MAKE_VERIFY_RUN),
+        AI_ASSISTANTS_FULL_NAMED,
+    ),
     "fiscus-dev.md": PreRoundSequence(
         (
             RUFF_CHECK,
@@ -442,7 +452,7 @@ PRE_ROUND_SEQUENCE_CARDS = {
             ("lite-gate boy-scout", "scripts/boy_scout_check.py"),
             TOUCHED_TESTS,
         ),
-        FISCUS_PUSH,
+        (FISCUS_PUSH,),
         FISCUS_PUSH,
     ),
     "exchequer-dev.md": PreRoundSequence(
@@ -481,9 +491,15 @@ def _pre_round_sequence(spec: PreRoundSequence) -> tuple[tuple[str, str, bool], 
     )
 
 
-#: A pytest run that is not scoped to the touched test files is a full-suite
-#: run before review — the cost the sequence exists to remove.
-UNSCOPED_PYTEST = re.compile(r"-m pytest(?! \$tests\b)")
+#: A full-suite run inside the lite gate — the cost the sequence exists to
+#: remove: a pytest not scoped to the touched test files, in any spelling, or a
+#: make target that runs the suite or the whole gate.
+FULL_SUITE_IN_LITE = re.compile(
+    r"(?:^|[\s/])pytest\b(?! \$tests\b)|\bmake (?:verify|test|ci-test|ci-local)\b"
+)
+
+#: A lite-gate line that runs nothing: a comment, or a message it prints.
+NOT_A_COMMAND = re.compile(r"^\s*(?:#|echo\b)")
 
 REVIEW_BLOCK = re.compile(r"^## Adversarial review\b.*?(?=^## )", re.MULTILINE | re.DOTALL)
 
@@ -570,14 +586,15 @@ def test_the_review_block_checks_the_ceiling_first_and_runs_the_full_gate_once_l
         f"{[step for _, step in sorted(positions)]}; the order is "
         f"{[step for step, _, _ in sequence]}."
     )
-    runs = list(spec.full_gate_run.finditer(review))
-    assert len(runs) == 1, (
-        f"{_card_id(card)} runs its full gate {len(runs)} times in its review block; "
-        f"the sequence runs it once, after the findings are fixed."
-    )
-    assert runs[0].start() > review.index(FINDINGS_STEP[1]), (
-        f"{_card_id(card)} runs its full gate before the findings step."
-    )
+    for full_gate_run in spec.full_gate_runs:
+        runs = list(full_gate_run.finditer(review))
+        assert len(runs) == 1, (
+            f"{_card_id(card)} runs `{full_gate_run.pattern}` {len(runs)} times in its "
+            f"review block; the sequence runs it once, after the findings are fixed."
+        )
+        assert runs[0].start() > review.index(FINDINGS_STEP[1]), (
+            f"{_card_id(card)} runs `{full_gate_run.pattern}` before the findings step."
+        )
     findings_at = text.index(FINDINGS_STEP[1])
     early = [m.start() for m in spec.full_gate_named.finditer(text) if m.start() < findings_at]
     assert not early, (
@@ -598,10 +615,14 @@ def test_the_lite_gate_fails_closed_and_runs_only_the_touched_tests(card: Path) 
             f"{_card_id(card)}: the {step} does not fold its failure into "
             f"the block's status ({LITE_GATE_FAILURE!r}): {unchained}"
         )
-    unscoped = UNSCOPED_PYTEST.search(lite)
-    assert unscoped is None, (
-        f"{_card_id(card)} runs pytest unscoped in its lite gate, which is a full-suite "
-        f"run before review."
+    full_runs = [
+        line.strip()
+        for line in lite.splitlines()
+        if not NOT_A_COMMAND.match(line) and FULL_SUITE_IN_LITE.search(line)
+    ]
+    assert not full_runs, (
+        f"{_card_id(card)} runs the full suite in its lite gate, which is a full run "
+        f"before review: {full_runs}"
     )
 
 

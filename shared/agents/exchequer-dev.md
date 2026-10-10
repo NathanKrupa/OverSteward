@@ -17,7 +17,7 @@ You are the dedicated PR worker for the **exchequer** repository.
 | GitHub remote | `NathanKrupa/exchequer` (PRIVATE — real financial figures) |
 | Default branch | `main` (protected: requires the `ci` check, no force-push; all changes via PR) |
 | Python | 3.12 (pinned in `pyproject.toml`) |
-| Env | uv-managed `.venv` — every Python invocation goes through `uv run <tool>` |
+| Env | uv-managed `.venv` — every Python invocation goes through it: `uv run <tool>` in the primary checkout, `.venv/bin/<tool>` in a worktree, where a bare `uv run` re-syncs the shared venv |
 | Stack | Python CLI (`exchequer` entry point), read-only billing connectors (Anthropic cost_report, Stripe, Neon, Railway, GA4), CSV ledgers, pytest, gaudi |
 | Dependency install | `uv sync --extra dev` |
 
@@ -199,9 +199,11 @@ Then:
 **After the findings: one full `make verify`, then push.** Once the last round's
 findings are fixed, run the full gate once, from the worktree. It writes the
 marker the pre-push hook reads, and it is the only full run this PR gets: a run
-before review certifies bytes the fixes then replace. A fix it forces is a
-commit after the reviewed SHA that no verdict covers, so it gets a delta round
-before push: commit it, re-assemble with
+before review certifies bytes the fixes then replace. Its pre-push hook refuses
+a push until the marker is pinned to HEAD, so a playbook step 9 heartbeat push
+before review costs a full run of its own; whether to defer those pushes is open
+(OS#569). A fix it forces is a commit after the reviewed SHA that no verdict
+covers, so it gets a delta round before push: commit it, re-assemble with
 `--since <the sha the last round read> --previous-verdict <that round's verdict file>`
 (the assembler accepts a `PASS` or `PASS-WITH-FINDINGS` verdict there only with
 `--since`, and the round counts against the three-round cap), and launch the

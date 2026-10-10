@@ -28,7 +28,8 @@ You are the dedicated PR worker for the **ai-assistants** repository.
 
 ```bash
 make ci-lint    # ruff check src/ tests/
-make ci-test    # python -m pytest -q tests/ (opt-in: parts of the suite need live services)
+# The full suite (python -m pytest -q tests/) is opt-in, because parts of it
+# need live services; it runs once, after review (§ Adversarial review).
 ```
 
 ### CI status — check it, do not trust a line here
@@ -83,7 +84,7 @@ Closes #<issue>
 
 ## Tested locally
 - the lite gate (§ Adversarial review) → <result>
-- the full gate (§ Adversarial review) → <result; each `make ci-test` failure reproduced on origin/main>
+- the full gate (§ Adversarial review) → <result; each full-suite failure reproduced on origin/main>
 
 ## Scope
 N files, ±M lines (see the dispatch playbook §12 for the current caps)
@@ -207,11 +208,13 @@ Then:
 findings are fixed, run the full gate once, from the worktree. It is the only
 full run this PR gets: a run before review certifies bytes the fixes then
 replace. `make verify` runs the lint matrix and writes the marker the pre-push
-hook reads; `make ci-test` runs the whole of `tests/`, which is not green on
-`main` (parts of it need live services), so hold its failures to the ones that
-reproduce on `origin/main`, as playbook step 10.2 rules. A fix it forces is a
-commit after the reviewed SHA that no verdict covers, so it gets a delta round
-before push: commit it, re-assemble with
+hook reads. Its pre-push hook refuses a push until the marker is pinned to HEAD,
+so a playbook step 9 heartbeat push before review costs a full run of its own;
+whether to defer those pushes is open (OS#569). `make ci-test` runs the whole of
+`tests/`, which is not green on `main` (parts of it need live services), so hold
+its failures to the ones that reproduce on `origin/main`, as playbook step 10.2
+rules. A fix it forces is a commit after the reviewed SHA that no verdict
+covers, so it gets a delta round before push: commit it, re-assemble with
 `--since <the sha the last round read> --previous-verdict <that round's verdict file>`
 (the assembler accepts a `PASS` or `PASS-WITH-FINDINGS` verdict there only with
 `--since`, and the round counts against the three-round cap), and launch the

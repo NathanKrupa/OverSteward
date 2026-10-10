@@ -17,7 +17,7 @@ You are the dedicated PR worker for the **fiscus** repository.
 | GitHub remote | `NathanKrupa/Fiscus` |
 | Default branch | `main` |
 | Python | 3.14 (house standard; pinned in `pyproject.toml`) |
-| Env | uv-managed `.venv` — every Python invocation goes through `uv run <tool>` (uv auto-syncs from `pyproject.toml`/`uv.lock`) |
+| Env | uv-managed `.venv` — every Python invocation goes through it: `uv run <tool>` in the primary checkout (uv auto-syncs from `pyproject.toml`/`uv.lock`), `.venv/bin/<tool>` in a worktree, where a bare `uv run` re-syncs the shared venv |
 | Stack | Python library + Click CLI (`fiscus` entry point), Pydantic v2 (schemas), pandas (analysis), Quarto (reviews — Phase 2+), pytest + pytest-cov + pytest-timeout, gaudi (architecture lint) |
 | Dependency install | `uv sync --extra dev` (uv auto-creates `.venv`) |
 
@@ -83,7 +83,7 @@ gh pr list --repo NathanKrupa/Fiscus --state merged --limit 10 \
 - **NEVER skip the boy-scout-check** (per-file monotonic-down gaudi count vs main on touched files). If a file you must touch is gaudi-dirty and you can't improve it, split a cleanup-first PR.
 - **NEVER ship a promotion** (changes to `prompts/`, `subjects/`, or `shared/decisions/`) without a corresponding `shared/lessons.jsonl` row in the same PR (invariant I-F-1, enforced by `promotion_lesson_check.py`).
 - **NEVER lower test coverage** without explicit justification in the PR description.
-- **NEVER bypass the env** with a bare `pytest` / `ruff` / `pyright` — always go through `uv run` so the Fiscus env's tools resolve and `fiscus` is importable.
+- **NEVER bypass the env** with a bare `pytest` / `ruff` / `pyright` — always go through the project venv (`uv run` in the primary checkout, `.venv/bin/<tool>` in a worktree) so the Fiscus env's tools resolve and `fiscus` is importable.
 - **NEVER edit `shared/invariants.yaml`** without recording the change in `shared/decisions/YYYY-MM-DD-{slug}.md` (ADR) — invariants are load-bearing.
 
 ## Repo-Specific Gotchas
@@ -307,13 +307,15 @@ Then:
   insert's key — with the mutant that kills each. Paste the table into the PR
   body. Half of one branch's eleven rounds were that table, one row per round.
 
-**After the findings: push, and the pre-push hook is the one full run.** fiscus
-has no `make verify`: its pre-push hook runs pyright, the full pytest suite, the
-boy-scout ratchet and the promotion-lesson check on every push. So push once,
-after the last round's findings are fixed: an earlier push runs the hook too,
-and is a full run before review that certifies bytes the fixes then replace. A
-fix it forces is a commit after the reviewed SHA that no verdict covers, so it
-gets a delta round before the push is retried: commit it, re-assemble with
+**After the findings: push, and the pre-push hook is the full run.** fiscus has
+no `make verify`: its pre-push hook runs pyright, the full pytest suite, the
+boy-scout ratchet and the promotion-lesson check on every push, playbook step
+9's heartbeat pushes included, so this card prescribes no full run by hand. The
+push after the last round's findings are fixed is the run that certifies the
+bytes the PR ships. Each earlier push is a full run too; whether to defer those
+pushes is open (OS#569), and until it is decided step 9 stands. A fix the hook
+forces is a commit after the reviewed SHA that no verdict covers, so it gets a
+delta round before the push is retried: commit it, re-assemble with
 `--since <the sha the last round read> --previous-verdict <that round's verdict file>`
 (the assembler accepts a `PASS` or `PASS-WITH-FINDINGS` verdict there only with
 `--since`, and the round counts against the three-round cap), and launch the
