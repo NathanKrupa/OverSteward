@@ -273,9 +273,8 @@ text beneath it), is where that shows.
 - **A `BLOCK` gets one re-review, on the delta.** The author fixes, then
   assembles with `--since <the sha you reviewed> --previous-verdict <the file
   holding your verdict block and findings, verbatim>`; the round number comes
-  from the ledger. The assembler checks the file is a well-formed `BLOCK`
-  verdict — a `PASS-WITH-FINDINGS` earns no re-review — but it cannot check
-  that the file is *all* you said, so compare its findings count with your own
+  from the ledger. The assembler checks the file is a well-formed verdict,
+  but it cannot check that the file is *all* you said, so compare its findings count with your own
   memory of the round if anything reads short. You read the fix commits and the
   whole test files: confirm each `hole` is closed by running its pin red against
   the reviewed commit and green now, then look at what the fixes touched. Do not
@@ -284,6 +283,16 @@ text beneath it), is where that shows.
   and merges; the PR body records each fix's red mutant. If you would have
   wanted to see those fixes, say which in the finding — that is the only
   channel.
+- **A commit your passing verdict did not ask for gets a delta round.** Your
+  `PASS` or `PASS-WITH-FINDINGS` certifies the SHA you read. A commit after it
+  that the verdict did not ask for — typically a fix the post-review full gate
+  forced — is assembled with `--since <the sha you reviewed>` and your verdict
+  as the previous one, and counts against the cap like any round (OS#564). The
+  `previous-verdict` section then opens by saying so. There is no `hole` to
+  verify closed: review the delta's commits as you would a first round, limited
+  to them. After a round-3 pass that round would be the fourth, which the
+  assembler refuses: the author stops and hands the change to Nathan, and you
+  see it only if he records `--override-cap`.
 - **Round 3 is the last.** If you would `BLOCK` again, return `BLOCK` and
   list every remaining `hole` plainly: the operator files them as issues,
   labels the change `needs-input`, and hands it to Nathan. You do not get a

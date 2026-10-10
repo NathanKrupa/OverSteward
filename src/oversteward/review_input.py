@@ -75,6 +75,16 @@ SECTION_ORDER = (
     PREVIOUS_VERDICT_SECTION,
 )
 
+#: Heads the previous-verdict section of a delta round that follows a passing
+#: verdict (OS#564), so the reviewer knows there are no holes to verify closed:
+#: the round exists because commits landed after a SHA that verdict certified.
+AFTER_A_PASSING_VERDICT = (
+    "The previous round did not BLOCK. This delta round exists because commits landed "
+    "after the SHA it certified that its verdict did not ask for — typically a fix the "
+    "post-review full gate forced. Review those commits as you would a first round, "
+    "limited to the delta; the verdict below is what the earlier round found."
+)
+
 #: How many review rounds one change may take before the loop stops and the
 #: remaining findings go to Nathan as issues. GS#2540's first PR ran eleven
 #: rounds at roughly 110k reviewer tokens each; the cap is the mechanism the
@@ -218,7 +228,9 @@ def _issue_section(collector: Collector, repo: str, issue: int | None, no_issue:
     return Section(name="issue", body=f"{repo}#{issue}\n\n{body}", measured=True)
 
 
-def _previous_verdict_section(previous_verdict: str | None, round_number: int) -> Section:
+def _previous_verdict_section(
+    previous_verdict: str | None, round_number: int, since: str | None = None
+) -> Section:
     """What the last round found — a re-review must see it, a first review has none."""
     if round_number == 1:
         if previous_verdict is not None:
@@ -237,10 +249,9 @@ def _previous_verdict_section(previous_verdict: str | None, round_number: int) -
         )
     # The file is the operator's, so it is the one input a caller could
     # compose. It must at least BE a verdict — a well-formed block whose
-    # verdict is BLOCK, because only a BLOCK earns a re-review — and its
-    # findings count is checked for consistency by the parser. What it cannot
-    # prove is that the block is the whole of what the reviewer said; the PR
-    # body carries every round's block, and the gate reads that.
+    # findings count the parser checks for consistency. What it cannot prove
+    # is that the block is the whole of what the reviewer said; the PR body
+    # carries every round's block, and the gate reads that.
     try:
         parsed = parse_verdict(previous_verdict)
     except (MissingVerdictError, MalformedVerdictError) as exc:
@@ -248,12 +259,23 @@ def _previous_verdict_section(previous_verdict: str | None, round_number: int) -
             f"--previous-verdict is not a reviewer verdict: {exc}. Pass the file holding the "
             "last round's ```reviewer-verdict block and its findings, verbatim."
         ) from exc
-    if parsed.verdict != BLOCK:
+    if parsed.verdict == BLOCK:
+        return Section(name=PREVIOUS_VERDICT_SECTION, body=previous_verdict, measured=True)
+    # A passing verdict certifies the SHA it read. A commit after it that the
+    # verdict did not ask for — a fix the post-review full gate forced — is
+    # reviewed on the delta and counted like any round (OS#564). Without the
+    # reviewed SHA the round would re-read the whole change, which a pass
+    # already certified.
+    if not (since or "").strip():
         raise CouldNotLookError(
-            f"the previous verdict is {parsed.verdict}; only a {BLOCK} earns a re-review. "
-            "Address PASS-WITH-FINDINGS findings in the PR body and merge."
+            f"the previous verdict is {parsed.verdict}, so this round reviews only the commits "
+            "after the SHA it certified, and needs --since <the sha that round reviewed>."
         )
-    return Section(name=PREVIOUS_VERDICT_SECTION, body=previous_verdict, measured=True)
+    return Section(
+        name=PREVIOUS_VERDICT_SECTION,
+        body=f"{AFTER_A_PASSING_VERDICT}\n\n{previous_verdict}",
+        measured=True,
+    )
 
 
 def _check_round(round_number: int, since: str | None, cap_override: str) -> None:
@@ -595,7 +617,7 @@ def assemble(
         _test_files_section(collector, base, changed, deleted),
         _doctrine_section(collector),
         _gaudi_section(collector, changed, deleted),
-        _previous_verdict_section(previous_verdict, round_number),
+        _previous_verdict_section(previous_verdict, round_number, since),
     )
     return AssembledInput(
         repo=repo,

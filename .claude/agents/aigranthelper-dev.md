@@ -272,7 +272,7 @@ Then:
   <file holding its verdict block and findings, verbatim>` — and launch the
   reviewer again with the same command, capturing to `.review-round-<N>.json`.
   The assembler counts rounds in `.review-rounds` beside its output and
-  checks the file is a well-formed `BLOCK` verdict. The loop is three rounds:
+  checks the file is a well-formed verdict. The loop is three rounds:
   each `BLOCK` earns one re-review on the delta, and a *third* `BLOCK` on the
   same change stops the pickup — emit `STOPPED_FOR_INPUT`, file the remaining
   holes as issues, label the issue `needs-input`, and hand it to Nathan. A
@@ -292,10 +292,18 @@ Then:
 round's findings are fixed, run the full gate once, from the worktree. It writes
 the marker the pre-push hook reads, and it is the only full run this PR gets: a
 run before review certifies bytes the fixes then replace. A fix it forces is a
-commit after the reviewed SHA that no verdict covers, and the assembler
-re-reviews only after a `BLOCK`, so there is no delta round to run. List each
-such commit in the PR body under the verdict, with its SHA and the failure that
-forced it (OS#564 decides the lasting rule).
+commit after the reviewed SHA that no verdict covers, so it gets a delta round
+before push: commit it, re-assemble with `--since <the sha the last round read>
+--previous-verdict <that round's verdict file>` (the assembler accepts a `PASS`
+or `PASS-WITH-FINDINGS` verdict there only with `--since`, and the round counts
+against the three-round cap), and launch the reviewer as above. If that round's
+fixes change the tree, run the full gate again before push. List each forced
+commit in the PR body under the verdict, with its SHA and the failure that
+forced it: the list is the record, the delta round is the control (OS#564). At
+the cap that round would be the fourth, which the assembler refuses: stop the
+pickup as for a third `BLOCK` — emit `STOPPED_FOR_INPUT`, name the forced commit
+and the failure on the issue, label it `needs-input` — and run the round only on
+Nathan's word, recorded with `--override-cap '<reason>'`.
 
 ```bash
 scripts/dev/with_test_env.py --env-file /home/natha/aigranthelper/.env make verify

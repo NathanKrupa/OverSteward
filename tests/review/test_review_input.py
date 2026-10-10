@@ -8,6 +8,7 @@ import json
 import pytest
 
 from oversteward.review_input import (
+    AFTER_A_PASSING_VERDICT,
     COULD_NOT_LOOK,
     DELETION_LIST_UNREADABLE,
     EXIT_COULD_NOT_LOOK,
@@ -597,8 +598,8 @@ class TestARoundIsBookkeptNotAssumed:
         with pytest.raises(CouldNotLookError, match="not a reviewer verdict"):
             _assemble(round_number=2, previous_verdict="The reviewer said it looked fine.")
 
-    def test_a_previous_pass_earns_no_re_review(self):
-        with pytest.raises(CouldNotLookError, match="only a BLOCK earns a re-review"):
+    def test_a_previous_pass_without_the_reviewed_sha_is_refused(self):
+        with pytest.raises(CouldNotLookError, match="needs --since <the sha that round reviewed>"):
             _assemble(round_number=2, previous_verdict=_PASS_VERDICT)
 
     def test_an_override_where_no_cap_is_in_play_is_refused(self):
@@ -639,6 +640,72 @@ class TestARoundIsBookkeptNotAssumed:
 
         assert [section.name for section in assembled.sections] == list(SECTION_ORDER)
         assert SECTION_ORDER[-1] == PREVIOUS_VERDICT_SECTION
+
+
+_PASS_WITH_FINDINGS_VERDICT = (
+    "```reviewer-verdict\nverdict: PASS-WITH-FINDINGS\nfindings: 1\ntokens: 1\n```\n"
+    "1. [defect] x — y\n"
+)
+
+
+class TestACommitAfterAPassingVerdictGetsADeltaRound:
+    """OS#564: a commit the post-review full gate forces is reviewed, on the delta.
+
+    A `PASS` or `PASS-WITH-FINDINGS` certifies the SHA it read. A commit after
+    it that the verdict did not ask for — a fix the one full `make verify`
+    forced — is reviewed in a delta round that counts against the cap, rather
+    than disclosed in the PR body where no gate reads it.
+    """
+
+    @pytest.mark.parametrize("verdict", [_PASS_VERDICT, _PASS_WITH_FINDINGS_VERDICT])
+    def test_a_passing_verdict_with_the_reviewed_sha_assembles_a_delta_round(self, verdict):
+        collector = _Collector()
+
+        rendered = render(
+            _assemble(collector=collector, round_number=2, since="abc123", previous_verdict=verdict)
+        )
+
+        assert collector.diff_calls == ["abc123"], "the delta round reads only the new commits"
+        assert "round: 2 of 3" in rendered and "since: abc123" in rendered
+        assert verdict in rendered, "the passing verdict reaches the reviewer verbatim"
+
+    @pytest.mark.parametrize("verdict", [_PASS_VERDICT, _PASS_WITH_FINDINGS_VERDICT])
+    def test_the_reviewer_is_told_the_delta_follows_a_passing_verdict(self, verdict):
+        rendered = render(_assemble(round_number=2, since="abc123", previous_verdict=verdict))
+
+        assert AFTER_A_PASSING_VERDICT in rendered
+
+    def test_a_delta_round_after_a_block_carries_no_passing_verdict_preface(self):
+        rendered = render(_assemble(round_number=2, since="abc123", previous_verdict=_BLOCK_VERDICT))
+
+        assert AFTER_A_PASSING_VERDICT not in rendered
+
+    def test_a_passing_verdict_without_the_reviewed_sha_is_refused(self):
+        with pytest.raises(CouldNotLookError, match="needs --since <the sha that round reviewed>"):
+            _assemble(round_number=2, previous_verdict=_PASS_WITH_FINDINGS_VERDICT)
+
+    def test_a_blank_since_after_a_passing_verdict_is_refused(self):
+        with pytest.raises(CouldNotLookError, match="needs --since <the sha that round reviewed>"):
+            _assemble(round_number=2, since="  ", previous_verdict=_PASS_VERDICT)
+
+    def test_a_malformed_verdict_is_refused_even_with_the_reviewed_sha(self):
+        inconsistent = "```reviewer-verdict\nverdict: PASS\nfindings: 2\ntokens: 1\n```\n"
+
+        with pytest.raises(CouldNotLookError, match="not a reviewer verdict"):
+            _assemble(round_number=2, since="abc123", previous_verdict=inconsistent)
+
+    def test_a_delta_round_after_a_pass_with_nothing_new_is_refused(self):
+        with pytest.raises(CouldNotLookError, match="is empty"):
+            _assemble(
+                collector=_Collector(diff=""),
+                round_number=2,
+                since="abc123",
+                previous_verdict=_PASS_VERDICT,
+            )
+
+    def test_a_delta_round_after_a_pass_counts_against_the_cap(self):
+        with pytest.raises(RoundCapError, match="exceeds the 3-round cap"):
+            _assemble(round_number=4, since="abc123", previous_verdict=_PASS_VERDICT)
 
 
 class TestTheRoundIsDerivedFromTheLedgerNotDeclared:

@@ -356,3 +356,69 @@ class TestTheRoundIsCountedByTheLedgerAndCappedByTheScript:
 
         assert result.returncode == 1
         assert "cap is not in play" in result.stderr
+
+
+PASS_WITH_FINDINGS_VERDICT = (
+    "```reviewer-verdict\nverdict: PASS-WITH-FINDINGS\nfindings: 1\ntokens: 1\n```\n"
+    "1. [defect] x — y\n"
+)
+
+
+def _passing_verdict_file(root: Path) -> Path:
+    path = root / ".review-verdict-pass.md"
+    path.write_text(PASS_WITH_FINDINGS_VERDICT, encoding="utf-8")
+    return path
+
+
+class TestACommitAfterAPassingVerdictIsADeltaRoundTheLedgerCounts:
+    """OS#564, through the shipped script: the delta round after a pass is a counted round."""
+
+    def test_a_delta_round_after_a_pass_is_assembled_and_recorded(
+        self, repo_deleting_a_test, tmp_path
+    ):
+        _assemble_with(repo_deleting_a_test, tmp_path / "r1.md")
+
+        result = _re_review(
+            repo_deleting_a_test, tmp_path / "r2.md", _passing_verdict_file(repo_deleting_a_test)
+        )
+
+        assert result.returncode == 0, result.stderr
+        rendered = (tmp_path / "r2.md").read_text(encoding="utf-8")
+        assert "round: 2 of 3" in rendered and "since: master" in rendered
+        assert "verdict: PASS-WITH-FINDINGS" in rendered
+        ledger = (repo_deleting_a_test / ".review-rounds").read_text(encoding="utf-8")
+        assert ledger.splitlines()[-1].startswith("round=2 ")
+        assert ledger.splitlines()[-1].endswith(" since=master")
+
+    def test_a_pass_without_the_reviewed_sha_is_refused_and_not_counted(
+        self, repo_deleting_a_test, tmp_path
+    ):
+        _assemble_with(repo_deleting_a_test, tmp_path / "r1.md")
+        before = (repo_deleting_a_test / ".review-rounds").read_text(encoding="utf-8")
+
+        refused = _assemble_with(
+            repo_deleting_a_test,
+            tmp_path / "r2.md",
+            "--previous-verdict",
+            str(_passing_verdict_file(repo_deleting_a_test)),
+        )
+
+        assert refused.returncode == 1
+        assert "needs --since" in refused.stderr
+        assert (repo_deleting_a_test / ".review-rounds").read_text(encoding="utf-8") == before
+
+    def test_the_cap_counts_delta_rounds_after_a_pass_like_any_other(
+        self, repo_deleting_a_test, tmp_path
+    ):
+        block = _verdict_file(repo_deleting_a_test)
+        passing = _passing_verdict_file(repo_deleting_a_test)
+        _assemble_with(repo_deleting_a_test, tmp_path / "r1.md")
+        second = _re_review(repo_deleting_a_test, tmp_path / "r2.md", block)
+        third = _re_review(repo_deleting_a_test, tmp_path / "r3.md", passing)
+        assert second.returncode == 0 and third.returncode == 0, second.stderr + third.stderr
+
+        fourth = _re_review(repo_deleting_a_test, tmp_path / "r4.md", passing)
+
+        assert fourth.returncode == 1
+        assert "exceeds the 3-round cap" in fourth.stderr
+        assert not (tmp_path / "r4.md").exists()
