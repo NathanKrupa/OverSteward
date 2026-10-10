@@ -1463,6 +1463,20 @@ def test_an_absent_remote_ref_makes_no_delete_call(doctor, tmp_path, gh, capsys)
     assert not any(call.startswith("api -X DELETE") for call in _gh_calls(gh))
 
 
+def test_a_ref_merely_ending_in_the_branch_is_not_the_branch(doctor, tmp_path, gh, capsys):
+    """``ls-remote`` matches patterns by tail, so presence must be the exact ref."""
+    repo, _ = _merged_repo(tmp_path)
+    _git(repo, "push", "-q", "origin", f"main:refs/heads/x/refs/heads/{HEAD_BRANCH}")
+    _git(repo, "push", "-q", "origin", "--delete", HEAD_BRANCH)
+
+    rc = doctor.cleanup_merged(repo, 7, _bench())
+
+    out = capsys.readouterr().out
+    assert rc == 0, out
+    assert f"remote {HEAD_BRANCH}: absent" in out
+    assert not any(call.startswith("api -X DELETE") for call in _gh_calls(gh))
+
+
 def test_a_sibling_on_another_branch_is_refused(doctor, tmp_path, gh, capsys):
     """A ``.baseline`` path is only this PR's when it is detached or on its branch."""
     repo, worktree = _merged_repo(tmp_path)
