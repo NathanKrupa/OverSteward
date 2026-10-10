@@ -14,10 +14,11 @@ family member is expected to be linked the moment it is deployed here. Paths
 that deliberately stay regular files are named below with the reason, and each
 exception is itself checked, so it cannot outlive its reason unnoticed.
 
-Not covered by the rules: ``scripts/tools/generate_tool_registry.py`` and
+Not derived by the rules but kept as copies, and checked in ``KEPT_AS_COPIES``:
+``scripts/tools/generate_tool_registry.py`` and
 ``scripts/workflows/generate_workflow_registry.py`` locate the project root from
 their *resolved* ``__file__``, so as links into ``shared/scripts/`` they would
-take ``shared/`` for the root. They stay copies.
+take ``shared/`` for the root.
 """
 
 from __future__ import annotations
@@ -45,6 +46,11 @@ KEPT_AS_COPIES = {
     # gitleaks reads its config from the scan root, and the canonical, estate-wide
     # test_secret_scan.py pins the root file as a byte-copy.
     ".gitleaks.toml": "shared/scripts/dev/.gitleaks.toml",
+    # Both find the project root from their resolved __file__; a link would make it shared/.
+    "scripts/tools/generate_tool_registry.py": "shared/scripts/tools/generate_tool_registry.py",
+    "scripts/workflows/generate_workflow_registry.py": (
+        "shared/scripts/workflows/generate_workflow_registry.py"
+    ),
 }
 
 
