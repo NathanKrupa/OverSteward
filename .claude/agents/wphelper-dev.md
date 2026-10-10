@@ -155,7 +155,7 @@ Then:
   <file holding its verdict block and findings, verbatim>` — and launch the
   reviewer again with the same command, capturing to `.review-round-<N>.json`.
   The assembler counts rounds in `.review-rounds` beside its output and
-  checks the file is a well-formed `BLOCK` verdict. The loop is three rounds:
+  checks the file is a well-formed verdict. The loop is three rounds:
   each `BLOCK` earns one re-review on the delta, and a *third* `BLOCK` on the
   same change stops the pickup — emit `STOPPED_FOR_INPUT`, file the remaining
   holes as issues, label the issue `needs-input`, and hand it to Nathan. A
