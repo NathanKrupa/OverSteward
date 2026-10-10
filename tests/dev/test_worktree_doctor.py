@@ -1192,7 +1192,7 @@ case "$*" in
   "pr view"*)
     if [ -f "$GH_STUB/fail" ]; then echo "HTTP 502: Bad Gateway" >&2; exit 1; fi
     cat "$GH_STUB/pr.json" ;;
-  "repo view"*) echo main ;;
+  "repo view"*) cat "$GH_STUB/default" ;;
   "pr list"*) cat "$GH_STUB/children.json" ;;
   "api -X DELETE"*) exit 0 ;;
   *) echo "unexpected gh $*" >&2; exit 64 ;;
@@ -1200,9 +1200,9 @@ esac
 """
 
 
-def _pr_json(state: str = "MERGED", head: str = HEAD_BRANCH) -> str:
+def _pr_json(state: str = "MERGED", head: str = HEAD_BRANCH, base: str = "main") -> str:
     return (
-        f'{{"state": "{state}", "headRefName": "{head}", "baseRefName": "main", '
+        f'{{"state": "{state}", "headRefName": "{head}", "baseRefName": "{base}", '
         '"isCrossRepository": false, "url": "https://github.com/o/r/pull/7"}'
     )
 
@@ -1217,6 +1217,7 @@ def gh(tmp_path, monkeypatch):
     script.chmod(0o755)
     (stub / "pr.json").write_text(_pr_json(), encoding="utf-8")
     (stub / "children.json").write_text("[]", encoding="utf-8")
+    (stub / "default").write_text("main\n", encoding="utf-8")
     (stub / "calls").write_text("", encoding="utf-8")
     monkeypatch.setenv("GH_STUB", str(stub))
     monkeypatch.setenv("PATH", f"{stub / 'bin'}:{os.environ['PATH']}")
@@ -1314,10 +1315,28 @@ def test_cleanup_could_not_look_when_gh_fails(doctor, tmp_path, gh, capsys):
     assert "502" in capsys.readouterr().out
 
 
-def test_cleanup_refuses_a_pr_whose_head_is_a_trunk(doctor, tmp_path, gh, capsys):
-    """A promote PR's head is a trunk: merged, childless, and never to be deleted."""
+def test_cleanup_refuses_a_promote_whose_head_is_the_default_branch(
+    doctor, tmp_path, gh, capsys
+):
+    """GS's promote: head ``staging`` is the default branch, the checkout sits on ``main``."""
     repo, _ = _merged_repo(tmp_path)
-    (gh / "pr.json").write_text(_pr_json(head="main"), encoding="utf-8")
+    _git(repo, "branch", "staging", "main")
+    (gh / "pr.json").write_text(_pr_json(head="staging", base="main"), encoding="utf-8")
+    (gh / "default").write_text("staging\n", encoding="utf-8")
+
+    rc = doctor.cleanup_merged(repo, 7, _bench())
+
+    assert rc == 1
+    assert _has_branch(repo, "staging")
+    assert not any(call.startswith("api -X DELETE") for call in _gh_calls(gh))
+    assert "trunk" in capsys.readouterr().out
+
+
+def test_cleanup_refuses_a_back_merge_whose_head_is_checked_out(doctor, tmp_path, gh, capsys):
+    """AG's back-merge: head ``main`` is neither base nor default, but the checkout's own."""
+    repo, _ = _merged_repo(tmp_path)
+    (gh / "pr.json").write_text(_pr_json(head="main", base="staging"), encoding="utf-8")
+    (gh / "default").write_text("staging\n", encoding="utf-8")
 
     rc = doctor.cleanup_merged(repo, 7, _bench())
 
@@ -1325,6 +1344,34 @@ def test_cleanup_refuses_a_pr_whose_head_is_a_trunk(doctor, tmp_path, gh, capsys
     assert _has_branch(repo, "main")
     assert not any(call.startswith("api -X DELETE") for call in _gh_calls(gh))
     assert "trunk" in capsys.readouterr().out
+
+
+def test_cleanup_refuses_a_pr_from_a_fork(doctor, tmp_path, gh, capsys):
+    """A fork's head shares only a name with any branch in this checkout."""
+    repo, worktree = _merged_repo(tmp_path)
+    forked = _pr_json().replace('"isCrossRepository": false', '"isCrossRepository": true')
+    (gh / "pr.json").write_text(forked, encoding="utf-8")
+
+    rc = doctor.cleanup_merged(repo, 7, _bench())
+
+    assert rc == 1
+    assert worktree.is_dir()
+    assert _has_branch(repo)
+    assert "fork" in capsys.readouterr().out
+
+
+def test_cleanup_reports_an_orphan_and_never_drops_it(doctor, tmp_path, gh, capsys):
+    """The sweep step is the report, never ``--drop`` — the orphan is the operator's call."""
+    repo, _ = _merged_repo(tmp_path)
+    docker = _bench_docker("repo_test_ghost")
+
+    rc = doctor.cleanup_merged(repo, 7, docker)
+
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "repo_test_ghost" in out
+    assert not any("dropdb" in call for call in docker.calls)
+    assert not _has_branch(repo), "an orphan elsewhere must not stop this PR's own cleanup"
 
 
 def test_cleanup_removes_everything_a_merged_pr_left(doctor, tmp_path, gh, capsys):
@@ -1364,11 +1411,13 @@ def test_a_dirty_worktree_stops_cleanup_before_the_branch(doctor, tmp_path, gh, 
 
     rc = doctor.cleanup_merged(repo, 7, _bench())
 
+    out = capsys.readouterr().out
     assert rc == 1
     assert worktree.is_dir()
     assert _has_branch(repo)
     assert DELETE_CALL not in _gh_calls(gh)
-    assert "was not removed" in capsys.readouterr().out
+    assert "was not removed" in out
+    assert f"branch {HEAD_BRANCH}:" not in out, "the sequence ran on past the refusal"
 
 
 def test_a_pruned_tracking_ref_is_answered_with_the_trunk_not_minus_D(
