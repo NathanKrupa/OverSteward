@@ -1432,7 +1432,7 @@ def test_a_pruned_tracking_ref_is_answered_with_the_trunk_not_minus_D(
     out = capsys.readouterr().out
     assert rc == 0, out
     assert not _has_branch(repo)
-    assert "origin/main" in out
+    assert f"branch {HEAD_BRANCH}: done — git branch -d against origin/main" in out
 
 
 def test_a_branch_carrying_unmerged_work_is_never_deleted(doctor, tmp_path, gh, capsys):
@@ -1447,8 +1447,112 @@ def test_a_branch_carrying_unmerged_work_is_never_deleted(doctor, tmp_path, gh, 
 
     assert rc == 1
     assert _has_branch(repo)
+    assert worktree.is_dir(), "the proof must come before the teardown"
     assert DELETE_CALL not in _gh_calls(gh)
     assert "not on origin/main" in capsys.readouterr().out
+
+
+def _push_from_server(tmp_path: Path, name: str) -> None:
+    """Someone else pushes a commit to the head on origin, from another clone."""
+    server = tmp_path / "server"
+    _git(server, "fetch", "-q", "origin")
+    _git(server, "checkout", "-q", "-B", HEAD_BRANCH, f"origin/{HEAD_BRANCH}")
+    (server / name).write_text("pushed from elsewhere\n", encoding="utf-8")
+    _git(server, "add", name)
+    _git(server, "commit", "-qm", name)
+    _git(server, "push", "-q", "origin", HEAD_BRANCH)
+
+
+def test_work_pushed_after_the_merge_is_never_deleted(doctor, tmp_path, gh, capsys):
+    """``-d`` passes a branch merged into its own upstream — which holds the late work too."""
+    repo, worktree = _merged_repo(tmp_path)
+    (worktree / "late.txt").write_text("after the merge\n", encoding="utf-8")
+    _git(worktree, "add", "late.txt")
+    _git(worktree, "commit", "-qm", "late")
+    _git(worktree, "push", "-q", "origin", HEAD_BRANCH)
+
+    rc = doctor.cleanup_merged(repo, 7, _bench())
+
+    assert rc == 1
+    assert worktree.is_dir()
+    assert _has_branch(repo)
+    assert DELETE_CALL not in _gh_calls(gh)
+    assert "not on origin/main" in capsys.readouterr().out
+
+
+def test_a_remote_ahead_of_the_merge_is_kept(doctor, tmp_path, gh, capsys):
+    """Origin's tip was never fetched here; a tip nothing can place is refused."""
+    repo, worktree = _merged_repo(tmp_path)
+    _push_from_server(tmp_path, "elsewhere.txt")
+
+    rc = doctor.cleanup_merged(repo, 7, _bench())
+
+    assert rc == 1
+    assert worktree.is_dir()
+    assert _has_branch(repo)
+    assert DELETE_CALL not in _gh_calls(gh)
+    assert f"origin's {HEAD_BRANCH} carries commits not on origin/main" in (
+        capsys.readouterr().out
+    )
+
+
+def test_a_remote_that_moves_during_cleanup_is_not_deleted(doctor, tmp_path, gh, capsys):
+    """The DELETE is for the sha step 3 proved, not whatever origin holds later."""
+    repo, _ = _merged_repo(tmp_path)
+    bench = _bench()
+    pushed: list[bool] = []
+
+    def docker(args: list[str]) -> str | None:
+        if not pushed:  # the first docker call is the teardown, after the proof
+            pushed.append(True)
+            _push_from_server(tmp_path, "racing.txt")
+        return bench(args)
+
+    rc = doctor.cleanup_merged(repo, 7, docker)
+
+    assert rc == 1
+    assert DELETE_CALL not in _gh_calls(gh)
+    assert "moved" in capsys.readouterr().out
+
+
+def test_an_unreachable_origin_could_not_look(doctor, tmp_path, gh, capsys):
+    repo, worktree = _merged_repo(tmp_path)
+    _git(repo, "remote", "set-url", "origin", str(tmp_path / "missing.git"))
+
+    rc = doctor.cleanup_merged(repo, 7, _bench())
+
+    assert rc == 2
+    assert worktree.is_dir()
+    assert _has_branch(repo)
+    assert DELETE_CALL not in _gh_calls(gh)
+    assert "ls-remote" in capsys.readouterr().out
+
+
+def test_a_base_origin_cannot_fetch_could_not_look(doctor, tmp_path, gh, capsys):
+    repo, worktree = _merged_repo(tmp_path)
+    (gh / "pr.json").write_text(_pr_json(base="gone"), encoding="utf-8")
+
+    rc = doctor.cleanup_merged(repo, 7, _bench())
+
+    assert rc == 2
+    assert worktree.is_dir()
+    assert _has_branch(repo)
+    assert "fetch origin gone" in capsys.readouterr().out
+
+
+def test_a_sweep_that_cannot_look_exits_2_and_the_pr_is_still_cleaned(
+    doctor, tmp_path, gh, capsys
+):
+    """A docker that never answers is the repo's finding, not a reason to keep the PR's."""
+    repo, worktree = _merged_repo(tmp_path)
+
+    rc = doctor.cleanup_merged(repo, 7, lambda args: None)
+
+    out = capsys.readouterr().out
+    assert rc == 2
+    assert "sweep: could not look" in out
+    assert not worktree.exists()
+    assert not _has_branch(repo)
 
 
 def test_an_absent_remote_ref_makes_no_delete_call(doctor, tmp_path, gh, capsys):

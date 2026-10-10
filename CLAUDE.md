@@ -119,10 +119,12 @@ scripts/dev/worktree_doctor.py cleanup-merged <n>
 ```
 
 It confirms with `gh` that the PR is `MERGED` and that no open PR bases on its
-branch, tears down the worktree and any `<name>.baseline` or `<name>.review`
-sibling through the doctor, sweeps (report only), deletes the local branch
-with `git branch -d` (never `-D`), and deletes the remote ref through the refs
-API only if it somehow survived. Already-gone reads as done, so a clean PR
+branch, proves every surviving copy of that branch is on `origin/<base>` (so
+work pushed after the merge is never deleted), tears down the worktree and any
+`<name>.baseline` or `<name>.review` sibling through the doctor, sweeps
+(report only), deletes the local branch with `git branch -d` (never `-D`), and
+deletes the remote ref through the refs API only if it survived, at the sha it
+proved. Already-gone reads as done, so a clean PR
 exits 0; 1 is a refusal, 2 is "could not look". The steps, their existence
 tests and the `-d` tracking-ref recipe are `.claude/skills/dispatch/SKILL.md`
 §5, which also rules that **a stack is cleaned up by its last PR to merge**: a

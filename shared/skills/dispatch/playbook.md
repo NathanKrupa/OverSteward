@@ -233,7 +233,7 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
 
 19. **Tear the worktree down through the doctor.** `scripts/dev/worktree_doctor.py teardown <worktree-path>` is the **only** sanctioned teardown. Run it from a fresh Bash shell, which already starts outside the worktree. If the worktree holds unpushed commits (e.g. STOPPED_FOR_INPUT without a draft push), push them as a draft PR FIRST, then tear down.
 
-    **If the run ended `MERGED`, run `cleanup-merged` instead** — it is this teardown for the worktree and its `.baseline` and `.review` siblings, plus the rest of the orchestrator's `SKILL.md` §5 (merged-check, open-child check, `sweep`, `git branch -d`, the remote ref only if it survived), in one command that refuses rather than guesses:
+    **If the run ended `MERGED`, run `cleanup-merged` instead** — it is this teardown for the worktree and its `.baseline` and `.review` siblings, plus the rest of the orchestrator's `SKILL.md` §5 (merged-check, open-child check, a proof that every surviving copy of the branch is on the trunk, `sweep`, `git branch -d`, the remote ref only if it survived), in one command that refuses rather than guesses:
 
     ```bash
     <repo-primary-checkout>/scripts/dev/worktree_doctor.py cleanup-merged <PR#>

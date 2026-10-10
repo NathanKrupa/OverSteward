@@ -214,31 +214,38 @@ It runs, in this order, and prints one line per step and a verdict:
    refs-API delete of a branch an open PR bases on closes that PR and its
    review threads (measured on OS#509 with no merged PR behind the branch — the
    after-merge case was not measured, so it is treated as the same).
-3. `teardown` of the worktree and its `.baseline` and `.review` siblings, each
+3. Every copy of the branch that remains — local, and on `origin` per
+   `git ls-remote` — must be on `origin/<base>` after a fetch, proven with
+   `git merge-base --is-ancestor`; otherwise it refuses before anything is
+   torn down. `delete_branch_on_merge` removes the head as the PR merges, so a
+   head that survived may carry work pushed after the merge, and `-d` would
+   pass it: it checks the branch's own upstream, which holds that work too.
+4. `teardown` of the worktree and its `.baseline` and `.review` siblings, each
    skipped when absent. A sibling path on some other branch is refused, and a
    `.baseline`/`.review` whose own worktree is gone is reported, not removed.
-4. `sweep`, reporting only — it never passes `--drop`.
-5. `git branch -d`, local before remote. `-d` is not a merged-check: it
+5. `sweep`, reporting only — it never passes `--drop`.
+6. `git branch -d`, local before remote. `-d` is not a merged-check: it
    verifies against the branch's upstream tracking ref, which a server-side
    delete leaves in place until a prune, and against HEAD once that ref is
    gone — and the primary checkout can sit on a different trunk than the PR
    merged into (AG: checkout on `main`, PRs to `staging`). When `-d` refuses,
-   the command gives it the right reference, never `-D`: it proves the merge
-   with `git merge-base --is-ancestor <branch> origin/<trunk>`, sets the
-   upstream to that trunk and runs `-d` again — which still refuses an unmerged
-   branch (both measured, 2026-09-18).
-6. `gh api -X DELETE repos/<owner>/<repo>/git/refs/heads/<branch>`, only while
-   `git ls-remote` still finds the ref. In practice GitHub's
+   the command gives it the right reference, never `-D`: with the merge
+   already proven at step 3, it sets the upstream to `origin/<trunk>` and runs
+   `-d` again — which still refuses an unmerged branch (both measured,
+   2026-09-18).
+7. `gh api -X DELETE repos/<owner>/<repo>/git/refs/heads/<branch>`, only while
+   `origin` still holds the very sha step 3 proved — a ref that moved during
+   the cleanup is refused. In practice GitHub's
    `delete_branch_on_merge` has already removed it, and this is a no-op.
    (`git push --delete` is refused in AG and GS by the verify-marker pre-push
    hook; the refs API works in every repo.)
 
 Absent is a pass at every step, so a PR whose leftovers were already cleaned
 exits 0. Exit 1 is a refusal, exit 2 is "could not look" (gh failed, git could
-not reach origin, docker did not answer the sweep). A refusal at steps 1–3, 5
-or 6 stops the sequence there, so nothing after it runs; an orphan the sweep
-found or a stray sibling belongs to the repo rather than this PR, sets the
-exit code, and lets the rest run. The doctor's own refusal (exit 1 = something
+not reach origin, docker did not answer the sweep). Every refusal stops the
+sequence there, so nothing after it runs — except two findings that belong to
+the repo rather than this PR, an orphan the sweep found and a stray sibling,
+which set the exit code and let the rest run. The doctor's own refusal (exit 1 = something
 still points here or the tree is dirty, exit 2 = it could not look) is the one
 legitimate stop, and it is a finding to fix in-session — inspect the stray
 file, run `repair`, start docker, then run the command again — not a step to

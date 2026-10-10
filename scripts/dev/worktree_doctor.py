@@ -58,10 +58,12 @@ as one command, run from the PR's checkout:
     worktree_doctor.py cleanup-merged <pr> [--repo <path>] [--worktree <path>]
 
 It confirms with ``gh`` that the PR is ``MERGED`` and that no open PR bases on
-its head, tears down its worktree and the ``.baseline``/``.review`` siblings
-through ``teardown``, runs ``sweep`` without ``--drop``, deletes the local
-branch with ``git branch -d`` (never ``-D``), and deletes the remote ref through
-the refs API only while ``origin`` still has it. One line per step, then a
+its head, proves every remaining copy of the head (local and on ``origin``) is
+on ``origin/<base>`` — so work pushed after the merge is never deleted — tears
+down its worktree and the ``.baseline``/``.review`` siblings through
+``teardown``, runs ``sweep`` without ``--drop``, deletes the local branch with
+``git branch -d`` (never ``-D``), and deletes the remote ref through the refs
+API only while ``origin`` still holds the sha it proved. One line per step, then a
 verdict: exit 0 clean (already-gone included), 1 refused, 2 could not look.
 """
 
@@ -1315,7 +1317,7 @@ def stray_siblings(primary: Path) -> list[Path]:
 def cleanup_worktrees(
     primary: Path, pr: MergedPr, docker: DockerRunner, worktree: Path | None
 ) -> int:
-    """Step 3: the PR's worktree and its siblings. Returns 1 for a stray left standing.
+    """Step 4: the PR's worktree and its siblings. Returns 1 for a stray left standing.
 
     The worktree is the one named, else the one with the head branch checked
     out. A sibling of a worktree already gone cannot be tied to this PR, so it
@@ -1342,7 +1344,7 @@ def cleanup_worktrees(
 
 
 def cleanup_sweep(primary: Path, docker: DockerRunner) -> int:
-    """Step 4: the sweep's report, never its ``--drop``. Returns the finding's code."""
+    """Step 5: the sweep's report, never its ``--drop``. Returns the finding's code."""
     try:
         found = reconcile(primary, docker)
     except CouldNotLook as unavailable:
@@ -1356,16 +1358,64 @@ def cleanup_sweep(primary: Path, docker: DockerRunner) -> int:
     return 0
 
 
-def cleanup_branch(primary: Path, pr: MergedPr) -> None:
-    """Step 5: ``git branch -d``, never ``-D``.
+def _remote_tip(primary: Path, ref: str) -> str | None:
+    """The sha ``origin`` holds at exactly ``ref`` — ``ls-remote`` matches by tail."""
+    listed = _git(primary, "ls-remote", "--heads", "origin", ref, timeout=120)
+    if listed.returncode != 0:
+        raise CouldNotLook(f"git ls-remote origin failed: {_said(listed)}")
+    rows = (line.split("\t") for line in listed.stdout.splitlines())
+    return next((row[0] for row in rows if row[-1] == ref), None)
+
+
+@dataclass(frozen=True)
+class Tips:
+    """Where the head branch still exists, every copy proven to be on the trunk."""
+
+    local: bool
+    #: The sha ``origin`` held when it was proven, or None when it had none.
+    remote: str | None
+
+
+def merged_tips(primary: Path, pr: MergedPr) -> Tips:
+    """Step 3: each copy of the head a later step deletes is on ``origin/<base>``.
+
+    ``delete_branch_on_merge`` removes the head as the PR merges, so a head that
+    still exists may carry work pushed or committed after the merge — and
+    ``git branch -d`` passes it, because it checks the branch's own upstream,
+    which holds that work too. Proven before any teardown, so a refusal leaves
+    the worktree standing as resumable state. A tip ``merge-base`` cannot place
+    on the trunk — an object never fetched included — is refused.
+    """
+    subject = "merged content"
+    ref = f"refs/heads/{pr.head}"
+    remote = _remote_tip(primary, ref)
+    fetched = _git(primary, "fetch", "--quiet", "origin", pr.base, timeout=120)
+    if fetched.returncode != 0:
+        raise CouldNotLook(f"git fetch origin {pr.base} failed: {_said(fetched)}")
+    trunk = f"origin/{pr.base}"
+    local = _git(primary, "show-ref", "--verify", "--quiet", ref).returncode == 0
+    for name, tip in ((f"local {pr.head}", ref if local else None), (f"origin's {pr.head}", remote)):
+        if tip is None:
+            continue
+        proof = _git(primary, "merge-base", "--is-ancestor", tip, trunk)
+        if proof.returncode != 0:
+            reason = f" ({_said(proof)})" if _said(proof) else ""
+            _refuse(subject, f"{name} carries commits not on {trunk}{reason} — never -D")
+    _step(subject, DONE, f"every copy of {pr.head} that remains is on {trunk}")
+    return Tips(local, remote)
+
+
+def cleanup_branch(primary: Path, pr: MergedPr, tips: Tips) -> None:
+    """Step 6: ``git branch -d``, never ``-D``.
 
     ``-d`` checks the branch's tracking ref, or HEAD once that is pruned — and
-    the primary checkout's HEAD need not be the trunk the PR merged into. The
-    answer is §5's recipe: prove the merge against ``origin/<base>``, point the
-    branch's upstream there, and ``-d`` again, which still refuses unmerged work.
+    the primary checkout's HEAD need not be the trunk the PR merged into. Step 3
+    already proved the branch is on ``origin/<base>``, so when ``-d`` refuses,
+    §5's recipe points the branch's upstream there and runs ``-d`` again, which
+    still refuses unmerged work.
     """
     subject = f"branch {pr.head}"
-    if _git(primary, "show-ref", "--verify", "--quiet", f"refs/heads/{pr.head}").returncode != 0:
+    if not tips.local:
         _step(subject, ABSENT)
         return
     first = _git(primary, "branch", "-d", pr.head)
@@ -1373,14 +1423,6 @@ def cleanup_branch(primary: Path, pr: MergedPr) -> None:
         _step(subject, DONE, "git branch -d")
         return
     trunk = f"origin/{pr.base}"
-    fetched = _git(primary, "fetch", "--quiet", "origin", pr.base, timeout=120)
-    if fetched.returncode != 0:
-        raise CouldNotLook(f"git fetch origin {pr.base} failed: {_said(fetched)}")
-    proof = _git(primary, "merge-base", "--is-ancestor", pr.head, trunk)
-    if proof.returncode == 1:
-        _refuse(subject, f"it carries commits not on {trunk} ({_said(first)}) — never -D")
-    if proof.returncode != 0:
-        raise CouldNotLook(f"git merge-base --is-ancestor {pr.head} {trunk}: {_said(proof)}")
     for args in ((f"--set-upstream-to={trunk}", pr.head), ("-d", pr.head)):
         retried = _git(primary, "branch", *args)
         if retried.returncode != 0:
@@ -1388,16 +1430,19 @@ def cleanup_branch(primary: Path, pr: MergedPr) -> None:
     _step(subject, DONE, f"git branch -d against {trunk}, after: {_said(first)}")
 
 
-def cleanup_remote(primary: Path, pr: MergedPr) -> None:
-    """Step 6: the refs-API delete, only for a ref ``origin`` still has."""
+def cleanup_remote(primary: Path, pr: MergedPr, tips: Tips) -> None:
+    """Step 7: the refs-API delete, only for the ref step 3 proved, still unmoved."""
     subject = f"remote {pr.head}"
     ref = f"refs/heads/{pr.head}"
-    listed = _git(primary, "ls-remote", "--heads", "origin", ref, timeout=120)
-    if listed.returncode != 0:
-        raise CouldNotLook(f"git ls-remote origin failed: {_said(listed)}")
-    if not any(line.split("\t")[-1] == ref for line in listed.stdout.splitlines()):
+    if tips.remote is None:
         _step(subject, ABSENT)
         return
+    now = _remote_tip(primary, ref)
+    if now is None:
+        _step(subject, ABSENT, "gone since step 3")
+        return
+    if now != tips.remote:
+        _refuse(subject, f"it moved from {tips.remote} to {now} during the cleanup")
     _gh(["api", "-X", "DELETE", f"repos/{pr.slug}/git/{ref}"], primary)
     _step(subject, DONE, f"deleted {ref} on {pr.slug}")
 
@@ -1405,7 +1450,7 @@ def cleanup_remote(primary: Path, pr: MergedPr) -> None:
 def cleanup_merged(
     repo: Path, number: int, docker: DockerRunner, worktree: Path | None = None
 ) -> int:
-    """§5 in order: merged, childless, worktrees, sweep, local branch, remote ref.
+    """§5 in order: merged, childless, on the trunk, worktrees, sweep, branch, remote.
 
     0 is clean, already-gone included. A refusal or an unanswerable question at
     a step that guards a deletion stops there; the sweep and a stray sibling are
@@ -1419,10 +1464,11 @@ def cleanup_merged(
             raise CouldNotLook(f"{repo} is not inside a git checkout")
         pr = merged_pr(primary, number)
         no_open_children(primary, pr)
+        tips = merged_tips(primary, pr)
         findings = cleanup_worktrees(primary, pr, docker, worktree)
         findings = max(findings, cleanup_sweep(primary, docker))
-        cleanup_branch(primary, pr)
-        cleanup_remote(primary, pr)
+        cleanup_branch(primary, pr, tips)
+        cleanup_remote(primary, pr, tips)
     except CleanupStopped as stopped:
         findings = stopped.code
     except CouldNotLook as unavailable:
