@@ -1,4 +1,4 @@
-# ABOUTME: Guards agent cards against hand-written volatile facts and shared/.claude byte drift.
+# ABOUTME: Guards agent cards against hand-written volatile facts; pair identity is test_deployed_links.py's.
 # ABOUTME: A card carries judgment and doctrine; a derivable number typed into one rots silently.
 
 from __future__ import annotations
@@ -232,7 +232,7 @@ def _agent_cards() -> list[Path]:
 
 
 def _card_pair(name: str) -> tuple[Path, Path]:
-    """The canonical source and its deployed byte-copy, in that order."""
+    """The canonical source and its deployed link, in that order."""
     return CANONICAL_DIR / name, DEPLOYED_DIR / name
 
 
@@ -245,18 +245,6 @@ def _paired_card_names() -> list[str]:
 def test_agent_card_directories_are_populated() -> None:
     """A guard over an empty glob passes vacuously — assert there is something to guard."""
     assert _paired_card_names(), "no shared/.claude agent-card pairs found"
-
-
-@pytest.mark.parametrize("name", _paired_card_names())
-def test_canonical_and_deployed_cards_are_byte_identical(name: str) -> None:
-    """`shared/agents/` is canonical; `.claude/agents/` is its byte-copy. Edit one, copy."""
-    canonical_card, deployed_card = _card_pair(name)
-    canonical = canonical_card.read_bytes()
-    deployed = deployed_card.read_bytes()
-    assert canonical == deployed, (
-        f"{name} has drifted: shared/agents/{name} != .claude/agents/{name}. "
-        f"Edit the canonical copy and byte-copy it across; never dual-edit."
-    )
 
 
 @pytest.mark.parametrize("card", _agent_cards(), ids=lambda p: f"{p.parent.name}/{p.name}")
@@ -755,7 +743,6 @@ def test_the_reviewer_card_itself_is_deployed_alongside_the_dev_cards() -> None:
     canonical = CANONICAL_DIR / "adversarial-reviewer.md"
     deployed = DEPLOYED_DIR / "adversarial-reviewer.md"
     assert canonical.is_file() and deployed.is_file()
-    assert canonical.read_bytes() == deployed.read_bytes()
 
 
 def test_oversteward_card_does_not_deny_the_ci_this_repo_has() -> None:

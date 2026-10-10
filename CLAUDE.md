@@ -140,6 +140,14 @@ This family is canonical here in `shared/scripts/dev/` and deployed to every
 repo's `.claude/hooks/` + `scripts/dev/`. See OVERSTEWARD.md §
 "Session-per-worktree discipline" for the rollout and new-project bootstrap.
 
+**In this repo the deployed side is a link, not a copy.** `.claude/hooks/`,
+`.claude/agents/`, `.claude/skills/dispatch/`, `scripts/dev/` and `tests/dev/`
+hold relative symlinks into `shared/` (OS#576): edit the canonical file and the
+deployed path changes with it. Never replace a link with a regular file.
+`tests/test_deployed_links.py` pins the set and names the few pairs that stay
+copies, with the reason for each. Every other repo, and both Claude homes, still
+receive real file contents.
+
 ## Running a command with `.env` loaded
 
 **Do not** `source .env` or put a connection-string assignment on a command
