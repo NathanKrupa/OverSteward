@@ -104,9 +104,17 @@ class GitRepo:
         return joined if self._mode(ref, joined) in REGULAR_MODES else relpath
 
     def _mode(self, ref: str, relpath: str) -> bytes | None:
-        """The tree-entry mode git records for ``relpath`` at ``ref``, or None if absent."""
-        entry = _git(self._root, "ls-tree", ref, "--", relpath)
-        return entry.split(b" ", 1)[0] if entry else None
+        """The tree-entry mode git records for ``relpath`` at ``ref``, or None if absent.
+
+        Only the entry named ``relpath`` counts: for ``.`` ls-tree lists the
+        root's contents, and the first of those is not the root itself.
+        """
+        listing = _git(self._root, "ls-tree", "-z", ref, "--", relpath) or b""
+        for record in listing.split(b"\0"):
+            meta, _, path = record.partition(b"\t")
+            if path == relpath.encode():
+                return meta.split(b" ", 1)[0]
+        return None
 
     def blob(self, ref: str, relpath: str) -> bytes | None:
         return _git(self._root, "cat-file", "blob", f"{ref}:{self.resolve(ref, relpath)}")

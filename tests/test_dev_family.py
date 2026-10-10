@@ -245,6 +245,13 @@ class TestReadOriginFamilySymlinks:
         )
         assert self._read(repo) == _sha(target.encode())
 
+    def test_a_link_to_the_repo_root_reads_as_its_link_text(self, tmp_path):
+        """ls-tree of `.` lists the root's contents; their first mode is not the root's."""
+        repo = _init_repo(
+            tmp_path / "repo", {"CLAUDE.md": "x\n"}, links={"scripts/dev/new-session.sh": "../.."}
+        )
+        assert self._read(repo) == _sha(b"../..")
+
     def test_a_link_to_another_link_reads_as_its_own_link_text(self, tmp_path):
         repo = _init_repo(
             tmp_path / "repo",
