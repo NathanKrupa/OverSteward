@@ -105,10 +105,47 @@ Follow the universal playbook at `.claude/skills/dispatch/playbook.md` in full. 
 
 ## Adversarial review — required before `gh pr create`
 
-Between "tests green" and opening the PR, a **separate** reviewer instance reads
+Between the lite gate and opening the PR, a **separate** reviewer instance reads
 this change with no sight of your reasoning. You do not write its prompt: a
 hurried or captured author who summarised the diff or dropped a test file would
 degrade the whole instrument silently, so the input is assembled by code.
+
+**Before round 1: the lite gate, then the diff ceiling** (the pre-round-1
+sequence in `~/.claude/shared/references/pr-workflow.md`). Commit first, because
+both read the committed diff, which is what the reviewer reads. The lite gate is
+ruff, the gaudi error gate on the changed Python files, and `pytest` on the test
+files the diff touches. It checks what you changed; it does not certify the
+tree. Playbook step 10's full suite does not run here. It is the one full run,
+after the findings, below.
+
+```bash
+# 0a. Lite gate, from the worktree. No .env: it points at production Neon.
+#     `rc` collects every step, so one red step reddens the whole block; the
+#     last command's status alone would say nothing about the others.
+rc=0
+ruff check src/ tests/ || rc=1
+ruff format --check src/ tests/ || rc=1
+changed=$(git diff --name-only --diff-filter=d origin/staging...HEAD)
+py=$(printf '%s\n' $changed | grep '\.py$' || true)
+# The wrapper calls a bare `gaudi`, so the worktree venv goes on PATH.
+PATH="$PWD/.venv/bin:$PATH" .venv/bin/python scripts/lint/gaudi_check_files.py $py || rc=1
+tests=$(printf '%s\n' $changed | grep -E '(^|/)test_[^/]*\.py$' || true)
+if [ -n "$tests" ]; then
+    .venv/bin/python -m pytest $tests || rc=1
+else
+    echo "LITE GATE: the diff touches no test file, so pytest ran nothing"
+fi
+
+# 0b. Diff ceiling: insertions plus deletions against the grantspider ceiling in
+#     pr-workflow.md (a test holds the two numbers equal). Over it, split
+#     before round 1, or record the waiver in the PR body when splitting would
+#     not shrink the largest piece, and go on.
+ceiling=1200
+size=$(git diff --numstat origin/staging...HEAD | awk '{n += $1 + $2} END {print n + 0}')
+echo "diff: $size changed (ceiling $ceiling)"
+if [ "$size" -gt "$ceiling" ]; then echo "OVER THE CEILING: split, or record the waiver"; rc=1; fi
+(exit $rc)
+```
 
 ```bash
 # 1. Assemble the input. Run it through the OverSteward checkout's own
@@ -168,12 +205,26 @@ Then:
   flag.
 - **`PASS-WITH-FINDINGS` gets no re-review.** Address each `defect`, `pin` and
   `doc` finding, record its fix and the red mutant that proves it in the PR
-  body under the verdict, and open the PR.
+  body under the verdict, then run the full gate below and open the PR.
 - **Before round 1, run the reviewer's catalogue yourself** (brief entries 13
   and 14): for every destructive statement in the diff, one negative fixture
   per `WHERE` conjunct, per key element, per window edge, per row state at an
   insert's key — with the mutant that kills each. Paste the table into the PR
   body. Half of one branch's eleven rounds were that table, one row per round.
+
+**After the findings: one full `make verify`, then push.** Once the last
+round's findings are fixed, run the full gate once, from the worktree, against
+the compose test bench and never `.env`. It writes the marker the pre-push hook
+reads, and it is the only full run this PR gets: a run before review certifies
+bytes the fixes then replace. A fix it forces is a commit after the reviewed
+SHA that no verdict covers, and the assembler re-reviews only after a `BLOCK`,
+so there is no delta round to run. List each such commit in the PR body under
+the verdict, with its SHA and the failure that forced it (OS#564 decides the
+lasting rule).
+
+```bash
+make verify
+```
 
 **Opening a PR with no verdict block is a procedural failure, not a shortcut.**
 `scripts/lint/require_review_verdict.py` is red on a missing, malformed or

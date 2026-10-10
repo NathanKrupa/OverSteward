@@ -354,6 +354,142 @@ def test_every_dev_card_states_that_a_block_stops_the_pickup(card: Path) -> None
     )
 
 
+#: The cards that carry the pre-round-1 sequence (OS#563): a lite gate and the
+#: diff ceiling before round 1, then one full `make verify` after the findings
+#: are fixed. Running the full gate before review as well doubled its cost on
+#: every PR, and checking the ceiling only after the rounds let the largest
+#: diffs spend those rounds first (`shared/references/pr-workflow.md`).
+PRE_ROUND_SEQUENCE_CARDS = ("aigranthelper-dev.md", "grantspider-dev.md")
+
+#: The commands that make up the lite gate, each a line that must fold its
+#: failure into the block's exit status.
+LITE_GATE_COMMANDS = (
+    ("lite-gate ruff check", "ruff check"),
+    ("lite-gate ruff format", "ruff format --check"),
+    ("lite-gate gaudi", "scripts/lint/gaudi_check_files.py"),
+    ("lite-gate pytest on the touched tests", "-m pytest $tests"),
+)
+
+#: Each step of the sequence as the command or sentence that carries it, in the
+#: order the card must give them. The first is what makes "one full run" true:
+#: the playbook's step 10 runs the full suite before anything the card adds.
+PRE_ROUND_SEQUENCE = (
+    ("playbook step 10 override", "Playbook step 10's full suite does not run here"),
+    *LITE_GATE_COMMANDS,
+    ("diff ceiling", "diff --numstat"),
+    ("block exit status", "(exit $rc)"),
+    ("review assembly", "assemble_review_input.py"),
+    ("findings step", "`PASS-WITH-FINDINGS` gets no re-review"),
+)
+
+#: How a lite-gate line carries its failure past the commands after it.
+LITE_GATE_FAILURE = "|| rc=1"
+
+#: A pytest run that is not scoped to the touched test files is a full-suite
+#: run before review — the cost the sequence exists to remove.
+UNSCOPED_PYTEST = re.compile(r"-m pytest(?! \$tests\b)")
+
+FULL_GATE = "make verify"
+
+#: A line that runs the full gate, bare or through the sanctioned `.env` runner.
+FULL_GATE_RUN = re.compile(
+    r"^[ \t]*(?:\S*with_test_env\.py(?:[ \t]+--env-file[ \t]+\S+)?[ \t]+)?make verify[ \t]*$",
+    re.MULTILINE,
+)
+
+REVIEW_BLOCK = re.compile(r"^## Adversarial review\b.*?(?=^## )", re.MULTILINE | re.DOTALL)
+
+PR_WORKFLOW = REPO_ROOT / "shared" / "references" / "pr-workflow.md"
+
+#: The ceiling a card compares against, and the one the doctrine states.
+CARD_CEILING = re.compile(r"^ceiling=(\d+)$", re.MULTILINE)
+DOCTRINE_CEILING = r"\b{repo} (\d{{1,3}}(?:,\d{{3}})*)"
+
+
+def _pre_round_sequence_cards() -> list[Path]:
+    return [
+        directory / name
+        for name in PRE_ROUND_SEQUENCE_CARDS
+        for directory in (CANONICAL_DIR, DEPLOYED_DIR)
+    ]
+
+
+def _review_block(card: Path) -> str:
+    block = REVIEW_BLOCK.search(card.read_text(encoding="utf-8"))
+    assert block is not None, f"{card.parent.name}/{card.name} has no review block"
+    return block.group(0)
+
+
+@pytest.mark.parametrize(
+    "card", _pre_round_sequence_cards(), ids=lambda p: f"{p.parent.name}/{p.name}"
+)
+def test_the_review_block_checks_the_ceiling_first_and_runs_the_full_gate_once_last(
+    card: Path,
+) -> None:
+    """Lite gate, ceiling, review, fixes, then the one full run — reordering any step is red."""
+    text = card.read_text(encoding="utf-8")
+    review = _review_block(card)
+    positions = []
+    for step, marker in PRE_ROUND_SEQUENCE:
+        assert marker in review, f"{card.parent.name}/{card.name} review block lacks the {step}"
+        positions.append((review.index(marker), step))
+    assert positions == sorted(positions), (
+        f"{card.parent.name}/{card.name} gives the pre-round-1 steps out of order: "
+        f"{[step for _, step in sorted(positions)]}; the order is "
+        f"{[step for step, _ in PRE_ROUND_SEQUENCE]}."
+    )
+    runs = FULL_GATE_RUN.findall(review)
+    assert len(runs) == 1, (
+        f"{card.parent.name}/{card.name} runs `{FULL_GATE}` {len(runs)} times in its "
+        f"review block; the sequence runs it once, after the findings are fixed."
+    )
+    findings_at = text.index(PRE_ROUND_SEQUENCE[-1][1])
+    early = [m.start() for m in re.finditer(re.escape(FULL_GATE), text) if m.start() < findings_at]
+    assert not early, (
+        f"{card.parent.name}/{card.name} names `{FULL_GATE}` before the findings step "
+        f"(line {text.count(chr(10), 0, early[0]) + 1}); the full run comes after review."
+    )
+
+
+@pytest.mark.parametrize(
+    "card", _pre_round_sequence_cards(), ids=lambda p: f"{p.parent.name}/{p.name}"
+)
+def test_the_lite_gate_fails_closed_and_runs_only_the_touched_tests(card: Path) -> None:
+    """A step whose failure the next command hides, or an unscoped pytest, defeats the gate."""
+    review = _review_block(card)
+    for step, marker in LITE_GATE_COMMANDS:
+        lines = [line for line in review.splitlines() if marker in line]
+        assert lines, f"{card.parent.name}/{card.name} review block lacks the {step}"
+        unchained = [line.strip() for line in lines if LITE_GATE_FAILURE not in line]
+        assert not unchained, (
+            f"{card.parent.name}/{card.name}: the {step} does not fold its failure into "
+            f"the block's status ({LITE_GATE_FAILURE!r}): {unchained}"
+        )
+    unscoped = UNSCOPED_PYTEST.search(review)
+    assert unscoped is None, (
+        f"{card.parent.name}/{card.name} runs pytest unscoped in its review block, which "
+        f"is a full-suite run before review."
+    )
+
+
+@pytest.mark.parametrize(
+    "card", _pre_round_sequence_cards(), ids=lambda p: f"{p.parent.name}/{p.name}"
+)
+def test_the_card_ceiling_is_the_one_the_doctrine_states(card: Path) -> None:
+    """The number lives in two places so the check can fail; this holds them equal."""
+    repo = card.stem.removesuffix(DEV_CARD_SUFFIX)
+    in_card = CARD_CEILING.findall(_review_block(card))
+    assert len(in_card) == 1, (
+        f"{card.parent.name}/{card.name} sets the diff ceiling {len(in_card)} times"
+    )
+    stated = re.findall(DOCTRINE_CEILING.format(repo=repo), PR_WORKFLOW.read_text("utf-8"))
+    assert len(stated) == 1, f"pr-workflow.md states the {repo} ceiling {len(stated)} times"
+    assert int(in_card[0]) == int(stated[0].replace(",", "")), (
+        f"{card.parent.name}/{card.name} compares against {in_card[0]}, but pr-workflow.md "
+        f"states the {repo} ceiling as {stated[0]}."
+    )
+
+
 REGISTRY = REPO_ROOT / "registry.yaml"
 
 #: The base branch a card hands the review assembler. A wrong base feeds the
