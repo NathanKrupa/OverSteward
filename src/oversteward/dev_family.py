@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import posixpath
 import subprocess
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -16,6 +17,8 @@ PRESENT = "present-identical"
 DRIFTED = "drifted"
 ABSENT = "absent"
 ABSENT_REFERENCED = "absent-but-doctrine-referenced"
+
+SYMLINK_MODE = b"120000"
 
 # Members that deploy as registered Claude hooks rather than into <repo>/scripts/dev/.
 HOOK_MEMBERS = frozenset(
@@ -75,8 +78,30 @@ class GitRepo:
     def has_ref(self, ref: str) -> bool:
         return _git(self._root, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}") is not None
 
+    def resolve(self, ref: str, relpath: str) -> str:
+        """The path whose bytes ``relpath`` delivers at ``ref``.
+
+        A regular file is itself. A symlink whose target stays inside the tree
+        is its target: OverSteward deploys its own family that way (OS#576).
+        A symlink leaving the tree — absolute, or climbing above the root — is
+        itself, so its bytes are the link text and the member reads as drifted:
+        a link leaked into a consumer repo is a finding, never a silent pass.
+        One hop only; a link to a link reads as the second link's text.
+        """
+        entry = _git(self._root, "ls-tree", ref, "--", relpath)
+        if not entry or not entry.startswith(SYMLINK_MODE + b" "):
+            return relpath
+        target = _git(self._root, "cat-file", "blob", f"{ref}:{relpath}")
+        if target is None:
+            return relpath
+        text = target.decode("utf-8", errors="replace")
+        joined = posixpath.normpath(posixpath.join(posixpath.dirname(relpath), text))
+        if posixpath.isabs(text) or joined == ".." or joined.startswith("../"):
+            return relpath
+        return joined
+
     def blob(self, ref: str, relpath: str) -> bytes | None:
-        return _git(self._root, "cat-file", "blob", f"{ref}:{relpath}")
+        return _git(self._root, "cat-file", "blob", f"{ref}:{self.resolve(ref, relpath)}")
 
 
 def deployed_relpath(member: str) -> str:
