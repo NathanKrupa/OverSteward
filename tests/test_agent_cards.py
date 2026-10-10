@@ -403,7 +403,7 @@ PR_WORKFLOW = REPO_ROOT / "shared" / "references" / "pr-workflow.md"
 
 #: The ceiling a card compares against, and the one the doctrine states.
 CARD_CEILING = re.compile(r"^ceiling=(\d+)$", re.MULTILINE)
-DOCTRINE_CEILING = r"\b{repo} (\d[\d,]*)"
+DOCTRINE_CEILING = r"\b{repo} (\d{{1,3}}(?:,\d{{3}})*)"
 
 
 def _pre_round_sequence_cards() -> list[Path]:
