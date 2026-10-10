@@ -120,22 +120,31 @@ after the findings, below.
 
 ```bash
 # 0a. Lite gate, from the worktree. No .env: it points at production Neon.
-ruff check src/ tests/ && ruff format --check src/ tests/
+#     `rc` collects every step, so one red step reddens the whole block; the
+#     last command's status alone would say nothing about the others.
+rc=0
+ruff check src/ tests/ || rc=1
+ruff format --check src/ tests/ || rc=1
 changed=$(git diff --name-only --diff-filter=d origin/staging...HEAD)
+py=$(printf '%s\n' $changed | grep '\.py$' || true)
 # The wrapper calls a bare `gaudi`, so the worktree venv goes on PATH.
-PATH="$PWD/.venv/bin:$PATH" .venv/bin/python scripts/lint/gaudi_check_files.py \
-    $(printf '%s\n' $changed | grep '\.py$')
-tests=$(printf '%s\n' $changed | grep -E '(^|/)test_[^/]*\.py$')
+PATH="$PWD/.venv/bin:$PATH" .venv/bin/python scripts/lint/gaudi_check_files.py $py || rc=1
+tests=$(printf '%s\n' $changed | grep -E '(^|/)test_[^/]*\.py$' || true)
 if [ -n "$tests" ]; then
-    .venv/bin/python -m pytest $tests
+    .venv/bin/python -m pytest $tests || rc=1
 else
     echo "LITE GATE: the diff touches no test file, so pytest ran nothing"
 fi
 
-# 0b. Diff ceiling: insertions plus deletions, against the grantspider ceiling
-#     in pr-workflow.md. Over it, split before round 1, or record the waiver in
-#     the PR body when splitting would not shrink the largest piece.
-git diff --shortstat origin/staging...HEAD
+# 0b. Diff ceiling: insertions plus deletions against the grantspider ceiling in
+#     pr-workflow.md (a test holds the two numbers equal). Over it, split
+#     before round 1, or record the waiver in the PR body when splitting would
+#     not shrink the largest piece, and go on.
+ceiling=1200
+size=$(git diff --numstat origin/staging...HEAD | awk '{n += $1 + $2} END {print n + 0}')
+echo "diff: $size changed (ceiling $ceiling)"
+if [ "$size" -gt "$ceiling" ]; then echo "OVER THE CEILING: split, or record the waiver"; rc=1; fi
+(exit $rc)
 ```
 
 ```bash
@@ -208,7 +217,10 @@ round's findings are fixed, run the full gate once, from the worktree, against
 the compose test bench and never `.env`. It writes the marker the pre-push hook
 reads, and it is the only full run this PR gets: a run before review certifies
 bytes the fixes then replace. A fix it forces is a commit after the reviewed
-SHA, so unless the verdict asked for that fix it needs a delta round.
+SHA that no verdict covers, and the assembler re-reviews only after a `BLOCK`,
+so there is no delta round to run. List each such commit in the PR body under
+the verdict, with its SHA and the failure that forced it (OS#564 decides the
+lasting rule).
 
 ```bash
 make verify

@@ -196,20 +196,31 @@ after the findings, below.
 
 ```bash
 # 0a. Lite gate, from the worktree, with PYTHONPATH pointed at its own source.
-uv run --no-sync ruff check . && uv run --no-sync ruff format --check .
+#     `rc` collects every step, so one red step reddens the whole block; the
+#     last command's status alone would say nothing about the others.
+rc=0
+uv run --no-sync ruff check . || rc=1
+uv run --no-sync ruff format --check . || rc=1
 changed=$(git diff --name-only --diff-filter=d origin/staging...HEAD)
-.venv/bin/python scripts/lint/gaudi_check_files.py $(printf '%s\n' $changed | grep '\.py$')
-tests=$(printf '%s\n' $changed | grep -E '(^|/)test_[^/]*\.py$')
+py=$(printf '%s\n' $changed | grep '\.py$' || true)
+.venv/bin/python scripts/lint/gaudi_check_files.py $py || rc=1
+tests=$(printf '%s\n' $changed | grep -E '(^|/)test_[^/]*\.py$' || true)
 if [ -n "$tests" ]; then
-    scripts/dev/with_test_env.py .venv/bin/python -m pytest $tests
+    scripts/dev/with_test_env.py --env-file /home/natha/aigranthelper/.env \
+        .venv/bin/python -m pytest $tests || rc=1
 else
     echo "LITE GATE: the diff touches no test file, so pytest ran nothing"
 fi
 
-# 0b. Diff ceiling: insertions plus deletions, against the aigranthelper ceiling
-#     in pr-workflow.md. Over it, split before round 1, or record the waiver in
-#     the PR body when splitting would not shrink the largest piece.
-git diff --shortstat origin/staging...HEAD
+# 0b. Diff ceiling: insertions plus deletions against the aigranthelper
+#     ceiling in pr-workflow.md (a test holds the two numbers equal). Over it,
+#     split before round 1, or record the waiver in the PR body when splitting
+#     would not shrink the largest piece, and go on.
+ceiling=1000
+size=$(git diff --numstat origin/staging...HEAD | awk '{n += $1 + $2} END {print n + 0}')
+echo "diff: $size changed (ceiling $ceiling)"
+if [ "$size" -gt "$ceiling" ]; then echo "OVER THE CEILING: split, or record the waiver"; rc=1; fi
+(exit $rc)
 ```
 
 ```bash
@@ -281,8 +292,10 @@ Then:
 round's findings are fixed, run the full gate once, from the worktree. It writes
 the marker the pre-push hook reads, and it is the only full run this PR gets: a
 run before review certifies bytes the fixes then replace. A fix it forces is a
-commit after the reviewed SHA, so unless the verdict asked for that fix it needs
-a delta round.
+commit after the reviewed SHA that no verdict covers, and the assembler
+re-reviews only after a `BLOCK`, so there is no delta round to run. List each
+such commit in the PR body under the verdict, with its SHA and the failure that
+forced it (OS#564 decides the lasting rule).
 
 ```bash
 scripts/dev/with_test_env.py --env-file /home/natha/aigranthelper/.env make verify
