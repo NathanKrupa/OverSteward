@@ -51,19 +51,33 @@ here that could destroy something it never positively named. It is therefore
 dry-run by default, it prints which live worktree each database was matched
 against so the inference can be audited before it is authorised, and it leaves
 alone every name it cannot attribute to this repo's own stems.
+
+``cleanup-merged`` is the dispatch skill's §5 — everything a merged PR leaves —
+as one command, run from the PR's checkout:
+
+    worktree_doctor.py cleanup-merged <pr> [--repo <path>] [--worktree <path>]
+
+It confirms with ``gh`` that the PR is ``MERGED`` and that no open PR bases on
+its head, tears down its worktree and the ``.baseline``/``.review`` siblings
+through ``teardown``, runs ``sweep`` without ``--drop``, deletes the local
+branch with ``git branch -d`` (never ``-D``), and deletes the remote ref through
+the refs API only while ``origin`` still has it. One line per step, then a
+verdict: exit 0 clean (already-gone included), 1 refused, 2 could not look.
 """
 
 from __future__ import annotations
 
 import argparse
 import importlib.util
+import json
 import os
 import re
-import subprocess  # list-form argv, no shell; docker reads only
+import subprocess  # list-form argv, no shell
 import sys
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NoReturn
 
 # The estate's session-worktree layout, from new-session.sh: a worktree always
 # lives at <primary-checkout>/.claude/worktrees/<name>. That shape is what makes
@@ -686,6 +700,16 @@ def live_worktrees(repo: Path) -> tuple[Path, list[Path]]:
     rather than returning nothing, because nothing is the answer that makes every
     database on the container look unclaimed.
     """
+    trees = [path for path, _ in worktree_checkouts(repo)]
+    return trees[0], trees[1:]
+
+
+def worktree_checkouts(repo: Path) -> list[tuple[Path, str | None]]:
+    """Every worktree git lists, main first, with the branch it has checked out.
+
+    The branch is None for a detached HEAD — the shape of a ``.baseline`` or
+    ``.review`` sibling. Raises :class:`CouldNotLook` rather than answer empty.
+    """
     try:
         result = subprocess.run(  # list-form argv, no shell
             ["git", "-C", str(repo), "worktree", "list", "--porcelain"],
@@ -699,15 +723,15 @@ def live_worktrees(repo: Path) -> tuple[Path, list[Path]]:
         raise CouldNotLook(f"git could not be run in {repo}: {failure}") from failure
     if result.returncode != 0:
         raise CouldNotLook(f"git could not list the worktrees of {repo}: {result.stderr.strip()}")
-    marker = "worktree "
-    trees = [
-        Path(line[len(marker) :].strip())
-        for line in result.stdout.splitlines()
-        if line.startswith(marker)
-    ]
+    trees: list[tuple[Path, str | None]] = []
+    for line in result.stdout.splitlines():
+        if line.startswith("worktree "):
+            trees.append((Path(line[len("worktree ") :].strip()), None))
+        elif line.startswith("branch refs/heads/") and trees:
+            trees[-1] = (trees[-1][0], line[len("branch refs/heads/") :].strip())
     if not trees:
         raise CouldNotLook(f"{repo} is not inside a git checkout")
-    return trees[0], trees[1:]
+    return trees
 
 
 def _live_tree(module, path: Path) -> LiveTree:
@@ -1121,6 +1145,294 @@ def repair_repo(repo: Path, docker: DockerRunner | None = None) -> tuple[list[st
 
 
 # ---------------------------------------------------------------------------
+# cleanup-merged — dispatch SKILL.md §5 as one command
+# ---------------------------------------------------------------------------
+#
+# Every step is the hand sequence §5 documents, in its order, with its existence
+# tests: absent is a pass, so a PR whose leftovers were already cleaned exits 0.
+# A refusal (exit 1) and a "could not look" (exit 2) at any step that guards a
+# deletion stop the sequence there, so nothing after it runs.
+
+#: The outcome words every step line carries.
+DONE, ABSENT, REFUSED, UNLOOKED = "done", "absent", "refused", "could not look"
+
+#: What a worktree can leave beside itself: the dispatch playbook's
+#: baseline-comparison tree, and the adversarial reviewer's scratch copy.
+SIBLING_SUFFIXES = (".baseline", ".review")
+
+GITHUB_SLUG = re.compile(r"github\.com/([^/]+/[^/]+)/pull/\d+")
+
+VERDICTS = {0: "clean", 1: "refused", 2: "could not look"}
+
+
+class CleanupStopped(RuntimeError):
+    """A step refused; its line is already printed and nothing after it may run."""
+
+    def __init__(self, code: int) -> None:
+        super().__init__(code)
+        self.code = code
+
+
+@dataclass(frozen=True)
+class MergedPr:
+    """A PR ``gh`` confirmed is merged, with the names every later step acts on."""
+
+    number: int
+    #: ``owner/repo``, read from the PR's own URL.
+    slug: str
+    head: str
+    base: str
+
+
+def _step(subject: str, outcome: str, detail: str = "") -> None:
+    print(f"{subject}: {outcome}" + (f" — {detail}" if detail else ""))
+
+
+def _refuse(subject: str, reason: str) -> NoReturn:
+    _step(subject, REFUSED, reason)
+    raise CleanupStopped(1)
+
+
+def _gh(args: list[str], cwd: Path) -> str:
+    """Run ``gh`` from ``cwd``. Any failure is "could not look", never an empty answer."""
+    try:
+        result = subprocess.run(  # list-form argv, no shell
+            ["gh", *args], capture_output=True, text=True, timeout=60, check=False, cwd=cwd
+        )
+    except (OSError, subprocess.SubprocessError) as failure:
+        raise CouldNotLook(f"gh {' '.join(args)} could not run: {failure}") from failure
+    if result.returncode != 0:
+        reason = (result.stderr or result.stdout).strip()
+        raise CouldNotLook(f"gh {' '.join(args)} failed: {reason}")
+    return result.stdout
+
+
+def _git(repo: Path, *args: str, timeout: int = 60) -> subprocess.CompletedProcess[str]:
+    """One git command in ``repo``, answered whatever its exit code."""
+    try:
+        return subprocess.run(  # list-form argv, no shell
+            ["git", "-C", str(repo), *args],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+            env=_clean_git_env(),
+        )
+    except (OSError, subprocess.SubprocessError) as failure:
+        raise CouldNotLook(f"git {' '.join(args)} could not run in {repo}: {failure}") from failure
+
+
+def _said(result: subprocess.CompletedProcess[str]) -> str:
+    return (result.stderr or result.stdout).strip()
+
+
+def _trunks(primary: Path, slug: str, base: str) -> set[str]:
+    """The branches no cleanup may delete: the base, the default, the checkout's own."""
+    default = ["repo", "view", slug, "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"]
+    trunks = {base, _gh(default, primary).strip()}
+    current = _git(primary, "symbolic-ref", "--quiet", "--short", "HEAD")
+    if current.returncode == 0:
+        trunks.add(current.stdout.strip())
+    return trunks
+
+
+def merged_pr(primary: Path, number: int) -> MergedPr:
+    """Step 1: the PR is ``MERGED``, from this repo, and its head is no trunk.
+
+    The trunk test is what keeps a promote (head ``staging``) or a back-merge
+    (head ``main``) from reading as a merged feature branch to delete.
+    """
+    subject = f"PR #{number}"
+    fields = "state,headRefName,baseRefName,isCrossRepository,url"
+    raw = _gh(["pr", "view", str(number), "--json", fields], primary)
+    try:
+        view = json.loads(raw)
+        state, head, base, url = view["state"], view["headRefName"], view["baseRefName"], view["url"]
+    except (ValueError, KeyError, TypeError) as failure:
+        raise CouldNotLook(f"gh pr view {number} answered {raw.strip()!r}") from failure
+    if state != "MERGED":
+        _refuse(subject, f"it is {state}, not MERGED — its branch is still the work")
+    if view.get("isCrossRepository"):
+        _refuse(subject, f"it came from a fork — {head} is not this checkout's branch")
+    match = GITHUB_SLUG.search(url)
+    if match is None:
+        raise CouldNotLook(f"no owner/repo in PR #{number}'s url {url!r}")
+    slug = match.group(1)
+    trunks = _trunks(primary, slug, base)
+    if head in trunks:
+        _refuse(subject, f"its head {head} is a trunk ({', '.join(sorted(trunks))})")
+    _step(subject, DONE, f"MERGED {head} into {base} on {slug}")
+    return MergedPr(number, slug, head, base)
+
+
+def no_open_children(primary: Path, pr: MergedPr) -> None:
+    """Step 2: nothing open bases on the head. A refs-API delete under a child closes it."""
+    subject = "open children"
+    query = ["pr", "list", "--repo", pr.slug, "--base", pr.head, "--state", "open"]
+    raw = _gh([*query, "--json", "number,url"], primary)
+    try:
+        children = [f"#{child['number']}" for child in json.loads(raw)]
+    except (ValueError, KeyError, TypeError) as failure:
+        raise CouldNotLook(f"gh pr list answered {raw.strip()!r}") from failure
+    if children:
+        _refuse(subject, f"{', '.join(children)} base on {pr.head} — retarget them first")
+    _step(subject, ABSENT, f"no open PR bases on {pr.head}")
+
+
+def _checkouts(primary: Path) -> dict[Path, str | None]:
+    return {path.resolve(): branch for path, branch in worktree_checkouts(primary)}
+
+
+def _tear_down(
+    path: Path, pr: MergedPr, checkouts: dict[Path, str | None], docker: DockerRunner
+) -> None:
+    """One tree through :func:`teardown`, whose refusal stops the sequence unchanged."""
+    subject = f"teardown {path}"
+    if not path.exists():
+        _step(subject, ABSENT)
+        return
+    branch = checkouts.get(path.resolve())
+    if branch not in (None, pr.head):
+        _refuse(subject, f"it has {branch} checked out, not {pr.head} — not this PR's tree")
+    code = teardown(path, default_venvs(path), docker=docker)
+    if code != 0:
+        _step(subject, REFUSED, "the doctor refused it (above) — fix that, then re-run")
+        raise CleanupStopped(code)
+    _step(subject, DONE)
+
+
+def stray_siblings(primary: Path) -> list[Path]:
+    """Every ``.baseline``/``.review`` worktree whose own worktree is gone."""
+    trees = set(_checkouts(primary))
+    return sorted(
+        tree
+        for tree in trees
+        for suffix in SIBLING_SUFFIXES
+        if tree.name.endswith(suffix) and Path(str(tree)[: -len(suffix)]) not in trees
+    )
+
+
+def cleanup_worktrees(
+    primary: Path, pr: MergedPr, docker: DockerRunner, worktree: Path | None
+) -> int:
+    """Step 3: the PR's worktree and its siblings. Returns 1 for a stray left standing.
+
+    The worktree is the one named, else the one with the head branch checked
+    out. A sibling of a worktree already gone cannot be tied to this PR, so it
+    is reported rather than removed.
+    """
+    checkouts = _checkouts(primary)
+    main = worktree or next((p for p, branch in checkouts.items() if branch == pr.head), None)
+    if main is None:
+        _step("worktree", ABSENT, f"no worktree has {pr.head} checked out")
+    else:
+        for path in (main, *(Path(f"{main}{suffix}") for suffix in SIBLING_SUFFIXES)):
+            _tear_down(path, pr, checkouts, docker)
+    strays = stray_siblings(primary)
+    if strays:
+        _step(
+            "siblings",
+            REFUSED,
+            f"{', '.join(map(str, strays))} outlived its worktree — "
+            "`worktree_doctor.py teardown` each once you know whose it is",
+        )
+        return 1
+    _step("siblings", ABSENT, "no .baseline/.review outlives its worktree")
+    return 0
+
+
+def cleanup_sweep(primary: Path, docker: DockerRunner) -> int:
+    """Step 4: the sweep's report, never its ``--drop``. Returns the finding's code."""
+    try:
+        found = reconcile(primary, docker)
+    except CouldNotLook as unavailable:
+        _step("sweep", UNLOOKED, str(unavailable))
+        return 2
+    if found.orphans:
+        names = ", ".join(candidate.database for candidate in found.orphans)
+        _step("sweep", REFUSED, f"orphaned {names} — audit `worktree_doctor.py sweep`, then --drop")
+        return 1
+    _step("sweep", DONE, f"no orphans among {len(found.candidates)} database(s)")
+    return 0
+
+
+def cleanup_branch(primary: Path, pr: MergedPr) -> None:
+    """Step 5: ``git branch -d``, never ``-D``.
+
+    ``-d`` checks the branch's tracking ref, or HEAD once that is pruned — and
+    the primary checkout's HEAD need not be the trunk the PR merged into. The
+    answer is §5's recipe: prove the merge against ``origin/<base>``, point the
+    branch's upstream there, and ``-d`` again, which still refuses unmerged work.
+    """
+    subject = f"branch {pr.head}"
+    if _git(primary, "show-ref", "--verify", "--quiet", f"refs/heads/{pr.head}").returncode != 0:
+        _step(subject, ABSENT)
+        return
+    first = _git(primary, "branch", "-d", pr.head)
+    if first.returncode == 0:
+        _step(subject, DONE, "git branch -d")
+        return
+    trunk = f"origin/{pr.base}"
+    fetched = _git(primary, "fetch", "--quiet", "origin", pr.base, timeout=120)
+    if fetched.returncode != 0:
+        raise CouldNotLook(f"git fetch origin {pr.base} failed: {_said(fetched)}")
+    proof = _git(primary, "merge-base", "--is-ancestor", pr.head, trunk)
+    if proof.returncode == 1:
+        _refuse(subject, f"it carries commits not on {trunk} ({_said(first)}) — never -D")
+    if proof.returncode != 0:
+        raise CouldNotLook(f"git merge-base --is-ancestor {pr.head} {trunk}: {_said(proof)}")
+    for args in ((f"--set-upstream-to={trunk}", pr.head), ("-d", pr.head)):
+        retried = _git(primary, "branch", *args)
+        if retried.returncode != 0:
+            _refuse(subject, _said(retried))
+    _step(subject, DONE, f"git branch -d against {trunk}, after: {_said(first)}")
+
+
+def cleanup_remote(primary: Path, pr: MergedPr) -> None:
+    """Step 6: the refs-API delete, only for a ref ``origin`` still has."""
+    subject = f"remote {pr.head}"
+    ref = f"refs/heads/{pr.head}"
+    listed = _git(primary, "ls-remote", "--heads", "origin", ref, timeout=120)
+    if listed.returncode != 0:
+        raise CouldNotLook(f"git ls-remote origin failed: {_said(listed)}")
+    if not any(line.split("\t")[-1] == ref for line in listed.stdout.splitlines()):
+        _step(subject, ABSENT)
+        return
+    _gh(["api", "-X", "DELETE", f"repos/{pr.slug}/git/{ref}"], primary)
+    _step(subject, DONE, f"deleted {ref} on {pr.slug}")
+
+
+def cleanup_merged(
+    repo: Path, number: int, docker: DockerRunner, worktree: Path | None = None
+) -> int:
+    """§5 in order: merged, childless, worktrees, sweep, local branch, remote ref.
+
+    0 is clean, already-gone included. A refusal or an unanswerable question at
+    a step that guards a deletion stops there; the sweep and a stray sibling are
+    findings about the repo, not this PR, so they set the exit code and the
+    sequence carries on.
+    """
+    findings = 0
+    try:
+        primary = primary_checkout(repo)
+        if primary is None:
+            raise CouldNotLook(f"{repo} is not inside a git checkout")
+        pr = merged_pr(primary, number)
+        no_open_children(primary, pr)
+        findings = cleanup_worktrees(primary, pr, docker, worktree)
+        findings = max(findings, cleanup_sweep(primary, docker))
+        cleanup_branch(primary, pr)
+        cleanup_remote(primary, pr)
+    except CleanupStopped as stopped:
+        findings = stopped.code
+    except CouldNotLook as unavailable:
+        _step("cleanup", UNLOOKED, str(unavailable))
+        findings = 2
+    print(f"cleanup-merged #{number}: {VERDICTS[findings]}")
+    return findings
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -1189,6 +1501,12 @@ def _teardown(args: argparse.Namespace) -> int:
         return _refused("teardown", unavailable)
 
 
+def _cleanup_merged(args: argparse.Namespace) -> int:
+    repo = Path(args.repo).resolve() if args.repo else Path.cwd().resolve()
+    worktree = Path(args.worktree).resolve() if args.worktree else None
+    return cleanup_merged(repo, args.pr, docker_output, worktree=worktree)
+
+
 def _sweep(args: argparse.Namespace) -> int:
     """The verb refuses rather than answers whenever it could not look."""
     if args.no_docker:
@@ -1251,6 +1569,24 @@ def _add_sweep_verb(sub) -> None:
     orphans.set_defaults(func=_sweep)
 
 
+def _add_cleanup_verb(sub) -> None:
+    clean = sub.add_parser(
+        "cleanup-merged",
+        help="after a PR merges: tear down its worktrees, sweep, delete its branches",
+    )
+    clean.add_argument("pr", type=int, help="the merged PR's number")
+    clean.add_argument(
+        "--repo",
+        help="the PR's checkout, primary or any worktree of it (default: the current directory)",
+    )
+    clean.add_argument(
+        "--worktree",
+        help="the PR's worktree, when its branch is no longer checked out there "
+        "(default: the worktree that has the PR's head branch checked out)",
+    )
+    clean.set_defaults(func=_cleanup_merged)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -1260,6 +1596,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_repair_verb(sub)
     _add_teardown_verb(sub)
     _add_sweep_verb(sub)
+    _add_cleanup_verb(sub)
     return parser
 
 

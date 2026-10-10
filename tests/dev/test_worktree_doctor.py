@@ -1172,3 +1172,294 @@ def test_a_no_docker_teardown_says_the_databases_were_left(doctor, tmp_path, cap
 
     assert rc == 0
     assert "neither named nor dropped" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# cleanup-merged — dispatch SKILL.md §5 as one command (OS#571)
+# ---------------------------------------------------------------------------
+#
+# Real git throughout: a bare ``origin``, a primary checkout, a session worktree
+# whose branch was merged on the "server" from a scratch clone. ``gh`` is a stub
+# on PATH that answers from files and logs every argv, so a test can assert the
+# refs-API DELETE was — or was never — made. Nothing here touches the network.
+
+HEAD_BRANCH = "session/demo"
+DELETE_CALL = f"api -X DELETE repos/o/r/git/refs/heads/{HEAD_BRANCH}"
+
+GH_STUB = r"""#!/bin/sh
+echo "$*" >> "$GH_STUB/calls"
+case "$*" in
+  "pr view"*)
+    if [ -f "$GH_STUB/fail" ]; then echo "HTTP 502: Bad Gateway" >&2; exit 1; fi
+    cat "$GH_STUB/pr.json" ;;
+  "repo view"*) echo main ;;
+  "pr list"*) cat "$GH_STUB/children.json" ;;
+  "api -X DELETE"*) exit 0 ;;
+  *) echo "unexpected gh $*" >&2; exit 64 ;;
+esac
+"""
+
+
+def _pr_json(state: str = "MERGED", head: str = HEAD_BRANCH) -> str:
+    return (
+        f'{{"state": "{state}", "headRefName": "{head}", "baseRefName": "main", '
+        '"isCrossRepository": false, "url": "https://github.com/o/r/pull/7"}'
+    )
+
+
+@pytest.fixture
+def gh(tmp_path, monkeypatch):
+    """The stub's control directory: write ``pr.json`` / ``children.json`` / ``fail``."""
+    stub = tmp_path / "gh-stub"
+    (stub / "bin").mkdir(parents=True)
+    script = stub / "bin" / "gh"
+    script.write_text(GH_STUB, encoding="utf-8")
+    script.chmod(0o755)
+    (stub / "pr.json").write_text(_pr_json(), encoding="utf-8")
+    (stub / "children.json").write_text("[]", encoding="utf-8")
+    (stub / "calls").write_text("", encoding="utf-8")
+    monkeypatch.setenv("GH_STUB", str(stub))
+    monkeypatch.setenv("PATH", f"{stub / 'bin'}:{os.environ['PATH']}")
+    return stub
+
+
+def _gh_calls(stub: Path) -> list[str]:
+    return (stub / "calls").read_text(encoding="utf-8").splitlines()
+
+
+def _has_branch(repo: Path, branch: str = HEAD_BRANCH) -> bool:
+    return (
+        subprocess.run(
+            ["git", "-C", str(repo), "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"],
+            check=False,
+        ).returncode
+        == 0
+    )
+
+
+def _merged_repo(tmp_path: Path, *, siblings: bool = False) -> tuple[Path, Path]:
+    """A primary checkout whose session branch was pushed and merged on origin.
+
+    The primary checkout has not fetched since the merge — the shape a real
+    session sees — so its ``origin/main`` does not yet carry the branch.
+    """
+    repo, worktree = _make_git_repo(tmp_path)
+    origin = tmp_path / "origin.git"
+    _git(tmp_path, "init", "-q", "--bare", "-b", "main", str(origin))
+    _git(repo, "remote", "add", "origin", str(origin))
+    _git(repo, "push", "-q", "-u", "origin", "main")
+    (worktree / "feature.txt").write_text("feature\n", encoding="utf-8")
+    _git(worktree, "add", "feature.txt")
+    _git(worktree, "commit", "-qm", "feature")
+    _git(worktree, "push", "-q", "-u", "origin", HEAD_BRANCH)
+
+    server = tmp_path / "server"
+    _git(tmp_path, "clone", "-q", str(origin), str(server))
+    _git(server, "config", "user.email", "t@example.com")
+    _git(server, "config", "user.name", "t")
+    _git(server, "merge", "-q", "--no-ff", f"origin/{HEAD_BRANCH}", "-m", "Merge #7")
+    _git(server, "push", "-q", "origin", "main")
+
+    if siblings:
+        for suffix in (".baseline", ".review"):
+            _git(repo, "worktree", "add", "-q", "--detach", f"{worktree}{suffix}", "main")
+    return repo, worktree
+
+
+def _bench() -> ScriptedDocker:
+    """A running Postgres holding only the shared bench — the sweep finds no orphan."""
+    return _bench_docker()
+
+
+def test_cleanup_refuses_an_open_pr_and_touches_nothing(doctor, tmp_path, gh, capsys):
+    repo, worktree = _merged_repo(tmp_path)
+    (gh / "pr.json").write_text(_pr_json(state="OPEN"), encoding="utf-8")
+
+    rc = doctor.cleanup_merged(repo, 7, _bench())
+
+    assert rc == 1
+    assert worktree.is_dir()
+    assert _has_branch(repo)
+    assert DELETE_CALL not in _gh_calls(gh)
+    assert "OPEN" in capsys.readouterr().out
+
+
+def test_cleanup_refuses_under_an_open_child_and_names_it(doctor, tmp_path, gh, capsys):
+    repo, worktree = _merged_repo(tmp_path)
+    (gh / "children.json").write_text(
+        '[{"number": 12, "url": "https://github.com/o/r/pull/12"}]', encoding="utf-8"
+    )
+
+    rc = doctor.cleanup_merged(repo, 7, _bench())
+
+    assert rc == 1
+    assert "#12" in capsys.readouterr().out
+    assert worktree.is_dir()
+    assert _has_branch(repo)
+    assert DELETE_CALL not in _gh_calls(gh)
+    assert f"pr list --repo o/r --base {HEAD_BRANCH} --state open --json number,url" in (
+        _gh_calls(gh)
+    )
+
+
+def test_cleanup_could_not_look_when_gh_fails(doctor, tmp_path, gh, capsys):
+    repo, worktree = _merged_repo(tmp_path)
+    (gh / "fail").write_text("", encoding="utf-8")
+
+    rc = doctor.cleanup_merged(repo, 7, _bench())
+
+    assert rc == 2
+    assert worktree.is_dir()
+    assert _has_branch(repo)
+    assert "502" in capsys.readouterr().out
+
+
+def test_cleanup_refuses_a_pr_whose_head_is_a_trunk(doctor, tmp_path, gh, capsys):
+    """A promote PR's head is a trunk: merged, childless, and never to be deleted."""
+    repo, _ = _merged_repo(tmp_path)
+    (gh / "pr.json").write_text(_pr_json(head="main"), encoding="utf-8")
+
+    rc = doctor.cleanup_merged(repo, 7, _bench())
+
+    assert rc == 1
+    assert _has_branch(repo, "main")
+    assert not any(call.startswith("api -X DELETE") for call in _gh_calls(gh))
+    assert "trunk" in capsys.readouterr().out
+
+
+def test_cleanup_removes_everything_a_merged_pr_left(doctor, tmp_path, gh, capsys):
+    repo, worktree = _merged_repo(tmp_path, siblings=True)
+
+    rc = doctor.cleanup_merged(repo, 7, _bench())
+
+    out = capsys.readouterr().out
+    assert rc == 0, out
+    for path in (worktree, Path(f"{worktree}.baseline"), Path(f"{worktree}.review")):
+        assert not path.exists(), path
+    assert not _has_branch(repo)
+    assert DELETE_CALL in _gh_calls(gh)
+    assert "clean" in out.splitlines()[-1]
+
+
+def test_cleanup_of_an_already_clean_pr_is_a_pass(doctor, tmp_path, gh, capsys):
+    repo, worktree = _merged_repo(tmp_path)
+    (worktree / ".venv").unlink()
+    _git(repo, "worktree", "remove", str(worktree))
+    _git(repo, "branch", "-D", HEAD_BRANCH)
+    _git(repo, "push", "-q", "origin", "--delete", HEAD_BRANCH)
+
+    rc = doctor.cleanup_merged(repo, 7, _bench())
+
+    out = capsys.readouterr().out
+    assert rc == 0, out
+    assert f"branch {HEAD_BRANCH}: absent" in out
+    assert f"remote {HEAD_BRANCH}: absent" in out
+    assert "worktree: absent" in out
+    assert not any(call.startswith("api -X DELETE") for call in _gh_calls(gh))
+
+
+def test_a_dirty_worktree_stops_cleanup_before_the_branch(doctor, tmp_path, gh, capsys):
+    repo, worktree = _merged_repo(tmp_path)
+    (worktree / "notes.txt").write_text("unsaved\n", encoding="utf-8")
+
+    rc = doctor.cleanup_merged(repo, 7, _bench())
+
+    assert rc == 1
+    assert worktree.is_dir()
+    assert _has_branch(repo)
+    assert DELETE_CALL not in _gh_calls(gh)
+    assert "was not removed" in capsys.readouterr().out
+
+
+def test_a_pruned_tracking_ref_is_answered_with_the_trunk_not_minus_D(
+    doctor, tmp_path, gh, capsys
+):
+    """§5's recipe: prove the merge against origin/<trunk>, point -d at it, -d again."""
+    repo, _ = _merged_repo(tmp_path)
+    _git(repo, "update-ref", "-d", f"refs/remotes/origin/{HEAD_BRANCH}")
+
+    rc = doctor.cleanup_merged(repo, 7, _bench())
+
+    out = capsys.readouterr().out
+    assert rc == 0, out
+    assert not _has_branch(repo)
+    assert "origin/main" in out
+
+
+def test_a_branch_carrying_unmerged_work_is_never_deleted(doctor, tmp_path, gh, capsys):
+    """The recipe's proof must bite: a commit on no trunk keeps the branch."""
+    repo, worktree = _merged_repo(tmp_path)
+    (worktree / "late.txt").write_text("after the merge\n", encoding="utf-8")
+    _git(worktree, "add", "late.txt")
+    _git(worktree, "commit", "-qm", "late")
+    _git(repo, "update-ref", "-d", f"refs/remotes/origin/{HEAD_BRANCH}")
+
+    rc = doctor.cleanup_merged(repo, 7, _bench())
+
+    assert rc == 1
+    assert _has_branch(repo)
+    assert DELETE_CALL not in _gh_calls(gh)
+    assert "not on origin/main" in capsys.readouterr().out
+
+
+def test_an_absent_remote_ref_makes_no_delete_call(doctor, tmp_path, gh, capsys):
+    repo, _ = _merged_repo(tmp_path)
+    _git(repo, "push", "-q", "origin", "--delete", HEAD_BRANCH)
+
+    rc = doctor.cleanup_merged(repo, 7, _bench())
+
+    out = capsys.readouterr().out
+    assert rc == 0, out
+    assert f"remote {HEAD_BRANCH}: absent" in out
+    assert not any(call.startswith("api -X DELETE") for call in _gh_calls(gh))
+
+
+def test_a_sibling_on_another_branch_is_refused(doctor, tmp_path, gh, capsys):
+    """A ``.baseline`` path is only this PR's when it is detached or on its branch."""
+    repo, worktree = _merged_repo(tmp_path)
+    _git(repo, "worktree", "add", "-q", "-b", "other", f"{worktree}.baseline", "main")
+
+    rc = doctor.cleanup_merged(repo, 7, _bench())
+
+    assert rc == 1
+    assert Path(f"{worktree}.baseline").is_dir()
+    assert _has_branch(repo)
+    assert "other" in capsys.readouterr().out
+
+
+def test_a_stray_sibling_of_a_removed_worktree_is_reported(doctor, tmp_path, gh, capsys):
+    """With no worktree on the branch, a ``.baseline`` left behind is still found."""
+    repo, worktree = _merged_repo(tmp_path)
+    _git(repo, "worktree", "add", "-q", "--detach", f"{worktree}.baseline", "main")
+    (worktree / ".venv").unlink()
+    _git(repo, "worktree", "remove", str(worktree))
+
+    rc = doctor.cleanup_merged(repo, 7, _bench())
+
+    assert rc == 1
+    assert f"{worktree}.baseline" in capsys.readouterr().out
+    assert Path(f"{worktree}.baseline").is_dir()
+
+
+def test_the_cli_reports_could_not_look_with_exit_2(tmp_path, gh):
+    repo, worktree = _merged_repo(tmp_path)
+    (gh / "fail").write_text("", encoding="utf-8")
+
+    result = _run("cleanup-merged", "7", "--repo", str(repo))
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "502" in result.stdout
+    assert worktree.is_dir()
+
+
+def test_the_cli_cleans_a_merged_pr_end_to_end(tmp_path, gh, monkeypatch):
+    repo, worktree = _merged_repo(tmp_path)
+    _fake_docker(tmp_path, "postgres", "repo_test")
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+
+    result = _run("cleanup-merged", "7", "--repo", str(repo))
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not worktree.exists()
+    assert not _has_branch(repo)
+    assert DELETE_CALL in _gh_calls(gh)
