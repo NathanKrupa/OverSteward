@@ -119,15 +119,15 @@ scripts/dev/worktree_doctor.py cleanup-merged <n>
 ```
 
 It confirms with `gh` that the PR is `MERGED` and that no open PR bases on its
-branch, proves every surviving copy of that branch is on `origin/<base>` (so
-work pushed after the merge is never deleted), tears down the worktree and any
-`<name>.baseline` or `<name>.review` sibling through the doctor, sweeps
-(report only), deletes the local branch with `git branch -d` (never `-D`), and
-deletes the remote ref through the refs API only if it survived, at the sha it
-proved. Already-gone reads as done, so a clean PR
-exits 0; 1 is a refusal, 2 is "could not look". The steps, their existence
-tests and the `-d` tracking-ref recipe are `.claude/skills/dispatch/SKILL.md`
-§5, which also rules that **a stack is cleaned up by its last PR to merge**: a
+branch, proves every surviving copy of that branch is on `origin/<base>`
+(refusing a branch that carries work pushed after the merge), tears down the
+worktree and any `<name>.baseline` or `<name>.review` sibling through the
+doctor, sweeps (report only), deletes the local branch with `git branch -d`
+(never `-D`), and deletes the remote ref through the refs API only if it
+survived, after re-checking that origin still holds the proven sha.
+Already-gone reads as done, so a clean PR exits 0; 1 is a refusal, 2 is
+"could not look". The steps, their existence tests and the `-d` tracking-ref
+recipe are `.claude/skills/dispatch/SKILL.md` §5, which also rules that **a stack is cleaned up by its last PR to merge**: a
 child's session runs the command again for each ancestor PR. A repo whose
 doctor does not carry the verb yet runs OverSteward's copy with
 `--repo <checkout>` (deployment: OS#572). The one legitimate stop is a refusal:

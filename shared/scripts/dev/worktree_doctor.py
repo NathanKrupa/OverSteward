@@ -59,12 +59,14 @@ as one command, run from the PR's checkout:
 
 It confirms with ``gh`` that the PR is ``MERGED`` and that no open PR bases on
 its head, proves every remaining copy of the head (local and on ``origin``) is
-on ``origin/<base>`` — so work pushed after the merge is never deleted — tears
-down its worktree and the ``.baseline``/``.review`` siblings through
-``teardown``, runs ``sweep`` without ``--drop``, deletes the local branch with
-``git branch -d`` (never ``-D``), and deletes the remote ref through the refs
-API only while ``origin`` still holds the sha it proved. One line per step, then a
-verdict: exit 0 clean (already-gone included), 1 refused, 2 could not look.
+on ``origin/<base>`` — refusing a branch that carries work pushed after the
+merge — tears down its worktree and the ``.baseline``/``.review`` siblings
+through ``teardown``, runs ``sweep`` without ``--drop``, deletes the local
+branch with ``git branch -d`` (never ``-D``), and deletes the remote ref
+through the refs API after re-checking, immediately before the delete, that
+``origin`` still holds the sha it proved. The refs API takes no expected sha,
+so a push landing between that re-check and the DELETE is not caught. One line
+per step, then a verdict: exit 0 clean (already-gone included), 1 refused, 2 could not look.
 """
 
 from __future__ import annotations
@@ -1431,7 +1433,11 @@ def cleanup_branch(primary: Path, pr: MergedPr, tips: Tips) -> None:
 
 
 def cleanup_remote(primary: Path, pr: MergedPr, tips: Tips) -> None:
-    """Step 7: the refs-API delete, only for the ref step 3 proved, still unmoved."""
+    """Step 7: the refs-API delete, after re-checking origin still holds the proven sha.
+
+    The re-check runs immediately before the DELETE, which takes no expected
+    sha — a push landing between the two is not caught.
+    """
     subject = f"remote {pr.head}"
     ref = f"refs/heads/{pr.head}"
     if tips.remote is None:

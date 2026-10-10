@@ -233,9 +233,11 @@ It runs, in this order, and prints one line per step and a verdict:
    already proven at step 3, it sets the upstream to `origin/<trunk>` and runs
    `-d` again — which still refuses an unmerged branch (both measured,
    2026-09-18).
-7. `gh api -X DELETE repos/<owner>/<repo>/git/refs/heads/<branch>`, only while
-   `origin` still holds the very sha step 3 proved — a ref that moved during
-   the cleanup is refused. In practice GitHub's
+7. `gh api -X DELETE repos/<owner>/<repo>/git/refs/heads/<branch>`, after
+   re-checking with `git ls-remote`, immediately before the delete, that
+   `origin` still holds the sha step 3 proved — a ref that moved during the
+   teardown or sweep is refused. The refs API takes no expected sha, so a push
+   landing between that re-check and the DELETE is not caught. In practice GitHub's
    `delete_branch_on_merge` has already removed it, and this is a no-op.
    (`git push --delete` is refused in AG and GS by the verify-marker pre-push
    hook; the refs API works in every repo.)
