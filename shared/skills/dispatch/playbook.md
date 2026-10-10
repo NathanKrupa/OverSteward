@@ -196,10 +196,13 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
     Measure it rather than estimating, then drop the deployed half of each proven pair by hand:
 
     ```bash
-    paths=$(git diff --raw --no-renames origin/<default-branch>... | awk '$2 != "120000" {print $NF}')
-    echo "$paths" | grep -c .                                     # files, symlinks excluded
-    git diff --numstat origin/<default-branch>... -- $paths | awk '{n += $1 + $2} END {print n}'   # lines
+    git diff --raw --numstat --no-renames origin/<default-branch>... | awk -F'\t' '
+      /^:/ { split($1, m, " "); link[$2] = (m[2] == "120000"); next }
+      !link[$3] { files++; lines += $1 + $2 }
+      END { print files+0 " files, " lines+0 " lines (symlinks excluded)" }'
     ```
+
+    One pass over git's own output: the `--raw` lines mark which paths are links now, the `--numstat` lines are counted unless marked. A diff of nothing but links prints `0 files, 0 lines`.
 
     1. **File-to-acceptance mapping.** For each changed file, name which acceptance bullet(s) justify it. If any file cannot be traced to a bullet, it is scope creep — revert that file.
     2. **Breadth cap (files).** After reverts, if >10 files remain changed, STOP for input. Breadth is where unrelated changes hide.
@@ -277,6 +280,8 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
       git -C <repo-primary-checkout> show origin/<default-branch>:scripts/dev/worktree_db.py      > /tmp/wtdoctor-<repo>-<n>/worktree_db.py
       python3 /tmp/wtdoctor-<repo>-<n>/worktree_doctor.py teardown <worktree-path> --repo <repo-primary-checkout>
       ```
+      In OverSteward, read the pair from `origin/<default-branch>:shared/scripts/dev/` instead: its `scripts/dev/` copies are symlinks into `shared/` (OS#576), and `git show` of a symlink prints the link's target path, not the script.
+
       Copy **both** files, always: the doctor imports `worktree_db.py` from beside itself to name the databases, and without it silently finds none — which is the orphan you are trying to avoid. And never pass `--no-docker` to a teardown: the drop runs through docker, so `--no-docker` removes the worktree and leaves the database behind.
     - **Not listed on `origin/<default-branch>` at all** (gaudi and wphelper carry no doctor, and no per-worktree bench database for it to drop — fiscus does carry it as of OS#357) → plain `git worktree remove <worktree-path>`, **without `--force`**. If git refuses, the refusal is information, not an obstacle: run `git -C <worktree-path> status --porcelain`, push anything of value, then retry.
 

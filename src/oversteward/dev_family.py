@@ -19,6 +19,7 @@ ABSENT = "absent"
 ABSENT_REFERENCED = "absent-but-doctrine-referenced"
 
 SYMLINK_MODE = b"120000"
+REGULAR_MODES = frozenset({b"100644", b"100755"})
 
 # Members that deploy as registered Claude hooks rather than into <repo>/scripts/dev/.
 HOOK_MEMBERS = frozenset(
@@ -81,24 +82,39 @@ class GitRepo:
     def resolve(self, ref: str, relpath: str) -> str:
         """The path whose bytes ``relpath`` delivers at ``ref``.
 
-        A regular file is itself. A symlink whose target stays inside the tree
-        is its target: OverSteward deploys its own family that way (OS#576).
-        A symlink leaving the tree — absolute, or climbing above the root — is
-        itself, so its bytes are the link text and the member reads as drifted:
-        a link leaked into a consumer repo is a finding, never a silent pass.
-        One hop only; a link to a link reads as the second link's text.
+        A regular file is itself. A symlink whose target is a regular file
+        inside the tree is that target: OverSteward deploys its own family that
+        way (OS#576). Any other symlink — absolute, climbing above the root,
+        dangling, or naming a directory or another link — is itself, so its
+        bytes are the link text and the member reads as drifted: a link leaked
+        into a consumer repo is a finding, never a silent pass, and never a
+        "missing" member sow would deploy through.
         """
-        entry = _git(self._root, "ls-tree", ref, "--", relpath)
-        if not entry or not entry.startswith(SYMLINK_MODE + b" "):
+        if self._mode(ref, relpath) != SYMLINK_MODE:
             return relpath
         target = _git(self._root, "cat-file", "blob", f"{ref}:{relpath}")
         if target is None:
             return relpath
         text = target.decode("utf-8", errors="replace")
-        joined = posixpath.normpath(posixpath.join(posixpath.dirname(relpath), text))
-        if posixpath.isabs(text) or joined == ".." or joined.startswith("../"):
+        if posixpath.isabs(text):
             return relpath
-        return joined
+        # A target that climbs out of the tree is no entry git will list, so the
+        # mode check below refuses it along with dangling and directory links.
+        joined = posixpath.normpath(posixpath.join(posixpath.dirname(relpath), text))
+        return joined if self._mode(ref, joined) in REGULAR_MODES else relpath
+
+    def _mode(self, ref: str, relpath: str) -> bytes | None:
+        """The tree-entry mode git records for ``relpath`` at ``ref``, or None if absent.
+
+        Only the entry named ``relpath`` counts: for ``.`` ls-tree lists the
+        root's contents, and the first of those is not the root itself.
+        """
+        listing = _git(self._root, "ls-tree", "-z", ref, "--", relpath) or b""
+        for record in listing.split(b"\0"):
+            meta, _, path = record.partition(b"\t")
+            if path == relpath.encode():
+                return meta.split(b" ", 1)[0]
+        return None
 
     def blob(self, ref: str, relpath: str) -> bytes | None:
         return _git(self._root, "cat-file", "blob", f"{ref}:{self.resolve(ref, relpath)}")

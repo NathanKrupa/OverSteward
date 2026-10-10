@@ -292,6 +292,22 @@ def test_a_member_deployed_as_an_in_tree_symlink_reads_as_identical(canon: Path)
     assert status == IDENTICAL
 
 
+def test_a_dangling_link_in_a_consumer_reads_as_diverged_not_missing(canon: Path, pickup: Path):
+    """A leaked OverSteward link must never read as missing — sow would deploy through it."""
+    link = pickup / "scripts/dev" / ENV_MEMBER
+    link.symlink_to(f"../../shared/scripts/dev/{ENV_MEMBER}")
+    _git(pickup, "add", "-A")
+    _git(pickup, "commit", "-qm", "a leaked link")
+    _git(pickup, "push", "-q", "origin", "main")
+    observed = _observe(pickup)
+    canonical = canonical_blobs(canon, canon / "shared", GitCommand())
+    history = CanonHistory(canon, GitCommand())
+    status = classify_member_status(
+        canonical[ENV_MEMBER], observed.deployed[ENV_MEMBER], history.blobs(ENV_MEMBER), True
+    )
+    assert status == DIVERGED
+
+
 # --------------------------------------------------------------------------
 # gates
 
