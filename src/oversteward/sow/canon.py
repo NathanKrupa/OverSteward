@@ -81,7 +81,9 @@ def canonical_blobs(repo_root: Path, canonical_shared: Path, git: GitCommand) ->
 
 
 def _blob_id(git: GitCommand, repo_root: Path, ref: str, relpath: str) -> str | None:
-    result = git.run(repo_root, "rev-parse", f"{ref}:{relpath}")
+    """Blob id of the bytes ``relpath`` delivers — an in-tree symlink reads as its target."""
+    resolved = GitRepo(repo_root).resolve(ref, relpath)
+    result = git.run(repo_root, "rev-parse", f"{ref}:{resolved}")
     return result.out.strip() if result.ok else None
 
 

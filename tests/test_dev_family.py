@@ -35,8 +35,8 @@ def _git(repo, *args):
     )
 
 
-def _init_repo(root, files, branch="main"):
-    """Create a git repo whose origin/<branch> ref carries `files`."""
+def _init_repo(root, files, branch="main", links=None):
+    """Create a git repo whose origin/<branch> ref carries `files` and symlinks `links`."""
     root.mkdir(parents=True, exist_ok=True)
     _git(root, "init", "-q")
     _git(root, "config", "user.email", "test@example.com")
@@ -45,6 +45,10 @@ def _init_repo(root, files, branch="main"):
         path = root / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
+    for rel, target in (links or {}).items():
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.symlink_to(target)
     _git(root, "add", "-A")
     _git(root, "commit", "-qm", "init")
     head = subprocess.run(
@@ -188,6 +192,140 @@ class TestReadOriginFamily:
         )
         assert observed.fetched is False
         assert observed.available is True
+
+
+class TestReadOriginFamilySymlinks:
+    """OverSteward deploys its own family as relative symlinks into shared/ (OS#576)."""
+
+    CANON = CANONICAL_FILES["new-session.sh"]
+
+    def _read(self, repo):
+        return read_origin_family(
+            repo, "main", ["new-session.sh"], claude_md_path="CLAUDE.md", fetch=False
+        ).deployed["new-session.sh"]
+
+    def test_a_link_into_the_tree_reads_as_the_bytes_it_points_at(self, tmp_path):
+        repo = _init_repo(
+            tmp_path / "repo",
+            {"shared/scripts/dev/new-session.sh": self.CANON},
+            links={"scripts/dev/new-session.sh": "../../shared/scripts/dev/new-session.sh"},
+        )
+        assert self._read(repo) == _sha(self.CANON.encode())
+
+    def test_a_link_to_an_executable_target_reads_as_its_bytes(self, tmp_path):
+        """OverSteward's hooks are 100755; a link to one must resolve like any file."""
+        root = tmp_path / "repo"
+        target = root / "shared/scripts/dev/new-session.sh"
+        target.parent.mkdir(parents=True)
+        target.write_text(self.CANON, encoding="utf-8")
+        target.chmod(0o755)
+        repo = _init_repo(
+            root, {}, links={"scripts/dev/new-session.sh": "../../shared/scripts/dev/new-session.sh"}
+        )
+        assert self._read(repo) == _sha(self.CANON.encode())
+
+    def test_an_absolute_link_into_its_own_tree_reads_as_its_link_text(self, tmp_path):
+        """Absolute links name one machine's layout; never follow one, even home."""
+        root = tmp_path / "repo"
+        target = root / "shared/scripts/dev/new-session.sh"
+        repo = _init_repo(
+            root,
+            {"shared/scripts/dev/new-session.sh": self.CANON},
+            links={"scripts/dev/new-session.sh": str(target)},
+        )
+        assert self._read(repo) == _sha(str(target).encode())
+
+    def test_a_link_climbing_out_and_back_in_reads_as_its_link_text(self, tmp_path):
+        """The target names the checkout's own directory, so it breaks in any other clone."""
+        target = "../../../repo/shared/scripts/dev/new-session.sh"
+        repo = _init_repo(
+            tmp_path / "repo",
+            {"shared/scripts/dev/new-session.sh": self.CANON},
+            links={"scripts/dev/new-session.sh": target},
+        )
+        assert self._read(repo) == _sha(target.encode())
+
+    def test_a_link_to_the_repo_root_reads_as_its_link_text(self, tmp_path):
+        """ls-tree of `.` lists the root's contents; their first mode is not the root's."""
+        repo = _init_repo(
+            tmp_path / "repo", {"CLAUDE.md": "x\n"}, links={"scripts/dev/new-session.sh": "../.."}
+        )
+        assert self._read(repo) == _sha(b"../..")
+
+    def test_a_link_to_another_link_reads_as_its_own_link_text(self, tmp_path):
+        repo = _init_repo(
+            tmp_path / "repo",
+            {"shared/scripts/dev/new-session.sh": self.CANON},
+            links={
+                "scripts/hop.sh": "../shared/scripts/dev/new-session.sh",
+                "scripts/dev/new-session.sh": "../hop.sh",
+            },
+        )
+        assert self._read(repo) == _sha(b"../hop.sh")
+
+    def test_a_link_escaping_the_tree_reads_as_its_link_text(self, tmp_path):
+        outside = tmp_path / "outside.sh"
+        outside.write_text(self.CANON, encoding="utf-8")
+        target = "../../../outside.sh"
+        repo = _init_repo(tmp_path / "repo", {}, links={"scripts/dev/new-session.sh": target})
+        assert self._read(repo) == _sha(target.encode())
+
+    def test_an_absolute_link_reads_as_its_link_text(self, tmp_path):
+        outside = tmp_path / "outside.sh"
+        outside.write_text(self.CANON, encoding="utf-8")
+        repo = _init_repo(
+            tmp_path / "repo", {}, links={"scripts/dev/new-session.sh": str(outside)}
+        )
+        assert self._read(repo) == _sha(str(outside).encode())
+
+    def test_a_link_to_the_parent_of_the_root_reads_as_its_link_text(self, tmp_path):
+        repo = _init_repo(tmp_path / "repo", {"x": "x\n"}, links={".gitleaks.toml": ".."})
+        deployed = read_origin_family(
+            repo, "main", [".gitleaks.toml"], claude_md_path="CLAUDE.md", fetch=False
+        ).deployed
+        assert deployed[".gitleaks.toml"] == _sha(b"..")
+
+    def test_a_dangling_link_reads_as_its_link_text(self, tmp_path):
+        """OverSteward's own relative link, copied into a repo that has no shared/."""
+        target = "../../shared/scripts/dev/new-session.sh"
+        repo = _init_repo(tmp_path / "repo", {"x": "x\n"}, links={"scripts/dev/new-session.sh": target})
+        assert self._read(repo) == _sha(target.encode())
+
+    def test_a_link_to_an_in_tree_directory_reads_as_its_link_text(self, tmp_path):
+        repo = _init_repo(
+            tmp_path / "repo", {"scripts/other.txt": "x\n"}, links={"scripts/dev/new-session.sh": ".."}
+        )
+        assert self._read(repo) == _sha(b"..")
+
+    def test_a_leaked_link_classifies_as_drifted_not_absent(self, tmp_path):
+        shared = _canonical_shared(tmp_path)
+        repo = _init_repo(
+            tmp_path / "repo",
+            {"CLAUDE.md": "x\n"},
+            links={"scripts/dev/new-session.sh": "/home/natha/OverSteward/shared/x"},
+        )
+        registry = {
+            "contexts": [
+                {"id": "r", "branch": "main", "local_path": str(repo), "claude_md_path": "CLAUDE.md"}
+            ]
+        }
+        (row,) = gather_family_status(registry, shared, fetch=False)
+        assert row.members["new-session.sh"] == DRIFTED
+
+    def test_an_in_tree_link_classifies_as_present(self, tmp_path):
+        shared = _canonical_shared(tmp_path)
+        repo = _init_repo(
+            tmp_path / "repo",
+            {"shared/scripts/dev/new-session.sh": self.CANON, "CLAUDE.md": "x\n"},
+            links={"scripts/dev/new-session.sh": "../../shared/scripts/dev/new-session.sh"},
+        )
+        registry = {
+            "contexts": [
+                {"id": "r", "branch": "main", "local_path": str(repo), "claude_md_path": "CLAUDE.md"}
+            ]
+        }
+        (row,) = gather_family_status(registry, shared, fetch=False)
+        assert row.members["new-session.sh"] == PRESENT
 
 
 class TestGatherFamilyStatus:

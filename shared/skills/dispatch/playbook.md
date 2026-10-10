@@ -152,7 +152,7 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
 
    **Commit logical units AND push each one as you go (heartbeat push).** Stage specific files (`git add <path>`) and commit each coherent unit with a clear message. Then push the branch immediately after each commit (`git push -u origin <target-branch>` for the first, plain `git push` thereafter) — do not defer all pushing to step 14. A dispatch agent is **not** crash-safe just because it runs foreground: the interactive session that hosts it can be torn down mid-run without warning (e.g. the Happy phone client SIGTERMs the entire `claude` process tree — dispatched sub-agents included — whenever it hands control between its local and remote loops, which any inbound phone message triggers). A SIGTERM'd agent leaves uncommitted edits lost and unpushed commits stranded in a worktree that cleanup may remove. Committing each logical unit and pushing it to origin means a kill costs at most the current in-progress unit: the branch survives on the remote, visible and resumable by re-dispatch. Incremental commits also keep the worktree clean and make a STOPPED_FOR_INPUT draft push (intent-capture protocol) cheap. Step 14 remains the point where you open the PR against the already-pushed branch.
 
-   **In-flight breadth recount (type/data-shape refactors only).** After every 5 file edits, run `git diff --name-only origin/<default-branch>... | wc -l` in the worktree. If the count exceeds 10, STOP — file a comment: "Breadth cap exceeded mid-run (N files). The issue's scope was wider than estimated; re-scope per §8.5." The step-12.2 coherence-audit cap is checked too late for these; this in-flight check is the early warning.
+   **In-flight breadth recount (type/data-shape refactors only).** After every 5 file edits, count the changed files the way step 12 counts them (symlinks zero, a proven byte-identical pair once). If the count exceeds 10, STOP — file a comment: "Breadth cap exceeded mid-run (N files). The issue's scope was wider than estimated; re-scope per §8.5." The step-12.2 coherence-audit cap is checked too late for these; this in-flight check is the early warning.
 9.5. **Provision DB credentials for the verify — never copy a foreign `.env`.** `git worktree add` yields a fresh checkout *without* the gitignored `.env`, so a suite that needs DB creds (`make verify`, integration `pytest`) starts with none. Do NOT improvise a copy — an improvised `.env` copy directed by a clobbered cross-call path file is exactly what landed one repo's prod `DATABASE_URL` in another repo's worktree (postmortem: OverSteward #210, 2026-07-06).
 
     - **Default — copy nothing.** Run the verify through the sanctioned in-process runner (`with_test_env.py`) pointed at the **target repo's own** `.env`, from inside the worktree:
@@ -187,6 +187,22 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
     5. **Update the ratchet baseline** if your PR legitimately reduces the count. Do not update it upward to absorb a regression.
 
 12. **Coherence audit** (size alone never stops the merge; coherence and breadth do).
+
+    **How the caps count.** The file and line caps below measure what a reviewer has to read, so:
+    - **A byte-identical pair counts once.** A canonical source and its deployed copy whose byte identity a test proves (`shared/<x>/` beside its consumer path) count as one file, and their lines once. The second copy carries the same bytes, not a second change.
+    - **A symlink counts zero.** OverSteward's own deployed copies are relative symlinks into `shared/` (OS#576). Creating, retargeting or converting a copy into a link changes no bytes anyone reads; the diff's deletion of a copy's old content is not counted either.
+    - **Everything else counts**, deletions included.
+
+    Measure it rather than estimating, then drop the deployed half of each proven pair by hand:
+
+    ```bash
+    git diff --raw --numstat --no-renames origin/<default-branch>... | awk -F'\t' '
+      /^:/ { split($1, m, " "); link[$2] = (m[2] == "120000"); next }
+      !link[$3] { files++; lines += $1 + $2 }
+      END { print files+0 " files, " lines+0 " lines (symlinks excluded)" }'
+    ```
+
+    One pass over git's own output: the `--raw` lines mark which paths are links now, the `--numstat` lines are counted unless marked. A diff of nothing but links prints `0 files, 0 lines`.
 
     1. **File-to-acceptance mapping.** For each changed file, name which acceptance bullet(s) justify it. If any file cannot be traced to a bullet, it is scope creep — revert that file.
     2. **Breadth cap (files).** After reverts, if >10 files remain changed, STOP for input. Breadth is where unrelated changes hide.
@@ -264,6 +280,8 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
       git -C <repo-primary-checkout> show origin/<default-branch>:scripts/dev/worktree_db.py      > /tmp/wtdoctor-<repo>-<n>/worktree_db.py
       python3 /tmp/wtdoctor-<repo>-<n>/worktree_doctor.py teardown <worktree-path> --repo <repo-primary-checkout>
       ```
+      In OverSteward, read the pair from `origin/<default-branch>:shared/scripts/dev/` instead: its `scripts/dev/` copies are symlinks into `shared/` (OS#576), and `git show` of a symlink prints the link's target path, not the script.
+
       Copy **both** files, always: the doctor imports `worktree_db.py` from beside itself to name the databases, and without it silently finds none — which is the orphan you are trying to avoid. And never pass `--no-docker` to a teardown: the drop runs through docker, so `--no-docker` removes the worktree and leaves the database behind.
     - **Not listed on `origin/<default-branch>` at all** (gaudi and wphelper carry no doctor, and no per-worktree bench database for it to drop — fiscus does carry it as of OS#357) → plain `git worktree remove <worktree-path>`, **without `--force`**. If git refuses, the refusal is information, not an obstacle: run `git -C <worktree-path> status --porcelain`, push anything of value, then retry.
 
