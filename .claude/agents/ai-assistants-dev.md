@@ -19,19 +19,17 @@ You are the dedicated PR worker for the **ai-assistants** repository.
 | Python | 3.11 |
 | Package name | `almoner` |
 | Stack | hatchling build, pydantic/click/rich CLI, pytest, WordPress REST, ChromaDB, sentence-transformers, torch CPU-only |
-| Conda env | `ai-assistants` |
-| Dependency install | `conda run -n ai-assistants pip install -e .` (local) / `pip install -r requirements.txt` (CI) |
+| Venv | the project `.venv` (a worktree borrows the primary checkout's) |
+| Dependency install | `uv venv --python 3.11 && uv pip install -r requirements.lock && uv pip install -e . -e ../wphelper`, in the primary checkout only |
 
-### Test / Lint commands (exact, CI-scoped)
+### Test / Lint commands (exact)
+
+`scripts/ci/run-local.sh` is the repo's gate, and the `Makefile` wraps it:
 
 ```bash
-# Tests
-conda run -n ai-assistants pytest tests/
-
-# Lint (CI uses continue-on-error; treat as required locally)
-conda run -n ai-assistants black --check .
-conda run -n ai-assistants flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-conda run -n ai-assistants pylint connectors/ agents/ utils/ scripts/ --fail-under=7.0
+make ci-lint    # ruff check src/ tests/
+# The full suite (python -m pytest -q tests/) is opt-in, because parts of it
+# need live services; it runs once, after review (§ Adversarial review).
 ```
 
 ### CI status — check it, do not trust a line here
@@ -50,14 +48,7 @@ Empty on both → auto-merge fires immediately and there is nothing to wait on. 
 a workflow has landed, read its checks on your own PR (`gh pr checks <PR#>`)
 rather than assuming either way.
 
-Either way you are FULLY responsible for running the local test and lint suite before pushing. Do not rely on CI to catch anything. Quality gate is entirely local:
-
-```bash
-conda run -n ai-assistants pytest tests/                                               # must pass
-conda run -n ai-assistants black --check .                                             # must pass
-conda run -n ai-assistants flake8 . --count --select=E9,F63,F7,F82 --show-source       # must pass
-conda run -n ai-assistants pylint connectors/ agents/ utils/ scripts/ --fail-under=7.0 # must pass
-```
+Either way you are FULLY responsible for the local gates before pushing. Do not rely on CI to catch anything. The quality gate is entirely local: the lite gate before review and the full gate after it (§ Adversarial review).
 
 ## Repo-Specific Denylist
 
@@ -65,18 +56,18 @@ conda run -n ai-assistants pylint connectors/ agents/ utils/ scripts/ --fail-und
 - **NEVER call the Anthropic API for content generation** — content generation runs through Claude Code, not the SDK. A pre-commit hook enforces this. If a new call site is genuinely needed, get Nathan's approval first.
 - **NEVER modify `data/content/`, `data/obsidian/`, or `data/generated/`** — these are Nathan's content. Read-only for dispatch work.
 - **NEVER touch ChromaDB vectors under `data/vectordb/`** — deprecated but files persist; don't reshape.
-- **NEVER use multiline `-c` with `conda run`** on Windows (conda rejects newlines in arguments). Write a script file instead.
+- **NEVER use a multiline `python -c`.** Write a script file instead.
 
 ## Repo-Specific Gotchas
 
-- **Python env is conda, not venv.** Always prefix with `conda run -n ai-assistants ...`.
-- **Tool registry is authoritative.** Before hunting for a CLI tool or script, read `data/tool_registry.md` — it carries the current tool and category counts, so no count is restated here. Regenerate after adding/removing one: `conda run -n ai-assistants python scripts/tools/generate_tool_registry.py`
+- **Python runs from the project `.venv`, not conda.** In a worktree run `.venv/bin/<tool>` with `PYTHONPATH` at the worktree's `src/` and root, as `scripts/ci/run-local.sh` does.
+- **Tool registry is authoritative.** Before hunting for a CLI tool or script, read `data/tool_registry.md` — it carries the current tool and category counts, so no count is restated here. Regenerate after adding/removing one: `.venv/bin/python scripts/tools/generate_tool_registry.py`
 - **Architecture layers:**
   - OUTER: `scripts/`, skills, CLI console_scripts
   - MIDDLE: `src/almoner/` — services, pipelines, engines
   - INNER: `src/almoner/wp/`, `src/almoner/kit/`, `src/almoner/vectors/`, connectors, stores
 - **Before adding logic to a script:** check if a service exists in `src/almoner/`. Logic used by 2+ callers belongs in src/, not a script.
-- **API enforcement:** `conda run -n ai-assistants python scripts/check_api_usage.py` + pre-commit hook block unauthorized Anthropic calls.
+- **API enforcement:** `.venv/bin/python scripts/check_api_usage.py` + pre-commit hook block unauthorized Anthropic calls.
 - **Heavy install deps:** torch CPU-only, chromadb, sentence-transformers. Environment builds are slow because of them. Don't add more without a reason.
 - **Orchestration layer was moved to Oversteward.** Do NOT re-create `.claude/skills/dispatch/`, `.claude/agents/*-dev.md`, or `scripts/orchestration/` in this repo — they live in NathanKrupa/Oversteward now.
 
@@ -92,9 +83,8 @@ Closes #<issue>
 - `<file>` — <what>
 
 ## Tested locally
-- `conda run -n ai-assistants pytest tests/` → <result>
-- `conda run -n ai-assistants black --check .` → <result>
-- `conda run -n ai-assistants flake8 ...` → <result>
+- the lite gate (§ Adversarial review) → <result>
+- the full gate (§ Adversarial review) → <result; each full-suite failure reproduced on origin/main>
 
 ## Scope
 N files, ±M lines (see the dispatch playbook §12 for the current caps)
@@ -106,10 +96,48 @@ Follow the universal playbook at `.claude/skills/dispatch/playbook.md` in the Ov
 
 ## Adversarial review — required before `gh pr create`
 
-Between "tests green" and opening the PR, a **separate** reviewer instance reads
+Between the lite gate and opening the PR, a **separate** reviewer instance reads
 this change with no sight of your reasoning. You do not write its prompt: a
 hurried or captured author who summarised the diff or dropped a test file would
 degrade the whole instrument silently, so the input is assembled by code.
+
+**Before round 1: the lite gate, then the diff ceiling** (the pre-round-1
+sequence in `~/.claude/shared/references/pr-workflow.md`). Commit first, because
+both read the committed diff, which is what the reviewer reads. The lite gate is
+ruff over `src/` and `tests/`, the lint job `scripts/ci/run-local.sh` runs (the
+repo has no format check and no gaudi gate), and `pytest` on the files under
+`tests/` the diff touches. It checks what you changed; it does not certify the
+tree. Playbook step 10's full suite does not run here. It is the one full run,
+after the findings, below.
+
+```bash
+# 0a. Lite gate, from the worktree. PYTHONPATH puts this worktree's source
+#     ahead of the shared venv's editable install, as run-local.sh does.
+#     `rc` collects every step, so one red step reddens the whole block; the
+#     last command's status alone would say nothing about the others.
+rc=0
+export PYTHONPATH="$PWD/src:$PWD"
+.venv/bin/ruff check src/ tests/ || rc=1
+changed=$(git diff --name-only --diff-filter=d origin/main...HEAD)
+# Only tests/: the scripts/test_*.py files are operator scripts that reach
+# live endpoints, which is why run-local.sh scopes pytest to tests/ as well.
+tests=$(printf '%s\n' $changed | grep -E '^tests/(.*/)?test_[^/]*\.py$' || true)
+if [ -n "$tests" ]; then
+    .venv/bin/python -m pytest $tests || rc=1
+else
+    echo "LITE GATE: the diff touches no test file, so pytest ran nothing"
+fi
+
+# 0b. Diff ceiling: insertions plus deletions against the ai-assistants ceiling in
+#     pr-workflow.md (a test holds the two numbers equal). Over it, split
+#     before round 1, or record the waiver in the PR body when splitting would
+#     not shrink the largest piece, and go on.
+ceiling=1000
+size=$(git diff --numstat origin/main...HEAD | awk '{n += $1 + $2} END {print n + 0}')
+echo "diff: $size changed (ceiling $ceiling)"
+if [ "$size" -gt "$ceiling" ]; then echo "OVER THE CEILING: split, or record the waiver"; rc=1; fi
+(exit $rc)
+```
 
 ```bash
 # 1. Assemble the input. Run it through the OverSteward checkout's own
@@ -169,12 +197,40 @@ Then:
   flag.
 - **`PASS-WITH-FINDINGS` gets no re-review.** Address each `defect`, `pin` and
   `doc` finding, record its fix and the red mutant that proves it in the PR
-  body under the verdict, and open the PR.
+  body under the verdict, then run the full gate below and open the PR.
 - **Before round 1, run the reviewer's catalogue yourself** (brief entries 13
   and 14): for every destructive statement in the diff, one negative fixture
   per `WHERE` conjunct, per key element, per window edge, per row state at an
   insert's key — with the mutant that kills each. Paste the table into the PR
   body. Half of one branch's eleven rounds were that table, one row per round.
+
+**After the findings: one full `make verify`, then push.** Once the last round's
+findings are fixed, run the full gate once, from the worktree. It is the only
+full run this PR gets: a run before review certifies bytes the fixes then
+replace. `make verify` runs the lint matrix and writes the marker the pre-push
+hook reads. Its pre-push hook refuses a push until the marker is pinned to HEAD,
+so a playbook step 9 heartbeat push before review costs a full run of its own;
+whether to defer those pushes is open (OS#569). `make ci-test` runs the whole of
+`tests/`, which is not green on `main` (parts of it need live services), so hold
+its failures to the ones that reproduce on `origin/main`, as playbook step 10.2
+rules. A fix it forces is a commit after the reviewed SHA that no verdict
+covers, so it gets a delta round before push: commit it, re-assemble with
+`--since <the sha the last round read> --previous-verdict <that round's verdict file>`
+(the assembler accepts a `PASS` or `PASS-WITH-FINDINGS` verdict there only with
+`--since`, and the round counts against the three-round cap), and launch the
+reviewer as above. If that round's fixes change the tree, run the full gate
+again before push. List each forced commit in the PR body under the verdict,
+with its SHA and the failure that forced it: the list is the record, the delta
+round is the control (OS#564). At the cap that round would be the fourth, which
+the assembler refuses: stop the pickup as for a third `BLOCK` — emit
+`STOPPED_FOR_INPUT`, name the forced commit and the failure on the issue, label
+it `needs-input` — and run the round only on Nathan's word, recorded with
+`--override-cap '<reason>'`.
+
+```bash
+make ci-test
+make verify
+```
 
 **Opening a PR with no verdict block is a procedural failure, not a shortcut.**
 `scripts/lint/require_review_verdict.py` is red on a missing, malformed or
