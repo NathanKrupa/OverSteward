@@ -101,10 +101,48 @@ Follow the universal playbook at `.claude/skills/dispatch/playbook.md` in full. 
 
 ## Adversarial review — required before `gh pr create`
 
-Between "tests green" and opening the PR, a **separate** reviewer instance reads
+Between the lite gate and opening the PR, a **separate** reviewer instance reads
 this change with no sight of your reasoning. You do not write its prompt: a
 hurried or captured author who summarised the diff or dropped a test file would
 degrade the whole instrument silently, so the input is assembled by code.
+
+**Before round 1: the lite gate, then the diff ceiling** (the pre-round-1
+sequence in `~/.claude/shared/references/pr-workflow.md`). Commit first, because
+both read the committed diff, which is what the reviewer reads. The lite gate is
+ruff and its format check, the gaudi error gate over `src/` (`gaudi_gate.py`,
+the invocation CI's `lint` job makes: DEP-001 reports no cycle from a single
+file), and `pytest` on the test files the diff touches. Bandit is left to the
+full gate. It checks what you changed; it does not certify the tree.
+Playbook step 10's full suite does not run here. It is the one full run, after
+the findings, below.
+
+```bash
+# 0a. Lite gate, from the worktree. `pyproject.toml` puts `src/` on pytest's
+#     path, so the touched tests import this worktree's source.
+#     `rc` collects every step, so one red step reddens the whole block; the
+#     last command's status alone would say nothing about the others.
+rc=0
+.venv/bin/ruff check src/ tests/ || rc=1
+.venv/bin/ruff format --check src/ tests/ || rc=1
+.venv/bin/python scripts/lint/gaudi_gate.py || rc=1
+changed=$(git diff --name-only --diff-filter=d origin/main...HEAD)
+tests=$(printf '%s\n' $changed | grep -E '(^|/)test_[^/]*\.py$' || true)
+if [ -n "$tests" ]; then
+    .venv/bin/python -m pytest $tests || rc=1
+else
+    echo "LITE GATE: the diff touches no test file, so pytest ran nothing"
+fi
+
+# 0b. Diff ceiling: insertions plus deletions against the wphelper ceiling in
+#     pr-workflow.md (a test holds the two numbers equal). Over it, split
+#     before round 1, or record the waiver in the PR body when splitting would
+#     not shrink the largest piece, and go on.
+ceiling=1000
+size=$(git diff --numstat origin/main...HEAD | awk '{n += $1 + $2} END {print n + 0}')
+echo "diff: $size changed (ceiling $ceiling)"
+if [ "$size" -gt "$ceiling" ]; then echo "OVER THE CEILING: split, or record the waiver"; rc=1; fi
+(exit $rc)
+```
 
 ```bash
 # 1. Assemble the input. Run it through the OverSteward checkout's own
@@ -164,12 +202,41 @@ Then:
   flag.
 - **`PASS-WITH-FINDINGS` gets no re-review.** Address each `defect`, `pin` and
   `doc` finding, record its fix and the red mutant that proves it in the PR
-  body under the verdict, and open the PR.
+  body under the verdict, then run the full gate below and open the PR.
 - **Before round 1, run the reviewer's catalogue yourself** (brief entries 13
   and 14): for every destructive statement in the diff, one negative fixture
   per `WHERE` conjunct, per key element, per window edge, per row state at an
   insert's key — with the mutant that kills each. Paste the table into the PR
   body. Half of one branch's eleven rounds were that table, one row per round.
+
+**After the findings: one full gate, then push.** wphelper has no `make verify`
+and no pre-push hook, so its full gate is CI's `lint`, `test` and `security`
+jobs run locally. Once the last round's findings are fixed, run it once, from
+the worktree. It is the only full run this PR gets: a run before review
+certifies bytes the fixes then replace. A fix it forces is a commit after the
+reviewed SHA that no verdict covers, so it gets a delta round before push:
+commit it, re-assemble with
+`--since <the sha the last round read> --previous-verdict <that round's verdict file>`
+(the assembler accepts a `PASS` or `PASS-WITH-FINDINGS` verdict there only with
+`--since`, and the round counts against the three-round cap), and launch the
+reviewer as above. If that round's fixes change the tree, run the full gate
+again before push. List each forced commit in the PR body under the verdict,
+with its SHA and the failure that forced it: the list is the record, the delta
+round is the control (OS#564). At the cap that round would be the fourth, which
+the assembler refuses: stop the pickup as for a third `BLOCK` — emit
+`STOPPED_FOR_INPUT`, name the forced commit and the failure on the issue, label
+it `needs-input` — and run the round only on Nathan's word, recorded with
+`--override-cap '<reason>'`.
+
+```bash
+rc=0
+.venv/bin/ruff check src/ tests/ || rc=1
+.venv/bin/ruff format --check src/ tests/ || rc=1
+.venv/bin/python scripts/lint/gaudi_gate.py || rc=1
+.venv/bin/bandit -r src/ -c pyproject.toml || rc=1
+.venv/bin/python -m pytest || rc=1
+(exit $rc)
+```
 
 **Opening a PR with no verdict block is a procedural failure, not a shortcut.**
 `scripts/lint/require_review_verdict.py` is red on a missing, malformed or

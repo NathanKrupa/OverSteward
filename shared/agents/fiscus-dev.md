@@ -13,7 +13,7 @@ You are the dedicated PR worker for the **fiscus** repository.
 
 | Attribute | Value |
 |---|---|
-| Local path | `/home/natha/Fiscus` (WSL2) |
+| Local path | `/home/natha/fiscus` (WSL2) |
 | GitHub remote | `NathanKrupa/Fiscus` |
 | Default branch | `main` |
 | Python | 3.14 (house standard; pinned in `pyproject.toml`) |
@@ -99,9 +99,8 @@ gh pr list --repo NathanKrupa/Fiscus --state merged --limit 10 \
 ## Dev-loop runbook
 
 Run the checks in this order. The **boy-scout check runs BEFORE the heavy full
-gate** (`make test` + `make lint` + `make typecheck` + `make gaudi`) — it is
-cheap, fails fast on the exact per-file regression CI would catch, and saves you
-the multi-minute full-gate run when the real blocker is a single touched file.
+gate** — it is cheap, fails fast on the exact per-file regression CI would
+catch, and is part of the lite gate that precedes review (§ Adversarial review).
 
 1. **Detect the PR's base branch.** The boy-scout ratchet is per-file vs the
    base, and CI uses the PR's ACTUAL base (`origin/${{ github.base_ref }}`) — not
@@ -115,7 +114,10 @@ the multi-minute full-gate run when the real blocker is a single touched file.
    ```bash
    uv run python scripts/boy_scout_check.py --base "origin/$BASE"
    ```
-3. **Full gate (heavy):** `make test`, `make lint`, `make typecheck`, `make gaudi`.
+3. **Full gate (heavy): the pre-push hook, once, after review.** It runs
+   pyright, the full suite, the boy-scout ratchet and the promotion-lesson check
+   on the push that follows the last round's fixes (§ Adversarial review). Do not
+   run `make test` or `make typecheck` by hand before review as well.
 
 ### Clearing a boy-scout regression
 
@@ -196,10 +198,49 @@ Follow the universal playbook at `.claude/skills/dispatch/playbook.md` in full. 
 
 ## Adversarial review — required before `gh pr create`
 
-Between "tests green" and opening the PR, a **separate** reviewer instance reads
+Between the lite gate and opening the PR, a **separate** reviewer instance reads
 this change with no sight of your reasoning. You do not write its prompt: a
 hurried or captured author who summarised the diff or dropped a test file would
 degrade the whole instrument silently, so the input is assembled by code.
+
+**Before round 1: the lite gate, then the diff ceiling** (the pre-round-1
+sequence in `~/.claude/shared/references/pr-workflow.md`). Commit first, because
+both read the committed diff, which is what the reviewer reads. The lite gate is
+ruff and its format check, the gaudi error gate (`scripts/gaudi_gate.py`, the
+one pre-commit invokes), the boy-scout ratchet against the base, and `pytest` on
+the test files the diff touches. It checks what you changed; it does not certify
+the tree. Playbook step 10's full suite does not run here. It is the one full
+run, after the findings, below.
+
+```bash
+# 0a. Lite gate, from the worktree, through the env's own interpreter: never
+#     a bare tool, and never a bare `uv run`, which re-syncs the shared venv.
+#     `rc` collects every step, so one red step reddens the whole block; the
+#     last command's status alone would say nothing about the others.
+rc=0
+export PYTHONPATH="$PWD/src"
+.venv/bin/python -m ruff check . || rc=1
+.venv/bin/python -m ruff format --check . || rc=1
+.venv/bin/python scripts/gaudi_gate.py . || rc=1
+.venv/bin/python scripts/boy_scout_check.py --base origin/main || rc=1
+changed=$(git diff --name-only --diff-filter=d origin/main...HEAD)
+tests=$(printf '%s\n' $changed | grep -E '(^|/)test_[^/]*\.py$' || true)
+if [ -n "$tests" ]; then
+    .venv/bin/python -m pytest $tests || rc=1
+else
+    echo "LITE GATE: the diff touches no test file, so pytest ran nothing"
+fi
+
+# 0b. Diff ceiling: insertions plus deletions against the fiscus ceiling in
+#     pr-workflow.md (a test holds the two numbers equal). Over it, split
+#     before round 1, or record the waiver in the PR body when splitting would
+#     not shrink the largest piece, and go on.
+ceiling=1000
+size=$(git diff --numstat origin/main...HEAD | awk '{n += $1 + $2} END {print n + 0}')
+echo "diff: $size changed (ceiling $ceiling)"
+if [ "$size" -gt "$ceiling" ]; then echo "OVER THE CEILING: split, or record the waiver"; rc=1; fi
+(exit $rc)
+```
 
 ```bash
 # 1. Assemble the input. Run it through the OverSteward checkout's own
@@ -259,12 +300,35 @@ Then:
   flag.
 - **`PASS-WITH-FINDINGS` gets no re-review.** Address each `defect`, `pin` and
   `doc` finding, record its fix and the red mutant that proves it in the PR
-  body under the verdict, and open the PR.
+  body under the verdict, then run the full gate below and open the PR.
 - **Before round 1, run the reviewer's catalogue yourself** (brief entries 13
   and 14): for every destructive statement in the diff, one negative fixture
   per `WHERE` conjunct, per key element, per window edge, per row state at an
   insert's key — with the mutant that kills each. Paste the table into the PR
   body. Half of one branch's eleven rounds were that table, one row per round.
+
+**After the findings: push, and the pre-push hook is the one full run.** fiscus
+has no `make verify`: its pre-push hook runs pyright, the full pytest suite, the
+boy-scout ratchet and the promotion-lesson check on every push. So push once,
+after the last round's findings are fixed: an earlier push runs the hook too,
+and is a full run before review that certifies bytes the fixes then replace. A
+fix it forces is a commit after the reviewed SHA that no verdict covers, so it
+gets a delta round before the push is retried: commit it, re-assemble with
+`--since <the sha the last round read> --previous-verdict <that round's verdict file>`
+(the assembler accepts a `PASS` or `PASS-WITH-FINDINGS` verdict there only with
+`--since`, and the round counts against the three-round cap), and launch the
+reviewer as above. The retried push runs the hook again on whatever that round's
+fixes leave. List each forced commit in the PR body under the verdict, with its
+SHA and the failure that forced it: the list is the record, the delta round is
+the control (OS#564). At the cap that round would be the fourth, which the
+assembler refuses: stop the pickup as for a third `BLOCK` — emit
+`STOPPED_FOR_INPUT`, name the forced commit and the failure on the issue, label
+it `needs-input` — and run the round only on Nathan's word, recorded with
+`--override-cap '<reason>'`.
+
+```bash
+git push -u origin <branch>
+```
 
 **Opening a PR with no verdict block is a procedural failure, not a shortcut.**
 `scripts/lint/require_review_verdict.py` is red on a missing, malformed or
