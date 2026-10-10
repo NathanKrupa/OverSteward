@@ -19,7 +19,10 @@
       "Bash(railway service list*)",
       "Bash(railway deployment list*)",
       "Bash(railway volume list*)",
-      "mcp__railway__get_logs"
+      "mcp__railway__get_logs",
+      "Bash(scripts/dev/worktree_doctor.py cleanup-merged *)",
+      "Bash(.venv/bin/python scripts/dev/worktree_doctor.py cleanup-merged *)",
+      "Bash(/home/natha/OverSteward/scripts/dev/worktree_doctor.py cleanup-merged *)"
     ]
   },
   "hooks": {

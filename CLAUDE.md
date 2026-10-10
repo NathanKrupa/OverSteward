@@ -111,20 +111,30 @@ branch when a PR merges and **retargets** any open child PR onto the merged
 PR's base (measured, OS#508/#509). Never `gh pr merge --delete-branch` — a
 no-op under `--auto`, an unmeasured refs-API delete otherwise, and a refs-API
 delete of a branch an open PR bases on is the measured way to **close** that
-PR. Once `gh` reports the PR `MERGED`, the session tears down the worktree
-(and any `<name>.baseline` or `<name>.review` sibling), sweeps, deletes the local branch with `git branch -d`, and — only if
-the remote ref somehow survived, and only after `gh pr list --base <branch>
---state open` prints nothing — deletes it with `gh api -X DELETE
-repos/<owner>/<repo>/git/refs/heads/<branch>`. Without asking, never as an
-operator step. The exact sequence, with the existence tests that let "already
-gone" read as done, is `.claude/skills/dispatch/SKILL.md` §5, which also rules
-that **a stack is cleaned up by its last PR to merge**: a child's cleanup
-re-runs the sequence for each ancestor. `-d` is not the merged-check (it checks
-the upstream tracking ref, not the trunk); the PR state is. The one legitimate
-stop is the doctor's own refusal (exit 1 or 2): that is a finding to fix
-in-session — a stray untracked file to inspect, a capture to `repair` — not a
-step to hand to Nathan. Nothing in the sequence needs him, and the tree he next
-opens should already be clean.
+PR. Once the PR merges, the session runs one command from the repo's primary
+checkout, without asking and never as an operator step:
+
+```bash
+scripts/dev/worktree_doctor.py cleanup-merged <n>
+```
+
+It confirms with `gh` that the PR is `MERGED` and that no open PR bases on its
+branch, proves every surviving copy of that branch is on `origin/<base>`
+(refusing a branch that carries work pushed after the merge), tears down the
+worktree and any `<name>.baseline` or `<name>.review` sibling through the
+doctor, sweeps (report only), deletes the local branch with `git branch -d`
+(never `-D`), and deletes the remote ref through the refs API only if it
+survived, after re-checking that origin still holds the proven sha.
+Already-gone reads as done, so a clean PR exits 0; 1 is a refusal, 2 is
+"could not look". The steps, their existence tests and the `-d` tracking-ref
+recipe are `.claude/skills/dispatch/SKILL.md` §5, which also rules that **a stack is cleaned up by its last PR to merge**: a
+child's session runs the command again for each ancestor PR. A repo whose
+doctor does not carry the verb yet runs OverSteward's copy with
+`--repo <checkout>` (deployment: OS#572). The one legitimate stop is a refusal:
+that is a finding to fix in-session — a stray untracked file to inspect, a
+capture to `repair`, an open child to retarget — not a step to hand to Nathan.
+Nothing in the sequence needs him, and the tree he next opens should already
+be clean.
 
 This family is canonical here in `shared/scripts/dev/` and deployed to every
 repo's `.claude/hooks/` + `scripts/dev/`. See OVERSTEWARD.md §

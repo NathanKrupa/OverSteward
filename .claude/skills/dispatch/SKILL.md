@@ -190,66 +190,81 @@ reviewer left when it died mid-review (OS#553), the local branch, and every
 **in-session** worktree (`session/*`, back-merges, promotes), which no playbook
 tends. Nothing in it needs Nathan, so the session does it without asking and
 without pushing an operator step — the tree he next opens is already clean.
-From the repo's primary checkout:
+It is one command, run from the repo's primary checkout:
 
 ```bash
-gh pr view <n> --repo <owner>/<repo> --json state --jq .state          # must print MERGED
-gh pr list --repo <owner>/<repo> --base <branch> --state open --json number   # must print []
-[ ! -d <repo>/.claude/worktrees/<name> ]          || scripts/dev/worktree_doctor.py teardown <repo>/.claude/worktrees/<name>
-[ ! -d <repo>/.claude/worktrees/<name>.baseline ] || scripts/dev/worktree_doctor.py teardown <repo>/.claude/worktrees/<name>.baseline
-[ ! -d <repo>/.claude/worktrees/<name>.review ]   || scripts/dev/worktree_doctor.py teardown <repo>/.claude/worktrees/<name>.review
-scripts/dev/worktree_doctor.py sweep                # reports; must name nothing orphaned
-! git -C <repo> show-ref --verify --quiet refs/heads/<branch> \
-    || git -C <repo> branch -d <branch>             # local before remote — see below
-! git ls-remote --exit-code --heads origin <branch> > /dev/null \
-    || gh api -X DELETE repos/<owner>/<repo>/git/refs/heads/<branch>
+scripts/dev/worktree_doctor.py cleanup-merged <n>
 ```
 
-Read each exit code. The two `gh` lines at the top are the conjuncts: the PR
-state is the merged-check, and the second line guards the **API** delete on
-the last line. GitHub's own auto-delete retargets an open child; a refs-API
-delete of a branch an open PR bases on closes that PR and its review threads
-(measured on OS#509 with no merged PR behind the branch — the after-merge
-case was not measured, so it is treated as the same), so a non-empty list
-means retarget the child first, never delete under it. In
-practice the remote branch is already gone by the time this runs, and the
-existence test makes the last line a no-op. The existence tests are what
-make "already gone" read as done rather than as a refusal: the doctor exits 1
-on a path that is not a worktree and `gh api` returns 422 on a ref that is not
-there, and neither is a finding when the playbook did that work — so each of
-those lines exits 0 when its subject is absent and carries the tool's own code
-when it is present (`[ ! -d x ] || tool x`, not `[ -d x ] && tool x`, whose
-absent case exits 1 — the doctor's refusal code). `git branch
--d` is not a merged-check either — it verifies against the branch's upstream
-tracking ref, which a server-side delete leaves in place until a prune — which
-is why it sits after the PR-state line and before the remote delete, and why
-`-D` is never the answer to its refusal. The doctor's own refusal (exit 1 =
-something still points here or the tree is dirty, exit 2 = it could not look)
-is the one legitimate stop, and it is a finding to fix in-session — inspect
-the stray file, run `repair`, start docker — not a step to hand over.
-`git push --delete` is refused in AG and GS by the verify-marker pre-push hook
-(any push without a marker at HEAD); the `gh api` form works in every repo. A
-branch that was **not** merged (CI_FAILED, STOPPED_FOR_INPUT) keeps all of it:
-the worktree is the resumable state.
+A repo whose doctor does not carry the verb yet (the six dispatch targets until
+OS#572 deploys it) runs OverSteward's copy against its checkout —
+`/home/natha/OverSteward/scripts/dev/worktree_doctor.py cleanup-merged <n> --repo <repo>`.
+The family is byte-identical and `--repo` is what lets it work outside its
+own tree. Pass `--worktree <path>` when the worktree no longer has the PR's
+branch checked out; by default the command finds it by that branch.
+
+It runs, in this order, and prints one line per step and a verdict:
+
+1. `gh pr view` must say `MERGED` — the PR state is the merged-check. A PR from
+   a fork, or one whose head is a trunk (the base, the default branch, or the
+   branch the checkout sits on — a promote or a back-merge), is refused; tear
+   down any worktree such a PR used with `worktree_doctor.py teardown <path>`.
+2. `gh pr list --base <branch> --state open` must be empty, or it refuses and
+   names the children. GitHub's own auto-delete retargets an open child; a
+   refs-API delete of a branch an open PR bases on closes that PR and its
+   review threads (measured on OS#509 with no merged PR behind the branch — the
+   after-merge case was not measured, so it is treated as the same).
+3. Every copy of the branch that remains — local, and on `origin` per
+   `git ls-remote` — must be on `origin/<base>` after a fetch, proven with
+   `git merge-base --is-ancestor`; otherwise it refuses before anything is
+   torn down. `delete_branch_on_merge` removes the head as the PR merges, so a
+   head that survived may carry work pushed after the merge, and `-d` would
+   pass it: it checks the branch's own upstream, which holds that work too.
+4. `teardown` of the worktree and its `.baseline` and `.review` siblings, each
+   skipped when absent. A sibling path on some other branch is refused, and a
+   `.baseline`/`.review` whose own worktree is gone is reported, not removed.
+5. `sweep`, reporting only — it never passes `--drop`.
+6. `git branch -d`, local before remote. `-d` is not a merged-check: it
+   verifies against the branch's upstream tracking ref, which a server-side
+   delete leaves in place until a prune, and against HEAD once that ref is
+   gone — and the primary checkout can sit on a different trunk than the PR
+   merged into (AG: checkout on `main`, PRs to `staging`). When `-d` refuses,
+   the command gives it the right reference, never `-D`: with the merge
+   already proven at step 3, it sets the upstream to `origin/<trunk>` and runs
+   `-d` again — which still refuses an unmerged branch (both measured,
+   2026-09-18).
+7. `gh api -X DELETE repos/<owner>/<repo>/git/refs/heads/<branch>`, after
+   re-checking with `git ls-remote`, immediately before the delete, that
+   `origin` still holds the sha step 3 proved — a ref that moved during the
+   teardown or sweep is refused. The refs API takes no expected sha, so a push
+   landing between that re-check and the DELETE is not caught. In practice GitHub's
+   `delete_branch_on_merge` has already removed it, and this is a no-op.
+   (`git push --delete` is refused in AG and GS by the verify-marker pre-push
+   hook; the refs API works in every repo.)
+
+Absent is a pass at every step, so a PR whose leftovers were already cleaned
+exits 0. Exit 1 is a refusal, exit 2 is "could not look" (gh failed, git could
+not reach origin, docker did not answer the sweep). Every refusal stops the
+sequence there, so nothing after it runs — except two findings that belong to
+the repo rather than this PR, an orphan the sweep found and a stray sibling,
+which set the exit code and let the rest run. The doctor's own refusal (exit 1 = something
+still points here or the tree is dirty, exit 2 = it could not look) is the one
+legitimate stop, and it is a finding to fix in-session — inspect the stray
+file, run `repair`, start docker, then run the command again — not a step to
+hand over. A branch that was **not** merged (CI_FAILED, STOPPED_FOR_INPUT)
+keeps all of it, and the command refuses it: the worktree is the resumable
+state.
 
 **A stack is cleaned up by its last PR to merge.** When a parent PR merges
-under an open child, the parent's cleanup runs in full — its worktree and local
-branch go (the child carries every commit the parent had, so `-d` loses
-nothing), and GitHub has already retargeted the child onto the trunk. When the
-child then merges, its cleanup runs the sequence for itself **and then again
-for each ancestor** — same lines, ancestor's `<name>` and `<branch>` — so a
-parent whose cleanup was skipped or refused at the time is finished now rather
-than left for Nathan. The existence tests make an ancestor that was already
-cleaned cost nothing — the local-branch line included, which is why it carries
-`show-ref` in front of `-d`. `-d` can still refuse on an ancestor whose
-tracking ref was pruned while the primary checkout sits on a different trunk
-than the PR merged into (AG: checkout on `main`, PRs to `staging`) — `-d`
-then checks HEAD, which does not carry the commits. The answer is to give
-`-d` the right reference, never `-D`: prove the merge with
-`git merge-base --is-ancestor <branch> origin/<trunk>` (rc 0), then
-`git branch --set-upstream-to=origin/<trunk> <branch>` and `-d` again — its
-check is now "merged into that trunk", and it still refuses an unmerged branch
-(both measured, 2026-09-18).
+under an open child, GitHub retargets the child onto the trunk at once, so the
+parent's cleanup normally runs in full — its worktree and local branch go (the
+child carries every commit the parent had, so `-d` loses nothing). If the
+retarget has not happened, step 2 refuses and touches nothing. When the child
+then merges, its session runs `cleanup-merged` for the child **and then once
+more for each ancestor PR** — so a parent whose cleanup was skipped or refused
+at the time is finished now rather than left for Nathan. The existence tests
+make an ancestor that was already cleaned cost nothing. (Walking the stack
+from the child alone is OS#573.)
 
 ## Refusal messages (what to tell the user on preflight failure)
 

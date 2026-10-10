@@ -233,6 +233,14 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
 
 19. **Tear the worktree down through the doctor.** `scripts/dev/worktree_doctor.py teardown <worktree-path>` is the **only** sanctioned teardown. Run it from a fresh Bash shell, which already starts outside the worktree. If the worktree holds unpushed commits (e.g. STOPPED_FOR_INPUT without a draft push), push them as a draft PR FIRST, then tear down.
 
+    **If the run ended `MERGED`, run `cleanup-merged` instead** — it is this teardown for the worktree and its `.baseline` and `.review` siblings, plus the rest of the orchestrator's `SKILL.md` §5 (merged-check, open-child check, a proof that every surviving copy of the branch is on the trunk, `sweep`, `git branch -d`, the remote ref only if it survived), in one command that refuses rather than guesses:
+
+    ```bash
+    <repo-primary-checkout>/scripts/dev/worktree_doctor.py cleanup-merged <PR#>
+    ```
+
+    A repo whose doctor does not carry the verb yet (OS#572) runs OverSteward's copy against it: `/home/natha/OverSteward/scripts/dev/worktree_doctor.py cleanup-merged <PR#> --repo <repo-primary-checkout>`. Exit 0 is clean; its refusal is read and reported exactly like the doctor's, below. Any other terminal state keeps the branch, and tears down only the worktree, as follows.
+
     `teardown` runs in strict order of recoverability: it checks what still points at the path (captured venv shebangs, `__editable__*.pth` entries, docker compose bind mounts), **names** the databases the worktree owns, removes the worktree, and only then **drops** them. Everything that can fail happens before anything that cannot be undone, so a teardown that stops halfway has destroyed nothing.
 
     **`git worktree remove` — with or WITHOUT `--force` — orphans the bench database.** Every worktree gets its own Postgres database on the shared test container (`<project>_test_<slug>`, derived from the worktree path by `scripts/dev/worktree_db.py`), and nothing else in the estate ever drops it. The loss is **unrecoverable by the tooling**, and the asymmetry is worth understanding: the doctor derives the database name *from the worktree path*, so once the path is gone there is nothing left to derive from — **the doctor cannot clean up after you**. Recovery has to reconcile from the other direction (enumerate every database on the container, enumerate the live worktrees, drop the difference), which only the operator does, by hand, once someone notices. `--force` is doubly wrong: it exists to discard uncommitted work, and it skips the database drop entirely. The doctor deliberately calls `git worktree remove` *without* `--force` — a refusal means real uncommitted work is sitting in there, and the answer is to commit and push it (steps 13-14), never to force past it.
@@ -294,7 +302,7 @@ oversteward#375 fixed.
 | Draft PRs for exploration | Intent-Capture Protocol, step 3 |
 | Write a trajectory note before opening the PR | step 13.5 |
 | A regression test never seen red is not a regression test | step 10.5 |
-| Cleanup after `MERGED` is standing-authorized, never an operator step | step 16 (GitHub's `delete_branch_on_merge` removes the head branch and retargets children; never `--delete-branch`) + step 19 (doctor teardown, always). The orchestrating session's `SKILL.md` §5 covers what a run did not reach, and the last PR of a stack finishes the stack's cleanup |
+| Cleanup after `MERGED` is standing-authorized, never an operator step | step 16 (GitHub's `delete_branch_on_merge` removes the head branch and retargets children; never `--delete-branch`) + step 19 (`cleanup-merged` when the run ended `MERGED`, doctor teardown otherwise). The orchestrating session's `SKILL.md` §5 covers what a run did not reach, and the last PR of a stack finishes the stack's cleanup |
 
 **Doctrine to apply while implementing (step 9), not separate steps:**
 
