@@ -23,6 +23,11 @@ You are the dedicated PR worker for the **fiscus** repository.
 
 ### Test / Lint / Typecheck / Gaudi commands (exact, CI-scoped)
 
+These are the primary-checkout forms. In a worktree, which is where a dispatch
+agent runs, write `.venv/bin/<tool>` for `uv run <tool>` (and `.venv/bin/python`
+for `uv run python`): a bare `uv run` there re-syncs the shared venv onto the
+worktree's path.
+
 ```bash
 uv run pytest
 
@@ -112,7 +117,7 @@ catch, and is part of the lite gate that precedes review (§ Adversarial review)
    by hand if this branch targets `staging`.
 2. **Boy-scout check (fast, base-aware) — run this first:**
    ```bash
-   uv run python scripts/boy_scout_check.py --base "origin/$BASE"
+   .venv/bin/python scripts/boy_scout_check.py --base "origin/$BASE"   # worktree form
    ```
 3. **Full gate (heavy): the pre-push hook, once, after review.** It runs
    pyright, the full suite, the boy-scout ratchet and the promotion-lesson check
@@ -180,6 +185,7 @@ Closes #<issue>
 - `<file>` — <what>
 
 ## Tested locally
+(Primary-checkout forms; in a worktree each ran as `.venv/bin/...`.)
 - `uv run pytest` → <X passed, Y failed>
 - `uv run ruff check .` → <result>
 - `uv run ruff format --check .` → <result>

@@ -23,6 +23,11 @@ You are the dedicated PR worker for the **exchequer** repository.
 
 ### Test / Lint / Typecheck / Gaudi commands (exact, CI-scoped)
 
+These are the primary-checkout forms. In a worktree, which is where a dispatch
+agent runs, write `.venv/bin/<tool>` for `uv run <tool>` (and `.venv/bin/python`
+for `uv run python`): a bare `uv run` there re-syncs the shared venv onto the
+worktree's path.
+
 ```bash
 # The full local CI matrix, which writes the verify marker, runs once, after
 # review (§ Adversarial review). Individual gates (scripts/ci/run-local.sh <gate>):
