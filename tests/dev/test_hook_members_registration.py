@@ -82,8 +82,13 @@ def test_every_hook_member_is_executable_on_both_sides(member: str) -> None:
 
     Read from the index, not the filesystem: the mode git records is the one
     that travels to every other repo, and a local umask can mask a wrong one.
+    The deployed side here is a symlink (mode 120000) into shared/ (OS#576),
+    which runs with its target's mode — so the canonical mode is the one held.
     """
-    for path in (f"shared/scripts/dev/{member}", f".claude/hooks/{member}"):
+    for path, allowed in (
+        (f"shared/scripts/dev/{member}", {"100755"}),
+        (f".claude/hooks/{member}", {"100755", "120000"}),
+    ):
         result = subprocess.run(
             ["git", "-C", str(REPO_ROOT), "ls-files", "-s", path],
             capture_output=True, text=True, check=True,
@@ -91,21 +96,17 @@ def test_every_hook_member_is_executable_on_both_sides(member: str) -> None:
         if not result.stdout.strip():
             pytest.skip(f"{path} is not tracked")
         mode = result.stdout.split()[0]
-        assert mode == "100755", (
+        assert mode in allowed, (
             f"{path} is mode {mode}; every guard in this family is 100755. "
             "A hook git records as non-executable is a hook a fresh clone cannot run."
         )
 
 
 @pytest.mark.parametrize("member", sorted(HOOK_MEMBERS))
-def test_every_hook_member_exists_on_both_sides_and_is_byte_identical(member: str) -> None:
-    canonical = CANONICAL_DEV / member
-    deployed = DEPLOYED_HOOKS / member
-    assert canonical.is_file(), f"shared/scripts/dev/{member} is missing"
-    assert deployed.is_file(), f".claude/hooks/{member} is missing"
-    assert canonical.read_bytes() == deployed.read_bytes(), (
-        f"{member} drifted between canonical and deployed; edit one and copy."
-    )
+def test_every_hook_member_exists_on_both_sides(member: str) -> None:
+    """Byte identity is tests/test_deployed_links.py's: the deployed side is a link."""
+    assert (CANONICAL_DEV / member).is_file(), f"shared/scripts/dev/{member} is missing"
+    assert (DEPLOYED_HOOKS / member).is_file(), f".claude/hooks/{member} is missing"
 
 
 def test_the_filesystem_bit_matches_the_recorded_mode() -> None:

@@ -207,6 +207,10 @@ Every file in `shared/scripts/dev/` is a family member, and its destination insi
 
 `src/oversteward/dev_family.py` encodes exactly this, so a member added to the canonical directory is audited from the next `/sync-status` run with no code change. Before OS#242 each member had to be registered by hand in three places (a gather relpath, a `CANONICAL_DEV_FILES` entry, a diff check), and members that nobody remembered to register — `check_worktree_imports.py`, `guard_neon.py`, `test_secret_scan.py`, `.gitleaks.toml` — were never checked at all.
 
+#### Inside OverSteward, deployed copies are symlinks
+
+OverSteward is the one repo that holds both sides of every pair, so its own deployed paths (`.claude/hooks/`, `.claude/agents/`, `.claude/skills/dispatch/`, `scripts/dev/`, `tests/dev/`) are relative file symlinks into `shared/` rather than copies (OS#576) — there is nothing to copy across and nothing to drift. `shared/` itself holds no links, so sow and the `~/.claude/shared` deploy still deliver file contents everywhere else. The audit below follows a link to its target only when git records that target as a regular file inside the tree; any other link reads as its link text, so a link leaked into a pickup repo is reported as drift. `tests/test_deployed_links.py` pins the link set and the pairs that deliberately stay copies.
+
 #### The family is audited against `origin`, never the local checkout
 
 `/sync-status` reads each repo's copies out of `origin/<its registry branch>` (`git fetch` + `git cat-file blob origin/<branch>:<path>`). The resident checkouts run dozens-to-hundreds of commits stale, so hashing their working trees produced **false drift** (local behind origin) *and* **false parity** (an uncommitted local copy that matched canonical while origin did not). Four statuses per member:

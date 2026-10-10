@@ -184,24 +184,24 @@ first is what makes the plan verifiable and the second is what makes it honest.
 Scope
   branch: feat/architect-agent
   title:  feat(agents): architect card — Fable planning subagent
-  - card + its byte-copy, registry rows, doctrine paragraph, model-pin test
+  - card + its deployed link, registry rows, doctrine paragraph, model-pin test
 
 Changes
   shared/agents/architect.md — the card; canonical source
-  .claude/agents/architect.md — byte-copy of the above; edit one, copy across
+  .claude/agents/architect.md — relative symlink to the above; nothing to copy
   registry.yaml — append `architect` to agents_available on each context that
     carries agents_path, key order preserved
   tests/test_agent_cards.py — pin every card's model alias
 
 Invariants touched
-  §3 canonical-byte-copy ratchet — shared/<x>/ is canonical, .claude/<x>/ is
-  its deployed copy; the pair must stay byte-identical
+  §3 canonical-byte-copy ratchet — shared/<x>/ is canonical; in OverSteward
+  .claude/<x>/ is a symlink to it, in every other repo a byte-identical copy
 
 Negative fixtures
   | guard | fixture that makes it red | mutant it kills |
   |---|---|---|
   | model pin | architect.md with `model: inherit` | a card that runs on the session model |
-  | byte-copy | append a newline to the deployed copy | a dual-edited card drifting |
+  | deployed link | replace .claude/agents/architect.md with a regular copy | a deployed card that can drift |
 
 Red team
   applied: the pin only checked the alias vocabulary, so `model: sonnet` on a
