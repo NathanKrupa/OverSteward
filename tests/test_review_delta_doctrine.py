@@ -45,6 +45,16 @@ WORKFLOW_RULE = "Listing such a commit in the PR body is the record, not the con
 PRE_ROUND_SEQUENCE_CARDS = ("aigranthelper-dev.md", "grantspider-dev.md")
 CARD_RULE = "the list is the record, the delta round is the control (OS#564)"
 
+#: The delta round after a pass counts against the cap, so after a round-3 pass
+#: it is a fourth round the assembler refuses. Without a named path there, the
+#: forced commit is back to having no sanctioned route (round-1 finding on the
+#: OS#564 PR).
+CARD_AT_THE_CAP = (
+    "At the cap that round would be the fourth, which the assembler refuses: stop the "
+    "pickup as for a third `BLOCK`"
+)
+BRIEF_AT_THE_CAP = "After a round-3 pass that round would be the fourth, which the assembler refuses"
+
 
 def _prose(path: Path) -> str:
     return " ".join(path.read_text(encoding="utf-8").split())
@@ -84,7 +94,9 @@ def test_the_workflow_states_the_delta_round_after_a_pass() -> None:
     "brief", REVIEWER_BRIEFS, ids=lambda p: f"{p.parent.parent.name}/{p.name}"
 )
 def test_the_reviewer_brief_states_the_delta_round_after_a_pass(brief: Path) -> None:
-    assert DELTA_AFTER_A_PASS in _prose(brief)
+    prose = _prose(brief)
+    assert DELTA_AFTER_A_PASS in prose
+    assert BRIEF_AT_THE_CAP in prose
 
 
 @pytest.mark.parametrize(
@@ -100,3 +112,4 @@ def test_a_full_gate_card_sends_its_forced_commit_to_a_delta_round(card: Path) -
     prose = _prose(card)
     assert CARD_RULE in prose
     assert "--since <the sha the last round read>" in prose
+    assert CARD_AT_THE_CAP in prose, f"{card} names no path for a forced commit at the cap"

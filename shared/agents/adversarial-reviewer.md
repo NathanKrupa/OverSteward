@@ -290,7 +290,9 @@ text beneath it), is where that shows.
   as the previous one, and counts against the cap like any round (OS#564). The
   `previous-verdict` section then opens by saying so. There is no `hole` to
   verify closed: review the delta's commits as you would a first round, limited
-  to them.
+  to them. After a round-3 pass that round would be the fourth, which the
+  assembler refuses: the author stops and hands the change to Nathan, and you
+  see it only if he records `--override-cap`.
 - **Round 3 is the last.** If you would `BLOCK` again, return `BLOCK` and
   list every remaining `hole` plainly: the operator files them as issues,
   labels the change `needs-input`, and hands it to Nathan. You do not get a

@@ -224,7 +224,11 @@ verdict there only with `--since`, and the round counts against the three-round
 cap), and launch the reviewer as above. If that round's fixes change the tree,
 run the full gate again before push. List each forced commit in the PR body
 under the verdict, with its SHA and the failure that forced it: the list is the
-record, the delta round is the control (OS#564).
+record, the delta round is the control (OS#564). At the cap that round would be
+the fourth, which the assembler refuses: stop the pickup as for a third `BLOCK`
+— emit `STOPPED_FOR_INPUT`, name the forced commit and the failure on the issue,
+label it `needs-input` — and run the round only on Nathan's word, recorded with
+`--override-cap '<reason>'`.
 
 ```bash
 make verify
