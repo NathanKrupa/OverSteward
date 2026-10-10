@@ -382,7 +382,11 @@ REVIEW_BLOCK = re.compile(r"^## Adversarial review\b.*?(?=^## )", re.MULTILINE |
 
 
 def _pre_round_sequence_cards() -> list[Path]:
-    return [directory / name for name in PRE_ROUND_SEQUENCE_CARDS for directory in (CANONICAL_DIR, DEPLOYED_DIR)]
+    return [
+        directory / name
+        for name in PRE_ROUND_SEQUENCE_CARDS
+        for directory in (CANONICAL_DIR, DEPLOYED_DIR)
+    ]
 
 
 @pytest.mark.parametrize(
