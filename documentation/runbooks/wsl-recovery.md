@@ -91,16 +91,28 @@ the ones that actually save you:
 3. **Integrity gate.** `Test-WslIntegrity.ps1` runs at every logon (via the
    scheduled task) and alerts immediately if an update broke the platform —
    so you learn at logon, not mid-task.
-4. **Routine backups.** `Backup-Wsl.ps1` exports weekly to `E:\WSLBackups`
-   (separate physical drive from C:), keeping the newest 2. A wipe becomes a
-   `wsl --import`.
+4. **Routine backups.** `Backup-Wsl.ps1` exports monthly to `E:\WSLBackups`
+   (separate physical drive from C:), keeping the newest 1. A wipe becomes a
+   `wsl --import`. The export does not run over the work it can see: it first asks
+   `scripts/backup_ready.py` (run inside the distro, from the primary checkout)
+   and exports only on exit 0 (idle). Busy (1: a Claude Code session, a detached
+   GrantSpider run, a running estate job service, or a running docker
+   container) or could-not-look (2, or
+   a `wsl.exe` that fails) logs the blocker to
+   `%LOCALAPPDATA%\WslResilience\backup.log` and exits 3 with nothing exported
+   or pruned. Work the probes cannot see - an arbitrary `nohup` or `tmux`
+   job - reads as idle and would be killed by the export.
 
-**Cadence & retention defaults:** weekly backup (Sunday 03:17), keep 2 (measured
-~82 GB each; E: is shared, ~393 GB free); monthly deliberate update via
-`Update-WslSafely.ps1`. Keep the last-good WSL MSI beside the backups so Path B/C
-never waits on a download. Deeper history needs compression or a bigger drive —
-an uncompressed full export at this size makes a weekly+monthly tier infeasible
-on E: today.
+**Cadence & retention defaults:** monthly full export, first Sunday at 05:17
+(after the 03:30 dream cycle), retried hourly for 17 hours while the distro is
+busy; one success writes `export.last-ok` and ends that day's attempts. Keep 1
+(measured ~131 GB on 2026-10-11, of which ~58 GB is regenerable cache; E: is
+shared). Monthly deliberate update via `Update-WslSafely.ps1`. Keep the last-good
+WSL MSI beside the backups so Path B/C never waits on a download. History does
+not come from stacking full exports: a daily live backup of `/home/natha`,
+taken with the distro running (restic), arrives in OS#582, and a health sweep over the
+backups in OS#583. Docker Desktop volumes live in the `docker-desktop` distro and
+are **not** in this export.
 
 **Test the backup quarterly** — a backup never restored is not a backup:
 ```powershell
@@ -114,13 +126,20 @@ wsl --unregister wsl-restore-test
 - **Update cadence:** pinning/delaying updates **delays security fixes**. Mitigated
   by a *monthly* deliberate window rather than freezing forever — the regression
   is fixed in later builds, so staying current (carefully) is the goal.
-- **Backup size vs retention:** the ext4 image exports to **~82 GB** (measured
-  2026-06-17, uncompressed). E: is shared (~393 GB free, not a dedicated backup
-  drive), so the default is **Keep 2** (~164 GB). Compression would roughly halve
-  this and allow deeper history; deferred as a future enhancement.
-- **Snapshot consistency:** `wsl --export` briefly **stops the distro** for a clean
-  snapshot — schedule it off-hours (the 03:17 default).
-- **`run only when logged on`:** the weekly task needs **no stored password** but
+- **Backup size vs retention:** the ext4 image exports to **~131 GB** (measured
+  2026-10-11, uncompressed; ~82 GB in June). E: is shared (not a dedicated backup
+  drive), so the default is **Keep 1**. Depth of history is the daily restic
+  backup's job (OS#582), not the full export's.
+- **Snapshot consistency vs work in progress:** `wsl --export` terminates every
+  process in the distro to take its snapshot. Rather than pick an hour and hope,
+  the export **runs only when the readiness check says the distro is idle** and
+  otherwise skips (exit 3) and retries hourly. It never kills a Claude Code
+  session, a detached GrantSpider run, a running estate job service or a running
+  docker container; work outside those four (an arbitrary `nohup` or `tmux`
+  job) is not detected. A
+  month where the distro is busy all of the first Sunday gets no full export,
+  and `backup.log` says why.
+- **`run only when logged on`:** the monthly task needs **no stored password** but
   only fires while you're logged in; `StartWhenAvailable` makes it catch up.
 
 ## 6. One-paragraph summary
@@ -130,7 +149,7 @@ WSL app updates can silently break the Linux platform by removing
 Because the update cannot be reliably prevented on Windows 11 Home, this process
 is defense-in-depth: reduce silent updates where possible, **never** run a bare
 `wsl --update` (use `Update-WslSafely.ps1`, which verifies and auto-rolls-back),
-catch breakage at logon with an integrity gate, and keep weekly `wsl --export`
-backups on a separate drive so any wipe is a few-minute `wsl --import` instead of
-a four-hour crisis. Scripts live in `ops/wsl/`; install with
+catch breakage at logon with an integrity gate, and keep a monthly
+`wsl --export` on a separate drive, taken only when the distro is idle, so any
+wipe is a few-minute `wsl --import` instead of a four-hour crisis. Scripts live in `ops/wsl/`; install with
 `Install-WslResilience.ps1`.
