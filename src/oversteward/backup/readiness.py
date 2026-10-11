@@ -18,9 +18,11 @@ disk and resumes after the export. A session is working when either
 * it has a descendant running a tool command. Measured on the live box
   2026-10-11: an idle VS Code session has no child processes at all, and one
   running a Bash tool command has a ``bash -c source
-  ~/.claude/shell-snapshots/snapshot-bash-*.sh ...`` child. Long-lived helpers,
-  such as the stdio MCP servers in aigranthelper's ``.mcp.json``, are children
-  too, so "has a child" is not the test; the tool-shell signature is.
+  ~/.claude/shell-snapshots/snapshot-bash-*.sh ...`` child. A session's
+  long-lived helpers, such as the stdio MCP servers aigranthelper's
+  ``.mcp.json`` configures, would be children for its whole life (unmeasured:
+  no session on the box ran one), so "has a child" is not the test; the
+  tool-shell signature is.
 
 A session whose cwd or project dir cannot be read is "could not look", never idle.
 
