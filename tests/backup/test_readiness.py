@@ -235,6 +235,23 @@ class TestClaudeSessionActivity:
         assert len(claude_processes(run=_runner(ps), **_session(tmp_path))) == 1
 
 
+class TestClaudeSessionVerdict:
+    """The acceptance triple, through assess: idle READY, mid-turn BUSY, unreadable 2."""
+
+    def _verdict(self, ps: str, **kwargs) -> int:
+        probe = Probe("processes", lambda: claude_processes(run=_runner(ps), **kwargs))
+        return assess([probe]).exit_code
+
+    def test_an_idle_open_session_reads_ready(self, tmp_path):
+        assert self._verdict(_PS_IDLE + _CLAUDE_ROW, **_session(tmp_path, 600)) == EXIT_READY
+
+    def test_a_mid_turn_session_reads_busy(self, tmp_path):
+        assert self._verdict(_PS_IDLE + _CLAUDE_ROW, **_session(tmp_path, 0)) == EXIT_BUSY
+
+    def test_an_unreadable_session_reads_could_not_look(self, tmp_path):
+        assert self._verdict(_PS_IDLE + _CLAUDE_ROW, **_session(tmp_path)) == EXIT_COULD_NOT_LOOK
+
+
 class TestProjectDirName:
     @pytest.mark.parametrize(
         ("cwd", "name"),
