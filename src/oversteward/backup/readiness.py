@@ -5,12 +5,14 @@
 
 ``wsl --export`` terminates every process in the distro to take its snapshot, so
 the Windows-side ``Backup-Wsl.ps1`` asks this first and exports only on a clean
-``0``. Three things count as work in progress: a running Claude Code session, an
-estate job service mid-run, and a running docker container.
+``0``. Four things count as work in progress: a running Claude Code session, a
+detached estate long run (a GrantSpider drain, crawl or supervisor), an estate
+job service mid-run, and a running docker container. Work outside those four,
+such as an arbitrary ``nohup`` job, is not seen.
 
 Exit codes, the contract ``Backup-Wsl.ps1`` reads:
 
-* **0** — ready: every probe read, nothing is running.
+* **0** — ready: every probe read, none of the probed work is running.
 * **1** — busy: every blocker found is named.
 * **2** — could not look: a probe failed or its tool is missing. This outranks
   busy, because a sweep that did not see everything must say so. "Found
@@ -36,6 +38,13 @@ ESTATE_JOB_UNITS: tuple[str, ...] = (
     "dream-cycle.service",
     "sentry-triage.service",
 )
+
+#: Programs the estate runs detached for hours. Matched on the program a
+#: command line runs, never on a mention of the name in its arguments.
+ESTATE_LONG_RUNS = frozenset({"grantspider", "supervisor.sh"})
+
+#: Interpreters and launchers looked through to find the program they run.
+_LAUNCHERS = frozenset({"bash", "sh", "uv", "run", "nohup", "setsid", "env"})
 
 DEFAULT_UNIT_DIR = Path.home() / ".config" / "systemd" / "user"
 
@@ -118,22 +127,66 @@ def _is_claude_session(comm: str, args: str) -> bool:
     return comm == "node" and "claude-code" in args
 
 
-def claude_processes(run: Runner = run_command) -> list[Blocker]:
-    """Every running Claude Code session, named by PID and command line."""
+def _process_table(run: Runner) -> list[tuple[str, str, str]]:
+    """Every process as ``(pid, comm, args)``; an empty table is an unreadable one."""
     output = run(["ps", "-eo", "pid=,comm=,args="])
     lines = [line for line in output.splitlines() if line.strip()]
     if not lines:
         raise ProbeError("ps returned an empty process table")
-    blockers = []
+    table = []
     for line in lines:
         parts = line.split(maxsplit=2)
         if len(parts) < 2:
             continue
-        pid, comm = parts[0], parts[1]
-        args = parts[2] if len(parts) > 2 else comm
-        if _is_claude_session(comm, args):
-            blockers.append(Blocker("processes", f"pid {pid} {args}"))
-    return blockers
+        table.append((parts[0], parts[1], parts[2] if len(parts) > 2 else parts[1]))
+    return table
+
+
+def claude_processes(run: Runner = run_command) -> list[Blocker]:
+    """Every running Claude Code session, named by PID and command line."""
+    return [
+        Blocker("processes", f"pid {pid} {args}")
+        for pid, comm, args in _process_table(run)
+        if _is_claude_session(comm, args)
+    ]
+
+
+def _program(args: str) -> str:
+    """The program a command line runs, looking through interpreters and launchers.
+
+    ``python -m grantspider``, ``uv run grantspider``, ``nohup python -u -m
+    grantspider`` and ``bash supervisor.sh`` all name their program past the
+    launcher; ``grep grantspider`` names ``grep``.
+    """
+    tokens = args.split()
+    i = 0
+    while i < len(tokens):
+        name = os.path.basename(tokens[i])
+        if name == "-m" and i + 1 < len(tokens):
+            return tokens[i + 1].split(".")[0]
+        if (
+            name.startswith("-")
+            or name.startswith("python")
+            or name in _LAUNCHERS
+            or "=" in name
+        ):
+            i += 1
+            continue
+        return name
+    return ""
+
+
+def long_run_processes(run: Runner = run_command) -> list[Blocker]:
+    """Every detached estate long run (a GS drain, crawl or supervisor), by PID and command.
+
+    These are launched with ``setsid --fork nohup`` so they outlive the Claude
+    session that started them, which puts them outside the session probe.
+    """
+    return [
+        Blocker("long-runs", f"pid {pid} {args}")
+        for pid, _comm, args in _process_table(run)
+        if _program(args) in ESTATE_LONG_RUNS
+    ]
 
 
 def _service_type(unit_file: Path) -> str:
@@ -199,6 +252,7 @@ def default_probes() -> tuple[Probe, ...]:
     """The probes the backup gate runs, against the live box."""
     return (
         Probe(name="processes", run=claude_processes),
+        Probe(name="long-runs", run=long_run_processes),
         Probe(name="systemd", run=systemd_jobs),
         Probe(name="docker", run=docker_containers),
     )
@@ -228,7 +282,7 @@ def render(report: ReadinessReport) -> str:
     if code == EXIT_READY:
         return (
             f"READY - {len(report.probes)} probes clean ({', '.join(report.probes)}); "
-            "nothing running"
+            "none of the probed work is running"
         )
     if code == EXIT_BUSY:
         lines = [f"BUSY - {len(report.blockers)} blocker(s); export would kill them"]
@@ -245,6 +299,7 @@ __all__ = [
     "EXIT_BUSY",
     "EXIT_COULD_NOT_LOOK",
     "EXIT_READY",
+    "ESTATE_LONG_RUNS",
     "Blocker",
     "Probe",
     "ProbeError",
@@ -252,6 +307,7 @@ __all__ = [
     "ReadinessReport",
     "assess",
     "claude_processes",
+    "long_run_processes",
     "default_probes",
     "docker_containers",
     "render",

@@ -18,6 +18,7 @@ from oversteward.backup.readiness import (
     assess,
     claude_processes,
     default_probes,
+    long_run_processes,
     docker_containers,
     render,
     run_command,
@@ -98,6 +99,66 @@ class TestClaudeProcesses:
         # A box always has at least init; empty output means the read failed.
         with pytest.raises(ProbeError):
             claude_processes(run=_runner(""))
+
+
+# --- the detached long-run probe -------------------------------------------
+
+
+class TestLongRunProcesses:
+    def test_an_idle_box_has_no_blockers(self):
+        assert long_run_processes(run=_runner(_PS_IDLE)) == []
+
+    @pytest.mark.parametrize(
+        "args",
+        [
+            "/home/natha/gs-crawl/.venv/bin/python -m grantspider irs drain-990pf --resume",
+            "/home/natha/grantspider/.venv/bin/grantspider crawl websites --cohort cf",
+            "bash /home/natha/grantspider/scripts/supervisor.sh",
+            "/home/natha/grantspider/scripts/supervisor.sh --agents 16",
+            "uv run --no-sync grantspider enrich-drain",
+            "nohup /usr/bin/python3 -u -m grantspider crawl",
+            "python -m grantspider.cli crawl",
+            "env GS_AGENTS=16 grantspider enrich-drain",
+        ],
+        ids=[
+            "python-m",
+            "console-script",
+            "bash-script",
+            "script",
+            "uv-run",
+            "nohup-python",
+            "python-m-submodule",
+            "env-assignment",
+        ],
+    )
+    def test_a_detached_grantspider_run_is_named(self, args):
+        ps = _PS_IDLE + f"   5001 python          {args}\n"
+        blockers = long_run_processes(run=_runner(ps))
+        assert [b.probe for b in blockers] == ["long-runs"]
+        assert blockers[0].detail == f"pid 5001 {args}"
+
+    @pytest.mark.parametrize(
+        "args",
+        [
+            "grep grantspider",
+            "less /home/natha/grantspider/README.md",
+            "/home/natha/.vscode-server/bin/node --folder /home/natha/grantspider",
+            "python /home/natha/OverSteward/scripts/backup_ready.py",
+            "tail -f /home/natha/grantspider/supervisor.sh.log",
+        ],
+        ids=["grep", "pager", "editor", "other-python", "tail-log"],
+    )
+    def test_a_mention_of_grantspider_is_not_a_run(self, args):
+        ps = _PS_IDLE + f"   5002 x               {args}\n"
+        assert long_run_processes(run=_runner(ps)) == []
+
+    def test_an_unreadable_process_table_raises(self):
+        with pytest.raises(ProbeError):
+            long_run_processes(run=_failing_runner("ps: not found"))
+
+    def test_an_empty_process_table_is_unreadable_not_idle(self):
+        with pytest.raises(ProbeError):
+            long_run_processes(run=_runner(""))
 
 
 # --- the systemd probe ------------------------------------------------------
@@ -310,11 +371,22 @@ class TestAssess:
     def test_no_probes_is_could_not_look_not_ready(self):
         assert assess([]).exit_code == EXIT_COULD_NOT_LOOK
 
-    def test_default_probes_cover_processes_systemd_and_docker(self):
-        assert [p.name for p in default_probes()] == ["processes", "systemd", "docker"]
+    def test_default_probes_cover_sessions_long_runs_systemd_and_docker(self):
+        assert [p.name for p in default_probes()] == [
+            "processes",
+            "long-runs",
+            "systemd",
+            "docker",
+        ]
 
 
 class TestRender:
+    def test_ready_claims_only_what_the_probes_checked(self):
+        # READY means none of the probed work is running, not that nothing is.
+        text = render(assess([_probe("processes")]))
+        assert "nothing running" not in text
+        assert "none of the probed work is running" in text
+
     def test_ready_names_the_probes_it_checked(self):
         text = render(assess([_probe("processes"), _probe("systemd"), _probe("docker")]))
         assert text.startswith("READY")
