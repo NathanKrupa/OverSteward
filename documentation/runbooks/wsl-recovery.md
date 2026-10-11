@@ -95,12 +95,13 @@ the ones that actually save you:
    (separate physical drive from C:), keeping the newest 1. A wipe becomes a
    `wsl --import`. The export does not run over the work it can see: it first asks
    `scripts/backup_ready.py` (run inside the distro, from the primary checkout)
-   and exports only on exit 0 (idle). Busy (1: a Claude Code session, a running
-   estate job service, or a running docker container) or could-not-look (2, or
+   and exports only on exit 0 (idle). Busy (1: a Claude Code session, a detached
+   GrantSpider run, a running estate job service, or a running docker
+   container) or could-not-look (2, or
    a `wsl.exe` that fails) logs the blocker to
    `%LOCALAPPDATA%\WslResilience\backup.log` and exits 3 with nothing exported
-   or pruned. Work the probes cannot see - a crawl started from a terminal,
-   `nohup` or `tmux` - reads as idle and would be killed by the export.
+   or pruned. Work the probes cannot see - an arbitrary `nohup` or `tmux`
+   job - reads as idle and would be killed by the export.
 
 **Cadence & retention defaults:** monthly full export, first Sunday at 05:17
 (after the 03:30 dream cycle), retried hourly for 17 hours while the distro is
@@ -133,8 +134,9 @@ wsl --unregister wsl-restore-test
   process in the distro to take its snapshot. Rather than pick an hour and hope,
   the export **runs only when the readiness check says the distro is idle** and
   otherwise skips (exit 3) and retries hourly. It never kills a Claude Code
-  session, a running estate job service or a running docker container; work
-  outside those three (a terminal, `nohup` or `tmux` crawl) is not detected. A
+  session, a detached GrantSpider run, a running estate job service or a running
+  docker container; work outside those four (an arbitrary `nohup` or `tmux`
+  job) is not detected. A
   month where the distro is busy all of the first Sunday gets no full export,
   and `backup.log` says why.
 - **`run only when logged on`:** the monthly task needs **no stored password** but

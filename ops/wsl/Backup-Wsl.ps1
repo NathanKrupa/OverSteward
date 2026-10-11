@@ -28,9 +28,10 @@
   the blocker is logged to backup.log in -StateDir, nothing is exported, nothing
   is pruned, and the script exits 3. The scheduled task retries hourly instead.
 
-  The probes see three kinds of work: Claude Code sessions, running estate job
-  services, and running docker containers. Other work - a crawl started from a
-  terminal, nohup or tmux - is not detected, and the export would kill it.
+  The probes see four kinds of work: Claude Code sessions, detached GrantSpider
+  long runs (grantspider, supervisor.sh), running estate job services, and
+  running docker containers. Other work - an arbitrary nohup or tmux job - is
+  not detected, and the export would kill it.
 
   A successful export writes today's date to export.last-ok in -StateDir. A run
   that finds today's date already there exits 0 at once, so the hourly retries

@@ -25,7 +25,8 @@
                                     retry; after one success the day's marker makes
                                     the rest no-ops. It never kills the work
                                     its probes see (Claude Code sessions,
-                                    estate job services, docker containers).
+                                    detached GrantSpider runs, estate job
+                                    services, docker containers).
     - "WSL Integrity Check"      -> Test-WslIntegrity.ps1 at logon; pops an alert
                                     dialog if the platform is broken.
 

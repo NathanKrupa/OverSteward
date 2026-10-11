@@ -25,7 +25,7 @@ Scheduler can run them even when WSL itself is broken.
 |---|---|---|
 | `Test-WslIntegrity.ps1` | The gate: `system.vhd` + `modules.vhd` present/non-empty and `wsl -l -v` responds. Exit 0/1. Read-only, safe to run anytime. | auto (logon task) + you |
 | `Update-WslSafely.ps1` | Run **instead of** `wsl --update`: snapshot → update → gate → auto `--rollback` on failure. | you, monthly |
-| `Backup-Wsl.ps1` | Dated `wsl --export` to `E:\WSLBackups`, keep newest 1 (~131 GB). Asks `scripts/backup_ready.py` first and exports only when the distro is idle; busy or could-not-look logs the blocker to `backup.log` and exits 3. Never runs over a Claude session, estate job or container. | auto (monthly task) + you |
+| `Backup-Wsl.ps1` | Dated `wsl --export` to `E:\WSLBackups`, keep newest 1 (~131 GB). Asks `scripts/backup_ready.py` first and exports only when the distro is idle; busy or could-not-look logs the blocker to `backup.log` and exits 3. Never runs over a Claude session, a detached GrantSpider run, an estate job or a container. | auto (monthly task) + you |
 | `Set-WslUpdatePolicy.ps1` | Reports update-control state; `-Apply` (elevated) disables Store auto-download. Best-effort. | you, once |
 | `Install-WslResilience.ps1` | Deploys the scripts to `%LOCALAPPDATA%\WslResilience` and registers the monthly-backup + logon-integrity tasks (and removes the retired `'WSL Weekly Backup'` task). | you, once; again after any script change |
 
@@ -64,15 +64,16 @@ the backup refuses to run over work in progress:
 - **Gate:** each attempt first runs, inside the distro,
   `/home/natha/OverSteward/.venv/bin/python /home/natha/OverSteward/scripts/backup_ready.py`
   (always the primary checkout). It exits 0 ready, 1 busy (a Claude Code
-  session, a running estate job service such as `dream-cycle.service`, or a
-  running docker container, each named), or 2 could not look (a probe failed).
+  session, a detached GrantSpider run such as a drain or `supervisor.sh`, a
+  running estate job service such as `dream-cycle.service`, or a running docker
+  container, each named), or 2 could not look (a probe failed).
 - **Only 0 exports.** On 1, 2, or a `wsl.exe` that fails or will not start, the
   attempt logs the blocker to `%LOCALAPPDATA%\WslResilience\backup.log`,
   exports and prunes nothing, and exits 3. The next hourly attempt tries again.
 - **Once a day:** a successful export writes today's date to `export.last-ok`
   beside the log; later attempts that day exit 0 without exporting.
-- **Not seen:** work outside those three probes - a crawl started from a
-  terminal, `nohup` or `tmux` - reads as idle, and the export would kill it.
+- **Not seen:** work outside those four probes - an arbitrary `nohup` or
+  `tmux` job - reads as idle, and the export would kill it.
 - **After merge, pull first:** the gate runs from the primary checkout, so until
   `/home/natha/OverSteward` has pulled the readiness service every attempt is
   could-not-look. Pull, then re-run `Install-WslResilience.ps1`.
