@@ -16,6 +16,7 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -62,20 +63,31 @@ class TestBackupScriptText:
     def test_writes_the_last_ok_marker(self):
         assert "export.last-ok" in _code(BACKUP)
 
+    def test_due_and_overdue_thresholds_are_28_and_35_days(self):
+        code = _code(BACKUP)
+        assert re.search(r"\[int\]\$DueDays\s*=\s*28\b", code)
+        assert re.search(r"\[int\]\$OverdueDays\s*=\s*35\b", code)
+
 
 class TestInstallerText:
-    def test_schedules_the_first_sunday_of_every_month(self):
+    def test_schedules_a_daily_trigger_not_a_monthly_one(self):
+        # MSFT_TaskMonthlyDOWTrigger failed Register-ScheduledTask with 0x80070057
+        # on the live scheduler (2026-10-11); the script decides due-ness instead.
         code = _code(INSTALLER)
-        assert "MSFT_TaskMonthlyDOWTrigger" in code
-        assert re.search(r"WeeksOfMonth\s*=\s*1\b", code)
-        assert re.search(r"DaysOfWeek\s*=\s*1\b", code)  # bit 1 = Sunday
-        assert re.search(r"MonthOfYear\s*=\s*4095\b", code)  # all twelve months
+        assert re.search(r"New-ScheduledTaskTrigger\s+-Daily\s+-At\s+\$DailyTime", code)
+        assert "MSFT_TaskMonthlyDOWTrigger" not in code
+        assert "MonthOfYear" not in code
 
-    def test_starts_at_0517_and_retries_hourly_for_seventeen_hours(self):
+    def test_starts_at_0117_and_retries_hourly_for_five_hours(self):
         code = _code(INSTALLER)
-        assert "'05:17'" in code
-        assert "'PT1H'" in code
-        assert "'PT17H'" in code
+        assert re.search(r"\[string\]\$DailyTime\s*=\s*'01:17'", code)
+        assert re.search(
+            r"New-ScheduledTaskTrigger\s+-Once\s+-At\s+\$DailyTime\s+"
+            r"-RepetitionInterval\s+\(New-TimeSpan\s+-Hours\s+1\)\s+"
+            r"-RepetitionDuration\s+\(New-TimeSpan\s+-Hours\s+5\)\)\.Repetition",
+            code,
+        )
+        assert re.search(r"\$backupTrigger\.Repetition\s*=", code)
 
     def test_no_weekly_trigger_remains(self):
         assert "-Weekly" not in _code(INSTALLER)
@@ -87,7 +99,10 @@ class TestInstallerText:
 
 class TestDocsText:
     @pytest.mark.parametrize("doc", [README, RUNBOOK], ids=["readme", "runbook"])
-    @pytest.mark.parametrize("phrase", ["weekly", "03:17", "stops the distro"])
+    @pytest.mark.parametrize(
+        "phrase",
+        ["weekly", "03:17", "stops the distro", "first sunday", "05:17", "17 hours"],
+    )
     def test_no_weekly_or_distro_stopping_prescription(self, doc, phrase):
         text = doc.read_text(encoding="utf-8").lower()
         # The installer's cleanup of the retired task is the one sanctioned mention.
@@ -128,6 +143,21 @@ function __FAKENAME__ {
     }
     __READINESS__
 }
+$global:Alerts = New-Object System.Collections.ArrayList
+function Start-Process {
+    param($FilePath, $ArgumentList, $WindowStyle)
+    $encoded = $ArgumentList[[array]::IndexOf($ArgumentList, '-EncodedCommand') + 1]
+    $command = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($encoded))
+    # Parse, never run, the dialog command: a quoting slip would fail silently on the box.
+    $errors = $null
+    [void][System.Management.Automation.Language.Parser]::ParseInput($command, [ref]$null, [ref]$errors)
+    $flat = ("PARSE-ERRORS:$($errors.Count) $FilePath " + $command) -replace "`r?`n", ' | '
+    [void]$global:Alerts.Add($flat)
+}
+function Set-LastOk([int]$daysAgo) {
+    Set-Content -LiteralPath (Join-Path '__STATE__' 'export.last-ok') `
+        -Value (Get-Date).Date.AddDays(-$daysAgo).ToString('yyyy-MM-dd')
+}
 __PRELUDE__
 $code = 0
 try {
@@ -138,6 +168,7 @@ try {
     $code = 99
 }
 foreach ($c in $global:WslCalls) { Write-Output "WSLCALL: $c" }
+foreach ($a in $global:Alerts) { Write-Output "ALERT: $a" }
 exit $code
 """
 
@@ -185,6 +216,14 @@ def _run_backup(
     ]
     log = state / "backup.log"
     return proc, calls, dest, state, (log.read_text(encoding="utf-8") if log.exists() else "")
+
+
+def _alerts(proc) -> list[str]:
+    return [
+        line.removeprefix("ALERT: ").strip()
+        for line in proc.stdout.splitlines()
+        if line.startswith("ALERT: ")
+    ]
 
 
 def _exports(calls: list[str]) -> list[str]:
@@ -301,18 +340,38 @@ class TestBackupScriptBehaviour:
         assert "\x00" not in log
         assert "There is no distribution" in log
 
-    def test_a_marker_dated_today_exits_zero_without_touching_wsl(self, tmp_path):
-        prelude = (
-            "Set-Content -LiteralPath (Join-Path '__STATE__' 'export.last-ok') "
-            "-Value (Get-Date -Format 'yyyy-MM-dd')"
-        )
-        proc, calls, dest, _state, log = _run_backup(
-            tmp_path, _readiness(0, "READY"), prelude=prelude
+    @pytest.mark.parametrize("days_ago", [0, 27], ids=["today", "27-days"])
+    def test_a_recent_success_is_not_due_and_exits_zero_without_touching_wsl(
+        self, tmp_path, days_ago
+    ):
+        proc, calls, dest, _state, _log = _run_backup(
+            tmp_path, _readiness(0, "READY"), prelude=f"Set-LastOk {days_ago}"
         )
         assert proc.returncode == 0, proc.stdout + proc.stderr
         assert calls == []
         assert not list(dest.iterdir())
-        assert "already" in log.lower()
+        assert "not due" in proc.stdout.lower()
+        assert _alerts(proc) == []
+
+    @pytest.mark.parametrize("days_ago", [28, 40], ids=["28-days", "40-days"])
+    def test_a_success_28_days_ago_or_older_is_due_and_exports(self, tmp_path, days_ago):
+        proc, calls, _dest, state, _log = _run_backup(
+            tmp_path, _readiness(0, "READY"), prelude=f"Set-LastOk {days_ago}"
+        )
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert len(_exports(calls)) == 1
+        marker = (state / "export.last-ok").read_text(encoding="utf-8").strip()
+        assert marker == _today(proc)
+
+    def test_an_unreadable_marker_is_due(self, tmp_path):
+        prelude = (
+            "Set-Content -LiteralPath (Join-Path '__STATE__' 'export.last-ok') -Value 'garbage'"
+        )
+        proc, calls, _dest, _state, _log = _run_backup(
+            tmp_path, _readiness(0, "READY"), prelude=prelude
+        )
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert len(_exports(calls)) == 1
 
     def test_a_marker_from_an_earlier_day_does_not_stop_the_export(self, tmp_path):
         prelude = (
@@ -358,3 +417,120 @@ class TestBackupScriptBehaviour:
         )
         assert proc.returncode == 3
         assert [p.name for p in dest.iterdir()] == ["Fake-Distro_2000-01-02.tar"]
+
+
+def _today(proc) -> str:
+    """The run's own date, from the first log stamp it printed."""
+    match = re.search(r"^(\d{4}-\d{2}-\d{2}) \d{2}:", proc.stdout, flags=re.M)
+    assert match, proc.stdout
+    return match.group(1)
+
+
+_PARTIAL_THEN_FAIL = (
+    "Set-Content -LiteralPath $args[-1] -Value 'partial'; $global:LASTEXITCODE = 5"
+)
+
+
+@windows
+class TestOverdueAlert:
+    """A missed export never goes quiet: FAILED, or overdue on a skip, raises a dialog."""
+
+    def test_a_failed_export_is_logged_failed_and_raises_the_alert(self, tmp_path):
+        proc, _calls, dest, _state, log = _run_backup(
+            tmp_path, _readiness(0, "READY"), prelude="Set-LastOk 30", export=_PARTIAL_THEN_FAIL
+        )
+        assert proc.returncode != 0, proc.stdout + proc.stderr
+        assert not list(dest.iterdir())
+        assert "FAILED - " in log
+        assert "SKIPPED" not in log
+        alerts = _alerts(proc)
+        assert len(alerts) == 1
+        assert alerts[0].startswith("PARSE-ERRORS:0 powershell.exe ")
+        assert "System.Windows.MessageBox" in alerts[0]
+        assert "FAILED - wsl --export exited 5" in alerts[0]
+
+    def test_the_alert_names_the_last_success_date(self, tmp_path):
+        proc, _calls, _dest, _state, _log = _run_backup(
+            tmp_path, _readiness(1, "BUSY - pid 9 claude"), prelude="Set-LastOk 36"
+        )
+        alerts = _alerts(proc)
+        assert len(alerts) == 1
+        # The reason text carries an apostrophe ("tonight's"); the command must still parse.
+        assert alerts[0].startswith("PARSE-ERRORS:0 powershell.exe ")
+        last = re.search(r"Last successful export: (\d{4}-\d{2}-\d{2})", alerts[0])
+        assert last, alerts[0]
+        today = date.fromisoformat(_today(proc))
+        assert (today - date.fromisoformat(last.group(1))).days == 36
+
+    def test_the_alert_carries_the_latest_blocker_from_the_log(self, tmp_path):
+        prelude = (
+            "Set-LastOk 40; "
+            "Add-Content -LiteralPath (Join-Path '__STATE__' 'backup.log') "
+            "-Value '2000-01-01 01:17:00  SKIPPED - busy (readiness exit 1); old news'"
+        )
+        proc, _calls, _dest, _state, _log = _run_backup(
+            tmp_path, _readiness(1, "BUSY - pid 4242 claude --resume"), prelude=prelude
+        )
+        alerts = _alerts(proc)
+        assert len(alerts) == 1
+        assert "BUSY - pid 4242 claude --resume" in alerts[0]
+        assert "old news" not in alerts[0]
+
+    @pytest.mark.parametrize(
+        ("prelude", "alerted"),
+        [("", True), ("Set-LastOk 36", True), ("Set-LastOk 35", False), ("Set-LastOk 30", False)],
+        ids=["never-exported", "36-days", "35-days", "30-days"],
+    )
+    def test_a_skip_alerts_only_when_more_than_35_days_overdue(self, tmp_path, prelude, alerted):
+        proc, calls, _dest, state, log = _run_backup(
+            tmp_path, _readiness(1, "BUSY - pid 9 claude"), prelude=prelude
+        )
+        assert proc.returncode == 3, proc.stdout + proc.stderr
+        assert _exports(calls) == []
+        assert len(_alerts(proc)) == (1 if alerted else 0)
+        assert (state / "alert.last-shown").exists() is alerted
+        assert ("ALERT raised" in log) is alerted
+
+    @pytest.mark.parametrize(
+        ("export", "readiness"),
+        [(_PARTIAL_THEN_FAIL, _readiness(0, "READY")), (_EXPORT_OK, _readiness(1, "BUSY - pid 9"))],
+        ids=["failed", "overdue-skip"],
+    )
+    def test_the_alert_is_shown_at_most_once_per_calendar_day(self, tmp_path, export, readiness):
+        prelude = (
+            "Set-LastOk 40; "
+            "Set-Content -LiteralPath (Join-Path '__STATE__' 'alert.last-shown') "
+            "-Value (Get-Date -Format 'yyyy-MM-dd')"
+        )
+        proc, _calls, _dest, _state, log = _run_backup(
+            tmp_path, readiness, prelude=prelude, export=export
+        )
+        assert _alerts(proc) == []
+        assert "already shown today" in log
+
+    def test_an_alert_marker_from_yesterday_does_not_suppress_today(self, tmp_path):
+        prelude = (
+            "Set-LastOk 40; "
+            "Set-Content -LiteralPath (Join-Path '__STATE__' 'alert.last-shown') "
+            "-Value (Get-Date).Date.AddDays(-1).ToString('yyyy-MM-dd')"
+        )
+        proc, _calls, _dest, state, _log = _run_backup(
+            tmp_path, _readiness(1, "BUSY - pid 9"), prelude=prelude
+        )
+        assert len(_alerts(proc)) == 1
+        assert (state / "alert.last-shown").read_text(encoding="utf-8").strip() == _today(proc)
+
+    def test_an_alert_that_cannot_be_launched_still_exits_as_a_skip(self, tmp_path):
+        prelude = "function Start-Process { throw 'no desktop session' }"
+        proc, _calls, _dest, state, log = _run_backup(
+            tmp_path, _readiness(1, "BUSY - pid 9"), prelude=prelude
+        )
+        assert proc.returncode == 3, proc.stdout + proc.stderr
+        assert "ALERT could not be shown" in log
+        assert "no desktop session" in log
+        assert not (state / "alert.last-shown").exists()
+
+    def test_a_successful_export_raises_no_alert(self, tmp_path):
+        proc, _calls, _dest, _state, _log = _run_backup(tmp_path, _readiness(0, "READY"))
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert _alerts(proc) == []
