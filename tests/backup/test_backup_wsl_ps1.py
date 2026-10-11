@@ -112,14 +112,18 @@ def _win(path: Path) -> str:
     ).stdout.strip()
 
 
+_EXPORT_OK = (
+    "Set-Content -LiteralPath $args[-1] -Value 'archive' -Encoding ASCII; "
+    "$global:LASTEXITCODE = 0"
+)
+
 _HARNESS = r"""
 $ErrorActionPreference = 'Stop'
 $global:WslCalls = New-Object System.Collections.ArrayList
 function __FAKENAME__ {
     [void]$global:WslCalls.Add(($args -join ' '))
     if ($args -contains '--export') {
-        Set-Content -LiteralPath $args[-1] -Value 'archive' -Encoding ASCII
-        $global:LASTEXITCODE = 0
+        __EXPORT__
         return
     }
     __READINESS__
@@ -149,6 +153,7 @@ def _run_backup(
     extra: str = "",
     distro: str = "Fake-Distro",
     real_wsl: bool = False,
+    export: str = _EXPORT_OK,
 ):
     dest = tmp_path / "dest"
     state = tmp_path / "state"
@@ -158,6 +163,7 @@ def _run_backup(
         _HARNESS.replace("__FAKENAME__", "unused-fake" if real_wsl else "wsl.exe")
         .replace("'Fake-Distro'", f"'{distro}'")
         .replace("__READINESS__", readiness)
+        .replace("__EXPORT__", export)
         .replace("__PRELUDE__", prelude)
         .replace("__SCRIPT__", _win(BACKUP))
         .replace("__DEST__", _win(dest))
@@ -209,12 +215,60 @@ class TestBackupScriptBehaviour:
     )
     def test_not_ready_skips_with_exit_three_and_logs_the_blocker(self, tmp_path, code, line):
         proc, calls, dest, state, log = _run_backup(tmp_path, _readiness(code, line))
+        label = "busy" if code == 1 else "could not look"
+        assert f"SKIPPED - {label} (" in log
         assert proc.returncode == 3, proc.stdout + proc.stderr
         assert _exports(calls) == []
         assert not list(dest.iterdir())
         assert not (state / "export.last-ok").exists()
         assert line in log
         assert f"readiness exit {code}" in log
+
+    def test_exit_one_without_a_busy_verdict_is_could_not_look(self, tmp_path):
+        # A Python traceback also exits 1; only a BUSY headline is a busy verdict.
+        proc, calls, _dest, _state, log = _run_backup(
+            tmp_path,
+            _readiness(1, "ModuleNotFoundError: No module named oversteward.backup"),
+        )
+        assert proc.returncode == 3, proc.stdout + proc.stderr
+        assert _exports(calls) == []
+        assert "SKIPPED - could not look (readiness exit 1)" in log
+
+    def test_the_readiness_paths_can_be_overridden(self, tmp_path):
+        proc, calls, _dest, _state, _log = _run_backup(
+            tmp_path,
+            _readiness(1, "BUSY - pid 9 claude"),
+            extra="-ReadinessPython '/opt/py' -ReadinessScript '/opt/ready.py'",
+        )
+        assert proc.returncode == 3, proc.stdout + proc.stderr
+        assert calls[0] == "-d Fake-Distro /opt/py /opt/ready.py"
+
+    @pytest.mark.parametrize(
+        "export",
+        [
+            # A partial archive, then failure: the file exists and is not empty.
+            "Set-Content -LiteralPath $args[-1] -Value 'partial'; $global:LASTEXITCODE = 5",
+            "Set-Content -LiteralPath $args[-1] -Value $null; $global:LASTEXITCODE = 0",
+        ],
+        ids=["export-exits-nonzero", "export-writes-zero-bytes"],
+    )
+    def test_a_failed_export_keeps_last_months_archive_and_writes_no_marker(
+        self, tmp_path, export
+    ):
+        prelude = (
+            "$old = Join-Path '__DEST__' 'Fake-Distro_2000-01-02.tar'; "
+            "Set-Content -LiteralPath $old -Value 'old'; "
+            "(Get-Item -LiteralPath $old).LastWriteTime = (Get-Date).AddDays(-40)"
+        )
+        proc, calls, dest, state, log = _run_backup(
+            tmp_path, _readiness(0, "READY"), prelude=prelude, export=export
+        )
+        assert proc.returncode != 0, proc.stdout + proc.stderr
+        assert "THREW:" in proc.stdout
+        assert len(_exports(calls)) == 1
+        assert [p.name for p in dest.iterdir()] == ["Fake-Distro_2000-01-02.tar"]
+        assert not (state / "export.last-ok").exists()
+        assert "FAILED" in log
 
     def test_a_failing_wsl_exe_is_could_not_look(self, tmp_path):
         proc, calls, dest, _state, log = _run_backup(

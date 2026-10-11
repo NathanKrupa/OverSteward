@@ -23,7 +23,9 @@
                                     Backup-Wsl.ps1 exports only when the distro is
                                     idle and exits 3 otherwise, so each repeat is a
                                     retry; after one success the day's marker makes
-                                    the rest no-ops. It never kills work.
+                                    the rest no-ops. It never kills the work
+                                    its probes see (Claude Code sessions,
+                                    estate job services, docker containers).
     - "WSL Integrity Check"      -> Test-WslIntegrity.ps1 at logon; pops an alert
                                     dialog if the platform is broken.
 
@@ -93,7 +95,7 @@ $backupTrigger.Repetition = $retry
 $backupSettings = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd -ExecutionTimeLimit (New-TimeSpan -Hours 3)
 if ($PSCmdlet.ShouldProcess('WSL Monthly Backup', 'Register-ScheduledTask')) {
     Register-ScheduledTask -TaskName 'WSL Monthly Backup' -Action $backupAction -Trigger $backupTrigger `
-        -Settings $backupSettings -Description "Monthly readiness-gated wsl --export of $Distro to $BackupDest; skips while busy, never kills work (OverSteward WSL resilience)." -Force | Out-Null
+        -Settings $backupSettings -Description "Monthly readiness-gated wsl --export of $Distro to $BackupDest; skips while busy (OverSteward WSL resilience)." -Force | Out-Null
     Write-Host "Registered 'WSL Monthly Backup' (first Sunday $MonthlyTime, hourly retries for 17h)." -ForegroundColor Green
 }
 if ((Get-ScheduledTask -TaskName 'WSL Weekly Backup' -ErrorAction SilentlyContinue) -and

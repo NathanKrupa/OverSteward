@@ -4,10 +4,13 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 
 import pytest
 
+import oversteward.backup
+import oversteward.backup.readiness as readiness
 from oversteward.backup.readiness import Blocker, Probe, ProbeError
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -41,7 +44,7 @@ def _probes(*, blockers=(), error=None):
 )
 def test_exit_code_and_verdict_pass_through(monkeypatch, capsys, probes, code, headline):
     module = _module()
-    monkeypatch.setattr(module, "default_probes", probes)
+    monkeypatch.setattr(readiness, "default_probes", probes)
     assert module.main([]) == code
     assert capsys.readouterr().out.startswith(headline)
 
@@ -52,8 +55,20 @@ def test_a_crash_outside_the_probes_is_could_not_look_never_busy(monkeypatch, ca
     def _explode():
         raise RuntimeError("probe table broken")
 
-    monkeypatch.setattr(module, "default_probes", _explode)
+    monkeypatch.setattr(readiness, "default_probes", _explode)
     assert module.main([]) == 2
     out = capsys.readouterr().out
     assert out.startswith("COULD NOT LOOK")
     assert "probe table broken" in out
+
+
+def test_a_readiness_module_that_will_not_import_is_could_not_look(monkeypatch, capsys):
+    # A broken shared venv, or a primary checkout that has not pulled the
+    # service yet, must not exit 1 — Backup-Wsl.ps1 would log it as busy.
+    module = _module()
+    # Were the module reachable, these clean probes would make main() say READY.
+    monkeypatch.setattr(readiness, "default_probes", _probes())
+    monkeypatch.setitem(sys.modules, "oversteward.backup.readiness", None)
+    monkeypatch.delattr(oversteward.backup, "readiness")
+    assert module.main([]) == 2
+    assert capsys.readouterr().out.startswith("COULD NOT LOOK")

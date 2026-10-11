@@ -16,14 +16,18 @@ from __future__ import annotations
 
 import sys
 
-from oversteward.backup.readiness import EXIT_COULD_NOT_LOOK, assess, default_probes, render
+EXIT_COULD_NOT_LOOK = 2
 
 
 def main(argv: list[str] | None = None) -> int:
     _ = argv
     try:
-        report = assess(default_probes())
-        text = render(report)
+        # Imported here so a broken venv, or a checkout without the service yet,
+        # reads as could-not-look rather than Python's own exit 1, which is "busy".
+        from oversteward.backup import readiness
+
+        report = readiness.assess(readiness.default_probes())
+        text = readiness.render(report)
     except Exception as exc:  # noqa: BLE001 — a crash must read as could-not-look, never busy
         print(f"COULD NOT LOOK - readiness check crashed: {type(exc).__name__}: {exc}")
         return EXIT_COULD_NOT_LOOK

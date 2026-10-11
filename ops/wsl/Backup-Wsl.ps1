@@ -20,11 +20,17 @@
 
     wsl.exe -d <Distro> -- /home/natha/OverSteward/.venv/bin/python /home/natha/OverSteward/scripts/backup_ready.py
 
-  It always runs from the primary checkout, never a session worktree. Only a
-  readiness exit 0 lets the export run. Busy (1), could-not-look (2), or a
-  wsl.exe that fails or cannot start: the blocker is logged to backup.log in
-  -StateDir, nothing is exported, nothing is pruned, and the script exits 3.
-  It never kills work in progress; the scheduled task retries hourly instead.
+  It runs from the primary checkout by default, never a session worktree, and
+  needs that checkout to have pulled the readiness service; until it has, every
+  attempt is could-not-look. Only a readiness exit 0 lets the export run. Busy
+  (exit 1 with a BUSY verdict), could-not-look (2, or exit 1 without a BUSY
+  verdict, such as a Python traceback), or a wsl.exe that fails or cannot start:
+  the blocker is logged to backup.log in -StateDir, nothing is exported, nothing
+  is pruned, and the script exits 3. The scheduled task retries hourly instead.
+
+  The probes see three kinds of work: Claude Code sessions, running estate job
+  services, and running docker containers. Other work - a crawl started from a
+  terminal, nohup or tmux - is not detected, and the export would kill it.
 
   A successful export writes today's date to export.last-ok in -StateDir. A run
   that finds today's date already there exits 0 at once, so the hourly retries
@@ -50,6 +56,14 @@
   shared, so a second copy is not affordable. The daily restic backup (OS#582)
   carries the history; this export is the whole-distro rebuild point.
 
+.PARAMETER ReadinessPython
+  Linux path of the interpreter that runs the readiness check. Default: the
+  primary checkout's /home/natha/OverSteward/.venv/bin/python.
+
+.PARAMETER ReadinessScript
+  Linux path of the readiness check. Default: the primary checkout's
+  /home/natha/OverSteward/scripts/backup_ready.py.
+
 .PARAMETER StateDir
   Where backup.log and the export.last-ok marker live. Default: the install dir,
   %LOCALAPPDATA%\WslResilience.
@@ -62,16 +76,15 @@ param(
     [string]$Distro = 'Ubuntu-24.04',
     [string]$Dest = 'E:\WSLBackups',
     [int]$Keep = 1,
-    [string]$StateDir = (Join-Path $env:LOCALAPPDATA 'WslResilience')
+    [string]$StateDir = (Join-Path $env:LOCALAPPDATA 'WslResilience'),
+    # The readiness check, from the primary checkout - never a session worktree.
+    [string]$ReadinessPython = '/home/natha/OverSteward/.venv/bin/python',
+    [string]$ReadinessScript = '/home/natha/OverSteward/scripts/backup_ready.py'
 )
 
 $ErrorActionPreference = 'Stop'
 # wsl.exe writes its own messages as UTF-16 unless asked for UTF-8; the log must read.
 $env:WSL_UTF8 = '1'
-
-# The readiness check, from the primary checkout - never a session worktree.
-$ReadinessPython = '/home/natha/OverSteward/.venv/bin/python'
-$ReadinessScript = '/home/natha/OverSteward/scripts/backup_ready.py'
 
 if (-not (Test-Path -LiteralPath $StateDir)) {
     New-Item -ItemType Directory -Path $StateDir -Force | Out-Null
@@ -112,10 +125,13 @@ try {
 }
 
 if ($readyCode -ne 0) {
-    switch ($readyCode) {
-        1 { $label = 'busy' }
-        2 { $label = 'could not look' }
-        default { $label = 'could not look (wsl.exe failed)' }
+    # Python's own traceback also exits 1, so busy needs the BUSY headline too.
+    if ($readyCode -eq 1 -and $readyOutput.TrimStart().StartsWith('BUSY')) {
+        $label = 'busy'
+    } elseif ($readyCode -eq 1 -or $readyCode -eq 2) {
+        $label = 'could not look'
+    } else {
+        $label = 'could not look (wsl.exe failed)'
     }
     $codeText = if ($null -eq $readyCode) { 'none' } else { "$readyCode" }
     Write-BackupLog "SKIPPED - $label (readiness exit $codeText); nothing exported, nothing pruned."
@@ -138,9 +154,12 @@ if (Test-Path -LiteralPath $file) {
 
 Write-BackupLog "Readiness: ready. Exporting $Distro -> $file ..."
 & wsl.exe --export $Distro $file
-if ($LASTEXITCODE -ne 0) {
-    Write-BackupLog "FAILED - wsl --export exited $LASTEXITCODE."
-    throw "wsl --export failed with exit code $LASTEXITCODE"
+$exportCode = $LASTEXITCODE
+if ($exportCode -ne 0) {
+    # A partial archive is not a backup, and at this size it crowds out the next one.
+    if (Test-Path -LiteralPath $file) { Remove-Item -LiteralPath $file -Force }
+    Write-BackupLog "FAILED - wsl --export exited $exportCode; removed any partial archive."
+    throw "wsl --export failed with exit code $exportCode"
 }
 
 $item = Get-Item -LiteralPath $file

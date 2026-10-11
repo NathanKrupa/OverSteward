@@ -240,6 +240,14 @@ class TestRunCommand:
         with pytest.raises(ProbeError, match="not found"):
             run_command(["definitely-not-a-real-tool-581"])
 
+    def test_a_hung_tool_times_out_as_a_probe_error(self, monkeypatch):
+        # A wedged `docker ps` must become "could not look", not a hung gate.
+        import oversteward.backup.readiness as readiness
+
+        monkeypatch.setattr(readiness, "_COMMAND_TIMEOUT_SECONDS", 0.2)
+        with pytest.raises(ProbeError, match="timed out"):
+            run_command(["sleep", "5"])
+
     def test_a_nonzero_exit_is_a_probe_error_carrying_stderr(self):
         with pytest.raises(ProbeError, match="boom"):
             run_command(["sh", "-c", "echo boom >&2; exit 3"])
