@@ -1,0 +1,31 @@
+# ABOUTME: systemd --user unit that runs the daily restic backup of /home/natha to E:.
+# ABOUTME: Paired with home-backup.timer; NOT enabled by default (operator enables explicitly).
+#
+# Install (after the repository and key exist - see ops/wsl/README.md):
+#   mkdir -p ~/.config/systemd/user
+#   cp home-backup.service home-backup.timer ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now home-backup.timer
+#
+# The run backs up, applies retention, restores one git object from the new
+# snapshot and compares its sha256, and only then writes
+# ~/.local/state/oversteward/backup/restic.last-ok. Exit 1 (a step failed) or 2
+# (key, repository or restic missing) leaves the unit failed and the marker
+# stale; `journalctl --user -u home-backup` names the reason.
+#
+# While this oneshot is running, scripts/backup_ready.py reports the distro busy,
+# so the monthly wsl --export never kills a backup in flight.
+
+[Unit]
+Description=Daily restic backup of /home/natha with a verified restore
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/natha/OverSteward
+ExecStart=/home/natha/OverSteward/.venv/bin/python /home/natha/OverSteward/scripts/backup_home.py
+# The first run copies ~30 GB over the 9p mount to E:; later runs move only the
+# day's changes. Low priority so sessions stay responsive while it runs.
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=6h

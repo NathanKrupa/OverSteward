@@ -1,0 +1,21 @@
+# ABOUTME: systemd --user timer scheduling the daily live restic backup of /home/natha.
+# ABOUTME: 04:00, after sync-repos (03:00) and the dream cycle (03:30); Persistent catches up a missed day.
+#
+# Enable:  systemctl --user enable --now home-backup.timer
+# Inspect: systemctl --user list-timers home-backup.timer
+
+[Unit]
+Description=Daily restic backup of /home/natha schedule
+
+[Timer]
+# 04:00 local, after the 03:00 checkout sync and the 03:30 dream cycle, so the
+# snapshot holds the trees and memory those jobs leave behind.
+#
+# Persistent runs a missed tick once the machine is back up, which is the normal
+# case here: the laptop is usually closed at 04:00.
+OnCalendar=*-*-* 04:00:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
