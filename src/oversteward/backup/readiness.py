@@ -5,10 +5,24 @@
 
 ``wsl --export`` terminates every process in the distro to take its snapshot, so
 the Windows-side ``Backup-Wsl.ps1`` asks this first and exports only on a clean
-``0``. Four things count as work in progress: a running Claude Code session, a
+``0``. Four things count as work in progress: a *working* Claude Code session, a
 detached estate long run (a GrantSpider drain, crawl or supervisor), an estate
 job service mid-run, and a running docker container. Work outside those four,
 such as an arbitrary ``nohup`` job, is not seen.
+
+A Claude Code session left open but idle is not work: its conversation is on
+disk and resumes after the export. A session is working when either
+
+* a transcript in its project dir under ``~/.claude/projects/`` (recursive, so
+  subagent transcripts count) was written within the last 30 minutes, or
+* it has a descendant running a tool command. Measured on the live box
+  2026-10-11: an idle VS Code session has no child processes at all, and one
+  running a Bash tool command has a ``bash -c source
+  ~/.claude/shell-snapshots/snapshot-bash-*.sh ...`` child. Long-lived helpers,
+  such as the stdio MCP servers in aigranthelper's ``.mcp.json``, are children
+  too, so "has a child" is not the test; the tool-shell signature is.
+
+A session whose cwd or project dir cannot be read is "could not look", never idle.
 
 Exit codes, the contract ``Backup-Wsl.ps1`` reads:
 
@@ -22,7 +36,9 @@ Exit codes, the contract ``Backup-Wsl.ps1`` reads:
 from __future__ import annotations
 
 import os
+import re
 import subprocess
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -47,6 +63,16 @@ ESTATE_LONG_RUNS = frozenset({"grantspider", "supervisor.sh"})
 _LAUNCHERS = frozenset({"bash", "sh", "uv", "run", "nohup", "setsid", "env"})
 
 DEFAULT_UNIT_DIR = Path.home() / ".config" / "systemd" / "user"
+
+#: Where Claude Code keeps one transcript directory per working directory.
+DEFAULT_PROJECTS_DIR = Path.home() / ".claude" / "projects"
+
+#: A session whose transcripts were all written longer ago than this is idle.
+TRANSCRIPT_WINDOW_SECONDS = 30 * 60
+
+#: In the command line of the shell Claude Code's Bash tool spawns for each
+#: command; absent from its long-lived helpers.
+TOOL_SHELL_MARKER = "/.claude/shell-snapshots/snapshot-"
 
 _COMMAND_TIMEOUT_SECONDS = 30
 _BUSY_STATES = frozenset({"active", "activating"})
@@ -127,28 +153,99 @@ def _is_claude_session(comm: str, args: str) -> bool:
     return comm == "node" and "claude-code" in args
 
 
-def _process_table(run: Runner) -> list[tuple[str, str, str]]:
-    """Every process as ``(pid, comm, args)``; an empty table is an unreadable one."""
-    output = run(["ps", "-eo", "pid=,comm=,args="])
+@dataclass(frozen=True, slots=True)
+class _Proc:
+    pid: str
+    ppid: str
+    comm: str
+    args: str
+
+
+def _process_table(run: Runner) -> list[_Proc]:
+    """Every process; an empty table is an unreadable one."""
+    output = run(["ps", "-eo", "pid=,ppid=,comm=,args="])
     lines = [line for line in output.splitlines() if line.strip()]
     if not lines:
         raise ProbeError("ps returned an empty process table")
     table = []
     for line in lines:
-        parts = line.split(maxsplit=2)
-        if len(parts) < 2:
+        parts = line.split(maxsplit=3)
+        if len(parts) < 3:
             continue
-        table.append((parts[0], parts[1], parts[2] if len(parts) > 2 else parts[1]))
+        table.append(_Proc(parts[0], parts[1], parts[2], parts[3] if len(parts) > 3 else parts[2]))
     return table
 
 
-def claude_processes(run: Runner = run_command) -> list[Blocker]:
-    """Every running Claude Code session, named by PID and command line."""
-    return [
-        Blocker("processes", f"pid {pid} {args}")
-        for pid, comm, args in _process_table(run)
-        if _is_claude_session(comm, args)
-    ]
+def read_process_cwd(pid: str) -> str:
+    """The working directory of a live process, from ``/proc``."""
+    return os.readlink(f"/proc/{pid}/cwd")
+
+
+def project_dir_name(cwd: str) -> str:
+    """The ``~/.claude/projects/`` entry Claude Code names after a working directory."""
+    return re.sub(r"[^A-Za-z0-9]", "-", cwd)
+
+
+def _tool_shell(session: _Proc, table: Sequence[_Proc]) -> _Proc | None:
+    """A descendant of ``session`` running a tool command, if any."""
+    children: dict[str, list[_Proc]] = {}
+    for proc in table:
+        children.setdefault(proc.ppid, []).append(proc)
+    pending = list(children.get(session.pid, []))
+    while pending:
+        proc = pending.pop()
+        if TOOL_SHELL_MARKER in proc.args:
+            return proc
+        pending.extend(children.get(proc.pid, []))
+    return None
+
+
+def _transcript_age(
+    pid: str,
+    projects_dir: Path,
+    read_cwd: Callable[[str], str],
+    now: Callable[[], float],
+) -> float:
+    """Seconds since the session's newest transcript was written; raises if unreadable."""
+    try:
+        cwd = read_cwd(pid)
+    except OSError as exc:
+        raise ProbeError(f"pid {pid}: cannot read cwd: {exc}") from exc
+    project = projects_dir / project_dir_name(cwd)
+    if not project.is_dir():
+        raise ProbeError(f"pid {pid}: no project dir {project} for cwd {cwd}")
+    try:
+        newest = max((p.stat().st_mtime for p in project.rglob("*.jsonl")), default=None)
+    except OSError as exc:
+        raise ProbeError(f"pid {pid}: cannot read transcripts in {project}: {exc}") from exc
+    if newest is None:
+        raise ProbeError(f"pid {pid}: no transcript in {project}")
+    return now() - newest
+
+
+def claude_processes(
+    run: Runner = run_command,
+    *,
+    projects_dir: Path = DEFAULT_PROJECTS_DIR,
+    read_cwd: Callable[[str], str] = read_process_cwd,
+    now: Callable[[], float] = time.time,
+) -> list[Blocker]:
+    """Every *working* Claude Code session, named by PID, command line and evidence."""
+    table = _process_table(run)
+    blockers = []
+    for proc in table:
+        if not _is_claude_session(proc.comm, proc.args):
+            continue
+        shell = _tool_shell(proc, table)
+        if shell is not None:
+            evidence = f"running tool command pid {shell.pid}"
+        else:
+            age = _transcript_age(proc.pid, projects_dir, read_cwd, now)
+            if age >= TRANSCRIPT_WINDOW_SECONDS:
+                continue
+            evidence = f"transcript written {int(age // 60)} min ago"
+        blockers.append(Blocker("processes", f"pid {proc.pid} {proc.args} ({evidence})"))
+    return blockers
 
 
 def _program(args: str) -> str:
@@ -183,9 +280,9 @@ def long_run_processes(run: Runner = run_command) -> list[Blocker]:
     session that started them, which puts them outside the session probe.
     """
     return [
-        Blocker("long-runs", f"pid {pid} {args}")
-        for pid, _comm, args in _process_table(run)
-        if _program(args) in ESTATE_LONG_RUNS
+        Blocker("long-runs", f"pid {proc.pid} {proc.args}")
+        for proc in _process_table(run)
+        if _program(proc.args) in ESTATE_LONG_RUNS
     ]
 
 
@@ -294,12 +391,15 @@ def render(report: ReadinessReport) -> str:
 
 
 __all__ = [
+    "DEFAULT_PROJECTS_DIR",
     "DEFAULT_UNIT_DIR",
     "ESTATE_JOB_UNITS",
     "EXIT_BUSY",
     "EXIT_COULD_NOT_LOOK",
     "EXIT_READY",
     "ESTATE_LONG_RUNS",
+    "TOOL_SHELL_MARKER",
+    "TRANSCRIPT_WINDOW_SECONDS",
     "Blocker",
     "Probe",
     "ProbeError",
@@ -308,6 +408,8 @@ __all__ = [
     "assess",
     "claude_processes",
     "long_run_processes",
+    "project_dir_name",
+    "read_process_cwd",
     "default_probes",
     "docker_containers",
     "render",
