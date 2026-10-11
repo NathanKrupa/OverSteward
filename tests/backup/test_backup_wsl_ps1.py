@@ -285,6 +285,18 @@ class TestBackupScriptBehaviour:
         assert len(names) == 1
         assert names[0] != "Fake-Distro_2000-01-02.tar"
 
+    def test_pruning_touches_only_this_distros_archives(self, tmp_path):
+        prelude = (
+            "$other = Join-Path '__DEST__' 'Other-Distro_2000-01-02.tar'; "
+            "Set-Content -LiteralPath $other -Value 'other'; "
+            "(Get-Item -LiteralPath $other).LastWriteTime = (Get-Date).AddDays(-40)"
+        )
+        proc, _calls, dest, _state, _log = _run_backup(
+            tmp_path, _readiness(0, "READY"), prelude=prelude
+        )
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert "Other-Distro_2000-01-02.tar" in [p.name for p in dest.iterdir()]
+
     def test_a_skip_keeps_the_previous_archive(self, tmp_path):
         prelude = "Set-Content -LiteralPath (Join-Path '__DEST__' 'Fake-Distro_2000-01-02.tar') -Value 'old'"
         proc, _calls, dest, _state, _log = _run_backup(
