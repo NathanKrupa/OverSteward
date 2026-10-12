@@ -1,4 +1,4 @@
-ABOUTME: Overview + usage for the WSL resilience scripts (PowerShell, Windows-side).
+ABOUTME: Overview + usage for the WSL resilience scripts (Windows-side PowerShell, Linux-side restic home backup).
 ABOUTME: Canonical source lives here in OverSteward; Install-WslResilience.ps1 deploys to a Windows path.
 
 # WSL Resilience (`ops/wsl/`)
@@ -27,6 +27,7 @@ Scheduler can run them even when WSL itself is broken.
 | `Update-WslSafely.ps1` | Run **instead of** `wsl --update`: snapshot → update → gate → auto `--rollback` on failure. | you, monthly |
 | `Backup-Wsl.ps1` | Dated `wsl --export` to `E:\WSLBackups`, keep newest 1 (~131 GB). Asks `scripts/backup_ready.py` first and exports only when the distro is idle; busy or could-not-look logs the blocker to `backup.log` and exits 3. Never runs over a Claude session, a detached GrantSpider run, an estate job or a container. | auto (monthly task) + you |
 | `Set-WslUpdatePolicy.ps1` | Reports update-control state; `-Apply` (elevated) disables Store auto-download. Best-effort. | you, once |
+| `install-restic.sh`, `home-backup.{service,timer}` | Linux side: install the pinned restic binary, and the systemd `--user` timer for the daily `/home/natha` backup. See below. | you, once |
 | `Install-WslResilience.ps1` | Deploys the scripts to `%LOCALAPPDATA%\WslResilience` and registers the monthly-backup + logon-integrity tasks (and removes the retired `'WSL Weekly Backup'` task). | you, once; again after any script change |
 
 ## Quick start (from Windows PowerShell, with WSL running so this path resolves)
@@ -80,9 +81,63 @@ the backup refuses to run over work in progress:
 - **Not captured:** Docker Desktop's volumes live in the `docker-desktop`
   distro, which this export does not include.
 
-The full export is the whole-distro rebuild point, not the history. A daily
-live backup of `/home/natha`, taken with the distro running (restic), comes in
-OS#582, and a health sweep over both backups in OS#583.
+The full export is the whole-distro rebuild point, not the history. The
+history is the daily live backup of `/home/natha` below; a health sweep over
+both backups comes in OS#583.
+
+## The daily home backup: restic, with the distro running
+
+Linux-side, not PowerShell. `scripts/backup_home.py` (service
+`oversteward.backup.home`) backs up `/home/natha` to the restic repository at
+`/mnt/e/WSLBackups/restic` every day at 04:00 through `home-backup.timer`
+(`Persistent=true`, so a day the laptop was closed runs at the next boot).
+
+- **Excluded** (regenerable): `~/.claude/tmp`, `~/.cache`, `~/.ollama`, `~/.npm`,
+  `~/.vscode-server`, `~/grantspider/data/irs_cache`, and every `.venv` and
+  `node_modules` at any depth.
+- **Retention:** keeps the last snapshot of each of the last 14 days, 8 weeks and
+  6 months, then prunes (`RETENTION` in `oversteward.backup.home`).
+- **Self-verifying:** after the backup and prune, one git object (a loose object
+  or pack written before the backup started; git never rewrites those) is
+  restored from the new snapshot to a temp directory and its sha256 compared
+  with the source. Only then is
+  `~/.local/state/oversteward/backup/restic.last-ok` (timestamp and snapshot id)
+  written.
+- **Key:** `C:\Users\natha\AppData\Local\WslResilience\restic.key`
+  (`/mnt/c/...` from WSL), passed to restic as `--password-file` and never read
+  or printed by the script. It must not live inside the backed-up tree, or the
+  snapshot would carry the key beside the repository it unlocks; the script
+  refuses a key there.
+- **Exit codes:** 0 ok; 1 a step failed (restic error, a source file could not
+  be read, the restore did not match) and no marker is written; 2 not
+  configured (key, repository, restic or source missing), nothing attempted.
+  Read the reason with `journalctl --user -u home-backup`.
+- **With the export:** while the backup runs, `backup_ready.py` reports the
+  oneshot busy, so the monthly export never kills it.
+
+Set up once, after this merges and the primary checkout has pulled:
+
+```bash
+cd /home/natha/OverSteward
+ops/wsl/install-restic.sh                       # pinned restic -> ~/.local/bin, sha256-checked
+
+# The key: random, outside /home, copied into the password manager.
+K=/mnt/c/Users/natha/AppData/Local/WslResilience/restic.key
+mkdir -p "$(dirname "$K")"
+( umask 077 && head -c 48 /dev/urandom | base64 -w0 > "$K" )
+
+~/.local/bin/restic init --repo /mnt/e/WSLBackups/restic --password-file "$K"
+.venv/bin/python scripts/backup_home.py         # first run by hand; expect exit 0
+
+cp ops/wsl/home-backup.service ops/wsl/home-backup.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now home-backup.timer
+```
+
+Restore a path: `restic restore latest --repo /mnt/e/WSLBackups/restic
+--password-file <key> --target /tmp/restore --include /home/natha/<path>`.
+Without the key the repository cannot be read, so the password-manager copy is
+the only way back after a Windows rebuild.
 
 ## Uninstall
 

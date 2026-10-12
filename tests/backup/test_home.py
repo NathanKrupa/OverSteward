@@ -84,8 +84,11 @@ def _summary(**extra) -> str:
 class FakeRestic:
     """Answers restic subcommands; ``restore`` copies the requested source file into --target."""
 
-    def __init__(self, *, backup=None, forget=None, restore_bytes=None, restore_nothing=False):
+    def __init__(
+        self, *, backup=None, forget=None, restore_bytes=None, restore_nothing=False, restore=None
+    ):
         self.calls: list[list[str]] = []
+        self.restore = restore
         self.backup = backup or RunResult(0, _summary(), "")
         self.forget = forget or RunResult(0, "", "")
         self.restore_bytes = restore_bytes
@@ -100,7 +103,7 @@ class FakeRestic:
         if command == "forget":
             return self.forget
         if command == "restore":
-            return self._restore(argv)
+            return self.restore or self._restore(argv)
         raise AssertionError(f"unexpected restic command {argv}")
 
     def _restore(self, argv: list[str]) -> RunResult:
@@ -296,11 +299,34 @@ class TestFailedRun:
         assert "verify" in outcome.headline
         assert not _last_ok(config).exists()
 
+    def test_a_failing_restore_reports_restics_reason(self, tmp_path):
+        config = _setup(tmp_path)
+        fake = FakeRestic(restore=RunResult(1, "", "Fatal: pack 3f2a is damaged"))
+        outcome = _run(config, fake)
+        assert outcome.exit_code == EXIT_FAILED
+        assert "pack 3f2a is damaged" in outcome.headline
+        assert not _last_ok(config).exists()
+
     def test_a_restore_with_different_bytes_fails(self, tmp_path):
         config = _setup(tmp_path)
         outcome = _run(config, FakeRestic(restore_bytes=b"bit rot"))
         assert outcome.exit_code == EXIT_FAILED
         assert "sha256" in home.render(outcome)
+        assert not _last_ok(config).exists()
+
+    def test_a_source_deleted_before_the_compare_fails_cleanly(self, tmp_path):
+        config = _setup(tmp_path)
+
+        def _choose_then_gc(items):
+            items[0].unlink()
+            return items[0]
+
+        outcome = run_backup(
+            config, run=FakeRestic(restore_bytes=b"blob content"), choose=_choose_then_gc,
+            now=lambda: FIXED_NOW,
+        )
+        assert outcome.exit_code == EXIT_FAILED
+        assert "vanished" in outcome.headline
         assert not _last_ok(config).exists()
 
     def test_no_file_to_verify_against_fails(self, tmp_path):

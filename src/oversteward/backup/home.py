@@ -10,8 +10,9 @@ One run is four steps, each of which must succeed before the next starts:
 3. Restore one randomly chosen file from the *new* snapshot into a temporary
    directory and compare its sha256 against the source. The file is a git
    object (a loose object or a pack) written before the backup started: git
-   names those files by their content and never rewrites them, so the source
-   cannot have changed between the snapshot and the compare.
+   names those files by their content and never rewrites them in place, so the
+   source cannot have changed between the snapshot and the compare. ``git gc``
+   can delete one in that window; that fails the run rather than passing it.
 4. Write ``restic.last-ok`` (timestamp and snapshot id) in the state directory.
 
 The key is only ever passed to restic as ``--password-file <path>``; this module
@@ -258,7 +259,11 @@ def _verify(
         restored = Path(target) / chosen.relative_to(chosen.anchor)
         if not restored.is_file():
             raise StepFailed("verify", f"snapshot {snapshot_id[:8]} did not restore {chosen}")
-        got, want = _sha256(restored), _sha256(chosen)
+        got = _sha256(restored)
+    try:
+        want = _sha256(chosen)
+    except FileNotFoundError:
+        raise StepFailed("verify", f"{chosen} vanished before the compare (git gc?)") from None
     if got != want:
         raise StepFailed("verify", f"sha256 mismatch on {chosen}: restored {got}, source {want}")
     return chosen, want
