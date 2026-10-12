@@ -486,6 +486,20 @@ class TestInstaller:
         assert result.returncode == 0, result.stderr
         assert "already installed" in result.stdout
 
+    @pytest.mark.parametrize("installed", ["0.16.0", "{pin}0"])
+    def test_any_other_installed_version_is_replaced(self, tmp_path, installed):
+        script = self.SCRIPT.read_text(encoding="utf-8")
+        pin = script.split('RESTIC_VERSION="', 1)[1].split('"', 1)[0]
+        fake = tmp_path / "bin" / "restic"
+        fake.parent.mkdir()
+        fake.write_text(f"#!/bin/sh\necho 'restic {installed.format(pin=pin)} compiled with go'\n")
+        fake.chmod(0o755)
+        result = self._run(tmp_path, (tmp_path / "does-not-exist.bz2").as_uri())
+        # The download is attempted (and fails here), so the old binary is never kept as current.
+        assert result.returncode == 1
+        assert "could not download" in result.stderr
+        assert "already installed" not in result.stdout
+
     def test_the_pin_is_a_version_and_a_full_sha256(self):
         script = self.SCRIPT.read_text(encoding="utf-8")
         sha = script.split('RESTIC_SHA256="', 1)[1].split('"', 1)[0]
