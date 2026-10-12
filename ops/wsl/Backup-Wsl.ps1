@@ -131,17 +131,24 @@ function Write-BackupLog([string]$message) {
 $stamp = Get-Date -Format 'yyyy-MM-dd'
 
 # The last successful export, or $null when the marker is absent or unreadable.
+# A date in the future (a clock that once ran fast) is unreadable too: trusting
+# it would make every night "not due" with nothing to say so.
 $lastOk = $null
+$lastOkText = 'never'
 if (Test-Path -LiteralPath $marker) {
     $parsed = [datetime]::MinValue
     $text = "$(Get-Content -LiteralPath $marker -Raw)".Trim()
-    if ([datetime]::TryParseExact($text, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture,
+    if (-not [datetime]::TryParseExact($text, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture,
             [Globalization.DateTimeStyles]::None, [ref]$parsed)) {
+        $lastOkText = "unreadable ('$text')"
+    } elseif ($parsed -gt (Get-Date).Date) {
+        $lastOkText = "unreadable ('$text' is in the future)"
+    } else {
         $lastOk = $parsed
+        $lastOkText = $lastOk.ToString('yyyy-MM-dd')
     }
 }
 $ageDays = if ($null -eq $lastOk) { $null } else { ((Get-Date).Date - $lastOk).Days }
-$lastOkText = if ($null -eq $lastOk) { 'never' } else { $lastOk.ToString('yyyy-MM-dd') }
 
 function Send-BackupAlert([string]$why) {
     # At most once per calendar day; launched detached so no run waits on the dialog.
@@ -222,24 +229,29 @@ if ($readyCode -ne 0) {
     exit 3
 }
 
-# 3. Idle: export.
-if (-not (Test-Path -LiteralPath $Dest)) {
-    New-Item -ItemType Directory -Path $Dest -Force | Out-Null
-}
+# 3. Idle: export. Every failure from here to the marker is FAILED and alerts.
 $file = Join-Path $Dest ("{0}_{1}.tar" -f $Distro, $stamp)
-
-if (Test-Path -LiteralPath $file) {
-    Write-BackupLog "A partial archive from today exists ($file); overwriting."
-    Remove-Item -LiteralPath $file -Force
-}
-
-Write-BackupLog "Readiness: ready (last success: $lastOkText). Exporting $Distro -> $file ..."
 $failure = $null
 try {
-    & wsl.exe --export $Distro $file
-    if ($LASTEXITCODE -ne 0) { $failure = "wsl --export exited $LASTEXITCODE" }
+    if (-not (Test-Path -LiteralPath $Dest)) {
+        New-Item -ItemType Directory -Path $Dest -Force | Out-Null
+    }
+    if (Test-Path -LiteralPath $file) {
+        Write-BackupLog "A partial archive from today exists ($file); overwriting."
+        Remove-Item -LiteralPath $file -Force
+    }
 } catch {
-    $failure = "wsl --export could not run: $_"
+    $failure = "could not prepare the export: $_"
+}
+
+if ($null -eq $failure) {
+    Write-BackupLog "Readiness: ready (last success: $lastOkText). Exporting $Distro -> $file ..."
+    try {
+        & wsl.exe --export $Distro $file
+        if ($LASTEXITCODE -ne 0) { $failure = "wsl --export exited $LASTEXITCODE" }
+    } catch {
+        $failure = "wsl --export could not run: $_"
+    }
 }
 if ($null -eq $failure -and (Get-Item -LiteralPath $file -ErrorAction SilentlyContinue).Length -gt 0) {
     $item = Get-Item -LiteralPath $file
@@ -248,8 +260,13 @@ if ($null -eq $failure -and (Get-Item -LiteralPath $file -ErrorAction SilentlyCo
 }
 if ($null -ne $failure) {
     # A partial archive is not a backup, and at this size it crowds out the next one.
-    if (Test-Path -LiteralPath $file) { Remove-Item -LiteralPath $file -Force }
-    Write-BackupLog "FAILED - $failure; removed any partial archive."
+    $cleanup = 'removed any partial archive'
+    try {
+        if (Test-Path -LiteralPath $file) { Remove-Item -LiteralPath $file -Force }
+    } catch {
+        $cleanup = "could NOT remove the partial archive $file ($_)"
+    }
+    Write-BackupLog "FAILED - $failure; $cleanup."
     Send-BackupAlert "the export FAILED ($failure)."
     throw "Backup FAILED: $failure"
 }

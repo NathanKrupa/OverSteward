@@ -92,6 +92,9 @@ $backupAction = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $bac
 $backupTrigger = New-ScheduledTaskTrigger -Daily -At $DailyTime
 # A -Daily trigger takes no repetition switches; borrow the pattern from a -Once trigger.
 $backupTrigger.Repetition = (New-ScheduledTaskTrigger -Once -At $DailyTime -RepetitionInterval (New-TimeSpan -Hours 1) -RepetitionDuration (New-TimeSpan -Hours 5)).Repetition
+# The borrowed pattern stops a running instance when the window ends; an export
+# started on the last retry must run to completion (bounded by ExecutionTimeLimit).
+$backupTrigger.Repetition.StopAtDurationEnd = $false
 $backupSettings = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd -ExecutionTimeLimit (New-TimeSpan -Hours 3)
 if ($PSCmdlet.ShouldProcess('WSL Monthly Backup', 'Register-ScheduledTask')) {
     Register-ScheduledTask -TaskName 'WSL Monthly Backup' -Action $backupAction -Trigger $backupTrigger `

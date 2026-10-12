@@ -89,6 +89,11 @@ class TestInstallerText:
         )
         assert re.search(r"\$backupTrigger\.Repetition\s*=", code)
 
+    def test_a_running_export_is_not_stopped_when_the_retry_window_ends(self):
+        # The borrowed -Once repetition carries StopAtDurationEnd=True, which would
+        # kill an export started late in the window when the window closes.
+        assert re.search(r"\$backupTrigger\.Repetition\.StopAtDurationEnd\s*=\s*\$false", _code(INSTALLER))
+
     def test_no_weekly_trigger_remains(self):
         assert "-Weekly" not in _code(INSTALLER)
 
@@ -433,7 +438,7 @@ _PARTIAL_THEN_FAIL = (
 
 @windows
 class TestOverdueAlert:
-    """A missed export never goes quiet: FAILED, or overdue on a skip, raises a dialog."""
+    """A missed export is not silent: FAILED, or overdue on a skip, raises a dialog."""
 
     def test_a_failed_export_is_logged_failed_and_raises_the_alert(self, tmp_path):
         proc, _calls, dest, _state, log = _run_backup(
@@ -529,6 +534,53 @@ class TestOverdueAlert:
         assert "ALERT could not be shown" in log
         assert "no desktop session" in log
         assert not (state / "alert.last-shown").exists()
+
+    @pytest.mark.parametrize(
+        ("prelude", "reason"),
+        [
+            (
+                "Remove-Item -LiteralPath '__DEST__' -Recurse -Force; "
+                "function New-Item { throw 'Cannot find drive E' }",
+                "Cannot find drive E",
+            ),
+            (
+                "Set-Content -LiteralPath (Join-Path '__DEST__' "
+                "('Fake-Distro_{0}.tar' -f (Get-Date -Format 'yyyy-MM-dd'))) -Value 'partial'; "
+                "function Remove-Item { throw 'file is in use' }",
+                "file is in use",
+            ),
+        ],
+        ids=["dest-cannot-be-created", "todays-partial-is-locked"],
+    )
+    def test_a_failure_before_the_export_starts_is_failed_and_alerts(
+        self, tmp_path, prelude, reason
+    ):
+        proc, calls, _dest, state, log = _run_backup(
+            tmp_path, _readiness(0, "READY"), prelude=f"Set-LastOk 60; {prelude}"
+        )
+        assert proc.returncode != 0, proc.stdout + proc.stderr
+        assert _exports(calls) == []
+        assert "FAILED - " in log and reason in log
+        assert len(_alerts(proc)) == 1
+        assert reason in _alerts(proc)[0]
+        assert not (state / "export.last-ok").read_text(encoding="utf-8").strip() == _today(proc)
+
+    def test_a_marker_dated_in_the_future_is_due_not_a_silent_no_op(self, tmp_path):
+        # A clock that ran fast once must not suppress every export and alert after it.
+        proc, calls, _dest, _state, log = _run_backup(
+            tmp_path, _readiness(0, "READY"), prelude="Set-LastOk -400"
+        )
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert len(_exports(calls)) == 1
+        assert "in the future" in log
+
+    def test_a_future_marker_on_a_skip_raises_the_alert(self, tmp_path):
+        proc, _calls, _dest, _state, _log = _run_backup(
+            tmp_path, _readiness(1, "BUSY - pid 9"), prelude="Set-LastOk -400"
+        )
+        assert proc.returncode == 3, proc.stdout + proc.stderr
+        assert len(_alerts(proc)) == 1
+        assert "in the future" in _alerts(proc)[0]
 
     def test_a_successful_export_raises_no_alert(self, tmp_path):
         proc, _calls, _dest, _state, _log = _run_backup(tmp_path, _readiness(0, "READY"))
