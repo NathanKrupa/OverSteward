@@ -5,7 +5,8 @@
 <#
 .SYNOPSIS
   Deploy the resilience scripts to a Windows-native folder and register two
-  scheduled tasks: a monthly readiness-gated backup and a logon integrity check.
+  scheduled tasks: a nightly due- and readiness-gated backup attempt (an export
+  roughly every 28 days) and a logon integrity check.
 
 .DESCRIPTION
   WHY DEPLOY OUT OF THE REPO: the canonical scripts live in the OverSteward repo
@@ -17,22 +18,29 @@
 
   Tasks registered (in the current user's context, "run only when logged on",
   so no stored password is needed):
-    - "WSL Monthly Backup"       -> Backup-Wsl.ps1 on the first Sunday of every
-                                    month at 05:17 (after the 03:30 dream cycle),
-                                    repeating hourly for 17 hours (to ~22:17).
-                                    Backup-Wsl.ps1 exports only when the distro is
-                                    idle and exits 3 otherwise, so each repeat is a
-                                    retry; after one success the day's marker makes
-                                    the rest no-ops. It never kills the work
-                                    its probes see (Claude Code sessions,
-                                    detached GrantSpider runs, estate job
-                                    services, docker containers).
+    - "WSL Monthly Backup"       -> Backup-Wsl.ps1 every night at 01:17,
+                                    repeating hourly for 5 hours (to ~06:17).
+                                    A run exits 0 at once unless an export is
+                                    due (last success 28+ days ago, or none),
+                                    so the export happens about monthly, and a
+                                    skipped or failed attempt is retried the
+                                    next night. It exports only when the
+                                    distro is idle and exits 3 otherwise; it
+                                    never kills the work its probes see
+                                    (working Claude Code sessions, detached
+                                    GrantSpider runs, estate job services,
+                                    docker containers). A FAILED export, or a
+                                    skip more than 35 days after the last
+                                    success, pops an alert dialog, at most
+                                    once a day.
     - "WSL Integrity Check"      -> Test-WslIntegrity.ps1 at logon; pops an alert
                                     dialog if the platform is broken.
 
-  The schedule uses the MSFT_TaskMonthlyDOWTrigger CIM class, because
-  New-ScheduledTaskTrigger has no -Monthly. The retired weekly backup task, if
-  present from an earlier install, is unregistered.
+  The trigger is a plain daily one; Backup-Wsl.ps1 decides whether an export is
+  due. A monthly day-of-week trigger (MSFT_TaskMonthlyDOWTrigger) was refused
+  by Register-ScheduledTask with 0x80070057 "The parameter is incorrect" on
+  this machine (2026-10-11). The retired weekly backup task, if present from
+  an earlier install, is unregistered.
 
   This does NOT change update settings - run Set-WslUpdatePolicy.ps1 separately
   (elevated) if you want the Store auto-download key set.
@@ -41,15 +49,15 @@
   Windows folder to deploy scripts into. Default: %LOCALAPPDATA%\WslResilience.
 
 .PARAMETER BackupDest
-  Passed to the monthly backup task. Default: E:\WSLBackups.
+  Passed to the backup task. Default: E:\WSLBackups.
 
 .PARAMETER Distro
   Distro to back up. Default: Ubuntu-24.04.
 
-.PARAMETER MonthlyTime
-  Time of day (HH:mm) of the first attempt on the first Sunday. Default: 05:17
-  (off the round hour, after the dream cycle). Attempts repeat hourly for 17
-  hours from here.
+.PARAMETER DailyTime
+  Time of day (HH:mm) of the first nightly attempt. Default: 01:17 (off the
+  round hour, while nobody is working). Attempts repeat hourly for 5 hours
+  from here.
 
 .EXAMPLE
   powershell -NoProfile -ExecutionPolicy Bypass -File .\Install-WslResilience.ps1
@@ -59,7 +67,7 @@ param(
     [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'WslResilience'),
     [string]$BackupDest = 'E:\WSLBackups',
     [string]$Distro = 'Ubuntu-24.04',
-    [string]$MonthlyTime = '05:17'
+    [string]$DailyTime = '01:17'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -78,26 +86,20 @@ Write-Host "Deployed scripts to $InstallDir" -ForegroundColor Green
 $gatePath = Join-Path $InstallDir 'Test-WslIntegrity.ps1'
 $backupPath = Join-Path $InstallDir 'Backup-Wsl.ps1'
 
-# 2. Monthly backup task: first Sunday, retried hourly while the distro is busy.
+# 2. Backup task: nightly, retried hourly; Backup-Wsl.ps1 exits 0 unless an export is due.
 $backupArgs = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$backupPath`" -Distro `"$Distro`" -Dest `"$BackupDest`" -StateDir `"$InstallDir`""
 $backupAction = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $backupArgs
-$taskNs = 'Root/Microsoft/Windows/TaskScheduler'
-$backupTrigger = New-CimInstance -CimClass (Get-CimClass -Namespace $taskNs -ClassName 'MSFT_TaskMonthlyDOWTrigger') -ClientOnly
-$backupTrigger.DaysOfWeek = 1        # bitmask: 1 = Sunday
-$backupTrigger.WeeksOfMonth = 1      # bitmask: 1 = the first week, so the first Sunday
-$backupTrigger.MonthOfYear = 4095    # bitmask: all twelve months
-$backupTrigger.StartBoundary = '{0}T{1}:00' -f (Get-Date -Format 'yyyy-MM-dd'), $MonthlyTime
-$backupTrigger.Enabled = $true
-$retry = New-CimInstance -CimClass (Get-CimClass -Namespace $taskNs -ClassName 'MSFT_TaskRepetitionPattern') -ClientOnly
-$retry.Interval = 'PT1H'
-$retry.Duration = 'PT17H'
-$retry.StopAtDurationEnd = $false
-$backupTrigger.Repetition = $retry
+$backupTrigger = New-ScheduledTaskTrigger -Daily -At $DailyTime
+# A -Daily trigger takes no repetition switches; borrow the pattern from a -Once trigger.
+$backupTrigger.Repetition = (New-ScheduledTaskTrigger -Once -At $DailyTime -RepetitionInterval (New-TimeSpan -Hours 1) -RepetitionDuration (New-TimeSpan -Hours 5)).Repetition
+# The borrowed pattern stops a running instance when the window ends; an export
+# started on the last retry must run to completion (bounded by ExecutionTimeLimit).
+$backupTrigger.Repetition.StopAtDurationEnd = $false
 $backupSettings = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd -ExecutionTimeLimit (New-TimeSpan -Hours 3)
 if ($PSCmdlet.ShouldProcess('WSL Monthly Backup', 'Register-ScheduledTask')) {
     Register-ScheduledTask -TaskName 'WSL Monthly Backup' -Action $backupAction -Trigger $backupTrigger `
-        -Settings $backupSettings -Description "Monthly readiness-gated wsl --export of $Distro to $BackupDest; skips while busy (OverSteward WSL resilience)." -Force | Out-Null
-    Write-Host "Registered 'WSL Monthly Backup' (first Sunday $MonthlyTime, hourly retries for 17h)." -ForegroundColor Green
+        -Settings $backupSettings -Description "Nightly attempt at a due (28+ days) readiness-gated wsl --export of $Distro to $BackupDest; skips while busy, alerts when overdue (OverSteward WSL resilience)." -Force | Out-Null
+    Write-Host "Registered 'WSL Monthly Backup' (nightly $DailyTime, hourly retries for 5h, exports when due)." -ForegroundColor Green
 }
 if ((Get-ScheduledTask -TaskName 'WSL Weekly Backup' -ErrorAction SilentlyContinue) -and
     $PSCmdlet.ShouldProcess('WSL Weekly Backup', 'Unregister-ScheduledTask')) {
@@ -121,5 +123,5 @@ if ($PSCmdlet.ShouldProcess('WSL Integrity Check', 'Register-ScheduledTask')) {
 
 Write-Host "`nDone. Verify with:  Get-ScheduledTask -TaskName 'WSL *'" -ForegroundColor Cyan
 Write-Host "Run a backup now to validate + measure size:  powershell -File `"$backupPath`""
-Write-Host "Backup log + last-success marker:  $InstallDir\backup.log, $InstallDir\export.last-ok"
+Write-Host "Backup log + markers:  $InstallDir\backup.log, $InstallDir\export.last-ok, $InstallDir\alert.last-shown"
 Write-Host "Uninstall:  Unregister-ScheduledTask -TaskName 'WSL Monthly Backup','WSL Integrity Check' -Confirm:`$false"

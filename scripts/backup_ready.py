@@ -8,7 +8,7 @@ Backup-Wsl.ps1 runs this through ``wsl.exe`` before every export and exports onl
 on exit 0. Exit codes carry meaning and must not be collapsed:
 
 * **0** — ready: every probe read, none of the probed work running.
-* **1** — busy: a Claude session, a detached GS long run, an estate job service
+* **1** — busy: a working Claude session, a detached GS long run, an estate job service
   or a container is running.
 * **2** — could not look: a probe failed. Never reads as ready.
 """
