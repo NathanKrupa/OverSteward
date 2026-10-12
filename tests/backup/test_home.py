@@ -229,6 +229,7 @@ class TestSuccessfulRun:
         fake = FakeRestic()
         _run(config, fake)
         forget = fake.calls[1]
+        assert forget[forget.index("--repo") + 1] == str(config.repository)
         tail = forget[forget.index("forget") + 1 :]
         for flag, value in [("--keep-daily", "14"), ("--keep-weekly", "8"), ("--keep-monthly", "6")]:
             assert tail[tail.index(flag) + 1] == value
