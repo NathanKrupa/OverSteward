@@ -91,11 +91,14 @@ the ones that actually save you:
 3. **Integrity gate.** `Test-WslIntegrity.ps1` runs at every logon (via the
    scheduled task) and alerts immediately if an update broke the platform —
    so you learn at logon, not mid-task.
-4. **Routine backups.** `Backup-Wsl.ps1` exports monthly to `E:\WSLBackups`
+4. **Routine backups.** `Backup-Wsl.ps1` exports every 28 days to `E:\WSLBackups`
    (separate physical drive from C:), keeping the newest 1. A wipe becomes a
    `wsl --import`. The export does not run over the work it can see: it first asks
    `scripts/backup_ready.py` (run inside the distro, from the primary checkout)
-   and exports only on exit 0 (idle). Busy (1: a Claude Code session, a detached
+   and exports only on exit 0 (idle). An open but idle Claude session does not
+   count: its conversation is on disk and resumes. Busy (1: a working Claude
+   Code session - transcript written in the last 30 minutes, or a Bash-tool
+   shell running under it - a detached
    GrantSpider run, a running estate job service, or a running docker
    container) or could-not-look (2, or
    a `wsl.exe` that fails) logs the blocker to
@@ -103,9 +106,12 @@ the ones that actually save you:
    or pruned. Work the probes cannot see - an arbitrary `nohup` or `tmux`
    job - reads as idle and would be killed by the export.
 
-**Cadence & retention defaults:** monthly full export, first Sunday at 05:17
-(after the 03:30 dream cycle), retried hourly for 17 hours while the distro is
-busy; one success writes `export.last-ok` and ends that day's attempts. Keep 1
+**Cadence & retention defaults:** a full export whenever the last success
+(`export.last-ok`) is 28 days old or more. The task runs nightly at 01:17,
+retried hourly to ~06:17; a run that is not due exits 0 at once, so a skipped
+or failed export is retried every night until one succeeds. A FAILED export,
+or a skip more than 35 days after the last success, pops an alert dialog
+naming the last success and the latest blocker, at most once a day. Keep 1
 (measured ~131 GB on 2026-10-11, of which ~58 GB is regenerable cache; E: is
 shared). Monthly deliberate update via `Update-WslSafely.ps1`. Keep the last-good
 WSL MSI beside the backups so Path B/C never waits on a download. History does
@@ -133,14 +139,15 @@ wsl --unregister wsl-restore-test
 - **Snapshot consistency vs work in progress:** `wsl --export` terminates every
   process in the distro to take its snapshot. Rather than pick an hour and hope,
   the export **runs only when the readiness check says the distro is idle** and
-  otherwise skips (exit 3) and retries hourly. It never kills a Claude Code
-  session, a detached GrantSpider run, a running estate job service or a running
-  docker container; work outside those four (an arbitrary `nohup` or `tmux`
-  job) is not detected. A
-  month where the distro is busy all of the first Sunday gets no full export,
-  and `backup.log` says why.
-- **`run only when logged on`:** the monthly task needs **no stored password** but
-  only fires while you're logged in; `StartWhenAvailable` makes it catch up.
+  otherwise skips (exit 3) and retries hourly, then nightly. It never kills a
+  working Claude Code session, a detached GrantSpider run, a running estate job
+  service or a running docker container; work outside those four (an arbitrary
+  `nohup` or `tmux` job) is not detected. An idle Claude session left open is
+  stopped by the export and resumed afterwards. If every night stays busy, the
+  export falls behind, and past 35 days the alert dialog says so and why.
+- **`run only when logged on`:** the backup task needs **no stored password** but
+  only fires while you're logged in (which is also what lets its alert dialog
+  show); `StartWhenAvailable` makes it catch up.
 
 ## 6. One-paragraph summary
 
@@ -149,7 +156,7 @@ WSL app updates can silently break the Linux platform by removing
 Because the update cannot be reliably prevented on Windows 11 Home, this process
 is defense-in-depth: reduce silent updates where possible, **never** run a bare
 `wsl --update` (use `Update-WslSafely.ps1`, which verifies and auto-rolls-back),
-catch breakage at logon with an integrity gate, and keep a monthly
+catch breakage at logon with an integrity gate, and keep a 28-day
 `wsl --export` on a separate drive, taken only when the distro is idle, so any
 wipe is a few-minute `wsl --import` instead of a four-hour crisis. Scripts live in `ops/wsl/`; install with
 `Install-WslResilience.ps1`.

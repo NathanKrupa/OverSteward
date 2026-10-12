@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,7 @@ from oversteward.backup.readiness import (
     EXIT_COULD_NOT_LOOK,
     EXIT_READY,
     ESTATE_JOB_UNITS,
+    TRANSCRIPT_WINDOW_SECONDS,
     Blocker,
     Probe,
     ProbeError,
@@ -20,6 +22,7 @@ from oversteward.backup.readiness import (
     default_probes,
     long_run_processes,
     docker_containers,
+    project_dir_name,
     render,
     run_command,
     systemd_jobs,
@@ -45,60 +48,226 @@ def _failing_runner(message: str):
 # --- the process probe ------------------------------------------------------
 
 _PS_IDLE = """\
-      1 systemd         /sbin/init
-    412 bash            -bash
-    977 python          /home/natha/OverSteward/.venv/bin/python scripts/backup_ready.py
-   1040 code            /home/natha/.vscode-server/bin/code --open claude-notes.md
+      1     0 systemd         /sbin/init
+    412     1 bash            -bash
+    977     1 python          /home/natha/OverSteward/.venv/bin/python scripts/backup_ready.py
+   1040     1 code            /home/natha/.vscode-server/bin/code --open claude-notes.md
 """
 
 
-class TestClaudeProcesses:
-    def test_an_idle_box_has_no_blockers(self):
-        assert claude_processes(run=_runner(_PS_IDLE)) == []
+_NOW = 1_800_000_000.0
+_SESSION_CWD = "/home/natha/OverSteward"
+_SESSION_PROJECT = "-home-natha-OverSteward"
 
-    def test_a_claude_cli_session_is_named_by_pid_and_command(self):
-        ps = _PS_IDLE + "   1422 claude          /home/natha/.local/bin/claude --resume abc\n"
-        blockers = claude_processes(run=_runner(ps))
+#: Measured 2026-10-11 on the live box: the shell Claude Code's Bash tool
+#: spawns as a direct child of the session process.
+_TOOL_SHELL = (
+    "/bin/bash -c source /home/natha/.claude/shell-snapshots/snapshot-bash-1791727454865-357zp5.sh"
+    " 2>/dev/null || true && eval 'pytest'"
+)
+
+
+def _transcript(projects: Path, project: str, age_minutes: float, name: str = "s.jsonl") -> Path:
+    path = projects / project / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{}\n", encoding="utf-8")
+    stamp = _NOW - age_minutes * 60
+    os.utime(path, (stamp, stamp))
+    return path
+
+
+def _session(tmp_path: Path, age_minutes: float | None = None, cwd: str = _SESSION_CWD) -> dict:
+    """Keyword arguments for claude_processes: a projects dir and a fixed clock and cwd."""
+    projects = tmp_path / "projects"
+    projects.mkdir(exist_ok=True)
+    if age_minutes is not None:
+        _transcript(projects, _SESSION_PROJECT, age_minutes)
+    return {"projects_dir": projects, "read_cwd": lambda _pid: cwd, "now": lambda: _NOW}
+
+
+_CLAUDE_ROW = "   1422     1 claude          /home/natha/.local/bin/claude --resume abc\n"
+
+
+class TestClaudeProcesses:
+    def test_an_idle_box_has_no_blockers(self, tmp_path):
+        assert claude_processes(run=_runner(_PS_IDLE), **_session(tmp_path)) == []
+
+    def test_a_working_claude_cli_session_is_named_by_pid_and_command(self, tmp_path):
+        blockers = claude_processes(run=_runner(_PS_IDLE + _CLAUDE_ROW), **_session(tmp_path, 1))
         assert len(blockers) == 1
         assert blockers[0].probe == "processes"
         assert "1422" in blockers[0].detail
         assert "/home/natha/.local/bin/claude --resume abc" in blockers[0].detail
 
-    def test_claude_is_matched_by_argv0_when_comm_differs(self):
-        ps = _PS_IDLE + "   1500 MainThread      /home/natha/.local/bin/claude -p dream\n"
-        blockers = claude_processes(run=_runner(ps))
+    def test_claude_is_matched_by_argv0_when_comm_differs(self, tmp_path):
+        ps = _PS_IDLE + "   1500     1 MainThread      /home/natha/.local/bin/claude -p dream\n"
+        blockers = claude_processes(run=_runner(ps), **_session(tmp_path, 1))
         assert [b.detail.split()[1] for b in blockers] == ["1500"]
 
-    def test_node_running_claude_code_is_a_session(self):
+    def test_node_running_claude_code_is_a_session(self, tmp_path):
         ps = _PS_IDLE + (
-            "   2001 node            node /usr/lib/node_modules/@anthropic-ai/claude-code/cli.js\n"
+            "   2001     1 node            node /usr/lib/node_modules/@anthropic-ai/claude-code/cli.js\n"
         )
-        blockers = claude_processes(run=_runner(ps))
+        blockers = claude_processes(run=_runner(ps), **_session(tmp_path, 1))
         assert len(blockers) == 1
         assert "2001" in blockers[0].detail
 
-    def test_node_running_something_else_is_not_a_session(self):
-        ps = _PS_IDLE + "   2002 node            node /home/natha/site/server.js\n"
-        assert claude_processes(run=_runner(ps)) == []
+    def test_node_running_something_else_is_not_a_session(self, tmp_path):
+        ps = _PS_IDLE + "   2002     1 node            node /home/natha/site/server.js\n"
+        assert claude_processes(run=_runner(ps), **_session(tmp_path, 1)) == []
 
-    def test_a_mention_of_claude_in_an_argument_is_not_a_session(self):
+    def test_a_mention_of_claude_in_an_argument_is_not_a_session(self, tmp_path):
         # The editor line in _PS_IDLE opens "claude-notes.md"; only the program counts.
-        ps = _PS_IDLE + "   2003 grep            grep claude\n"
-        assert claude_processes(run=_runner(ps)) == []
+        ps = _PS_IDLE + "   2003     1 grep            grep claude\n"
+        assert claude_processes(run=_runner(ps), **_session(tmp_path, 1)) == []
 
-    def test_reads_pid_comm_and_full_args(self):
+    def test_reads_pid_ppid_comm_and_full_args(self, tmp_path):
         calls: list = []
-        claude_processes(run=_runner(_PS_IDLE, calls))
-        assert calls == [["ps", "-eo", "pid=,comm=,args="]]
+        claude_processes(run=_runner(_PS_IDLE, calls), **_session(tmp_path))
+        assert calls == [["ps", "-eo", "pid=,ppid=,comm=,args="]]
 
-    def test_an_unreadable_process_table_raises(self):
+    def test_an_unreadable_process_table_raises(self, tmp_path):
         with pytest.raises(ProbeError):
-            claude_processes(run=_failing_runner("ps: not found"))
+            claude_processes(run=_failing_runner("ps: not found"), **_session(tmp_path))
 
-    def test_an_empty_process_table_is_unreadable_not_idle(self):
+    def test_an_empty_process_table_is_unreadable_not_idle(self, tmp_path):
         # A box always has at least init; empty output means the read failed.
         with pytest.raises(ProbeError):
-            claude_processes(run=_runner(""))
+            claude_processes(run=_runner(""), **_session(tmp_path))
+
+
+class TestClaudeSessionActivity:
+    """An open session is busy only while it is working; an idle one is resumable."""
+
+    def test_an_idle_open_session_is_not_busy(self, tmp_path):
+        # Stale transcript, no tool child: the conversation is on disk.
+        ps = _PS_IDLE + _CLAUDE_ROW
+        assert claude_processes(run=_runner(ps), **_session(tmp_path, 600)) == []
+
+    def test_a_transcript_written_within_the_window_is_busy(self, tmp_path):
+        blockers = claude_processes(run=_runner(_PS_IDLE + _CLAUDE_ROW), **_session(tmp_path, 29))
+        assert len(blockers) == 1
+        assert "transcript" in blockers[0].detail
+
+    def test_a_transcript_just_past_the_window_is_idle(self, tmp_path):
+        assert claude_processes(run=_runner(_PS_IDLE + _CLAUDE_ROW), **_session(tmp_path, 31)) == []
+
+    def test_the_window_is_thirty_minutes(self):
+        assert TRANSCRIPT_WINDOW_SECONDS == 30 * 60
+
+    def test_the_newest_transcript_decides_not_the_first_found(self, tmp_path):
+        kwargs = _session(tmp_path, 600)
+        _transcript(kwargs["projects_dir"], _SESSION_PROJECT, 2, name="zz-newer.jsonl")
+        assert len(claude_processes(run=_runner(_PS_IDLE + _CLAUDE_ROW), **kwargs)) == 1
+
+    def test_a_fresh_subagent_transcript_makes_the_session_busy(self, tmp_path):
+        kwargs = _session(tmp_path, 600)
+        _transcript(
+            kwargs["projects_dir"],
+            f"{_SESSION_PROJECT}/abc-session/subagents",
+            3,
+            name="agent-a1.jsonl",
+        )
+        assert len(claude_processes(run=_runner(_PS_IDLE + _CLAUDE_ROW), **kwargs)) == 1
+
+    def test_a_fresh_non_transcript_file_does_not_count(self, tmp_path):
+        kwargs = _session(tmp_path, 600)
+        _transcript(kwargs["projects_dir"], _SESSION_PROJECT, 1, name="notes.md")
+        assert claude_processes(run=_runner(_PS_IDLE + _CLAUDE_ROW), **kwargs) == []
+
+    def test_another_projects_fresh_transcript_does_not_count(self, tmp_path):
+        kwargs = _session(tmp_path, 600)
+        _transcript(kwargs["projects_dir"], "-home-natha-grantspider", 1)
+        assert claude_processes(run=_runner(_PS_IDLE + _CLAUDE_ROW), **kwargs) == []
+
+    def test_a_running_tool_shell_child_is_busy_even_with_a_stale_transcript(self, tmp_path):
+        ps = _PS_IDLE + _CLAUDE_ROW + f"   1600  1422 bash            {_TOOL_SHELL}\n"
+        blockers = claude_processes(run=_runner(ps), **_session(tmp_path, 600))
+        assert len(blockers) == 1
+        assert "1422" in blockers[0].detail
+        assert "tool command pid 1600" in blockers[0].detail
+
+    def test_a_tool_shell_grandchild_is_busy(self, tmp_path):
+        ps = (
+            _PS_IDLE
+            + _CLAUDE_ROW
+            + "   1600  1422 node            node helper.js\n"
+            + f"   1601  1600 bash            {_TOOL_SHELL}\n"
+        )
+        assert len(claude_processes(run=_runner(ps), **_session(tmp_path, 600))) == 1
+
+    def test_a_tool_shell_under_another_process_does_not_make_this_session_busy(self, tmp_path):
+        ps = _PS_IDLE + _CLAUDE_ROW + f"   1600   412 bash            {_TOOL_SHELL}\n"
+        assert claude_processes(run=_runner(ps), **_session(tmp_path, 600)) == []
+
+    def test_a_long_lived_mcp_helper_child_is_not_work(self, tmp_path):
+        # An aigranthelper session runs stdio MCP servers (.mcp.json) for its whole life.
+        ps = (
+            _PS_IDLE
+            + _CLAUDE_ROW
+            + "   1600  1422 npm exec        npm exec @playwright/mcp@latest\n"
+            + "   1601  1422 railway         railway mcp\n"
+        )
+        assert claude_processes(run=_runner(ps), **_session(tmp_path, 600)) == []
+
+    def test_an_unreadable_cwd_is_could_not_look(self, tmp_path):
+        def _no_cwd(_pid):
+            raise PermissionError("cannot readlink /proc/1422/cwd")
+
+        kwargs = _session(tmp_path, 600) | {"read_cwd": _no_cwd}
+        with pytest.raises(ProbeError, match="1422"):
+            claude_processes(run=_runner(_PS_IDLE + _CLAUDE_ROW), **kwargs)
+
+    def test_a_missing_project_dir_is_could_not_look_not_idle(self, tmp_path):
+        # A wrongly derived name would otherwise read every working session as idle.
+        with pytest.raises(ProbeError, match=_SESSION_PROJECT):
+            claude_processes(run=_runner(_PS_IDLE + _CLAUDE_ROW), **_session(tmp_path))
+
+    def test_a_project_dir_without_transcripts_is_could_not_look(self, tmp_path):
+        kwargs = _session(tmp_path)
+        (kwargs["projects_dir"] / _SESSION_PROJECT).mkdir()
+        with pytest.raises(ProbeError, match="no transcript"):
+            claude_processes(run=_runner(_PS_IDLE + _CLAUDE_ROW), **kwargs)
+
+    def test_a_tool_shell_needs_no_transcript_lookup(self, tmp_path):
+        # Busy on the process evidence alone: nothing more needs reading.
+        ps = _PS_IDLE + _CLAUDE_ROW + f"   1600  1422 bash            {_TOOL_SHELL}\n"
+        assert len(claude_processes(run=_runner(ps), **_session(tmp_path))) == 1
+
+
+class TestClaudeSessionVerdict:
+    """The acceptance triple, through assess: idle READY, mid-turn BUSY, unreadable 2."""
+
+    def _verdict(self, ps: str, **kwargs) -> int:
+        probe = Probe("processes", lambda: claude_processes(run=_runner(ps), **kwargs))
+        return assess([probe]).exit_code
+
+    def test_an_idle_open_session_reads_ready(self, tmp_path):
+        assert self._verdict(_PS_IDLE + _CLAUDE_ROW, **_session(tmp_path, 600)) == EXIT_READY
+
+    def test_a_mid_turn_session_reads_busy(self, tmp_path):
+        assert self._verdict(_PS_IDLE + _CLAUDE_ROW, **_session(tmp_path, 0)) == EXIT_BUSY
+
+    def test_an_unreadable_session_reads_could_not_look(self, tmp_path):
+        assert self._verdict(_PS_IDLE + _CLAUDE_ROW, **_session(tmp_path)) == EXIT_COULD_NOT_LOOK
+
+
+class TestProjectDirName:
+    @pytest.mark.parametrize(
+        ("cwd", "name"),
+        [
+            ("/home/natha/OverSteward", "-home-natha-OverSteward"),
+            ("/home/natha/Fiscus", "-home-natha-Fiscus"),
+            (
+                "/home/natha/OverSteward/.claude/worktrees/dispatch-490",
+                "-home-natha-OverSteward--claude-worktrees-dispatch-490",
+            ),
+            ("/tmp/gs_h3 bench", "-tmp-gs-h3-bench"),
+        ],
+        ids=["repo", "case-kept", "dot-dir", "underscore-space"],
+    )
+    def test_names_the_dir_the_way_claude_code_does(self, cwd, name):
+        assert project_dir_name(cwd) == name
 
 
 # --- the detached long-run probe -------------------------------------------
@@ -132,7 +301,7 @@ class TestLongRunProcesses:
         ],
     )
     def test_a_detached_grantspider_run_is_named(self, args):
-        ps = _PS_IDLE + f"   5001 python          {args}\n"
+        ps = _PS_IDLE + f"   5001     1 python          {args}\n"
         blockers = long_run_processes(run=_runner(ps))
         assert [b.probe for b in blockers] == ["long-runs"]
         assert blockers[0].detail == f"pid 5001 {args}"
@@ -149,7 +318,7 @@ class TestLongRunProcesses:
         ids=["grep", "pager", "editor", "other-python", "tail-log"],
     )
     def test_a_mention_of_grantspider_is_not_a_run(self, args):
-        ps = _PS_IDLE + f"   5002 x               {args}\n"
+        ps = _PS_IDLE + f"   5002     1 x               {args}\n"
         assert long_run_processes(run=_runner(ps)) == []
 
     def test_an_unreadable_process_table_raises(self):
