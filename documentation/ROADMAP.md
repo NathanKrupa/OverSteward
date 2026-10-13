@@ -1688,6 +1688,168 @@ Every §3.14 watch-list row, in order:
 
 ---
 
+## §3.17 Mid-October 2026 — AG's billing moves to the current Stripe API, the WSL machine gets a real backup, and the IRS catch-up finds five bugs (reconciled 2026-10-13)
+
+> Eleventh dream-produced pass. It covers the 10-12 cycle's 17 transcripts
+> and the 10-13 cycle's 7 (four of them adversarial-reviewer verdicts or
+> earlier dream runs). Three through-lines. **AG's billing stack was upgraded
+> rather than replaced.** Nathan pushed back on swapping dj-stripe for
+> in-house code, so the lane upgraded to stripe 15.6.1 and dj-stripe 2.11.0,
+> pinned to `2026-08-26.dahlia`. Promote #2436 (10-12) carried that, annual Pro
+> and Gift a year, with gift sales held. **OverSteward spent its
+> week on its own machine.** The WSL backup became a readiness-gated monthly
+> export plus a daily, self-verifying restic backup of `/home`. The estate's
+> deployed copies in this repo became symlinks, and post-merge cleanup became
+> one command. **GrantSpider's IRS data was brought current by hand on 10-12.**
+> That run filed five bugs, including two that had been silent: the annual
+> summary data has never loaded, and a resumed facsimile drain never renders
+> new filings.
+
+### Shipped (2026-10-06 → 10-13)
+
+- **OverSteward.**
+  - Reviewer scratch copies no longer leave bench databases that no session
+    can attribute, and post-merge cleanup reaps the `.review` sibling (#557,
+    #558, OS#553). GS (#3129) and Fiscus (#131) took the matching
+    `worktree_db.py` refusal.
+  - PR workflow doctrine: one full `make verify` per PR, with a lite gate and
+    a diff ceiling before round 1 (#565, OS#563). The sequence was extended
+    to the wphelper, ai-assistants, fiscus and exchequer cards (#570,
+    OS#566). A sanctioned delta round now covers a commit that the post-review
+    gate forces after a passing verdict (#568, OS#564).
+  - `worktree_doctor.py cleanup-merged`: dispatch §5 as one allow-listable
+    command (#575, OS#571). Deployment to the six dispatch-target repos is
+    OS#572.
+  - OverSteward's own deployed copies are relative symlinks into `shared/`,
+    and the §12 caps count a proven pair once (#577, #579, OS#576).
+  - WSL backup:
+    - readiness gate (#585) and readiness-gated monthly export (#586),
+      OS#581;
+    - the export runs past idle Claude sessions, retries nightly when due,
+      and alerts when overdue (#588, OS#587);
+    - daily restic backup of `/home` with a self-verifying restore (#590,
+      OS#582).
+    The host install is TD81, and the key copy is TD82. Both are open, so the
+    timer is not yet proven running.
+- **AG billing and pricing.**
+  - LAUNCH1 is redeemable on Builder monthly (hotfixes #2397, #2400,
+    AG#2394). Promo codes are refused only on yearly prices.
+  - Each plan's monthly application allowance is shown on `/pricing/` (#2408,
+    AG#2395). The Responsible AI statement and the footer AI-disclosure line
+    follow Nathan's 10-09 ruling (#2407, AG#2402).
+  - Annual Pro engine and storefront (#2388, #2390).
+  - Gift a year, AG#2271: G1 models (#2398), G2 purchase (#2410) and G3a claim
+    link (#2421). Gift sales are held pending the TD80 test purchase (#2434).
+  - The Stripe upgrade, AG#2424:
+    - dahlia webhook payloads (#2426);
+    - pinned API version (#2427);
+    - shape-tolerant reads (#2429);
+    - stripe 15.6.1 with dj-stripe 2.11.0 (#2431);
+    - a nightly Stripe shape smoke (#2435).
+- **AG promotes #2384 (10-08) and #2436 (10-12).**
+  - #2384: the index-decline sitemap and canonical fixes (#2372, #2373), the
+    `/_home/` arms and the edge Worker for the home-page A/B (#2377–#2383),
+    and `warm_edge_cache` (#2376).
+  - The #1853 indexation experiment was retired as concluded (#2375).
+  - #2436, by its title: the Stripe 15 / dj-stripe 2.11 upgrade, annual Pro,
+    Gift a year with sales held, and the hub links and speed work.
+  - Hotfix #2416 (smoke under pytest-playwright 0.10). The state hubs' member
+    lists are stored offline (#2420), and hubs link their indexable members
+    (#2413).
+  - AG#2423, a bench FK left by the drift stage, closed through #2442 after
+    two PASS rounds.
+- **GS section pass and about pass.**
+  - Section-pass Workflow (#3136 → #3144–#3148). History went to v2 and then
+    v3 (#3156, #3161, #3166).
+  - The about-page research pass, seven PRs (#3170 → #3171–#3178), with
+    facts-append provenance (migration in #3173) and claim dedup (#3196,
+    #3199).
+  - Crawl TLS handshake fix (#3189). The 55 directory hosts are denied
+    (#3185, GS#2796). The dotenv walk-up was fixed (#3179, GS#2968).
+  - `direct_giving_reports` (#3200, GS#1057 1/3); incremental
+    `populate-people` (#3198, GS#984).
+  - `db migrate-prod` boots through a behind schema (#3208, GS#3207).
+  - Promotes: #3133, #3151, #3158, #3163, #3168, #3181, #3191, #3201, #3204
+    and #3210.
+- **GS IRS keep-current, run by hand on 10-12.**
+  - 2 new 2026 TEOS archives and a fresh 2026 index were fetched.
+  - 7,200 filers were seeded (to 310,058).
+  - 13,254 foundations advanced, and 190,387 grant lines were loaded with 0
+    errors.
+  - The full 990-PF facsimile pass restarted from segment 0 at 8 workers
+    (about 1,330 PDFs an hour). Nathan approved the worker change.
+- **Sentry (10-12).** PYTHON-2S was filed as GS#3213, a weekly backup reaped
+  while `pg_dump` was still running. AIGRANTHELPER-3C was added to AG#2224.
+
+### Corrections to the §3.16 watch-list
+
+| §3.16 row | Correction as of 2026-10-13 |
+|---|---|
+| Reviewer scratch copies orphan bench DBs, OS#553 | **closed**: #557 and #558 merged |
+| Reviewer worktrees outside `.claude/worktrees/`, OS#555, #546 | both open |
+| Dispatch `--auto` instant merge, OS#551 | open. AG workers now wait for ci-light and smoke-guards and then merge with `--match-head-commit`, but that is practice, not the playbook |
+| Assembler takes one `--issue`, OS#549 | open |
+| COF directory `--apply`, GS#3101 | GS#3101 **closed** 10-06 and #3130 skips dead or alias directory URLs. Whether the `--apply` ran is not verified in any transcript; carried |
+| COF contact PII, GS#3106 | **closed**: #3131 dropped the contact columns (promote #3133) |
+| `migrate-prod` refused by its boot guard, GS#3116 | #3208 (GS#3207) lets it boot through a behind schema. GS#3116 is still open; check it against #3208 and close it |
+| Crawl plan read outlives `transaction_timeout`, GS#3069 | open |
+| Indexability readers outside the gate, AG#2324 | open |
+| Home-page A/B Worker, AG#2353, TD70 | the Worker code shipped (#2381–#2383, promote #2384). AG#2353 and TD70 (Workers token) are still open, so it is not deployed |
+| AG mobile/edge follow-ons #2318, #2336, #2302, #2349, #2350, #2351, #2251 | all open |
+| Uptime monitors, PetalBot, TD63, TD64 | both open |
+| `GH_INSTALLATION_TOKEN` expiry 2026-11-12 | still no expiry check and still unfiled. The 10-12 cycle rotated AG's `BUMP_PR_TOKEN`; an expired one makes no workflow fail and quietly opens bump PRs that get no CI |
+| Government lane AG#945, canonicals AG#2228, GSC 500 AG#2224, AG#2012 | all open. #2373 made hub canonicals query-free (promote #2384); AG#2228 needs checking against it and closing |
+| GS#2940, #2939, #2764, #2765, #2766/TD46, #2941, #2767, #2722, #2630 | all open |
+| `db scratch` typos reach Sentry, AG#1743, GS#2166, GS#2345 | all open. It recurred on 10-12: a mistyped read-only query raised a GS Sentry event |
+| Keep-current GS#2398 → #2759 → #2760 | all open. The 10-12 hand run shows why #2759 must be built: see GS#3214–#3219 below |
+| Form 990 facsimile GS#2763 | open; no plain 990 renders exist |
+| AG residue (nine open: AG#2127, #2132, #2133, #2134, #2137, #2138, #2140, #2141, #2145) → GS#2761, #2762 | all open |
+| Thankathon OS#525 | open. TD45 is no longer open; TD53 is still open, and TD78 (Railway database switch and cron) was added |
+| Steward probe challenged, OS#526; TD68 | both open |
+| Board connections, GS#1673 | open |
+| Google Ads, ai-assistants#10; TD11, TD20 | all open; TD20 is two weeks overdue |
+| GS#2452 section 2, #2464, #2466 | all open |
+| Dispatch agents → reviewer, OS#459, #460 | open |
+| Review-loop residue OS#454, #467, #468, #470, #544 | all open. OS#454 is still unchecked against #554 |
+| Review tooling PR C, OS#534 | open |
+| Operator steps | still open: TD3, TD6, TD11, TD20, TD25, TD38, TD46, TD53, TD56, TD61, TD62, TD63, TD64, TD67, TD68, TD69 and TD70. **No longer open: TD45, TD66, TD72 and TD73.** Added: TD74 and TD76–TD82, all open. past due: TD3, TD20, TD46, TD61, TD76, TD77 and TD80 |
+| AG home-page A/B conversion read | the #1853 indexation experiment is concluded (#2375). No conversion read of the price arms appears in any transcript |
+| `guard_main_worktree` blind to `git -C` | still unfiled |
+| GS#2465 / GS#2468 post-merge steps | GS#2468 closed; the corpus refresh is still unrecorded; carried |
+| Find-and-confirm on the 53k, TD61 | TD61 still open, two weeks past its 09-30 due date |
+| GitHub Actions billing TD60; TD51, TD65 | already closed by 10-06; dropped. The dispatch `--auto` recurrence on AG#2323 is folded into the OS#551 row |
+| Find-website residue, `workflow_registry.md`, media tracking, feedback-triage design, exchequer doctor, `verification_records` count | not raised this pass; carried |
+
+### Started, not yet landed (October 13 watch-list)
+
+| Item | Where | State |
+|---|---|---|
+| IRS keep-current fixes | GS#3215 (annual summary `--download` crashes; no SOI extract has ever loaded, so `filings` is 136,465 behind), GS#3218 (a resumed drain never reaches new filings), GS#3219 (`fetch_xml` re-reads each archive's central directory; the drain is parent-bound) | Nathan deferred these to **Wed 10-14**: dispatch the three, then re-run the annual summary ingest for the orgs updated on 10-12 |
+| Stale current-year index, negative FMV/giving | GS#3214, GS#3217 (24 foundations stuck) | open |
+| Full 990-PF facsimile pass | about 40,000 renderable filings at about 1,330 an hour | still running on 10-13 at 03:42, and the laptop must stay awake. About 2,850 filings from 2018–19 have no form map, and about 260 lack public XML |
+| GS weekly backup reaped mid-dump; `ag_tenant` dump fails weekly | GS#3213, GS#2551 (same class); GS#2128 (drop the dead AG tenant pointer) | open |
+| Gift a year G3b and G4, gift sales | AG#2271, TD80 | sales are held on the TD80 test purchase, which was due 10-12 |
+| Consultant firm-wide allowance; app top-up pack; trial allowance | AG#2414, AG#2396, AG#2288 | open. App limits are advertised but not enforced in production |
+| Stripe upgrade epic | AG#2424 | open after #2431 and #2435 |
+| WSL backup PR 3 of 3, and its runbook | OS#583, OS#589 | open. TD81 and TD82 must land before the timer counts as live |
+| `.claude/tmp` scratchpad janitor (42 GB of C: pressure) | OS#584 | open |
+| Cleanup verb rollout; stack cleanup | OS#572, OS#573 | open |
+| Review tooling gaps from the AG billing lane | OS#574 (delta round refused after PASS-WITH-FINDINGS), OS#580 (`pkill -f` in dev cards), OS#591 (the AG lite gate misses SMELL-003) | open |
+| OS#576 follow-ups | OS#578 | open |
+| §3.16 carried rows | see the table above | every row marked open or carried |
+
+**Unfiled intent seen in this pass's transcripts (flagged, not filed):**
+
+- dream `finalize` still leaves the regenerated `MEMORY_FULL.md` (and any
+  hand-written memories) uncommitted. That is now 15 runs in a row, and the
+  10-12 run offered to file the fix. OS#501 covers only the over-budget half;
+- a `GH_INSTALLATION_TOKEN` and `BUMP_PR_TOKEN` expiry check (carried);
+- a `--since-date` or per-org mode for `ingest-annual-extracts`, so a
+  catch-up can target the orgs one run updated (today only a full run
+  covers them).
+
+---
+
 ## §4 In flight
 
 Active or partially-shipped items as of 2026-05-07.
@@ -1793,4 +1955,4 @@ Captured in `IDEA_STORE.md` from gstack research and conversational drift. None 
 - If §2-§3 grow past readable length, extract to a `documentation/changelog.md` and keep this doc thin.
 - This doc is the single answer to "what are we trying to do, what's done, what's next?" If it can't answer that in under 60 seconds of reading, it's grown past its purpose — restructure rather than expand.
 
-*Last updated: 2026-10-06 (early-October reconciliation — §3.16 added: the AG cache outage and its hotfix, the mobile train's two promotes, the build-token expiry, GS's deep pass reaching the community foundations, the finished crawl cohort and the COF directory import).*
+*Last updated: 2026-10-13 (mid-October reconciliation — §3.17 added: AG's Stripe upgrade, annual Pro and Gift a year promote, OverSteward's WSL backup and symlinked deploys, GS's section and about passes, and the 10-12 IRS catch-up with its five filed bugs).*
