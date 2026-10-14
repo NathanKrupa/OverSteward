@@ -14,7 +14,7 @@
     1. Record the current `wsl --version`.
     2. Remind the operator that a recent backup is the real safety net.
     3. Run `wsl --update`.
-    4. Run Test-WslIntegrity.ps1.
+    4. Run Test-WslIntegrity.ps1 -PlatformOnly (VHDs and WSL, not backup age).
     5. On failure -> `wsl --update --rollback`, then re-verify.
 
   Exit codes: 0 healthy after update; 2 rolled back to a healthy prior version
@@ -32,7 +32,8 @@ $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $gate = Join-Path $here 'Test-WslIntegrity.ps1'
 
 function Invoke-Gate {
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $gate
+    # -PlatformOnly: a stale backup is not a broken update and must not roll one back.
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $gate -PlatformOnly
     return $LASTEXITCODE
 }
 
