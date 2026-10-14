@@ -1,0 +1,21 @@
+# ABOUTME: systemd --user timer scheduling the daily scratchpad janitor.
+# ABOUTME: 02:30, ahead of sync-repos (03:00) and the home backup (04:00); Persistent catches up a missed day.
+#
+# Enable:  systemctl --user enable --now scratchpad-janitor.timer
+# Inspect: systemctl --user list-timers scratchpad-janitor.timer
+
+[Unit]
+Description=Daily scratchpad janitor schedule
+
+[Timer]
+# 02:30 local, ahead of the 03:00 checkout sync and the 04:00 restic backup, so
+# its walk of the scratchpad tree does not compete with their I/O.
+#
+# Persistent runs a tick missed while the laptop was off or asleep once the
+# machine is back up.
+OnCalendar=*-*-* 02:30:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

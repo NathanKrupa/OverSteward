@@ -1,4 +1,4 @@
-ABOUTME: Overview + usage for the WSL resilience scripts (Windows-side PowerShell, Linux-side restic home backup).
+ABOUTME: Overview + usage for the WSL resilience scripts (Windows-side PowerShell, Linux-side restic home backup and scratchpad janitor).
 ABOUTME: Canonical source lives here in OverSteward; Install-WslResilience.ps1 deploys to a Windows path.
 
 # WSL Resilience (`ops/wsl/`)
@@ -197,6 +197,82 @@ Exit codes: **0** measured, RED rows included; **1** could not read (E: not
 mounted, restic or systemctl exited non-zero, unparseable output, or the sweep
 crashed); **2** not configured (restic, the key, or the repository with its
 parent present, missing).
+
+## The scratchpad janitor
+
+Linux-side. Every Claude Code session writes under
+`~/.claude/tmp/claude-1000/<slug>/<uuid>/` and nothing removes it, so the tree
+grows without bound (43 GB in 1,691 session dirs, measured 2026-10-14), and the
+VHDX it lives in never gives the space back to C: on its own.
+`scripts/scratchpad_janitor.py` (service `oversteward.janitor.scratchpad`) runs
+daily at 02:30 through `scratchpad-janitor.timer` (`Persistent=true`) and
+deletes a `<slug>/<uuid>/` dir only when **all** of these hold:
+
+- its newest regular file is at least 7 days old (`--days`; the dir's own mtime
+  is not its age, because a clone inside a scratchpad gains packs without its
+  top directory changing);
+- no process but the janitor has its cwd, executable or an open file inside it
+  (read from `/proc/<pid>`; on 2026-10-14 every running session held its own
+  `<uuid>/tasks` open);
+- it holds no `.git` **file** at any depth. That is a git worktree (or a
+  submodule checkout) registered with some other repo: the row reads `SKIPPED`
+  and names the `worktree_doctor.py teardown` to run from the owning repo,
+  because deleting it would leave that repo a dangling registration. A `.git`
+  directory is an ordinary clone and is pruned.
+
+It refuses, and deletes nothing, when it cannot see:
+
+- a process of this uid whose open files cannot be read, or a running `claude`
+  holding nothing under the root (the scan is blind), exits **1**. A
+  non-dumpable process, whose `fd` directory the kernel hands to root, is named
+  on the `not inspected` line instead;
+- a dir it cannot list is `UNREADABLE`, kept, and exits **1**; a delete that
+  stops partway is `PARTIAL` and exits **1**;
+- a root that is missing, not a directory or a symlink, or `--days` below 1,
+  exits **2**.
+
+Everything under the root that is not a `<slug>/<uuid>/` directory (loose
+files, `base1/`-style dirs, symlinks) is counted as unrecognised and never
+touched. Without `--apply` it only reports (`WOULD-PRUNE`); the unit passes
+`--apply`.
+
+Install once, after this merges and the primary checkout has pulled:
+
+```bash
+cd /home/natha/OverSteward
+.venv/bin/python scripts/scratchpad_janitor.py   # dry run first; read the report
+cp ops/wsl/scratchpad-janitor.service ops/wsl/scratchpad-janitor.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now scratchpad-janitor.timer
+```
+
+`journalctl --user -u scratchpad-janitor` shows every dir with its size, age and
+verdict, the totals, free space on `/mnt/c`, and the size of `ext4.vhdx`.
+
+### Compacting the VHDX
+
+Deleting files frees space inside the distro, not on C:. When the report prints
+`COMPACT ADVISED` (the VHDX is more than 20 GB larger than the bytes `/` uses),
+compact it from Windows, with nothing running in the distro and no export in
+flight:
+
+```powershell
+wsl --shutdown
+# then, in an elevated (Administrator) prompt:
+diskpart
+```
+
+```text
+select vdisk file="C:\Users\natha\AppData\Local\wsl\<distro-guid>\ext4.vhdx"
+attach vdisk readonly
+compact vdisk
+detach vdisk
+exit
+```
+
+Find `<distro-guid>` with `ls /mnt/c/Users/natha/AppData/Local/wsl/*/ext4.vhdx`
+from WSL before the shutdown; it is the glob the janitor measures. `diskpart` needs Administrator, which is why this stays a manual
+step rather than part of the scheduled tasks.
 
 ## Uninstall
 
