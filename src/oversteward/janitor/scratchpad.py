@@ -13,13 +13,25 @@ A candidate is pruned only when all of these hold:
   least ``days`` old. The directory's own mtime is not the age: a clone inside
   a scratchpad receives new packs without its top directory changing. A
   candidate holding no regular file at all takes its own mtime.
-* **Unheld** — no process but the janitor itself has its cwd, its executable or
-  any open file descriptor inside it, read from ``/proc/<pid>``.
-* **Not a worktree** — it contains no ``.git`` *file* at any depth. A ``.git``
-  file is a git worktree (or submodule checkout) registered with another repo,
-  which must be torn down by that repo's ``worktree_doctor.py`` or the repo
-  keeps a dangling registration. A ``.git`` *directory* is an ordinary clone
-  and is no reason to keep.
+* **Unheld** — no process the janitor can inspect has its cwd, its executable
+  or any open file descriptor inside it, read from ``/proc/<pid>`` once before
+  the sweep and again just before each delete. It can inspect every process of
+  this uid but itself and the non-dumpable ones it names as not inspected. It
+  cannot see processes of other uids (root daemons, ``sudo``) or Windows-side
+  access over 9p.
+* **Not linked to a live git checkout outside it** — git ties two directories
+  together in both directions, and either can lie inside a candidate:
+
+  - a ``.git`` *file* (a worktree or submodule checkout) whose ``gitdir:``
+    names an existing repository outside the candidate. Deleting it would leave
+    that repository a dangling registration;
+  - a ``worktrees/<name>/gitdir`` file (inside a clone's ``.git`` or a bare
+    repository) naming an existing worktree outside the candidate. That
+    worktree's commits live only in this clone, so deleting it destroys them.
+
+  Either keeps the candidate (SKIPPED). A link whose far end no longer exists,
+  or lies inside the same candidate, ties nothing outside and does not; a link
+  file that cannot be read or parsed keeps the candidate too.
 * **Fully read** — every directory inside it could be listed; an unreadable one
   could hide a file written today.
 
@@ -113,7 +125,8 @@ class _Scan:
     size: int
     newest: float
     newest_file: str
-    worktree: str | None
+    #: A live git link to a checkout outside the candidate: what it is, and the worktree path.
+    link: tuple[str, str] | None
     unreadable: str | None
 
 
@@ -128,6 +141,8 @@ class _Holders:
 
 
 DiskProbe = Callable[[], DiskStats]
+#: Re-reads ``/proc`` for one candidate just before it is deleted: a verdict and note to keep it.
+Recheck = Callable[[Path], tuple[str, str] | None]
 
 
 def measure_disk() -> DiskStats:
@@ -180,13 +195,61 @@ def _candidates(root: Path) -> tuple[list[Path], int]:
     return found, other
 
 
+_LINK_READ_LIMIT = 4096
+
+
+def _read_link_target(path: str, prefix: str, candidate_real: str) -> str | None:
+    """The absolute path a git link file names, relative paths resolved from its directory.
+
+    ``None`` when the file is not inside the candidate, cannot be read, or its
+    first line is not ``<prefix><path>``.
+    """
+    resolved = Path(path).resolve()
+    if not resolved.is_relative_to(candidate_real):
+        return None
+    try:
+        with resolved.open(encoding="utf-8", errors="replace") as handle:
+            first = handle.read(_LINK_READ_LIMIT).strip().split("\n", 1)[0]
+    except OSError:
+        return None
+    target = first[len(prefix) :].strip() if first.startswith(prefix) else ""
+    return os.path.normpath(os.path.join(os.path.dirname(path), target)) if target else None
+
+
+def _git_link(path: str, name: str, candidate_real: str) -> tuple[str, str] | None:
+    """A live git link from ``path`` to a checkout outside the candidate, or ``None``.
+
+    ``path`` is a ``.git`` file (naming the repository that registered this
+    checkout) or a ``worktrees/<name>/gitdir`` file (naming a linked worktree's
+    ``.git`` file). Returns what the link is and the worktree to tear down.
+    """
+    here = os.path.dirname(path)
+    target = _read_link_target(path, "gitdir:" if name == ".git" else "", candidate_real)
+    if target is None:
+        return f"unreadable git link file {path}", here
+    if not os.path.lexists(target):
+        return None  # the far end is gone; nothing outside is tied to this dir
+    if (os.path.realpath(target) + os.sep).startswith(candidate_real + os.sep):
+        return None  # both ends go together
+    if name == ".git":
+        return f"checkout at {here} is registered with {target}", here
+    worktree = os.path.dirname(target)
+    clone = os.path.dirname(os.path.dirname(here))
+    return f"clone at {clone} has a linked worktree at {worktree}", worktree
+
+
+def _is_worktree_gitdir(dirpath: str, name: str) -> bool:
+    return name == "gitdir" and os.path.basename(os.path.dirname(dirpath)) == "worktrees"
+
+
 def _scan(candidate: Path) -> _Scan:
-    """Walk ``candidate`` without following symlinks: bytes on disk, newest file, worktree marker."""
+    """Walk ``candidate`` without following symlinks: bytes on disk, newest file, git links."""
     size = 0
     newest = candidate.lstat().st_mtime
     newest_file = ""
     seen_file = False
-    worktree: str | None = None
+    link: tuple[str, str] | None = None
+    candidate_real = os.path.realpath(candidate)
     errors: list[OSError] = []
     for dirpath, dirnames, filenames in os.walk(candidate, onerror=errors.append):
         for name in dirnames + filenames:
@@ -199,12 +262,12 @@ def _scan(candidate: Path) -> _Scan:
             size += info.st_blocks * 512
             if not stat.S_ISREG(info.st_mode):
                 continue
-            if name == ".git" and worktree is None:
-                worktree = os.path.relpath(dirpath, candidate)
+            if link is None and (name == ".git" or _is_worktree_gitdir(dirpath, name)):
+                link = _git_link(path, name, candidate_real)
             if not seen_file or info.st_mtime > newest:
                 newest, newest_file, seen_file = info.st_mtime, os.path.relpath(path, candidate), True
     unreadable = f"{errors[0].filename}: {errors[0].strerror}" if errors else None
-    return _Scan(size, newest, newest_file, worktree, unreadable)
+    return _Scan(size, newest, newest_file, link, unreadable)
 
 
 def _strip_deleted(target: str) -> str:
@@ -352,7 +415,25 @@ def run_janitor(
             f"FAILED - the liveness scan is blind; nothing was deleted ({len(holders.blind)})",
             tuple(holders.blind),
         )
-    return _sweep(config, holders, now, disk())
+    return _sweep(config, holders, now, disk(), _recheck(config.proc, root, self_pid, uid))
+
+
+def _recheck(proc: Path, root: str, self_pid: int, uid: int) -> Recheck:
+    """A fresh liveness read for one candidate, so a session resumed mid-sweep is never deleted."""
+
+    def recheck(candidate: Path) -> tuple[str, str] | None:
+        try:
+            current = _holders(proc, root, self_pid, uid)
+        except OSError as exc:
+            return UNREADABLE, f"liveness re-check could not read {proc}: {exc}"
+        if current.blind:
+            return UNREADABLE, f"liveness re-check blind: {current.blind[0]}"
+        pids = current.held.get((candidate.parent.name, candidate.name))
+        if pids:
+            return LIVE, "held at re-check by " + ", ".join(f"pid {pid}" for pid in sorted(pids))
+        return None
+
+    return recheck
 
 
 def _verdict(
@@ -364,10 +445,11 @@ def _verdict(
         return UNREADABLE, scan.unreadable
     if pids:
         return LIVE, "held by " + ", ".join(f"pid {pid}" for pid in sorted(pids))
-    if scan.worktree is not None:
+    if scan.link is not None:
+        what, worktree = scan.link
         return SKIPPED, (
-            f"registered worktree at {scan.worktree}; run its repo's "
-            f"scripts/dev/worktree_doctor.py teardown {candidate / scan.worktree}"
+            f"{what}; tear it down from its repo with "
+            f"scripts/dev/worktree_doctor.py teardown {worktree}"
         )
     if now - scan.newest < config.days * _DAY_SECONDS:
         return KEPT, f"newest {scan.newest_file or '(no files)'}"
@@ -375,12 +457,16 @@ def _verdict(
 
 
 def _judge(
-    candidate: Path, holders: _Holders, config: JanitorConfig, now: float
+    candidate: Path, holders: _Holders, config: JanitorConfig, now: float, recheck: Recheck
 ) -> tuple[str, int, str]:
     """Scan one candidate, delete it if ``config.apply`` and it is prunable: verdict, freed, row."""
     scan = _scan(candidate)
     verdict, note = _verdict(candidate, scan, holders, config, now)
     freed = scan.size if verdict == WOULD_PRUNE else 0
+    if verdict == PRUNED:
+        kept = recheck(candidate)
+        if kept is not None:
+            verdict, note = kept
     if verdict == PRUNED:
         errors = _remove(candidate)
         freed = scan.size - _remaining(candidate)
@@ -392,14 +478,14 @@ def _judge(
 
 
 def _sweep(
-    config: JanitorConfig, holders: _Holders, now: float, disk: DiskStats
+    config: JanitorConfig, holders: _Holders, now: float, disk: DiskStats, recheck: Recheck
 ) -> JanitorOutcome:
     candidates, other = _candidates(config.root)
     rows: list[str] = []
     counts: dict[str, int] = {}
     freed = 0
     for candidate in candidates:
-        verdict, size, row = _judge(candidate, holders, config, now)
+        verdict, size, row = _judge(candidate, holders, config, now, recheck)
         counts[verdict] = counts.get(verdict, 0) + 1
         freed += size
         rows.append(row)

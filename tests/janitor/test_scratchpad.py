@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -268,6 +269,55 @@ class TestLiveness:
         assert not old.exists()
         assert own.is_dir()
 
+    def test_a_session_that_resumes_after_the_scan_is_seen_before_the_delete(self, tmp_path):
+        root, proc = _root(tmp_path), _proc(tmp_path)
+        cand = _cand(root)
+
+        def _resume_then_measure() -> DiskStats:
+            # The disk probe runs after the first /proc read and before the
+            # sweep, so a process appearing here is one the first read missed.
+            _pid(proc, 110, fds=(cand / "tasks",))
+            return _no_disk()
+
+        outcome = run_janitor(
+            JanitorConfig(root=root, proc=proc, apply=True),
+            now=NOW,
+            self_pid=SELF_PID,
+            uid=os.getuid(),
+            disk=_resume_then_measure,
+        )
+        assert cand.is_dir()
+        row = _row(_render(outcome), U1)
+        assert "LIVE" in row
+        assert "re-check" in row
+        assert "pid 110" in row
+
+    def test_a_scan_that_goes_blind_before_the_delete_deletes_nothing(self, tmp_path):
+        root, proc = _root(tmp_path), _proc(tmp_path)
+        cand = _cand(root)
+        entries: list[Path] = []
+
+        def _blind_then_measure() -> DiskStats:
+            entry = _pid(proc, 111)
+            (entry / "fd").chmod(0o000)
+            entries.append(entry)
+            return _no_disk()
+
+        try:
+            outcome = run_janitor(
+                JanitorConfig(root=root, proc=proc, apply=True),
+                now=NOW,
+                self_pid=SELF_PID,
+                uid=os.getuid(),
+                disk=_blind_then_measure,
+            )
+        finally:
+            for entry in entries:
+                (entry / "fd").chmod(0o755)
+        assert outcome.exit_code == EXIT_FAILED
+        assert cand.is_dir()
+        assert "re-check blind" in _row(_render(outcome), U1)
+
     def test_a_missing_proc_root_is_could_not_look(self, tmp_path):
         root = _root(tmp_path)
         cand = _cand(root)
@@ -353,26 +403,112 @@ class TestCandidates:
 # --- registered worktrees ---------------------------------------------------------
 
 
-class TestWorktreeMarker:
-    def test_a_git_file_three_levels_deep_skips_the_candidate(self, tmp_path):
+def _age_tree(tree: Path, age_days: float) -> None:
+    """Backdate every file and directory under ``tree``, links included, to ``age_days``."""
+    for path in [*tree.rglob("*"), tree]:
+        _age_dir(path, age_days)
+
+
+def _git(*args: str) -> None:
+    subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "init.defaultBranch=main", *args],
+        check=True,
+        capture_output=True,
+    )
+
+
+def _clone_with_worktree(clone: Path, worktree: Path) -> None:
+    """A real repository at ``clone`` with a linked worktree at ``worktree`` holding a commit."""
+    _git("init", "-q", str(clone))
+    _git("-C", str(clone), "commit", "-q", "--allow-empty", "-m", "base")
+    _git("-C", str(clone), "worktree", "add", "-q", "-b", "feat", str(worktree))
+    (worktree / "work.txt").write_text("unpushed")
+    _git("-C", str(worktree), "add", "work.txt")
+    _git("-C", str(worktree), "commit", "-q", "-m", "unpushed work")
+
+
+class TestGitLinks:
+    def test_a_git_file_naming_a_live_repo_outside_skips_the_candidate(self, tmp_path):
         root, proc = _root(tmp_path), _proc(tmp_path)
         cand = _cand(root)
-        _touch(cand / "scratchpad" / "wt" / "child" / ".git", 40, b"gitdir: /x/.git/worktrees/c\n")
+        registry = tmp_path / "repo" / ".git" / "worktrees" / "child"
+        registry.mkdir(parents=True)
+        _touch(cand / "scratchpad" / "wt" / "child" / ".git", 40, f"gitdir: {registry}\n".encode())
         outcome = _run(root, proc, apply=True)
         assert outcome.exit_code == EXIT_OK
         assert cand.is_dir()
         row = _row(_render(outcome), U1)
         assert "SKIPPED" in row
-        assert "worktree_doctor.py teardown" in row
-        assert "scratchpad/wt/child" in row
+        assert f"worktree_doctor.py teardown {cand / 'scratchpad' / 'wt' / 'child'}" in row
 
-    def test_a_git_directory_is_an_ordinary_clone_and_is_pruned(self, tmp_path):
+    def test_a_git_file_whose_repo_is_gone_ties_nothing_and_is_pruned(self, tmp_path):
+        root, proc = _root(tmp_path), _proc(tmp_path)
+        cand = _cand(root)
+        gone = tmp_path / "repo" / ".git" / "worktrees" / "child"
+        _touch(cand / "scratchpad" / "wt" / "child" / ".git", 40, f"gitdir: {gone}\n".encode())
+        _run(root, proc, apply=True)
+        assert not cand.exists()
+
+    def test_a_git_file_naming_a_repo_in_the_same_candidate_is_pruned(self, tmp_path):
+        root, proc = _root(tmp_path), _proc(tmp_path)
+        cand = _cand(root)
+        _touch(cand / "scratchpad" / "main" / ".git" / "worktrees" / "child" / "HEAD", 40)
+        _touch(
+            cand / "scratchpad" / "child" / ".git", 40, b"gitdir: ../main/.git/worktrees/child\n"
+        )
+        _run(root, proc, apply=True)
+        assert not cand.exists()
+
+    def test_an_unparseable_git_file_keeps_the_candidate(self, tmp_path):
+        root, proc = _root(tmp_path), _proc(tmp_path)
+        cand = _cand(root)
+        _touch(cand / "scratchpad" / "odd" / ".git", 40, b"not a link\n")
+        outcome = _run(root, proc, apply=True)
+        assert cand.is_dir()
+        assert "SKIPPED" in _row(_render(outcome), U1)
+
+    def test_a_git_directory_with_no_linked_worktree_is_pruned(self, tmp_path):
         root, proc = _root(tmp_path), _proc(tmp_path)
         cand = _cand(root)
         _touch(cand / "scratchpad" / "clone" / ".git" / "HEAD", 40)
         outcome = _run(root, proc, apply=True)
         assert not cand.exists()
         assert "PRUNED" in _row(_render(outcome), U1)
+
+    def test_a_clone_whose_linked_worktree_lives_outside_is_kept(self, tmp_path):
+        root, proc = _root(tmp_path), _proc(tmp_path)
+        cand = _cand(root)
+        outside = tmp_path / "outside"
+        _clone_with_worktree(cand / "scratchpad" / "clone", outside)
+        _age_tree(cand, 30)
+        outcome = _run(root, proc, apply=True)
+        assert outcome.exit_code == EXIT_OK
+        assert cand.is_dir()
+        row = _row(_render(outcome), U1)
+        assert "SKIPPED" in row
+        assert f"linked worktree at {outside}" in row
+        log = subprocess.run(
+            ["git", "-C", str(outside), "log", "--format=%s", "-1"], capture_output=True, text=True
+        )
+        assert log.stdout.strip() == "unpushed work"
+
+    def test_a_clone_and_its_worktree_both_inside_go_together(self, tmp_path):
+        root, proc = _root(tmp_path), _proc(tmp_path)
+        cand = _cand(root)
+        _clone_with_worktree(cand / "scratchpad" / "clone", cand / "scratchpad" / "wt")
+        _age_tree(cand, 30)
+        _run(root, proc, apply=True)
+        assert not cand.exists()
+
+    def test_a_clone_whose_outside_worktree_was_removed_is_pruned(self, tmp_path):
+        root, proc = _root(tmp_path), _proc(tmp_path)
+        cand = _cand(root)
+        outside = tmp_path / "outside"
+        _clone_with_worktree(cand / "scratchpad" / "clone", outside)
+        shutil.rmtree(outside)
+        _age_tree(cand, 30)
+        _run(root, proc, apply=True)
+        assert not cand.exists()
 
 
 # --- dry run, apply, failure ----------------------------------------------------

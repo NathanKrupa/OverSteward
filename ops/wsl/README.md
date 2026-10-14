@@ -211,14 +211,20 @@ deletes a `<slug>/<uuid>/` dir only when **all** of these hold:
 - its newest regular file is at least 7 days old (`--days`; the dir's own mtime
   is not its age, because a clone inside a scratchpad gains packs without its
   top directory changing);
-- no process but the janitor has its cwd, executable or an open file inside it
-  (read from `/proc/<pid>`; on 2026-10-14 every running session held its own
-  `<uuid>/tasks` open);
-- it holds no `.git` **file** at any depth. That is a git worktree (or a
-  submodule checkout) registered with some other repo: the row reads `SKIPPED`
-  and names the `worktree_doctor.py teardown` to run from the owning repo,
-  because deleting it would leave that repo a dangling registration. A `.git`
-  directory is an ordinary clone and is pruned.
+- no process it can inspect has its cwd, executable or an open file inside it
+  (read from `/proc/<pid>` before the sweep and again just before each delete,
+  so a session resumed mid-sweep is kept; on 2026-10-14 every running session
+  held its own `<uuid>/tasks` open). It inspects every process of this uid but
+  itself and the non-dumpable ones it names; it cannot see other uids' processes
+  (root daemons, `sudo`) or Windows-side access over 9p;
+- it is not tied by git to a live checkout outside it. A `.git` **file** whose
+  `gitdir:` names an existing repository elsewhere is a worktree or submodule
+  checkout registered there; a `worktrees/<name>/gitdir` file (in a clone's
+  `.git`, or a bare repository) naming an existing worktree elsewhere means that
+  worktree's commits live only in this clone. Either reads `SKIPPED` and names
+  the `worktree_doctor.py teardown` to run from the owning repo. A link whose far
+  end is gone, or lies in the same dir, ties nothing and does not keep it; a link
+  file it cannot parse does. A clone with no outside worktree is pruned.
 
 It refuses, and deletes nothing, when it cannot see:
 
@@ -226,8 +232,9 @@ It refuses, and deletes nothing, when it cannot see:
   holding nothing under the root (the scan is blind), exits **1**. A
   non-dumpable process, whose `fd` directory the kernel hands to root, is named
   on the `not inspected` line instead;
-- a dir it cannot list is `UNREADABLE`, kept, and exits **1**; a delete that
-  stops partway is `PARTIAL` and exits **1**;
+- a dir it cannot list is `UNREADABLE`, kept, and exits **1**, as is a dir
+  whose pre-delete `/proc` re-check went blind; a delete that stops partway is
+  `PARTIAL` and exits **1**;
 - a root that is missing, not a directory or a symlink, or `--days` below 1,
   exits **2**.
 
