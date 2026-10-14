@@ -209,8 +209,8 @@ daily at 02:30 through `scratchpad-janitor.timer` (`Persistent=true`) and
 deletes a `<slug>/<uuid>/` dir only when **all** of these hold:
 
 - its newest regular file is at least 7 days old (`--days`; the dir's own mtime
-  is not its age, because a clone inside a scratchpad gains packs without its
-  top directory changing);
+  is not its age, because a file written two levels down does not change its
+  top directory's mtime);
 - no process it can inspect has its cwd, executable, an open file or a mapped
   file inside it
   (read from `/proc/<pid>` before the sweep and again just before each delete,
@@ -219,21 +219,17 @@ deletes a `<slug>/<uuid>/` dir only when **all** of these hold:
   itself and the non-dumpable ones it names; it cannot see other uids' processes
   (root daemons, `sudo`), other WSL distros' (Docker Desktop's containers) or
   Windows-side access over 9p;
-- it is not tied by git to a live checkout outside it. It reads every trace git
-  leaves on disk: a `.git` **file** whose `gitdir:` names an existing
-  repository elsewhere (a worktree or submodule checkout registered there); a
-  `worktrees/<name>/gitdir` file naming an existing worktree elsewhere (that
-  worktree's commits live only in this clone); a repository whose
-  `core.worktree` names an existing checkout elsewhere; and a non-bare
-  repository not named `.git` (a `--separate-git-dir` repository, which records
-  nothing about its checkout) unless a `.git` file in the same dir names it.
-  Each reads `SKIPPED` with the remedy (for a worktree, the
-  `worktree_doctor.py teardown` to run from the owning repo). A link whose far
-  end is gone, or lies in the same dir, ties nothing and does not keep it; a
-  link file or config it cannot parse does. A clone with no outside checkout is
-  pruned. Two ties leave no trace inside the dir and are not seen: a repository
-  used only through `GIT_DIR`/`GIT_WORK_TREE`, and an outside repository
-  borrowing its objects through `objects/info/alternates`.
+- it holds no git repository. Walking it without following symlinks, any entry
+  named `.git` (directory, file or symlink) or any directory holding `HEAD`
+  beside `objects/` and `refs/` (a bare or `--separate-git-dir` repository,
+  whatever its name) keeps the whole dir as `SKIPPED`, and its row names the
+  first marker found: "holds a git repository; remove it by hand or through
+  worktree_doctor if it is a registered worktree". The janitor does not try to
+  judge whether the repository is tied to a checkout outside the dir: git can
+  make that tie without leaving any trace inside it (a `--separate-git-dir`
+  repository records nothing about its checkout), so any repository is left
+  for a person to remove. The cost is disk: in the 2026-10-14 dry run, 26 dirs
+  past the age threshold were skipped this way, holding 3.7 GB.
 
 It refuses, and deletes nothing, when it cannot see:
 

@@ -494,6 +494,25 @@ class TestGitRepositories:
             _render(outcome), U1
         )
 
+    def test_the_skip_names_the_first_marker_in_sorted_order(self, tmp_path):
+        root, proc = _root(tmp_path), _proc(tmp_path)
+        cand = _cand(root)
+        first = cand / "scratchpad" / "a" / ".git"
+        last = cand / "scratchpad" / "b" / ".git"
+        first.mkdir(parents=True)
+        last.mkdir(parents=True)
+        _age_tree(cand, 30)
+        row = _row(_render(_run(root, proc)), U1)
+        assert f"{first} holds a git repository" in row
+        assert str(last) not in row
+
+    def test_a_recent_dir_holding_git_reads_skipped_not_kept(self, tmp_path):
+        root, proc = _root(tmp_path), _proc(tmp_path)
+        cand = _cand(root, age_days=1)
+        marker = cand / "scratchpad" / "clone" / ".git"
+        marker.mkdir(parents=True)
+        _skipped_for(_run(root, proc), marker)
+
     def test_a_git_file_skips_the_candidate(self, tmp_path):
         root, proc = _root(tmp_path), _proc(tmp_path)
         cand = _cand(root)
