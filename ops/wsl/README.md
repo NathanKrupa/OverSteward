@@ -23,12 +23,12 @@ Scheduler can run them even when WSL itself is broken.
 
 | Script | What it does | Who runs it |
 |---|---|---|
-| `Test-WslIntegrity.ps1` | The gate: `system.vhd` + `modules.vhd` present/non-empty and `wsl -l -v` responds. Exit 0/1. Read-only, safe to run anytime. | auto (logon task) + you |
+| `Test-WslIntegrity.ps1` | The gate and logon canary: `system.vhd` + `modules.vhd` present/non-empty, `wsl -l -v` responds, the C: mirror of `restic.last-ok` in `-StateDir` at most 48 h old (`RESTIC:`), and the newest `<distro>_YYYY-MM-DD.tar` in `-BackupDest` non-empty and at most 45 days old (`EXPORT:`). Reads only C: and E:, so it alerts with the distro dead. `-PlatformOnly` (used by `Update-WslSafely.ps1`) skips the backup checks. Exit 0/1. Read-only, safe to run anytime. | auto (logon task, 30 min after logon) + you |
 | `Update-WslSafely.ps1` | Run **instead of** `wsl --update`: snapshot → update → gate → auto `--rollback` on failure. | you, monthly |
 | `Backup-Wsl.ps1` | Dated `wsl --export` to `E:\WSLBackups`, keep newest 1 (~131 GB). Exports only when due (last success 28+ days ago, else exit 0 at once), and asks `scripts/backup_ready.py` first, exporting only when the distro is idle; busy or could-not-look logs the blocker to `backup.log` and exits 3. Never runs over a working Claude session, a detached GrantSpider run, an estate job or a container. A FAILED export, or a skip 35+ days overdue, pops an alert dialog once a day. | auto (nightly task) + you |
 | `Set-WslUpdatePolicy.ps1` | Reports update-control state; `-Apply` (elevated) disables Store auto-download. Best-effort. | you, once |
 | `install-restic.sh`, `home-backup.{service,timer}` | Linux side: install the pinned restic binary, and the systemd `--user` timer for the daily `/home/natha` backup. See below. | you, once |
-| `Install-WslResilience.ps1` | Deploys the scripts to `%LOCALAPPDATA%\WslResilience` and registers the nightly-backup + logon-integrity tasks (and removes the retired `'WSL Weekly Backup'` task). | you, once; again after any script change |
+| `Install-WslResilience.ps1` | Deploys the scripts to `%LOCALAPPDATA%\WslResilience` and registers the nightly-backup + logon-integrity tasks (and removes the retired `'WSL Weekly Backup'` task). The logon task waits 30 minutes, so `home-backup.timer`'s catch-up runs first, and its dialog shows the gate's own output. | you, once; again after any script change |
 
 ## Quick start (from Windows PowerShell, with WSL running so this path resolves)
 
@@ -53,8 +53,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\Backup-Wsl.ps1
 ```
 
 From then on: a full export happens about every 28 days, retried nightly
-until one succeeds; the integrity gate alerts at logon if a future update
-breaks the platform; and you update monthly via `Update-WslSafely.ps1`.
+until one succeeds; the integrity gate alerts after logon if a future update
+breaks the platform or either backup falls behind; and you update monthly via
+`Update-WslSafely.ps1`.
 
 ## The full export: due every 28 days, skip if busy, alert if it falls behind
 
@@ -184,6 +185,13 @@ a date other than the newest archive's. `Backup-Wsl.ps1` writes that marker on
 each success, but an archive made by an older installed copy of the script has
 none: the marker appears with the next export that succeeds after
 `Install-WslResilience.ps1` has deployed the current script.
+
+The logon canary reads the same marker and archives from Windows, so a dead
+distro still alerts: `Test-WslIntegrity.ps1` fails on the C: mirror over 48 h
+(absent, unparseable or future-dated too) and on the newest export over 45
+days, zero bytes, or E: unreachable. The thresholds are the sweep's,
+pinned equal by `tests/backup/test_test_wsl_integrity_ps1.py`. Free space on
+E: is the sweep's alone.
 
 Exit codes: **0** measured, RED rows included; **1** could not read (E: not
 mounted, restic or systemctl exited non-zero, unparseable output, or the sweep

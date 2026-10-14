@@ -41,7 +41,9 @@ wsl --version
 ```
 
 Either path `False` ⇒ confirmed #40616-class. (`ops/wsl/Test-WslIntegrity.ps1`
-automates this and exits non-zero when broken.)
+automates this and exits non-zero when broken. It also fails when either backup
+is behind, each problem named `RESTIC:` or `EXPORT:`; `-PlatformOnly` checks
+only the VHDs and WSL.)
 
 ## 3. Recover — three paths, fastest first
 
@@ -59,18 +61,70 @@ Download the matching WSL release MSI from
 the installer → **Show more options** → **Repair**. Re-run the diagnosis.
 
 **Path C — Reinstall + restore from backup (if A and B fail).**
-This is why we keep backups. Your data is in `ext4.vhdx` and your latest export
-is on `E:\WSLBackups\`.
-```powershell
-# 1. Repair/reinstall the WSL app (uninstall the WSL app, reboot, reinstall from the MSI above).
-# 2. Confirm the platform is healthy:
-wsl --status
-# 3. Re-import your data:
-wsl --import Ubuntu-24.04 "$env:LOCALAPPDATA\WSL\Ubuntu-24.04" "E:\WSLBackups\Ubuntu-24.04_<latest-date>.tar"
-wsl -d Ubuntu-24.04
-```
-Worst case with a current backup: minutes, not hours, and the only loss is
-changes since the last export.
+This is why we keep backups: a full export on `E:\WSLBackups\` (the OS, its
+packages and `/home/natha` as of that day) and the daily restic repository at
+`E:\WSLBackups\restic` (`/home/natha` as of the last verified backup). Your data
+may also still be in the old `ext4.vhdx`: `wsl --unregister` deletes it, so copy
+it aside before unregistering anything.
+
+1. Repair or reinstall the WSL app (uninstall it, reboot, reinstall from the
+   MSI above), then confirm the platform is healthy:
+   ```powershell
+   wsl --status
+   ```
+2. Get the restic key. It is
+   `C:\Users\natha\AppData\Local\WslResilience\restic.key`; if C: was
+   rebuilt it is gone, and the **copy in Nathan's password manager** is the
+   only way back into the repository. Write that copy to the same path, as
+   one line, before restoring.
+3. **If any `Ubuntu-24.04_YYYY-MM-DD.tar` is on E:, import the newest one,
+   whatever its age.** It carries the OS and its packages; its age only sets
+   how much the restic restore has to bring back.
+   ```powershell
+   wsl --import Ubuntu-24.04 "$env:LOCALAPPDATA\WSL\Ubuntu-24.04" "E:\WSLBackups\Ubuntu-24.04_<newest-date>.tar"
+   wsl -d Ubuntu-24.04
+   ```
+   Then, inside the imported distro (the archive's `/etc/wsl.conf` makes
+   `natha` the default user; an archive older than the restic install has no
+   `~/.local/bin/restic`, so install it first as in step 4):
+   ```bash
+   ~/.local/bin/restic restore latest --repo /mnt/e/WSLBackups/restic \
+       --password-file /mnt/c/Users/natha/AppData/Local/WslResilience/restic.key \
+       --target / --include /home/natha
+   ```
+   The restore overwrites what the archive holds with the newer snapshot; it
+   does not delete files the snapshot lacks.
+4. **If there is no archive**, start from a fresh distro: `wsl --install -d
+   Ubuntu-24.04`, and create the user `natha` when it asks. Inside it, install
+   the pinned restic from the public repo (the checkout is not back yet), then
+   restore `/home/natha` with the command in step 3:
+   ```bash
+   curl -fsSLO https://raw.githubusercontent.com/NathanKrupa/OverSteward/master/ops/wsl/install-restic.sh
+   bash install-restic.sh                      # pinned, sha256-checked -> ~/.local/bin/restic
+   ```
+   The fresh distro lacks the old one's apt packages and `/etc` (Docker, system
+   Python builds, `/etc/wsl.conf`): reinstall what the work needs. Then
+   regenerate the trees the backup excludes: each repo's `.venv`
+   (`uv sync --extra dev`) and `node_modules`; `~/.cache`, `~/.npm`,
+   `~/.vscode-server` and `~/.ollama` refill as their tools run (re-pull Ollama
+   models); `~/grantspider/data/irs_cache` refills as GrantSpider fetches.
+5. **Both paths end the same way**, in the restored distro and then on Windows:
+   ```bash
+   cd /home/natha/OverSteward
+   systemctl --user daemon-reload
+   systemctl --user enable --now home-backup.timer
+   .venv/bin/python scripts/backup_home.py       # a verified backup now; expect exit 0
+   .venv/bin/python scripts/backup_health.py     # expect exit 0
+   ```
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File .\Install-WslResilience.ps1   # from ops\wsl
+   ```
+   `backup_health.py` exits 0 whenever it could measure, so read its rows too:
+   every one should be OK. Without an archive the export row stays RED until
+   `Backup-Wsl.ps1` has run one.
+
+Worst case with current backups: under an hour, and the only loss is changes
+since the last verified restic backup, at most a day.
 
 ---
 
@@ -79,7 +133,7 @@ changes since the last export.
 You **cannot** fully stop WSL from updating itself
 ([#10799](https://github.com/microsoft/WSL/issues/10799),
 [#12675](https://github.com/microsoft/WSL/discussions/12675)), and on Windows 11
-Home there is no `gpedit`. So the policy is layered, and the last two layers are
+Home there is no `gpedit`. So the policy is layered, and the last three layers are
 the ones that actually save you:
 
 1. **Reduce silent updates (best-effort).** `Set-WslUpdatePolicy.ps1` documents
@@ -88,9 +142,10 @@ the ones that actually save you:
 2. **Update deliberately, never bare.** Run `Update-WslSafely.ps1` instead of
    `wsl --update` — it verifies integrity and auto-rolls-back on failure. Do it
    in a window where you can afford recovery (not before something time-critical).
-3. **Integrity gate.** `Test-WslIntegrity.ps1` runs at every logon (via the
-   scheduled task) and alerts immediately if an update broke the platform —
-   so you learn at logon, not mid-task.
+3. **Integrity gate.** `Test-WslIntegrity.ps1` runs 30 minutes after every
+   logon (via the scheduled task) and alerts if an update broke the platform
+   or a backup is behind — so you learn at logon, not mid-task, and not when
+   you need the backup.
 4. **Routine backups.** `Backup-Wsl.ps1` exports every 28 days to `E:\WSLBackups`
    (separate physical drive from C:), keeping the newest 1. A wipe becomes a
    `wsl --import`. The export does not run over the work it can see: it first asks
@@ -105,6 +160,19 @@ the ones that actually save you:
    `%LOCALAPPDATA%\WslResilience\backup.log` and exits 3 with nothing exported
    or pruned. Work the probes cannot see - an arbitrary `nohup` or `tmux`
    job - reads as idle and would be killed by the export.
+5. **Backup checks** — two readers of the same two facts, so one of them works
+   whatever is down:
+   - **The health sweep**, `scripts/backup_health.py`, the sixth session-start
+     sweep, inside the distro: the restic repository's latest snapshot
+     (RED over 48 h), the verified-restore marker `restic.last-ok` and its C:
+     mirror, the newest export (RED over 45 days), and free space on E:
+     against the next export. See
+     [the health sweep](../../ops/wsl/README.md#the-health-sweep-are-both-backups-current).
+   - **The logon canary**, `Test-WslIntegrity.ps1` from the logon task, on
+     Windows, so it alerts with the distro dead: the C: mirror of
+     `restic.last-ok` (`RESTIC:`, over 48 h) and the newest
+     `Ubuntu-24.04_YYYY-MM-DD.tar` on E: (`EXPORT:`, over 45 days, zero bytes,
+     or E: unreachable). Its thresholds equal the sweep's, pinned by a test.
 
 **Cadence & retention defaults:** a full export whenever the last success
 (`export.last-ok`) is 28 days old or more. The task runs nightly at 01:17,
@@ -120,7 +188,7 @@ does that, taken with the distro running at 04:00 (`home-backup.timer`) into
 `/mnt/e/WSLBackups/restic`, each success stamping
 `~/.local/state/oversteward/backup/restic.last-ok` - see
 [the daily home backup](../../ops/wsl/README.md#the-daily-home-backup-restic-with-the-distro-running).
-A health sweep over the backups is OS#583. Docker Desktop volumes live in the `docker-desktop` distro and
+Layer 5 checks both backups. Docker Desktop volumes live in the `docker-desktop` distro and
 are **not** in this export.
 
 **Test the backup quarterly** — a backup never restored is not a backup:
@@ -160,7 +228,8 @@ WSL app updates can silently break the Linux platform by removing
 Because the update cannot be reliably prevented on Windows 11 Home, this process
 is defense-in-depth: reduce silent updates where possible, **never** run a bare
 `wsl --update` (use `Update-WslSafely.ps1`, which verifies and auto-rolls-back),
-catch breakage at logon with an integrity gate, and keep a 28-day
+catch breakage and stale backups at logon with an integrity gate, back up
+`/home/natha` daily with restic, and keep a 28-day
 `wsl --export` on a separate drive, taken only when the distro is idle, so any
-wipe is a few-minute `wsl --import` instead of a four-hour crisis. Scripts live in `ops/wsl/`; install with
+wipe is a `wsl --import` and a `restic restore` instead of a four-hour crisis. Scripts live in `ops/wsl/`; install with
 `Install-WslResilience.ps1`.
