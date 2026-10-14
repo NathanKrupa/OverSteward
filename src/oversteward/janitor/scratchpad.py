@@ -1,5 +1,5 @@
 # ABOUTME: MIDDLE service that prunes dead sessions' scratchpad dirs under ~/.claude/tmp/claude-<uid>/.
-# ABOUTME: A dir goes only when every file in it is old and no process holds anything inside it.
+# ABOUTME: A dir goes only when its files are old, no process holds it, and it holds no git repo.
 
 """Reclaim the disk that finished Claude Code sessions leave in ``~/.claude/tmp``.
 
@@ -10,8 +10,8 @@ under the root (loose files, non-uuid dirs, symlinks) is counted and left alone.
 A candidate is pruned only when all of these hold:
 
 * **Old** — its newest regular file (``os.walk``, symlinks never followed) is at
-  least ``days`` old. The directory's own mtime is not the age: a clone inside
-  a scratchpad receives new packs without its top directory changing. A
+  least ``days`` old. The directory's own mtime is not the age: a file written
+  two levels down does not change its top directory's mtime. A
   candidate holding no regular file at all takes its own mtime.
 * **Unheld** — no process the janitor can inspect has its cwd, its executable,
   an open file descriptor or a mapped file inside it, read from
@@ -20,30 +20,15 @@ A candidate is pruned only when all of these hold:
   names as not inspected. It cannot see processes of other uids (root daemons,
   ``sudo``), processes in other WSL distros (Docker Desktop's containers), or
   Windows-side access over 9p.
-* **Not tied by git to a live checkout outside it** — git ties a repository to
-  its checkouts, and either end can lie inside a candidate. The janitor reads
-  every trace git leaves on disk:
-
-  - a ``.git`` *file* (a worktree or submodule checkout) whose ``gitdir:``
-    names an existing repository outside the candidate. Deleting it would leave
-    that repository a dangling registration;
-  - a ``worktrees/<name>/gitdir`` file (inside a clone's ``.git`` or a bare
-    repository) naming an existing worktree outside the candidate. That
-    worktree's commits live only in this clone, so deleting it destroys them;
-  - a repository directory (``HEAD``, ``config`` and ``objects/``) whose
-    ``core.worktree`` names an existing checkout outside the candidate;
-  - a non-bare repository directory not named ``.git`` and without
-    ``core.worktree`` — a ``--separate-git-dir`` repository, whose checkout's
-    ``.git`` file points at it while it records nothing back — unless a
-    ``.git`` file inside the candidate names it.
-
-  Any of these keeps the candidate (SKIPPED). A link whose far end no longer
-  exists, or lies inside the same candidate, ties nothing outside and does not;
-  a link file or config that cannot be read or parsed keeps the candidate too.
-  Two ties leave no trace inside the candidate and are not seen: a repository
-  driven only through ``GIT_DIR``/``GIT_WORK_TREE`` with a checkout elsewhere,
-  and an outside repository borrowing this one's objects through
-  ``objects/info/alternates``.
+* **Free of git** — nothing inside it, walked without following symlinks, is
+  an entry named ``.git`` (directory, file or symlink) or a directory holding
+  ``HEAD``, ``objects/`` and ``refs/`` (a bare or ``--separate-git-dir``
+  repository, whatever its name). Git can tie a repository inside to a
+  checkout outside without leaving any trace inside (``--separate-git-dir``
+  writes nothing back), so the
+  janitor never judges those ties: a candidate holding any repository is
+  SKIPPED, naming the first marker, for a person to remove by hand (or through
+  ``worktree_doctor.py`` when it is a registered worktree).
 * **Fully read** — every directory inside it could be listed; an unreadable one
   could hide a file written today.
 
@@ -137,8 +122,8 @@ class _Scan:
     size: int
     newest: float
     newest_file: str
-    #: What git ties between this dir and a live checkout outside it, and the remedy.
-    link: tuple[str, str] | None
+    #: The first git repository marker found inside, which keeps the dir.
+    git: str | None
     unreadable: str | None
 
 
@@ -208,146 +193,43 @@ def _candidates(root: Path) -> tuple[list[Path], int]:
     return found, other
 
 
-_READ_LIMIT = 65_536
-_TRUE = frozenset({"true", "yes", "on", "1"})
+_GIT_SKIP_REMEDY = (
+    "holds a git repository; remove it by hand or through worktree_doctor "
+    "if it is a registered worktree"
+)
 
 
-def _read_inside(path: str, candidate_real: str) -> str | None:
-    """The text of a file inside the candidate, or ``None`` if it lies outside or cannot be read."""
-    resolved = Path(path).resolve()
-    if not resolved.is_relative_to(candidate_real):
-        return None
-    try:
-        with resolved.open(encoding="utf-8", errors="replace") as handle:
-            return handle.read(_READ_LIMIT)
-    except OSError:
-        return None
+def _git_marker(dirpath: str, dirnames: list[str], filenames: list[str]) -> str | None:
+    """The first sign of a git repository in one walked directory, or ``None``.
 
-
-def _link_target(path: str, prefix: str, candidate_real: str) -> str | None:
-    """The absolute path a git link file names, a relative one resolved from the file's directory.
-
-    ``None`` when the file cannot be read or its first line is not ``<prefix><path>``.
+    An entry named ``.git`` of any type (directory, file or symlink), or the
+    directory itself when it holds what git requires of a repository directory
+    (``is_git_directory``): a ``HEAD`` file beside ``objects/`` and ``refs/``.
+    That catches a bare or ``--separate-git-dir`` repository whatever its name.
     """
-    text = _read_inside(path, candidate_real)
-    first = text.strip().split("\n", 1)[0] if text else ""
-    target = first[len(prefix) :].strip() if first.startswith(prefix) else ""
-    return os.path.normpath(os.path.join(os.path.dirname(path), target)) if target else None
-
-
-def _outside(target: str, candidate_real: str) -> bool:
-    """True when ``target`` still exists and does not lie inside the candidate."""
-    if not os.path.lexists(target):
-        return False  # the far end is gone; nothing outside is tied to this dir
-    return not (os.path.realpath(target) + os.sep).startswith(candidate_real + os.sep)
-
-
-def _core_config(repo: str, candidate_real: str) -> dict[str, str] | None:
-    """The ``[core]`` keys of a repository's ``config``, lower-cased; ``None`` if unreadable."""
-    text = _read_inside(os.path.join(repo, "config"), candidate_real)
-    if text is None:
-        return None
-    section, core = "", {}
-    for raw in text.splitlines():
-        line = raw.strip()
-        if not line or line[0] in "#;":
-            continue
-        if line.startswith("["):
-            section = line.strip("[]").strip().lower()
-        elif section == "core" and "=" in line:
-            key, value = line.split("=", 1)
-            core[key.strip().lower()] = value.strip().strip('"')
-    return core
-
-
-def _teardown(what: str, worktree: str) -> tuple[str, str]:
-    return what, f"tear it down from its repo with scripts/dev/worktree_doctor.py teardown {worktree}"
-
-
-def _link_tie(path: str, kind: str, candidate_real: str) -> tuple[str, str] | None:
-    """What a ``.git`` file or a ``worktrees/<name>/gitdir`` file ties outside the candidate."""
-    here = os.path.dirname(path)
-    target = _link_target(path, "gitdir:" if kind == ".git" else "", candidate_real)
-    if target is None:
-        return f"unreadable git link file {path}", "read it, then decide by hand"
-    if not _outside(target, candidate_real):
-        return None
-    if kind == ".git":
-        return _teardown(f"checkout at {here} is registered with {target}", here)
-    clone, worktree = os.path.dirname(os.path.dirname(here)), os.path.dirname(target)
-    return _teardown(f"clone at {clone} has a linked worktree at {worktree}", worktree)
-
-
-def _repo_tie(repo: str, named: set[str], candidate_real: str) -> tuple[str, str] | None:
-    """What a repository directory inside the candidate ties to a checkout outside it.
-
-    ``named`` holds the repositories some ``.git`` file inside the candidate names.
-    """
-    core = _core_config(repo, candidate_real)
-    if core is None:
-        return f"unreadable git config in {repo}", "read it, then decide by hand"
-    if "worktree" in core:
-        checkout = os.path.normpath(os.path.join(repo, core["worktree"]))
-        if not _outside(checkout, candidate_real):
-            return None
-        return (
-            f"repository at {repo} has its checkout at {checkout}",
-            f"push or move the work in {checkout}, then delete {repo} by hand",
-        )
-    separate = os.path.basename(repo) != ".git" and core.get("bare", "").lower() not in _TRUE
-    if not separate or os.path.realpath(repo) in named:
-        return None
-    return (
-        f"repository at {repo} is a separate git dir no checkout inside this dir names",
-        f"find its checkout (its .git file names {repo}), push its work, then delete by hand",
-    )
-
-
-def _git_tie(
-    links: list[tuple[str, str]], repos: list[str], candidate_real: str
-) -> tuple[str, str] | None:
-    """The first thing git ties between the candidate and a live checkout outside it."""
-    for path, kind in links:
-        tie = _link_tie(path, kind, candidate_real)
-        if tie is not None:
-            return tie
-    named = set()
-    for path, kind in links:
-        target = _link_target(path, "gitdir:", candidate_real) if kind == ".git" else None
-        if target is not None:
-            named.add(os.path.realpath(target))
-    for repo in repos:
-        tie = _repo_tie(repo, named, candidate_real)
-        if tie is not None:
-            return tie
-    return None
-
-
-def _link_kind(dirpath: str, name: str) -> str | None:
-    if name == ".git":
-        return ".git"
-    if name == "gitdir" and os.path.basename(os.path.dirname(dirpath)) == "worktrees":
-        return "gitdir"
+    if ".git" in dirnames or ".git" in filenames:
+        return os.path.join(dirpath, ".git")
+    if "HEAD" in filenames and {"objects", "refs"} <= set(dirnames):
+        return dirpath
     return None
 
 
 def _scan(candidate: Path) -> _Scan:
     """Walk ``candidate`` in sorted order without following symlinks.
 
-    Collects bytes on disk, the newest regular file, every git link file and
-    every repository directory (one holding ``HEAD``, ``config`` and ``objects/``).
+    Collects bytes on disk, the newest regular file and the first git
+    repository marker (:func:`_git_marker`).
     """
     size = 0
     newest = candidate.lstat().st_mtime
     newest_file = ""
     seen_file = False
-    links: list[tuple[str, str]] = []
-    repos: list[str] = []
+    git: str | None = None
     errors: list[OSError] = []
     for dirpath, dirnames, filenames in os.walk(candidate, onerror=errors.append):
         dirnames.sort()
-        if "objects" in dirnames and {"HEAD", "config"} <= set(filenames):
-            repos.append(dirpath)
+        if git is None:
+            git = _git_marker(dirpath, dirnames, filenames)
         for name in dirnames + sorted(filenames):
             path = os.path.join(dirpath, name)
             try:
@@ -358,14 +240,10 @@ def _scan(candidate: Path) -> _Scan:
             size += info.st_blocks * 512
             if not stat.S_ISREG(info.st_mode):
                 continue
-            kind = _link_kind(dirpath, name)
-            if kind is not None:
-                links.append((path, kind))
             if not seen_file or info.st_mtime > newest:
                 newest, newest_file, seen_file = info.st_mtime, os.path.relpath(path, candidate), True
     unreadable = f"{errors[0].filename}: {errors[0].strerror}" if errors else None
-    tie = _git_tie(links, repos, os.path.realpath(candidate))
-    return _Scan(size, newest, newest_file, tie, unreadable)
+    return _Scan(size, newest, newest_file, git, unreadable)
 
 
 def _strip_deleted(target: str) -> str:
@@ -385,12 +263,13 @@ def _mapped(entry: Path) -> list[str] | None:
     ``fd`` alone misses an interpreter running from a venv inside a scratchpad.
     ``None`` when the kernel refuses the read: a process of this uid holding a
     capability the reader lacks (``systemd --user`` holds ``CAP_WAKE_ALARM``)
-    keeps its ``maps`` even from its own user. A missing ``maps`` (the process
-    exited) is empty.
+    keeps its ``maps`` even from its own user. A process that exited is empty:
+    ``maps`` is missing, or (exited between the open and the read) the read
+    raises ``ProcessLookupError``.
     """
     try:
         text = (entry / "maps").read_text(encoding="utf-8", errors="replace")
-    except FileNotFoundError:
+    except (FileNotFoundError, ProcessLookupError):
         return []
     except PermissionError:
         return None
@@ -573,9 +452,8 @@ def _verdict(
         return UNREADABLE, scan.unreadable
     if pids:
         return LIVE, "held by " + ", ".join(f"pid {pid}" for pid in sorted(pids))
-    if scan.link is not None:
-        what, remedy = scan.link
-        return SKIPPED, f"{what}; {remedy}"
+    if scan.git is not None:
+        return SKIPPED, f"{scan.git} {_GIT_SKIP_REMEDY}"
     if now - scan.newest < config.days * _DAY_SECONDS:
         return KEPT, f"newest {scan.newest_file or '(no files)'}"
     return (PRUNED if config.apply else WOULD_PRUNE), ""

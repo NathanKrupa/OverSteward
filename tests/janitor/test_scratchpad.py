@@ -11,9 +11,9 @@ directory of symlinks and a ``comm`` file, which is exactly the shape the real
 
 from __future__ import annotations
 
+import errno
 import importlib.util
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -190,6 +190,28 @@ class TestLiveness:
         withheld = [line for line in text.splitlines() if "not inspected" in line]
         assert withheld and "pid 113 systemd (maps only)" in withheld[0]
 
+    def test_a_process_exiting_mid_read_of_its_maps_is_not_a_failure(
+        self, tmp_path, monkeypatch
+    ):
+        # The kernel answers a read of /proc/<pid>/maps opened before the exit
+        # with ESRCH (ProcessLookupError); that is an exit, not a blind scan.
+        root, proc = _root(tmp_path), _proc(tmp_path)
+        cand = _cand(root)
+        entry = _pid(proc, 114)
+        (entry / "maps").write_text("")
+        read_text = Path.read_text
+
+        def _exits_mid_read(self, *args, **kwargs):
+            if self == entry / "maps":
+                raise ProcessLookupError(errno.ESRCH, "No such process")
+            return read_text(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", _exits_mid_read)
+        outcome = _run(root, proc, apply=True)
+        assert outcome.exit_code == EXIT_OK, _render(outcome)
+        assert not cand.exists()
+        assert "PRUNED" in _row(_render(outcome), U1)
+
     def test_a_sibling_whose_name_extends_the_candidate_does_not_keep_it(self, tmp_path):
         root, proc = _root(tmp_path), _proc(tmp_path)
         cand = _cand(root)
@@ -365,7 +387,7 @@ class TestCandidates:
     def test_age_is_the_newest_file_not_the_directory(self, tmp_path):
         root, proc = _root(tmp_path), _proc(tmp_path)
         cand = _cand(root, age_days=30)
-        _touch(cand / "scratchpad" / "gs" / ".git" / "objects" / "pack" / "p.pack", 1)
+        _touch(cand / "scratchpad" / "gs" / "data" / "pack" / "p.pack", 1)
         for path in [cand, *(p for p in cand.rglob("*") if p.is_dir())]:
             _age_dir(path, 30)
         outcome = _run(root, proc, apply=True)
@@ -432,7 +454,7 @@ class TestCandidates:
         assert "UNREADABLE" in _row(_render(outcome), U1)
 
 
-# --- registered worktrees ---------------------------------------------------------
+# --- git repositories -------------------------------------------------------------
 
 
 def _age_tree(tree: Path, age_days: float) -> None:
@@ -449,203 +471,116 @@ def _git(*args: str) -> None:
     )
 
 
-def _clone_with_worktree(clone: Path, worktree: Path) -> None:
-    """A real repository at ``clone`` with a linked worktree at ``worktree`` holding a commit."""
-    _git("init", "-q", str(clone))
-    _git("-C", str(clone), "commit", "-q", "--allow-empty", "-m", "base")
-    _git("-C", str(clone), "worktree", "add", "-q", "-b", "feat", str(worktree))
-    (worktree / "work.txt").write_text("unpushed")
-    _git("-C", str(worktree), "add", "work.txt")
-    _git("-C", str(worktree), "commit", "-q", "-m", "unpushed work")
+def _skipped_for(outcome, marker: Path) -> None:
+    row = _row(_render(outcome), U1)
+    assert "SKIPPED" in row
+    assert f"{marker} holds a git repository" in row
 
 
-class TestGitLinks:
-    def test_a_git_file_naming_a_live_repo_outside_skips_the_candidate(self, tmp_path):
+class TestGitRepositories:
+    """Any git repository inside a candidate keeps it; the janitor never judges git's links."""
+
+    def test_a_git_directory_three_levels_down_skips_the_candidate(self, tmp_path):
         root, proc = _root(tmp_path), _proc(tmp_path)
         cand = _cand(root)
-        registry = tmp_path / "repo" / ".git" / "worktrees" / "child"
-        registry.mkdir(parents=True)
-        _touch(cand / "scratchpad" / "wt" / "child" / ".git", 40, f"gitdir: {registry}\n".encode())
-        outcome = _run(root, proc, apply=True)
-        assert outcome.exit_code == EXIT_OK
-        assert cand.is_dir()
-        row = _row(_render(outcome), U1)
-        assert "SKIPPED" in row
-        assert f"worktree_doctor.py teardown {cand / 'scratchpad' / 'wt' / 'child'}" in row
-
-    def test_a_git_file_whose_repo_is_gone_ties_nothing_and_is_pruned(self, tmp_path):
-        root, proc = _root(tmp_path), _proc(tmp_path)
-        cand = _cand(root)
-        gone = tmp_path / "repo" / ".git" / "worktrees" / "child"
-        _touch(cand / "scratchpad" / "wt" / "child" / ".git", 40, f"gitdir: {gone}\n".encode())
-        _run(root, proc, apply=True)
-        assert not cand.exists()
-
-    def test_a_git_file_naming_a_repo_in_the_same_candidate_is_pruned(self, tmp_path):
-        root, proc = _root(tmp_path), _proc(tmp_path)
-        cand = _cand(root)
-        _touch(cand / "scratchpad" / "main" / ".git" / "worktrees" / "child" / "HEAD", 40)
-        _touch(
-            cand / "scratchpad" / "child" / ".git", 40, b"gitdir: ../main/.git/worktrees/child\n"
-        )
-        _run(root, proc, apply=True)
-        assert not cand.exists()
-
-    def test_an_unparseable_git_file_keeps_the_candidate(self, tmp_path):
-        root, proc = _root(tmp_path), _proc(tmp_path)
-        cand = _cand(root)
-        _touch(cand / "scratchpad" / "odd" / ".git", 40, b"not a link\n")
-        outcome = _run(root, proc, apply=True)
-        assert cand.is_dir()
-        assert "SKIPPED" in _row(_render(outcome), U1)
-
-    def test_a_git_directory_with_no_linked_worktree_is_pruned(self, tmp_path):
-        root, proc = _root(tmp_path), _proc(tmp_path)
-        cand = _cand(root)
-        _touch(cand / "scratchpad" / "clone" / ".git" / "HEAD", 40)
-        outcome = _run(root, proc, apply=True)
-        assert not cand.exists()
-        assert "PRUNED" in _row(_render(outcome), U1)
-
-    def test_a_clone_whose_linked_worktree_lives_outside_is_kept(self, tmp_path):
-        root, proc = _root(tmp_path), _proc(tmp_path)
-        cand = _cand(root)
-        outside = tmp_path / "outside"
-        _clone_with_worktree(cand / "scratchpad" / "clone", outside)
+        marker = cand / "scratchpad" / "clone" / ".git"
+        marker.mkdir(parents=True)  # the name alone is the marker: no HEAD, objects, refs
         _age_tree(cand, 30)
         outcome = _run(root, proc, apply=True)
         assert outcome.exit_code == EXIT_OK
-        assert cand.is_dir()
-        row = _row(_render(outcome), U1)
-        assert "SKIPPED" in row
-        assert f"linked worktree at {outside}" in row
-        assert row.endswith(f"worktree_doctor.py teardown {outside}")
-        log = subprocess.run(
-            ["git", "-C", str(outside), "log", "--format=%s", "-1"], capture_output=True, text=True
+        assert marker.is_dir()
+        _skipped_for(outcome, marker)
+        assert "through worktree_doctor if it is a registered worktree" in _row(
+            _render(outcome), U1
         )
-        assert log.stdout.strip() == "unpushed work"
 
-    def test_a_clone_and_its_worktree_both_inside_go_together(self, tmp_path):
+    def test_a_git_file_skips_the_candidate(self, tmp_path):
         root, proc = _root(tmp_path), _proc(tmp_path)
         cand = _cand(root)
-        _clone_with_worktree(cand / "scratchpad" / "clone", cand / "scratchpad" / "wt")
-        _age_tree(cand, 30)
-        _run(root, proc, apply=True)
-        assert not cand.exists()
-
-    def test_a_clone_whose_outside_worktree_was_removed_is_pruned(self, tmp_path):
-        root, proc = _root(tmp_path), _proc(tmp_path)
-        cand = _cand(root)
-        outside = tmp_path / "outside"
-        _clone_with_worktree(cand / "scratchpad" / "clone", outside)
-        shutil.rmtree(outside)
-        _age_tree(cand, 30)
-        _run(root, proc, apply=True)
-        assert not cand.exists()
-
-    def test_a_relative_git_file_link_resolves_from_its_own_directory(self, tmp_path):
-        root, proc = _root(tmp_path), _proc(tmp_path)
-        cand = _cand(root)
-        registry = tmp_path / "repo" / ".git" / "worktrees" / "child"
-        registry.mkdir(parents=True)
-        link = cand / "scratchpad" / "wt" / "child" / ".git"
-        relative = os.path.relpath(registry, link.parent)
-        _touch(link, 40, f"gitdir: {relative}\n".encode())
+        marker = _touch(cand / "scratchpad" / "wt" / ".git", 40, b"gitdir: /nowhere\n")
         outcome = _run(root, proc, apply=True)
-        assert cand.is_dir()
-        assert "SKIPPED" in _row(_render(outcome), U1)
+        assert outcome.exit_code == EXIT_OK
+        assert marker.is_file()
+        _skipped_for(outcome, marker)
 
-    def test_an_outside_tie_after_an_inside_pair_is_still_found(self, tmp_path):
+    def test_a_git_symlink_skips_the_candidate_and_its_target_survives(self, tmp_path):
         root, proc = _root(tmp_path), _proc(tmp_path)
         cand = _cand(root)
-        pair = cand / "scratchpad" / "a-pair"
-        _clone_with_worktree(pair / "clone", pair / "wt")
-        outside = tmp_path / "outside"
-        _clone_with_worktree(cand / "scratchpad" / "z-clone", outside)
+        elsewhere = tmp_path / "elsewhere.git"
+        _touch(elsewhere / "HEAD", 40)
+        marker = cand / "scratchpad" / "wt" / ".git"
+        marker.parent.mkdir(parents=True)
+        marker.symlink_to(elsewhere)
         _age_tree(cand, 30)
         outcome = _run(root, proc, apply=True)
-        assert cand.is_dir()
-        assert f"linked worktree at {outside}" in _row(_render(outcome), U1)
+        assert marker.is_symlink()
+        assert (elsewhere / "HEAD").is_file()
+        _skipped_for(outcome, marker)
 
-
-class TestRepositories:
-    def test_a_separate_git_dir_whose_checkout_is_outside_is_kept(self, tmp_path):
+    def test_a_bare_repository_under_any_name_skips_the_candidate(self, tmp_path):
         root, proc = _root(tmp_path), _proc(tmp_path)
         cand = _cand(root)
+        repo = cand / "scratchpad" / "repo.git"
+        _git("init", "-q", "--bare", str(repo))
+        _age_tree(cand, 30)
+        outcome = _run(root, proc, apply=True)
+        assert outcome.exit_code == EXIT_OK
+        assert repo.is_dir()
+        _skipped_for(outcome, repo)
+
+    @pytest.mark.parametrize("name", [".git", "gd"])
+    def test_a_separate_git_dir_with_its_checkout_outside_skips_and_loses_nothing(
+        self, tmp_path, name
+    ):
+        root, proc = _root(tmp_path), _proc(tmp_path)
+        cand = _cand(root)
+        repo = cand / "scratchpad" / "foo" / name
+        repo.parent.mkdir(parents=True)
         outside = tmp_path / "outside"
-        _git("init", "-q", "--separate-git-dir", str(cand / "scratchpad" / "gd"), str(outside))
+        _git("init", "-q", "--separate-git-dir", str(repo), str(outside))
         (outside / "work.txt").write_text("unpushed")
         _git("-C", str(outside), "add", "work.txt")
         _git("-C", str(outside), "commit", "-q", "-m", "unpushed work")
         _age_tree(cand, 30)
         outcome = _run(root, proc, apply=True)
         assert outcome.exit_code == EXIT_OK
-        assert cand.is_dir()
-        assert "separate git dir" in _row(_render(outcome), U1)
+        _skipped_for(outcome, repo)
         log = subprocess.run(
             ["git", "-C", str(outside), "log", "--format=%s", "-1"], capture_output=True, text=True
         )
         assert log.stdout.strip() == "unpushed work"
 
-    def test_a_separate_git_dir_whose_checkout_is_inside_goes_with_it(self, tmp_path):
+    @pytest.mark.parametrize(
+        "present",
+        [("HEAD",), ("HEAD", "objects"), ("HEAD", "refs"), ("objects", "refs")],
+        ids=["head-only", "no-refs", "no-objects", "no-head"],
+    )
+    def test_a_dir_missing_part_of_a_git_dir_is_not_a_repository(self, tmp_path, present):
         root, proc = _root(tmp_path), _proc(tmp_path)
         cand = _cand(root)
-        inside = cand / "scratchpad" / "checkout"
-        _git("init", "-q", "--separate-git-dir", str(cand / "scratchpad" / "gd"), str(inside))
-        _age_tree(cand, 30)
-        _run(root, proc, apply=True)
-        assert not cand.exists()
-
-    def test_a_bare_repository_with_no_worktrees_is_pruned(self, tmp_path):
-        root, proc = _root(tmp_path), _proc(tmp_path)
-        cand = _cand(root)
-        _git("init", "-q", "--bare", str(cand / "scratchpad" / "mirror.git"))
-        _age_tree(cand, 30)
-        _run(root, proc, apply=True)
-        assert not cand.exists()
-
-    def test_a_core_worktree_outside_keeps_the_candidate(self, tmp_path):
-        root, proc = _root(tmp_path), _proc(tmp_path)
-        cand = _cand(root)
-        outside = tmp_path / "outside"
-        outside.mkdir()
-        repo = cand / "scratchpad" / "r"
-        _git("init", "-q", str(repo))
-        _git("-C", str(repo), "config", "core.worktree", str(outside))
-        _age_tree(cand, 30)
-        outcome = _run(root, proc, apply=True)
-        assert cand.is_dir()
-        assert f"has its checkout at {outside}" in _row(_render(outcome), U1)
-
-    def test_a_submodule_inside_its_superproject_goes_with_it(self, tmp_path):
-        root, proc = _root(tmp_path), _proc(tmp_path)
-        cand = _cand(root)
-        source = tmp_path / "subsource"
-        _git("init", "-q", str(source))
-        _git("-C", str(source), "commit", "-q", "--allow-empty", "-m", "sub")
-        top = cand / "scratchpad" / "top"
-        _git("init", "-q", str(top))
-        _git("-C", str(top), "-c", "protocol.file.allow=always", "submodule", "add", "-q",
-             str(source), "sub")
+        lookalike = cand / "scratchpad" / "lookalike"
+        for name in present:
+            if name == "HEAD":
+                _touch(lookalike / "HEAD", 40, b"ref: refs/heads/main\n")
+            else:
+                _touch(lookalike / name / "keep", 40)
         _age_tree(cand, 30)
         outcome = _run(root, proc, apply=True)
         assert outcome.exit_code == EXIT_OK
         assert not cand.exists()
+        assert "PRUNED" in _row(_render(outcome), U1)
 
-    def test_an_unreadable_repository_config_keeps_the_candidate(self, tmp_path):
+    def test_a_repository_behind_a_symlinked_dir_is_not_followed(self, tmp_path):
         root, proc = _root(tmp_path), _proc(tmp_path)
         cand = _cand(root)
-        gd = cand / "scratchpad" / "gd"
-        _touch(gd / "HEAD", 40, b"ref: refs/heads/main\n")
-        _touch(gd / "objects" / "info" / "packs", 40)
-        config = _touch(gd / "config", 40, b"[core]\n\tbare = false\n")
-        config.chmod(0o000)
-        try:
-            outcome = _run(root, proc, apply=True)
-        finally:
-            config.chmod(0o644)
-        assert cand.is_dir()
-        assert "unreadable git config" in _row(_render(outcome), U1)
+        outrepo = tmp_path / "outrepo"
+        _git("init", "-q", str(outrepo))
+        (cand / "scratchpad" / "link").symlink_to(outrepo)
+        _age_tree(cand, 30)
+        outcome = _run(root, proc, apply=True)
+        assert outcome.exit_code == EXIT_OK
+        assert not cand.exists()
+        assert (outrepo / ".git" / "HEAD").is_file()
 
 
 # --- dry run, apply, failure ----------------------------------------------------
