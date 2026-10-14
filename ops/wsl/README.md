@@ -217,14 +217,21 @@ deletes a `<slug>/<uuid>/` dir only when **all** of these hold:
   held its own `<uuid>/tasks` open). It inspects every process of this uid but
   itself and the non-dumpable ones it names; it cannot see other uids' processes
   (root daemons, `sudo`) or Windows-side access over 9p;
-- it is not tied by git to a live checkout outside it. A `.git` **file** whose
-  `gitdir:` names an existing repository elsewhere is a worktree or submodule
-  checkout registered there; a `worktrees/<name>/gitdir` file (in a clone's
-  `.git`, or a bare repository) naming an existing worktree elsewhere means that
-  worktree's commits live only in this clone. Either reads `SKIPPED` and names
-  the `worktree_doctor.py teardown` to run from the owning repo. A link whose far
-  end is gone, or lies in the same dir, ties nothing and does not keep it; a link
-  file it cannot parse does. A clone with no outside worktree is pruned.
+- it is not tied by git to a live checkout outside it. It reads every trace git
+  leaves on disk: a `.git` **file** whose `gitdir:` names an existing
+  repository elsewhere (a worktree or submodule checkout registered there); a
+  `worktrees/<name>/gitdir` file naming an existing worktree elsewhere (that
+  worktree's commits live only in this clone); a repository whose
+  `core.worktree` names an existing checkout elsewhere; and a non-bare
+  repository not named `.git` (a `--separate-git-dir` repository, which records
+  nothing about its checkout) unless a `.git` file in the same dir names it.
+  Each reads `SKIPPED` with the remedy (for a worktree, the
+  `worktree_doctor.py teardown` to run from the owning repo). A link whose far
+  end is gone, or lies in the same dir, ties nothing and does not keep it; a
+  link file or config it cannot parse does. A clone with no outside checkout is
+  pruned. Two ties leave no trace inside the dir and are not seen: a repository
+  used only through `GIT_DIR`/`GIT_WORK_TREE`, and an outside repository
+  borrowing its objects through `objects/info/alternates`.
 
 It refuses, and deletes nothing, when it cannot see:
 
