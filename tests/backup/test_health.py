@@ -169,6 +169,10 @@ class TestSnapshot:
         report = _check(_setup(tmp_path), FakeRunner(snapshot_age=timedelta(hours=47)))
         assert _row(report, "snapshot").status == "OK"
 
+    def test_exactly_48_hours_old_is_still_green(self, tmp_path):
+        report = _check(_setup(tmp_path), FakeRunner(snapshot_age=timedelta(hours=48)))
+        assert _row(report, "snapshot").status == "OK"
+
     def test_49_hours_old_is_red(self, tmp_path):
         report = _check(_setup(tmp_path), FakeRunner(snapshot_age=timedelta(hours=49)))
         assert _row(report, "snapshot").status == "RED"
@@ -246,6 +250,32 @@ class TestVerifiedRestore:
         assert row.status == "RED"
         assert "differs - logon canary blind" in row.detail
 
+    def test_a_mirror_differing_only_in_line_endings_is_red(self, tmp_path):
+        # The mirror is a byte copy; Windows tooling rewriting it as CRLF is a difference.
+        config = _setup(tmp_path)
+        primary = (config.state_dir / "restic.last-ok").read_text()
+        (config.key.parent / "restic.last-ok").write_bytes(primary.replace("\n", "\r\n").encode())
+        row = _row(_check(config), "verified restore")
+        assert row.status == "RED"
+        assert "differs - logon canary blind" in row.detail
+
+    def test_an_unparseable_marker_is_red_even_when_mirrored(self, tmp_path):
+        config = _setup(tmp_path)
+        self._marker(config, "garbage\n")
+        row = _row(_check(config), "verified restore")
+        assert row.status == "RED"
+        assert "marker unreadable" in row.detail
+
+    def test_a_marker_against_a_repository_with_no_snapshot_is_red(self, tmp_path):
+        row = _row(_check(_setup(tmp_path), FakeRunner(snapshot_age=None)), "verified restore")
+        assert row.status == "RED"
+        assert "repository latest is none" in row.detail
+
+    def test_an_unreadable_snapshot_list_makes_the_row_could_not_read_not_red(self, tmp_path):
+        runner = FakeRunner(snapshots=RunResult(1, "", "Fatal: wrong password"))
+        row = _row(_check(_setup(tmp_path), runner), "verified restore")
+        assert row.status == "COULD NOT READ"
+
     def test_the_mirror_dir_can_be_named_apart_from_the_key(self, tmp_path):
         config = _setup(tmp_path)
         elsewhere = tmp_path / "mirror"
@@ -270,6 +300,11 @@ class TestExport:
     def test_44_days_old_is_green(self, tmp_path):
         config = _setup(tmp_path)
         self._only_archive(config, 44)
+        assert _row(_check(config), "export").status == "OK"
+
+    def test_exactly_45_days_old_is_still_green(self, tmp_path):
+        config = _setup(tmp_path)
+        self._only_archive(config, 45)
         assert _row(_check(config), "export").status == "OK"
 
     def test_46_days_old_is_red(self, tmp_path):
@@ -327,6 +362,21 @@ class TestFreeSpace:
 
     def test_1_2x_the_newest_archive_is_green(self, tmp_path):
         assert _row(_check(_setup(tmp_path), free=1.2), "E: free").status == "OK"
+
+    def test_no_archive_to_size_against_is_red(self, tmp_path):
+        config = _setup(tmp_path)
+        for old in config.export_dir.glob("*.tar"):
+            old.unlink()
+        assert _row(_check(config), "E: free").status == "RED"
+
+    def test_a_zero_byte_newest_archive_leaves_nothing_to_size_against_so_red(self, tmp_path):
+        # A zero-byte archive is a failed export, and a full drive is one way to fail.
+        config = _setup(tmp_path)
+        (config.export_dir / _archive_name((NOW - timedelta(days=1)).date())).write_bytes(b"")
+        report = check_health(config, run=FakeRunner(), now=lambda: NOW, free_bytes=lambda _p: 0)
+        row = _row(report, "E: free")
+        assert row.status == "RED"
+        assert "zero bytes" in row.detail
 
     def test_free_space_is_read_on_the_export_drive(self, tmp_path):
         config = _setup(tmp_path)
@@ -389,6 +439,19 @@ class TestCouldNotRead:
         assert "wrong password" in render(report)
         assert not render(report).startswith("4 backup checks measured")
 
+    def test_a_check_that_cannot_read_never_stops_the_others(self, tmp_path):
+        runner = FakeRunner(snapshots=RunResult(1, "", "Fatal: wrong password"))
+        report = _check(_setup(tmp_path), runner)
+        assert [(row.name, row.status) for row in report.rows] == [
+            ("snapshot", "COULD NOT READ"),
+            ("verified restore", "COULD NOT READ"),
+            ("export", "OK"),
+            ("E: free", "OK"),
+        ]
+        assert render(report).splitlines()[0] == (
+            "COULD NOT READ - 2 of 4 backup checks unreadable; 2 measured — 0 RED"
+        )
+
     def test_unparseable_snapshot_json_is_exit_1(self, tmp_path):
         runner = FakeRunner(snapshots=RunResult(0, "not json\n", ""))
         assert _check(_setup(tmp_path), runner).exit_code == EXIT_COULD_NOT_READ
@@ -450,6 +513,16 @@ class TestEntrypoint:
         assert code == EXIT_MEASURED
         assert out[0].startswith("4 backup checks measured")
         assert len(out) >= 5
+
+    def test_mirror_dir_is_passed_through_to_the_sweep(self, tmp_path, capsys):
+        config = _setup(tmp_path)
+        elsewhere = tmp_path / "mirror"
+        elsewhere.mkdir()
+        shutil.move(config.key.parent / "restic.last-ok", elsewhere / "restic.last-ok")
+        _entrypoint().main(_args(config), run=FakeRunner())
+        assert "absent - logon canary blind" in capsys.readouterr().out
+        _entrypoint().main([*_args(config), "--mirror-dir", str(elsewhere)], run=FakeRunner())
+        assert "logon canary blind" not in capsys.readouterr().out
 
     def test_not_configured_exits_2(self, tmp_path, capsys):
         config = _setup(tmp_path)

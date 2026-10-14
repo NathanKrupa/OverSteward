@@ -20,7 +20,8 @@ Four rows, each OK or RED (the snapshot row may also read RUNNING):
    writes that marker, but an archive made before it did is still an archive.
 4. **E: free** — free space on the export drive. RED below 1.1 times the
    newest archive, because the next export is written before the old one is
-   pruned. With no archive to size against it is RED too: unmeasured is not ok.
+   pruned. With no archive to size against, or a newest archive of zero bytes,
+   it is RED too: unmeasured is not ok.
 
 Exit codes, the session-start contract:
 
@@ -267,9 +268,10 @@ def check_snapshot(sweep: _Sweep) -> Row:
 # --- 2. verified restore -----------------------------------------------------
 
 
-def _read_marker(path: Path) -> str | None:
+def _read_marker(path: Path) -> bytes | None:
+    """The marker's raw bytes: the mirror is compared byte for byte, line endings included."""
     try:
-        return path.read_text(encoding="utf-8")
+        return path.read_bytes()
     except FileNotFoundError:
         return None
     except OSError as exc:
@@ -299,15 +301,16 @@ def check_verified_restore(sweep: _Sweep) -> Row:
     if not sweep.latest_read:
         raise CouldNotRead("repository latest unread, so the marker cannot be matched to it")
     primary = sweep.config.state_dir / LAST_OK_NAME
-    text = _read_marker(primary)
-    if text is None:
+    raw = _read_marker(primary)
+    if raw is None:
         return Row("verified restore", RED, f"no verified restore on record ({primary} absent)")
+    text = raw.decode("utf-8", errors="replace")
     problems = _marker_problems(sweep, text)
     mirror = sweep.config.mirror / LAST_OK_NAME
     mirrored = _read_marker(mirror)
     if mirrored is None:
         problems.append(f"C: mirror {mirror} absent - logon canary blind")
-    elif mirrored != text:
+    elif mirrored != raw:
         problems.append(f"C: mirror {mirror} differs - logon canary blind")
     if problems:
         return Row("verified restore", RED, "; ".join(problems))
@@ -373,6 +376,9 @@ def check_free_space(sweep: _Sweep) -> Row:
     detail = f"{free / _GIB:.1f} GiB free on {sweep.config.export_dir}"
     if sweep.archive is None:
         return Row("E: free", RED, f"{detail}; no archive to size the next export against")
+    if sweep.archive.size == 0:
+        # A zero-byte archive is a failed export, and a full drive is one way to fail.
+        return Row("E: free", RED, f"{detail}; newest archive is zero bytes, nothing to size against")
     needed = sweep.archive.size * FREE_SPACE_FACTOR
     detail = f"{detail}, next export needs ~{needed / _GIB:.1f} GiB"
     if free < needed:

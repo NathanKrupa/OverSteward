@@ -177,7 +177,7 @@ and prints four named rows under a headline that names the count,
 | `snapshot` | the repository's latest snapshot (`restic snapshots --json --latest 1 --no-lock`) is older than 48 h, dated in the future, or absent. Reads **RUNNING**, not RED, while `home-backup.service` is active or activating. |
 | `verified restore` | `restic.last-ok` is absent, unparseable, older than 48 h or in the future; it names a snapshot other than the repository's latest; or its C: mirror is absent or differs ("logon canary blind"). |
 | `export` | no `Ubuntu-24.04_YYYY-MM-DD.tar` in `E:\WSLBackups` (newest chosen by the date in its name), the newest is zero bytes, or it is older than 45 days. |
-| `E: free` | free space on E: is below 1.1 times the newest archive (the next export is written before the old one is pruned), or there is no archive to size it against. |
+| `E: free` | free space on E: is below 1.1 times the newest archive (the next export is written before the old one is pruned), or there is no archive to size it against, or the newest is zero bytes. |
 
 A **NOTE** beneath the export row is not RED: `export.last-ok` absent, or naming
 a date other than the newest archive's. `Backup-Wsl.ps1` writes that marker on
