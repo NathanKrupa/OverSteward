@@ -102,8 +102,9 @@ it aside before unregistering anything.
    curl -fsSLO https://raw.githubusercontent.com/NathanKrupa/OverSteward/master/ops/wsl/install-restic.sh
    bash install-restic.sh                      # pinned, sha256-checked -> ~/.local/bin/restic
    ```
-   The fresh distro lacks the old one's apt packages and `/etc` (Docker, system
-   Python builds, `/etc/wsl.conf`): reinstall what the work needs. Then
+   The fresh distro lacks the old one's apt packages and its `/etc` changes
+   (Docker, system Python builds, the `/etc/wsl.conf` boot command): reinstall
+   what the work needs. Then
    regenerate the trees the backup excludes: each repo's `.venv`
    (`uv sync --extra dev`) and `node_modules`; `~/.cache`, `~/.npm`,
    `~/.vscode-server` and `~/.ollama` refill as their tools run (re-pull Ollama
@@ -120,11 +121,11 @@ it aside before unregistering anything.
    powershell -NoProfile -ExecutionPolicy Bypass -File .\Install-WslResilience.ps1   # from ops\wsl
    ```
    `backup_health.py` exits 0 whenever it could measure, so read its rows too:
-   every one should be OK. Without an archive the export row stays RED until
-   `Backup-Wsl.ps1` has run one.
+   every one should be OK. Without an archive the `export` and `E: free` rows
+   stay RED until `Backup-Wsl.ps1` has written one.
 
-Worst case with current backups: under an hour, and the only loss is changes
-since the last verified restic backup, at most a day.
+With current backups the only loss is the changes since the last verified
+restic backup, at most about a day.
 
 ---
 

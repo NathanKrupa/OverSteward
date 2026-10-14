@@ -28,7 +28,7 @@ Scheduler can run them even when WSL itself is broken.
 | `Backup-Wsl.ps1` | Dated `wsl --export` to `E:\WSLBackups`, keep newest 1 (~131 GB). Exports only when due (last success 28+ days ago, else exit 0 at once), and asks `scripts/backup_ready.py` first, exporting only when the distro is idle; busy or could-not-look logs the blocker to `backup.log` and exits 3. Never runs over a working Claude session, a detached GrantSpider run, an estate job or a container. A FAILED export, or a skip 35+ days overdue, pops an alert dialog once a day. | auto (nightly task) + you |
 | `Set-WslUpdatePolicy.ps1` | Reports update-control state; `-Apply` (elevated) disables Store auto-download. Best-effort. | you, once |
 | `install-restic.sh`, `home-backup.{service,timer}` | Linux side: install the pinned restic binary, and the systemd `--user` timer for the daily `/home/natha` backup. See below. | you, once |
-| `Install-WslResilience.ps1` | Deploys the scripts to `%LOCALAPPDATA%\WslResilience` and registers the nightly-backup + logon-integrity tasks (and removes the retired `'WSL Weekly Backup'` task). The logon task waits 30 minutes, so `home-backup.timer`'s catch-up runs first, and its dialog shows the gate's own output. | you, once; again after any script change |
+| `Install-WslResilience.ps1` | Deploys the scripts to `%LOCALAPPDATA%\WslResilience` and registers the nightly-backup + logon-integrity tasks (and removes the retired `'WSL Weekly Backup'` task). The logon task waits 30 minutes, so a `home-backup.timer` catch-up started soon after logon finishes before the marker is judged, and its dialog shows the gate's own output. | you, once; again after any script change |
 
 ## Quick start (from Windows PowerShell, with WSL running so this path resolves)
 

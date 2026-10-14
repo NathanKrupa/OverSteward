@@ -38,10 +38,11 @@
                                     output if the platform is broken or either
                                     backup is behind (restic.last-ok in
                                     InstallDir over 48 h, newest export in
-                                    BackupDest over 45 days). The delay lets
-                                    home-backup.timer's Persistent catch-up run
-                                    first after a closed weekend, so the canary
-                                    judges the marker it writes.
+                                    BackupDest over 45 days). After days
+                                    closed, home-backup.timer's Persistent
+                                    catch-up runs when the distro starts; the
+                                    delay lets one started soon after logon
+                                    finish before the marker is judged.
 
   The trigger is a plain daily one; Backup-Wsl.ps1 decides whether an export is
   due. A monthly day-of-week trigger (MSFT_TaskMonthlyDOWTrigger) was refused
@@ -124,8 +125,8 @@ $logonAction = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $logo
 # (machine-wide) trigger that requires elevation; per-user does not.
 $logonTrigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
 # Wait 30 minutes: after days closed, home-backup.timer's Persistent catch-up runs
-# once the distro starts, and the restic marker should be judged after it. Its
-# runs take well under a minute (journalctl --user -u home-backup, 2026-10-14).
+# once the distro starts, and the restic marker should be judged after it. The
+# one run in the journal on 2026-10-14 took 17 s (journalctl --user -u home-backup).
 $logonTrigger.Delay = 'PT30M'
 $logonSettings = New-ScheduledTaskSettingsSet -StartWhenAvailable
 if ($PSCmdlet.ShouldProcess('WSL Integrity Check', 'Register-ScheduledTask')) {
