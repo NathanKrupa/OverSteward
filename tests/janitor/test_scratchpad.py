@@ -255,6 +255,19 @@ class TestLiveness:
         assert cand.is_dir()
         assert f"pid 118 {comm}" in _render(outcome)
 
+    def test_a_withheld_process_whose_comm_cannot_be_read_makes_the_scan_blind(
+        self, tmp_path, monkeypatch
+    ):
+        root, proc = _root(tmp_path), _proc(tmp_path)
+        cand = _cand(root)
+        entry = _pid(proc, 120)
+        (entry / "comm").unlink()
+        self._refuse_links(monkeypatch, entry)
+        outcome = _run(root, proc, apply=True)
+        assert outcome.exit_code == EXIT_FAILED
+        assert cand.is_dir()
+        assert "pid 120 ?" in _render(outcome)
+
     def test_any_other_process_whose_maps_are_refused_makes_the_scan_blind(self, tmp_path):
         root, proc = _root(tmp_path), _proc(tmp_path)
         cand = _cand(root)
