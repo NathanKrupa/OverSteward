@@ -33,8 +33,16 @@
                                     skip more than 35 days after the last
                                     success, pops an alert dialog, at most
                                     once a day.
-    - "WSL Integrity Check"      -> Test-WslIntegrity.ps1 at logon; pops an alert
-                                    dialog if the platform is broken.
+    - "WSL Integrity Check"      -> Test-WslIntegrity.ps1 30 minutes after logon;
+                                    pops an alert dialog carrying the gate's own
+                                    output if the platform is broken or either
+                                    backup is behind (restic.last-ok in
+                                    InstallDir over 48 h, newest export in
+                                    BackupDest over 45 days). After days
+                                    closed, home-backup.timer's Persistent
+                                    catch-up runs when the distro starts; the
+                                    delay lets one started soon after logon
+                                    finish before the marker is judged.
 
   The trigger is a plain daily one; Backup-Wsl.ps1 decides whether an export is
   due. A monthly day-of-week trigger (MSFT_TaskMonthlyDOWTrigger) was refused
@@ -49,10 +57,10 @@
   Windows folder to deploy scripts into. Default: %LOCALAPPDATA%\WslResilience.
 
 .PARAMETER BackupDest
-  Passed to the backup task. Default: E:\WSLBackups.
+  Passed to the backup task and the logon check. Default: E:\WSLBackups.
 
 .PARAMETER Distro
-  Distro to back up. Default: Ubuntu-24.04.
+  Distro to back up, and whose archives the logon check reads. Default: Ubuntu-24.04.
 
 .PARAMETER DailyTime
   Time of day (HH:mm) of the first nightly attempt. Default: 01:17 (off the
@@ -107,18 +115,24 @@ if ((Get-ScheduledTask -TaskName 'WSL Weekly Backup' -ErrorAction SilentlyContin
     Write-Host "Removed the retired weekly backup task." -ForegroundColor Green
 }
 
-# 3. Logon integrity check with an alert dialog on failure.
-$logonCmd = "& '$gatePath' -Quiet; if (`$LASTEXITCODE -ne 0) { Add-Type -AssemblyName PresentationFramework; [void][System.Windows.MessageBox]::Show('WSL integrity check FAILED - system.vhd/modules.vhd may be missing (microsoft/WSL #40616 class). See the wsl-recovery runbook before trusting this machine.','WSL RESILIENCE ALERT','OK','Error') }"
+# 3. Logon integrity check; on failure the dialog shows the gate's own output,
+#    which names each problem (VHD, WSL, RESTIC, EXPORT). A gate that throws
+#    alerts too: the task runs hidden, so an uncaught error would be silent.
+$logonCmd = "try { `$out = & '$gatePath' -Quiet -StateDir '$InstallDir' -BackupDest '$BackupDest' -Distro '$Distro' *>&1 | Out-String; `$code = `$LASTEXITCODE } catch { `$out = 'WSL integrity check could not run: ' + `$_; `$code = 1 }; if (`$code -ne 0) { Add-Type -AssemblyName PresentationFramework; [void][System.Windows.MessageBox]::Show(`$out,'WSL RESILIENCE ALERT','OK','Error') }"
 $logonArgs = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command `"$logonCmd`""
 $logonAction = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $logonArgs
 # Scope the logon trigger to the current user — a bare -AtLogOn is an "any user"
 # (machine-wide) trigger that requires elevation; per-user does not.
 $logonTrigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
+# Wait 30 minutes: after days closed, home-backup.timer's Persistent catch-up runs
+# once the distro starts, and the restic marker should be judged after it. The
+# one run in the journal on 2026-10-14 took 17 s (journalctl --user -u home-backup).
+$logonTrigger.Delay = 'PT30M'
 $logonSettings = New-ScheduledTaskSettingsSet -StartWhenAvailable
 if ($PSCmdlet.ShouldProcess('WSL Integrity Check', 'Register-ScheduledTask')) {
     Register-ScheduledTask -TaskName 'WSL Integrity Check' -Action $logonAction -Trigger $logonTrigger `
-        -Settings $logonSettings -Description 'At-logon WSL platform integrity check; alerts if broken (OverSteward WSL resilience).' -Force | Out-Null
-    Write-Host "Registered 'WSL Integrity Check' (at logon)." -ForegroundColor Green
+        -Settings $logonSettings -Description 'WSL platform integrity and backup-age check 30 minutes after logon; alerts if broken or behind (OverSteward WSL resilience).' -Force | Out-Null
+    Write-Host "Registered 'WSL Integrity Check' (30 minutes after logon)." -ForegroundColor Green
 }
 
 Write-Host "`nDone. Verify with:  Get-ScheduledTask -TaskName 'WSL *'" -ForegroundColor Cyan
