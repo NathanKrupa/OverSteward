@@ -1,0 +1,27 @@
+# ABOUTME: systemd --user unit that prunes finished sessions' scratchpad dirs under ~/.claude/tmp.
+# ABOUTME: Paired with scratchpad-janitor.timer; NOT enabled by default (operator enables explicitly).
+#
+# Install (see ops/wsl/README.md, "The scratchpad janitor"):
+#   mkdir -p ~/.config/systemd/user
+#   cp scratchpad-janitor.service scratchpad-janitor.timer ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now scratchpad-janitor.timer
+#
+# A <slug>/<uuid>/ session dir is deleted only when its newest file is at least
+# 7 days old, no process holds anything inside it (re-checked just before the
+# delete), and it holds no git repository. Exit 1 (the /proc
+# scan was blind, a dir was unreadable, or a delete was partial) or 2 (the root
+# is missing or a symlink) leaves the unit failed; `journalctl --user -u
+# scratchpad-janitor` names every dir and why.
+
+[Unit]
+Description=Prune finished Claude Code sessions' scratchpad dirs
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/natha/OverSteward
+ExecStart=/home/natha/OverSteward/.venv/bin/python /home/natha/OverSteward/scripts/scratchpad_janitor.py --apply
+# Walking ~40 GB of small files is I/O-heavy; low priority keeps sessions responsive.
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=1h
