@@ -278,6 +278,15 @@ class TestExportBehaviour:
         assert proc.returncode == 1, _said(proc)
         assert f"EXPORT: no {DISTRO}_YYYY-MM-DD.tar" in proc.stdout
 
+    def test_the_distro_name_matches_case_sensitively_as_the_sweep_does(self, tmp_path):
+        prelude = (
+            "Set-Marker 1; [IO.File]::WriteAllText((Join-Path '__DEST__' "
+            "('" + DISTRO.lower() + "_' + (Get-Date).ToString('yyyy-MM-dd') + '.tar')), 'a')"
+        )
+        proc = _run_gate(tmp_path, prelude=prelude)
+        assert proc.returncode == 1, _said(proc)
+        assert f"EXPORT: no {DISTRO}_YYYY-MM-DD.tar" in proc.stdout
+
     def test_an_unreachable_backup_dest_fails(self, tmp_path):
         proc = _run_gate(tmp_path, prelude="Set-Marker 1", make_dest=False)
         assert proc.returncode == 1, _said(proc)
