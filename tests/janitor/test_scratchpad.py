@@ -158,6 +158,38 @@ class TestLiveness:
         assert cand.is_dir()
         assert "LIVE" in _row(_render(outcome), U1)
 
+    def test_a_mapped_file_inside_the_candidate_keeps_it(self, tmp_path):
+        root, proc = _root(tmp_path), _proc(tmp_path)
+        cand = _cand(root)
+        entry = _pid(proc, 112)
+        lib = cand / "scratchpad" / "venv" / "lib" / "_speedups.so"
+        (entry / "maps").write_text(
+            "55d0c0000000-55d0c0001000 r--p 00000000 08:30 1 /usr/bin/python3.12\n"
+            f"7f00c0000000-7f00c0001000 r-xp 00000000 08:30 2 {lib} (deleted)\n"
+            "7ffd00000000-7ffd00021000 rw-p 00000000 00:00 0 [stack]\n"
+        )
+        outcome = _run(root, proc, apply=True)
+        assert cand.is_dir()
+        assert "pid 112" in _row(_render(outcome), U1)
+
+    def test_withheld_maps_are_named_and_the_rest_of_the_process_still_counts(self, tmp_path):
+        root, proc = _root(tmp_path), _proc(tmp_path)
+        held = _cand(root, U1)
+        free = _cand(root, U2)
+        entry = _pid(proc, 113, comm="systemd", fds=(held / "tasks",))
+        (entry / "maps").write_text("")
+        (entry / "maps").chmod(0o000)
+        try:
+            outcome = _run(root, proc, apply=True)
+        finally:
+            (entry / "maps").chmod(0o644)
+        assert outcome.exit_code == EXIT_OK
+        assert held.is_dir()
+        assert not free.exists()
+        text = _render(outcome)
+        withheld = [line for line in text.splitlines() if "not inspected" in line]
+        assert withheld and "pid 113 systemd (maps only)" in withheld[0]
+
     def test_a_sibling_whose_name_extends_the_candidate_does_not_keep_it(self, tmp_path):
         root, proc = _root(tmp_path), _proc(tmp_path)
         cand = _cand(root)

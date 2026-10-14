@@ -13,12 +13,13 @@ A candidate is pruned only when all of these hold:
   least ``days`` old. The directory's own mtime is not the age: a clone inside
   a scratchpad receives new packs without its top directory changing. A
   candidate holding no regular file at all takes its own mtime.
-* **Unheld** — no process the janitor can inspect has its cwd, its executable
-  or any open file descriptor inside it, read from ``/proc/<pid>`` once before
-  the sweep and again just before each delete. It can inspect every process of
-  this uid but itself and the non-dumpable ones it names as not inspected. It
-  cannot see processes of other uids (root daemons, ``sudo``) or Windows-side
-  access over 9p.
+* **Unheld** — no process the janitor can inspect has its cwd, its executable,
+  an open file descriptor or a mapped file inside it, read from
+  ``/proc/<pid>`` once before the sweep and again just before each delete. It
+  can inspect every process of this uid but itself and the non-dumpable ones it
+  names as not inspected. It cannot see processes of other uids (root daemons,
+  ``sudo``), processes in other WSL distros (Docker Desktop's containers), or
+  Windows-side access over 9p.
 * **Not tied by git to a live checkout outside it** — git ties a repository to
   its checkouts, and either end can lie inside a candidate. The janitor reads
   every trace git leaves on disk:
@@ -147,7 +148,8 @@ class _Holders:
 
     held: dict[tuple[str, str], list[int]]
     blind: list[str]
-    #: Pids running as this uid whose open files the kernel withholds (non-dumpable).
+    #: Pids running as this uid whose open files (non-dumpable) or maps (extra capabilities)
+    #: the kernel withholds.
     withheld: list[str]
 
 
@@ -376,6 +378,30 @@ def _candidate_key(target: str, root: str) -> tuple[str, str] | None:
     return (parts[0], parts[1]) if len(parts) >= 2 else None
 
 
+def _mapped(entry: Path) -> list[str] | None:
+    """Files ``entry`` has mapped (shared libraries, mmapped data), from ``/proc/<pid>/maps``.
+
+    A process can keep using a file it mapped after closing the descriptor, so
+    ``fd`` alone misses an interpreter running from a venv inside a scratchpad.
+    ``None`` when the kernel refuses the read: a process of this uid holding a
+    capability the reader lacks (``systemd --user`` holds ``CAP_WAKE_ALARM``)
+    keeps its ``maps`` even from its own user. A missing ``maps`` (the process
+    exited) is empty.
+    """
+    try:
+        text = (entry / "maps").read_text(encoding="utf-8", errors="replace")
+    except FileNotFoundError:
+        return []
+    except PermissionError:
+        return None
+    found = []
+    for line in text.splitlines():
+        fields = line.split(maxsplit=5)
+        if len(fields) == 6 and fields[5].startswith("/"):
+            found.append(fields[5])
+    return found
+
+
 def _targets(entry: Path) -> list[str]:
     """Every path ``entry`` (a ``/proc/<pid>``) holds; ``PermissionError`` from ``fd`` propagates."""
     found = []
@@ -436,7 +462,13 @@ def _holders(proc: Path, root: str, self_pid: int, uid: int) -> _Holders:
             elif pid_owner == uid:
                 withheld.append(f"pid {pid} {_comm(entry) or '?'}")
             continue
-        under_root = [t for t in map(_strip_deleted, targets) if t.startswith(root + os.sep)]
+        mapped = _mapped(entry)
+        if mapped is None:
+            if pid_owner == uid:
+                withheld.append(f"pid {pid} {_comm(entry) or '?'} (maps only)")
+            mapped = []
+        held_paths = map(_strip_deleted, targets + mapped)
+        under_root = [t for t in held_paths if t.startswith(root + os.sep)]
         if fd_owner == uid and _comm(entry) == _CLAUDE_COMM and not under_root:
             blind.append(
                 f"pid {pid}: a running claude holds nothing under {root}, "
@@ -596,8 +628,8 @@ def _sweep(
         f"unreadable {counts.get(UNREADABLE, 0)}; unrecognised {other}"
     )
     withheld = (
-        f"not inspected: {len(holders.withheld)} non-dumpable process(es) of this uid whose "
-        f"open files the kernel withholds: {', '.join(holders.withheld) or 'none'}"
+        f"not inspected: {len(holders.withheld)} process(es) of this uid whose open files "
+        f"or maps the kernel withholds: {', '.join(holders.withheld) or 'none'}"
     )
     details = (*rows, totals, withheld, *_disk_lines(disk))
     if counts.get(PARTIAL, 0):

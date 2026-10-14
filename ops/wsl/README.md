@@ -211,12 +211,14 @@ deletes a `<slug>/<uuid>/` dir only when **all** of these hold:
 - its newest regular file is at least 7 days old (`--days`; the dir's own mtime
   is not its age, because a clone inside a scratchpad gains packs without its
   top directory changing);
-- no process it can inspect has its cwd, executable or an open file inside it
+- no process it can inspect has its cwd, executable, an open file or a mapped
+  file inside it
   (read from `/proc/<pid>` before the sweep and again just before each delete,
   so a session resumed mid-sweep is kept; on 2026-10-14 every running session
   held its own `<uuid>/tasks` open). It inspects every process of this uid but
   itself and the non-dumpable ones it names; it cannot see other uids' processes
-  (root daemons, `sudo`) or Windows-side access over 9p;
+  (root daemons, `sudo`), other WSL distros' (Docker Desktop's containers) or
+  Windows-side access over 9p;
 - it is not tied by git to a live checkout outside it. It reads every trace git
   leaves on disk: a `.git` **file** whose `gitdir:` names an existing
   repository elsewhere (a worktree or submodule checkout registered there); a
@@ -238,7 +240,9 @@ It refuses, and deletes nothing, when it cannot see:
 - a process of this uid whose open files cannot be read, or a running `claude`
   holding nothing under the root (the scan is blind), exits **1**. A
   non-dumpable process, whose `fd` directory the kernel hands to root, is named
-  on the `not inspected` line instead;
+  on the `not inspected` line instead, as is one holding a capability the
+  janitor lacks (`systemd --user`), whose `maps` the kernel withholds while its
+  cwd and open files are still read;
 - a dir it cannot list is `UNREADABLE`, kept, and exits **1**, as is a dir
   whose pre-delete `/proc` re-check went blind; a delete that stops partway is
   `PARTIAL` and exits **1**;
