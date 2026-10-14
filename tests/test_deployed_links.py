@@ -149,6 +149,13 @@ def test_every_agent_card_is_deployed_here_or_named_as_not(card: str) -> None:
         )
 
 
+def test_every_card_named_as_not_deployed_still_exists() -> None:
+    """An exemption for a card that was deleted or renamed would outlive its reason."""
+    cards = {p.name for p in (SHARED / "agents").glob("*.md")}
+    stale = sorted(set(CARDS_NOT_DEPLOYED_HERE) - cards)
+    assert not stale, f"CARDS_NOT_DEPLOYED_HERE names cards shared/agents/ lacks: {stale}"
+
+
 @pytest.mark.parametrize("deployed", sorted(DRIFTED_COPIES))
 def test_a_drifted_copy_is_still_drifted(deployed: str) -> None:
     """Once the pair is reconciled, the copy should become a link instead."""
