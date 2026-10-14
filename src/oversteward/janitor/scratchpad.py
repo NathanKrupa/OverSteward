@@ -15,12 +15,13 @@ A candidate is pruned only when all of these hold:
   candidate holding no regular file at all takes its own mtime.
 * **Unheld** — no process the janitor can inspect has its cwd, its executable,
   an open file descriptor or a mapped file inside it, read from
-  ``/proc/<pid>`` once before the sweep and again just before each delete. It
-  can inspect every process of this uid but itself and the ones the kernel
-  withholds, which it names as not inspected: a non-dumpable process (its
-  ``fd`` directory belongs to root) and one holding a capability the reader
-  lacks (its ``cwd``, ``exe`` and ``fd`` links list but refuse ``readlink``).
-  What a withheld process holds is unseen, so a dir it held would be pruned.
+  ``/proc/<pid>`` once before the sweep and again just before each delete. The
+  kernel withholds some processes of this uid: a non-dumpable one (its ``fd``
+  directory belongs to root) and one with a capability or gid the reader lacks
+  (its ``cwd``, ``exe`` and ``fd`` links list but refuse ``readlink``; its
+  ``maps`` can be refused too). Only the session managers ``systemd`` and
+  ``(sd-pam)`` are tolerated, named as not inspected, and what they hold is
+  unseen; any other withheld process makes the scan blind.
   It cannot see processes of other uids (root daemons,
   ``sudo``), processes in other WSL distros (Docker Desktop's containers), or
   Windows-side access over 9p.
@@ -79,6 +80,9 @@ COMPACT_SLACK_BYTES = 20 * 1_000_000_000
 _UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 _DELETED_SUFFIX = " (deleted)"
 _CLAUDE_COMM = "claude"
+#: The user's systemd manager and its PAM helper: processes of this uid the kernel
+#: withholds (extra capabilities, non-dumpable) that are not sessions.
+_SESSION_MANAGERS = frozenset({"systemd", "(sd-pam)"})
 _DAY_SECONDS = 86_400
 _GB = 1_000_000_000
 
@@ -328,6 +332,24 @@ def _owners(entry: Path) -> tuple[int, int]:
     return entry.lstat().st_uid, (entry / "fd").lstat().st_uid
 
 
+def _withheld(entry: Path, pid: int, what: str, blind: list[str], withheld: list[str]) -> None:
+    """Record a process of this uid whose ``what`` the kernel withholds.
+
+    Only a session manager (:data:`_SESSION_MANAGERS`) is tolerated, and named:
+    what any other withheld process holds could be a session dir, so the scan is
+    blind. A ``claude`` started from an ``sg``/``newgrp`` shell runs with another
+    gid, and the kernel refuses its links to the janitor though the uid matches.
+    """
+    comm = _comm(entry)
+    if comm in _SESSION_MANAGERS:
+        withheld.append(f"pid {pid} {comm}" + (" (maps only)" if what == "maps" else ""))
+    else:
+        blind.append(
+            f"pid {pid} {comm or '?'}: the kernel withholds its {what}, "
+            f"and it is not a session manager ({', '.join(sorted(_SESSION_MANAGERS))})"
+        )
+
+
 def _holders(proc: Path, root: str, self_pid: int, uid: int) -> _Holders:
     """Map each held candidate to the pids holding it; record every blind spot and withheld pid."""
     held: dict[tuple[str, str], list[int]] = {}
@@ -352,12 +374,12 @@ def _holders(proc: Path, root: str, self_pid: int, uid: int) -> _Holders:
             targets = None
         if targets is None:
             if pid_owner == uid:
-                withheld.append(f"pid {pid} {_comm(entry) or '?'}")
+                _withheld(entry, pid, "open files", blind, withheld)
             continue
         mapped = _mapped(entry)
         if mapped is None:
             if pid_owner == uid:
-                withheld.append(f"pid {pid} {_comm(entry) or '?'} (maps only)")
+                _withheld(entry, pid, "maps", blind, withheld)
             mapped = []
         held_paths = map(_strip_deleted, targets + mapped)
         under_root = [t for t in held_paths if t.startswith(root + os.sep)]

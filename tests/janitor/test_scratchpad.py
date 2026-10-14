@@ -212,15 +212,10 @@ class TestLiveness:
         assert not cand.exists()
         assert "PRUNED" in _row(_render(outcome), U1)
 
-    def test_a_process_whose_listed_links_are_refused_is_named_not_read_as_closed(
-        self, tmp_path, monkeypatch
-    ):
-        # systemd --user holds a capability this uid lacks: the kernel lets it
-        # list /proc/<pid>/fd but refuses readlink on cwd, exe and every fd
-        # (EACCES). Its holdings are unseen, so it is named, never "closed".
-        root, proc = _root(tmp_path), _proc(tmp_path)
-        cand = _cand(root)
-        entry = _pid(proc, 116, comm="systemd", cwd=cand / "scratchpad", fds=(cand / "tasks",))
+    def _refuse_links(self, monkeypatch, entry: Path) -> None:
+        # A process of this uid with a capability or gid the reader lacks: the
+        # kernel lists /proc/<pid>/fd but refuses readlink on cwd, exe and every
+        # fd (EACCES).
         readlink = os.readlink
 
         def _refused(path, *args, **kwargs):
@@ -229,11 +224,50 @@ class TestLiveness:
             return readlink(path, *args, **kwargs)
 
         monkeypatch.setattr(os, "readlink", _refused)
+
+    def test_a_session_manager_whose_links_are_refused_is_named_not_read_as_closed(
+        self, tmp_path, monkeypatch
+    ):
+        root, proc = _root(tmp_path), _proc(tmp_path)
+        cand = _cand(root)
+        entry = _pid(proc, 116, comm="systemd")
+        self._refuse_links(monkeypatch, entry)
         outcome = _run(root, proc)
         assert outcome.exit_code == EXIT_OK
+        assert "WOULD-PRUNE" in _row(_render(outcome), U1)
+        assert cand.is_dir()
         withheld = [line for line in _render(outcome).splitlines() if "not inspected" in line]
         assert withheld and "pid 116 systemd" in withheld[0]
         assert "pid 116 systemd (maps only)" not in withheld[0]
+
+    @pytest.mark.parametrize("comm", ["claude", "bash"])
+    def test_any_other_process_whose_links_are_refused_makes_the_scan_blind(
+        self, tmp_path, monkeypatch, comm
+    ):
+        # A claude started from an `sg docker` shell runs with another gid, and
+        # the kernel refuses its links to the janitor even though the uid matches.
+        root, proc = _root(tmp_path), _proc(tmp_path)
+        cand = _cand(root)
+        entry = _pid(proc, 118, comm=comm, cwd=cand / "tasks", fds=(cand / "tasks",))
+        self._refuse_links(monkeypatch, entry)
+        outcome = _run(root, proc, apply=True)
+        assert outcome.exit_code == EXIT_FAILED
+        assert cand.is_dir()
+        assert f"pid 118 {comm}" in _render(outcome)
+
+    def test_any_other_process_whose_maps_are_refused_makes_the_scan_blind(self, tmp_path):
+        root, proc = _root(tmp_path), _proc(tmp_path)
+        cand = _cand(root)
+        entry = _pid(proc, 119, comm="python3")
+        (entry / "maps").write_text("")
+        (entry / "maps").chmod(0o000)
+        try:
+            outcome = _run(root, proc, apply=True)
+        finally:
+            (entry / "maps").chmod(0o644)
+        assert outcome.exit_code == EXIT_FAILED
+        assert cand.is_dir()
+        assert "pid 119 python3" in _render(outcome)
 
     def test_a_blind_scan_fails_a_dry_run_too(self, tmp_path):
         root, proc = _root(tmp_path), _proc(tmp_path)
@@ -324,15 +358,22 @@ class TestLiveness:
         not sys.platform.startswith("linux") or os.getuid() == 0,
         reason="needs Linux /proc and a non-root uid for the kernel to withhold fd",
     )
-    def test_a_non_dumpable_process_of_this_uid_is_named_not_blind(self, tmp_path):
+    @pytest.mark.parametrize(
+        ("comm", "blind"), [("(sd-pam)", False), ("claude", True), ("worker", True)]
+    )
+    def test_a_non_dumpable_process_is_named_only_if_it_is_a_session_manager(
+        self, tmp_path, comm, blind
+    ):
         # PR_SET_DUMPABLE=0 makes the kernel hand /proc/<pid>/fd to root, as it
-        # does for (sd-pam) under systemd --user. The fake entry links to it.
+        # does for (sd-pam) under systemd --user; PR_SET_NAME sets its comm.
         child = subprocess.Popen(
             [
                 sys.executable,
                 "-c",
-                "import ctypes, time; ctypes.CDLL(None).prctl(4, 0, 0, 0, 0); "
+                "import ctypes, sys, time; libc = ctypes.CDLL(None); libc.prctl(4, 0, 0, 0, 0); "
+                "libc.prctl(15, sys.argv[1].encode(), 0, 0, 0); "
                 "print('ready', flush=True); time.sleep(60)",
+                comm,
             ],
             stdout=subprocess.PIPE,
             text=True,
@@ -346,10 +387,16 @@ class TestLiveness:
         finally:
             child.kill()
             child.wait()
-        assert outcome.exit_code == EXIT_OK
-        assert not cand.exists()
-        withheld = [line for line in _render(outcome).splitlines() if "not inspected" in line]
-        assert withheld and f"pid {child.pid}" in withheld[0]
+        text = _render(outcome)
+        if blind:
+            assert outcome.exit_code == EXIT_FAILED, text
+            assert cand.is_dir()
+            assert f"pid {child.pid}" in text
+        else:
+            assert outcome.exit_code == EXIT_OK, text
+            assert not cand.exists()
+            withheld = [line for line in text.splitlines() if "not inspected" in line]
+            assert withheld and f"pid {child.pid} (sd-pam)" in withheld[0]
 
     def test_a_claude_process_holding_nothing_under_the_root_means_the_scan_is_blind(
         self, tmp_path

@@ -215,13 +215,14 @@ deletes a `<slug>/<uuid>/` dir only when **all** of these hold:
   file inside it
   (read from `/proc/<pid>` before the sweep and again just before each delete,
   so a session resumed mid-sweep is kept; on 2026-10-14 every running session
-  held its own `<uuid>/tasks` open). It inspects every process of this uid but
-  itself and the ones the kernel withholds, which it names on the
-  `not inspected` line: a non-dumpable process (`(sd-pam)`), whose `fd`
-  directory the kernel hands to root, and one holding a capability the janitor
-  lacks (`systemd --user`), whose `cwd`, `exe` and every `fd` link the kernel
-  refuses to read (`EACCES`) though it lists them. What a withheld process
-  holds is unseen, and a dir it held would be pruned. It cannot see other uids'
+  held its own `<uuid>/tasks` open). The kernel withholds some processes of
+  this uid from it: a non-dumpable one, whose `fd` directory it hands to root,
+  and one with a capability or gid the janitor lacks (`systemd --user`, or
+  anything started from an `sg docker` / `newgrp` shell), whose `cwd`, `exe`
+  and `fd` links it lists but refuses to read (`EACCES`), and sometimes whose
+  `maps`. Only the session managers `systemd` and `(sd-pam)` are tolerated:
+  they are named on the `not inspected` line, and what they hold is unseen. It
+  cannot see other uids'
   processes (root daemons, `sudo`), other WSL distros' (Docker Desktop's
   containers) or Windows-side access over 9p;
 - it holds no git repository. Walking it without following symlinks, any entry
@@ -238,11 +239,9 @@ deletes a `<slug>/<uuid>/` dir only when **all** of these hold:
 
 It refuses, and deletes nothing, when it cannot see:
 
-- a process of this uid whose own `fd` directory cannot be listed, or a running
-  `claude` holding nothing under the root (the scan is blind), exits **1**. A
-  process the kernel withholds (above) is named on the `not inspected` line
-  instead; one whose links are read but whose `maps` is refused is named there
-  with `(maps only)`;
+- a process of this uid whose own `fd` directory cannot be listed, any other
+  withheld process (above), or a running `claude` holding nothing under the
+  root makes the scan blind: it exits **1**, naming the process;
 - a dir it cannot list is `UNREADABLE`, kept, and exits **1**, as is a dir
   whose pre-delete `/proc` re-check went blind; a delete that stops partway is
   `PARTIAL` and exits **1**;
