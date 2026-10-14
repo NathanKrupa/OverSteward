@@ -235,7 +235,7 @@ class TestVerifiedRestore:
         (config.key.parent / "restic.last-ok").unlink()
         row = _row(_check(config), "verified restore")
         assert row.status == "RED"
-        assert "logon canary blind" in row.detail
+        assert "absent - logon canary blind" in row.detail
 
     def test_a_c_mirror_that_differs_is_red_logon_canary_blind(self, tmp_path):
         config = _setup(tmp_path)
@@ -244,7 +244,7 @@ class TestVerifiedRestore:
         )
         row = _row(_check(config), "verified restore")
         assert row.status == "RED"
-        assert "logon canary blind" in row.detail
+        assert "differs - logon canary blind" in row.detail
 
     def test_the_mirror_dir_can_be_named_apart_from_the_key(self, tmp_path):
         config = _setup(tmp_path)
@@ -359,11 +359,19 @@ class TestNotConfigured:
 
 class TestCouldNotRead:
     def test_export_dir_missing_is_exit_1(self, tmp_path):
+        # The repository lives elsewhere here, so only the export dir's absence is in play.
         config = _setup(tmp_path)
+        repo = tmp_path / "R" / "restic"
+        shutil.move(config.repo, repo)
         shutil.rmtree(config.export_dir)
-        report = _check(config)
+        apart = BackupHealthConfig(
+            repo=repo, key=config.key, restic=config.restic, state_dir=config.state_dir,
+            export_dir=config.export_dir, distro=DISTRO,
+        )
+        report = _check(apart)
         assert report.exit_code == EXIT_COULD_NOT_READ
-        assert "not mounted" in render(report)
+        assert report.rows == ()
+        assert f"{config.export_dir} missing - export drive not mounted?" in render(report)
 
     def test_the_repos_parent_missing_is_exit_1_not_2(self, tmp_path):
         config = _setup(tmp_path)
@@ -389,7 +397,15 @@ class TestCouldNotRead:
         runner = FakeRunner(
             snapshot_age=timedelta(hours=49), systemctl=RunResult(1, "", "Failed to connect to bus")
         )
-        assert _check(_setup(tmp_path), runner).exit_code == EXIT_COULD_NOT_READ
+        report = _check(_setup(tmp_path), runner)
+        assert report.exit_code == EXIT_COULD_NOT_READ
+        assert "systemctl exited 1: Failed to connect to bus" in render(report)
+
+    def test_systemctl_not_reporting_the_units_state_is_exit_1(self, tmp_path):
+        runner = FakeRunner(snapshot_age=timedelta(hours=49), systemctl=RunResult(0, "", ""))
+        report = _check(_setup(tmp_path), runner)
+        assert report.exit_code == EXIT_COULD_NOT_READ
+        assert "did not report ActiveState" in render(report)
 
 
 # --- the entrypoint ----------------------------------------------------------
@@ -507,3 +523,17 @@ class FakeRunnerPassthrough:
         if argv[0] == "systemctl":
             return RunResult(0, "ActiveState=inactive\n", "")
         return health.run_command(argv)
+
+
+# --- the session-start doctrine ----------------------------------------------
+
+
+def test_claude_md_runs_backup_health_as_the_sixth_session_start_sweep() -> None:
+    text = (REPO_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+    assert "## Session start — the six sweeps" in text
+    section = text.split("## Session start", 1)[1].split("\n## ", 1)[0]
+    block = section.split("```bash", 1)[1].split("```", 1)[0]
+    lines = [line for line in block.splitlines() if "backup_health.py" in line]
+    assert lines == [
+        ".venv/bin/python scripts/backup_health.py            # whether the laptop could be rebuilt"
+    ]

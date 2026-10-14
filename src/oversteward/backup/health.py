@@ -335,7 +335,7 @@ def _export_marker_note(config: BackupHealthConfig, archive: _Archive) -> tuple[
     try:
         text = marker.read_text(encoding="ascii", errors="replace").strip()
     except FileNotFoundError:
-        return (f"{EXPORT_LAST_OK_NAME} absent ({marker}); re-run Install-WslResilience.ps1",)
+        return (f"{EXPORT_LAST_OK_NAME} absent ({marker}); the next successful export writes it",)
     except OSError as exc:
         return (f"{EXPORT_LAST_OK_NAME} unreadable: {exc}",)
     if text != archive.day.isoformat():

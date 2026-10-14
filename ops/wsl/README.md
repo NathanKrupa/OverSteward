@@ -100,8 +100,8 @@ gets a clean night rather than waiting for a particular day:
   distro, which this export does not include.
 
 The full export is the whole-distro rebuild point, not the history. The
-history is the daily live backup of `/home/natha` below; a health sweep over
-both backups comes in OS#583.
+history is the daily live backup of `/home/natha` below; the health sweep at
+the end of this page reads both.
 
 ## The daily home backup: restic, with the distro running
 
@@ -118,16 +118,22 @@ Linux-side, not PowerShell. `scripts/backup_home.py` (service
 - **Self-verifying:** after the backup and prune, one git object (a loose object
   or pack written before the backup started; git never rewrites those) is
   restored from the new snapshot to a temp directory and its sha256 compared
-  with the source. Only then is
-  `~/.local/state/oversteward/backup/restic.last-ok` (timestamp and snapshot id)
-  written.
+  with the source. Only then is the marker `restic.last-ok` (timestamp and
+  snapshot id) written, twice and byte-identical: first the **mirror** beside
+  the key, `C:\Users\natha\AppData\Local\WslResilience\restic.last-ok`, then
+  the primary, `~/.local/state/oversteward/backup/restic.last-ok`. Each goes
+  through a `.partial` file renamed into place. The mirror sits on C: so a
+  Windows-side check can read it while the distro is dead. A mirror that cannot
+  be written fails the run (exit 1, `FAILED - marker`) and no primary marker is
+  written, so the primary never records a success the mirror lacks.
 - **Key:** `C:\Users\natha\AppData\Local\WslResilience\restic.key`
   (`/mnt/c/...` from WSL), passed to restic as `--password-file` and never read
   or printed by the script. It must not live inside the backed-up tree, or the
   snapshot would carry the key beside the repository it unlocks; the script
   refuses a key there.
 - **Exit codes:** 0 ok; 1 a step failed (restic error, a source file could not
-  be read, the restore did not match) and no marker is written; 2 not
+  be read, the restore did not match, the mirror could not be written) and no
+  primary marker is written; 2 not
   configured (key, repository, restic or source missing), nothing attempted.
   Read the reason with `journalctl --user -u home-backup`.
 - **With the export:** 04:00 falls inside the export's nightly window. While the
@@ -158,6 +164,31 @@ Restore a path: `restic restore latest --repo /mnt/e/WSLBackups/restic
 --password-file <key> --target /tmp/restore --include /home/natha/<path>`.
 Without the key the repository cannot be read, so the password-manager copy is
 the only way back after a Windows rebuild.
+
+## The health sweep: are both backups current?
+
+`scripts/backup_health.py` (service `oversteward.backup.health`) is the sixth
+session-start sweep in `CLAUDE.md`. It runs inside the distro, writes nothing,
+and prints four named rows under a headline that names the count,
+`4 backup checks measured — N RED`:
+
+| Row | RED when |
+|---|---|
+| `snapshot` | the repository's latest snapshot (`restic snapshots --json --latest 1 --no-lock`) is older than 48 h, dated in the future, or absent. Reads **RUNNING**, not RED, while `home-backup.service` is active or activating. |
+| `verified restore` | `restic.last-ok` is absent, unparseable, older than 48 h or in the future; it names a snapshot other than the repository's latest; or its C: mirror is absent or differs ("logon canary blind"). |
+| `export` | no `Ubuntu-24.04_YYYY-MM-DD.tar` in `E:\WSLBackups` (newest chosen by the date in its name), the newest is zero bytes, or it is older than 45 days. |
+| `E: free` | free space on E: is below 1.1 times the newest archive (the next export is written before the old one is pruned), or there is no archive to size it against. |
+
+A **NOTE** beneath the export row is not RED: `export.last-ok` absent, or naming
+a date other than the newest archive's. `Backup-Wsl.ps1` writes that marker on
+each success, but an archive made by an older installed copy of the script has
+none: the marker appears with the next export that succeeds after
+`Install-WslResilience.ps1` has deployed the current script.
+
+Exit codes: **0** measured, RED rows included; **1** could not read (E: not
+mounted, restic or systemctl exited non-zero, unparseable output, or the sweep
+crashed); **2** not configured (restic, the key, or the repository with its
+parent present, missing).
 
 ## Uninstall
 

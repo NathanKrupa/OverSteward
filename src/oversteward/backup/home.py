@@ -15,9 +15,10 @@ One run is four steps, each of which must succeed before the next starts:
    can delete one in that window; that fails the run rather than passing it.
 4. Write ``restic.last-ok`` (timestamp and snapshot id): first a byte-identical
    mirror in ``mirror_dir`` on C: (by default the key's directory), then the
-   primary in the state directory. The Windows logon check reads the mirror,
-   so it can alert while the distro is dead; writing it first means a primary
-   marker never claims a success the mirror does not also record.
+   primary in the state directory. The mirror is on C: so a Windows-side check
+   can read it while the distro is dead (no such reader exists yet; the backup
+   health sweep compares the two). Writing it first means a primary marker
+   never claims a success the mirror does not also record.
 
 The key is only ever passed to restic as ``--password-file <path>``; this module
 never opens it. It must live outside the backed-up tree, or the snapshot would

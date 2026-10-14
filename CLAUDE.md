@@ -234,7 +234,7 @@ systemctl --user daemon-reload
 systemctl --user enable --now sync-repos.timer   # 03:00, ahead of the dream cycle
 ```
 
-## Session start — the five sweeps
+## Session start — the six sweeps
 
 Run these at the start of every session, after the `git pull --ff-only`. **They
 are passes, not gates: if Nathan opened the session with a task, his task goes
@@ -248,6 +248,7 @@ simply at the head of the list again next session.
 .venv/bin/python scripts/service_liveness.py         # what is down
 .venv/bin/python scripts/ag_ops_triage.py sweep      # what AG's users are waiting on
 .venv/bin/python scripts/stage_health.py sweep       # what GS's pipeline stopped doing
+.venv/bin/python scripts/backup_health.py            # whether the laptop could be rebuilt
 .venv/bin/python scripts/operator_steps.py list      # what Nathan owes
 ```
 
@@ -262,6 +263,7 @@ for" is a measurement, "ok" is a claim.
 - **Liveness** reads every `registry.yaml` context carrying a `railway:` block and reports services that are `CRASHED`/`FAILED` or in a state it cannot classify. The Sentry sweep is blind to this — a crashed service emits no Sentry issue, so inbox zero is fully compatible with a core service being dead. A scheduled one-shot that ended `SUCCESS` is completed, not a finding; a one-shot whose last run crashed is down. A project that cannot be read fails the whole sweep rather than silently contributing zero services.
 - **AG ops** sweeps untriaged in-app feedback and visitor-reported data corrections over the `/internal/ops/` seam (`.claude/skills/ag-triage/`). Exit 2 today, until `OPS_REPORTS_TOKEN` and `OPS_VERDICTS_TOKEN` are minted.
 - **Stage health** (`.claude/skills/stage-health/`) reads GrantSpider's `grantspider dq health --json` — whether each pipeline stage is still doing its work, not merely whether data is present (GS#2075 cut snapshot fetches ~10x for weeks and nothing alerted). The producer's exit code passes through unchanged; its **2** is "no `stage_health` rows in the window": the nightly asset is not running, and nothing was there to look at — a finding of its own, never a quiet morning. A document with an unknown `schema` is exit 1. When the laptop cannot reach Neon (a local `database unreadable: OperationalError`, a timeout, or an exit 1 with no document and a psycopg/SQLAlchemy connection error on stderr), the sweep retries once inside the production service via `railway ssh`. The headline then reads `via: railway-ssh; local: <reason>`, and a failed fallback is exit 1, never 2. Every RED row takes `stage_health.py record <row> fixed|filed|known --ref GS#<n>`; `fixed` holds for the ledger day it was recorded on, `filed`/`known` re-print as `FILED→GS#n`/`KNOWN→GS#n` until that issue closes, and there is no `later`.
+- **Backup health** (`scripts/backup_health.py`, `oversteward.backup.health`) reads both backups from inside the distro and prints four named rows under "4 backup checks measured — N RED": the latest restic snapshot (RED past 48 h), the verified restore (`restic.last-ok` past 48 h, absent, in the future, naming a snapshot other than the repository's latest, or its C: mirror absent or different — "logon canary blind"), the newest full export (RED when none, zero bytes, or past 45 days), and free space on E: (RED below 1.1x the newest archive). **RUNNING is not red**: a stale snapshot while `home-backup.service` is active or activating is the backup in flight. A **NOTE** is not RED either — `export.last-ok` absent or naming another date than the newest archive is reported beneath the export row and counted in nothing. Exit **0** measured (RED rows included), **1** could not read (E: not mounted, restic or systemctl failed, unparseable output, or the sweep crashed), **2** not configured (restic, the key, or the repository with its parent present, missing). Setup and markers: `ops/wsl/README.md`.
 
 Adding a Railway project to the liveness sweep is one block in `registry.yaml`:
 
