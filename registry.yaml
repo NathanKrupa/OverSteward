@@ -30,6 +30,7 @@ contexts:
       - docs-author
       - watch
       - architect
+      - enrich-worker
     tags:
       - meta
       - governance

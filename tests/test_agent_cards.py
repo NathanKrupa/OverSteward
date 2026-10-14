@@ -777,7 +777,9 @@ MODEL_ID = re.compile(r"^claude-[a-z0-9][a-z0-9.\-]*(?:\[[a-z0-9]+\])?$")
 #: Cards whose model is part of the contract, not a preference. `architect`
 #: exists only to run on a different model from the session that launches it, so
 #: an unpinned `architect` is not a slower planner — it is no planner at all.
-PINNED_MODELS = {"architect": "fable", "watch": "sonnet"}
+#: `enrich-worker`'s cost gate is priced at Sonnet rates (GS#3239), so its model is
+#: part of the budget the drain was approved on.
+PINNED_MODELS = {"architect": "fable", "watch": "sonnet", "enrich-worker": "sonnet"}
 
 #: Roles that are Opus work by the same rule that puts the dev cards there:
 #: reading a repo's doctrine and out-reading the author of a diff.

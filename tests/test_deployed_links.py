@@ -53,6 +53,14 @@ KEPT_AS_COPIES = {
     ),
 }
 
+# Agent cards in shared/agents/ that are deliberately not deployed into this repo.
+# Every other card must be, so a card added without its link fails here rather
+# than being silently dropped from the expected set by the presence filter below.
+CARDS_NOT_DEPLOYED_HERE = {
+    # registry.yaml deploys it to the ai-grants context only.
+    "grant-researcher.md": "ai-grants only",
+}
+
 
 def _present(rel: str) -> bool:
     path = REPO_ROOT / rel
@@ -122,6 +130,30 @@ def test_shared_carries_no_symlinks() -> None:
         if Path(root, name).is_symlink()
     ]
     assert links == []
+
+
+@pytest.mark.parametrize(
+    "card", sorted(p.name for p in (SHARED / "agents").glob("*.md")), ids=str
+)
+def test_every_agent_card_is_deployed_here_or_named_as_not(card: str) -> None:
+    """The presence filter in expected_links() would otherwise excuse a forgotten link."""
+    deployed = f".claude/agents/{card}"
+    if card in CARDS_NOT_DEPLOYED_HERE:
+        assert not _present(deployed), (
+            f"{deployed} exists: drop {card} from CARDS_NOT_DEPLOYED_HERE so it is checked."
+        )
+    else:
+        assert _present(deployed), (
+            f"shared/agents/{card} has no {deployed}. Link it "
+            f"(ln -s ../../shared/agents/{card} {deployed}) or name it in CARDS_NOT_DEPLOYED_HERE."
+        )
+
+
+def test_every_card_named_as_not_deployed_still_exists() -> None:
+    """An exemption for a card that was deleted or renamed would outlive its reason."""
+    cards = {p.name for p in (SHARED / "agents").glob("*.md")}
+    stale = sorted(set(CARDS_NOT_DEPLOYED_HERE) - cards)
+    assert not stale, f"CARDS_NOT_DEPLOYED_HERE names cards shared/agents/ lacks: {stale}"
 
 
 @pytest.mark.parametrize("deployed", sorted(DRIFTED_COPIES))
