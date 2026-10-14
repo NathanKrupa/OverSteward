@@ -9,7 +9,7 @@
 #
 # A <slug>/<uuid>/ session dir is deleted only when its newest file is at least
 # 7 days old, no process holds anything inside it (re-checked just before the
-# delete), and git ties it to no live checkout outside it. Exit 1 (the /proc
+# delete), and it holds no git repository. Exit 1 (the /proc
 # scan was blind, a dir was unreadable, or a delete was partial) or 2 (the root
 # is missing or a symlink) leaves the unit failed; `journalctl --user -u
 # scratchpad-janitor` names every dir and why.

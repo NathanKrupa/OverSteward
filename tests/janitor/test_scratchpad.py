@@ -212,6 +212,56 @@ class TestLiveness:
         assert not cand.exists()
         assert "PRUNED" in _row(_render(outcome), U1)
 
+    def test_a_process_whose_listed_links_are_refused_is_named_not_read_as_closed(
+        self, tmp_path, monkeypatch
+    ):
+        # systemd --user holds a capability this uid lacks: the kernel lets it
+        # list /proc/<pid>/fd but refuses readlink on cwd, exe and every fd
+        # (EACCES). Its holdings are unseen, so it is named, never "closed".
+        root, proc = _root(tmp_path), _proc(tmp_path)
+        cand = _cand(root)
+        entry = _pid(proc, 116, comm="systemd", cwd=cand / "scratchpad", fds=(cand / "tasks",))
+        readlink = os.readlink
+
+        def _refused(path, *args, **kwargs):
+            if Path(path).is_relative_to(entry):
+                raise PermissionError(errno.EACCES, "Permission denied", str(path))
+            return readlink(path, *args, **kwargs)
+
+        monkeypatch.setattr(os, "readlink", _refused)
+        outcome = _run(root, proc)
+        assert outcome.exit_code == EXIT_OK
+        withheld = [line for line in _render(outcome).splitlines() if "not inspected" in line]
+        assert withheld and "pid 116 systemd" in withheld[0]
+        assert "pid 116 systemd (maps only)" not in withheld[0]
+
+    def test_a_blind_scan_fails_a_dry_run_too(self, tmp_path):
+        root, proc = _root(tmp_path), _proc(tmp_path)
+        _cand(root)
+        _pid(proc, 117, comm="claude", fds=("/dev/null",))
+        outcome = _run(root, proc)
+        assert outcome.exit_code == EXIT_FAILED
+        assert "WOULD-PRUNE" not in _render(outcome)
+
+    def test_a_recheck_that_cannot_read_proc_deletes_nothing(self, tmp_path):
+        root, proc = _root(tmp_path), _proc(tmp_path)
+        cand = _cand(root)
+
+        def _proc_vanishes_then_measure() -> DiskStats:
+            proc.rename(tmp_path / "proc-gone")
+            return _no_disk()
+
+        outcome = run_janitor(
+            JanitorConfig(root=root, proc=proc, apply=True),
+            now=NOW,
+            self_pid=SELF_PID,
+            uid=os.getuid(),
+            disk=_proc_vanishes_then_measure,
+        )
+        assert outcome.exit_code == EXIT_FAILED
+        assert cand.is_dir()
+        assert "re-check could not read" in _row(_render(outcome), U1)
+
     def test_a_sibling_whose_name_extends_the_candidate_does_not_keep_it(self, tmp_path):
         root, proc = _root(tmp_path), _proc(tmp_path)
         cand = _cand(root)
@@ -428,6 +478,16 @@ class TestCandidates:
         outcome = _run(root, proc, apply=True)
         assert (elsewhere / "keep.txt").is_file()
         assert (root / SLUG / U1).is_symlink()
+        assert "unrecognised 1" in _render(outcome)
+
+    def test_a_symlinked_slug_is_never_followed_or_deleted(self, tmp_path):
+        root, proc = _root(tmp_path), _proc(tmp_path)
+        elsewhere = tmp_path / "elsewhere"
+        keep = _touch(elsewhere / U1 / "keep.txt", 40)
+        (root / SLUG).symlink_to(elsewhere)
+        outcome = _run(root, proc, apply=True)
+        assert outcome.exit_code == EXIT_OK
+        assert keep.is_file()
         assert "unrecognised 1" in _render(outcome)
 
     def test_a_symlink_inside_a_pruned_candidate_does_not_take_its_target(self, tmp_path):

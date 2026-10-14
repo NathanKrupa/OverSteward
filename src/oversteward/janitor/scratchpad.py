@@ -16,8 +16,12 @@ A candidate is pruned only when all of these hold:
 * **Unheld** — no process the janitor can inspect has its cwd, its executable,
   an open file descriptor or a mapped file inside it, read from
   ``/proc/<pid>`` once before the sweep and again just before each delete. It
-  can inspect every process of this uid but itself and the non-dumpable ones it
-  names as not inspected. It cannot see processes of other uids (root daemons,
+  can inspect every process of this uid but itself and the ones the kernel
+  withholds, which it names as not inspected: a non-dumpable process (its
+  ``fd`` directory belongs to root) and one holding a capability the reader
+  lacks (its ``cwd``, ``exe`` and ``fd`` links list but refuse ``readlink``).
+  What a withheld process holds is unseen, so a dir it held would be pruned.
+  It cannot see processes of other uids (root daemons,
   ``sudo``), processes in other WSL distros (Docker Desktop's containers), or
   Windows-side access over 9p.
 * **Free of git** — nothing inside it, walked without following symlinks, is
@@ -133,8 +137,8 @@ class _Holders:
 
     held: dict[tuple[str, str], list[int]]
     blind: list[str]
-    #: Pids running as this uid whose open files (non-dumpable) or maps (extra capabilities)
-    #: the kernel withholds.
+    #: Pids running as this uid whose links (non-dumpable, or extra capabilities) or only
+    #: whose maps the kernel withholds.
     withheld: list[str]
 
 
@@ -281,19 +285,25 @@ def _mapped(entry: Path) -> list[str] | None:
     return found
 
 
-def _targets(entry: Path) -> list[str]:
-    """Every path ``entry`` (a ``/proc/<pid>``) holds; ``PermissionError`` from ``fd`` propagates."""
+def _targets(entry: Path) -> list[str] | None:
+    """Every path ``entry`` (a ``/proc/<pid>``) holds; refusal to list ``fd`` propagates.
+
+    ``None`` when the kernel lists the links but refuses to read them: a process
+    of this uid holding a capability the reader lacks (``systemd --user`` holds
+    ``CAP_WAKE_ALARM``) gets ``EACCES`` on its ``cwd``, ``exe`` and every ``fd``.
+    A link that is gone (the process exited, the fd closed after the listing, a
+    kernel thread's ``exe``) is skipped.
+    """
+    fds = os.listdir(entry / "fd")
+    links = [entry / "cwd", entry / "exe", *(entry / "fd" / fd for fd in fds)]
     found = []
-    for link in ("cwd", "exe"):
+    for link in links:
         try:
-            found.append(os.readlink(entry / link))
-        except OSError:
-            continue  # exited, a zombie, or a kernel thread
-    for fd in os.listdir(entry / "fd"):
-        try:
-            found.append(os.readlink(entry / "fd" / fd))
-        except OSError:
-            continue  # closed between the listing and the read
+            found.append(os.readlink(link))
+        except (FileNotFoundError, ProcessLookupError):
+            continue
+        except PermissionError:
+            return None
     return found
 
 
@@ -338,7 +348,10 @@ def _holders(proc: Path, root: str, self_pid: int, uid: int) -> _Holders:
         except PermissionError as exc:
             if fd_owner == uid:
                 blind.append(f"pid {pid}: cannot read its open files ({exc.strerror})")
-            elif pid_owner == uid:
+                continue
+            targets = None
+        if targets is None:
+            if pid_owner == uid:
                 withheld.append(f"pid {pid} {_comm(entry) or '?'}")
             continue
         mapped = _mapped(entry)
