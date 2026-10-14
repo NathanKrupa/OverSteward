@@ -13,7 +13,12 @@ One run is four steps, each of which must succeed before the next starts:
    names those files by their content and never rewrites them in place, so the
    source cannot have changed between the snapshot and the compare. ``git gc``
    can delete one in that window; that fails the run rather than passing it.
-4. Write ``restic.last-ok`` (timestamp and snapshot id) in the state directory.
+4. Write ``restic.last-ok`` (timestamp and snapshot id): first a byte-identical
+   mirror in ``mirror_dir`` on C: (by default the key's directory), then the
+   primary in the state directory. The mirror is on C: so a Windows-side check
+   can read it while the distro is dead (no such reader exists yet; the backup
+   health sweep compares the two). Writing it first means a primary marker
+   never claims a success the mirror does not also record.
 
 The key is only ever passed to restic as ``--password-file <path>``; this module
 never opens it. It must live outside the backed-up tree, or the snapshot would
@@ -22,8 +27,9 @@ carry the key beside the repository it unlocks.
 Exit codes:
 
 * **0** — ok: snapshot taken, retention applied, restore verified, marker written.
-* **1** — failed: a restic step failed, a source file could not be read, or the
-  restore did not match. No marker is written.
+* **1** — failed: a restic step failed, a source file could not be read, the
+  restore did not match, or the mirror marker could not be written. No primary
+  marker is written.
 * **2** — not configured: the key, the repository, restic or the source is
   missing, so nothing was attempted. Never reads as ok.
 """
@@ -89,6 +95,13 @@ class HomeBackupConfig:
     password_file: Path = DEFAULT_PASSWORD_FILE
     state_dir: Path = DEFAULT_STATE_DIR
     restic: Path = DEFAULT_RESTIC
+    #: Where the marker's mirror goes; ``None`` means the password file's directory.
+    mirror_dir: Path | None = None
+
+    @property
+    def mirror(self) -> Path:
+        """The directory the marker is mirrored into."""
+        return self.mirror_dir if self.mirror_dir is not None else self.password_file.parent
 
 
 @dataclass(frozen=True, slots=True)
@@ -269,13 +282,23 @@ def _verify(
     return chosen, want
 
 
-def _write_last_ok(state_dir: Path, stamp: datetime, snapshot_id: str) -> Path:
-    state_dir.mkdir(parents=True, exist_ok=True)
-    marker = state_dir / LAST_OK_NAME
-    partial = state_dir / f"{LAST_OK_NAME}.partial"
-    partial.write_text(f"{stamp.isoformat(timespec='seconds')} {snapshot_id}\n", encoding="utf-8")
+def _replace_marker(directory: Path, text: str) -> Path:
+    marker = directory / LAST_OK_NAME
+    partial = directory / f"{LAST_OK_NAME}.partial"
+    partial.write_text(text, encoding="utf-8")
     partial.replace(marker)
     return marker
+
+
+def _write_last_ok(config: HomeBackupConfig, stamp: datetime, snapshot_id: str) -> Path:
+    """Write the mirror, then the primary; a mirror that cannot be written stops both."""
+    text = f"{stamp.isoformat(timespec='seconds')} {snapshot_id}\n"
+    try:
+        _replace_marker(config.mirror, text)
+    except OSError as exc:
+        raise StepFailed("marker", f"mirror {config.mirror} not written: {exc}") from None
+    config.state_dir.mkdir(parents=True, exist_ok=True)
+    return _replace_marker(config.state_dir, text)
 
 
 def _ok_headline(config: HomeBackupConfig, summary: dict, chosen: Path, digest: str) -> str:
@@ -312,13 +335,15 @@ def run_backup(
         summary = _backup(config, run)
         _forget(config, run)
         chosen, digest = _verify(config, run, summary["snapshot_id"], choose, started)
+        marker = _write_last_ok(config, now(), summary["snapshot_id"])
     except StepFailed as failure:
         return BackupOutcome(
             EXIT_FAILED, f"FAILED - {failure.step}: {failure.reason}", failure.details
         )
-    marker = _write_last_ok(config.state_dir, now(), summary["snapshot_id"])
     return BackupOutcome(
-        EXIT_OK, _ok_headline(config, summary, chosen, digest), (f"marker: {marker}",)
+        EXIT_OK,
+        _ok_headline(config, summary, chosen, digest),
+        (f"marker: {marker}", f"mirror: {config.mirror / LAST_OK_NAME}"),
     )
 
 

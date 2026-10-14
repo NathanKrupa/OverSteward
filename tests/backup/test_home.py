@@ -249,6 +249,53 @@ class TestSuccessfulRun:
         _run(config, FakeRestic())
         assert _last_ok(config).is_file()
 
+    def test_the_marker_is_mirrored_byte_for_byte_beside_the_key(self, tmp_path):
+        config = _setup(tmp_path)
+        _run(config, FakeRestic())
+        mirror = config.password_file.parent / "restic.last-ok"
+        assert mirror.read_bytes() == _last_ok(config).read_bytes()
+        assert not list(config.password_file.parent.glob("*.partial"))
+
+    def test_a_named_mirror_dir_receives_the_marker(self, tmp_path):
+        config = _setup(tmp_path)
+        elsewhere = tmp_path / "mirror"
+        elsewhere.mkdir()
+        _run(_with_mirror(config, elsewhere), FakeRestic())
+        assert (elsewhere / "restic.last-ok").read_bytes() == _last_ok(config).read_bytes()
+        assert not (config.password_file.parent / "restic.last-ok").exists()
+
+
+def _with_mirror(config: HomeBackupConfig, mirror_dir: Path) -> HomeBackupConfig:
+    return HomeBackupConfig(
+        source=config.source,
+        repository=config.repository,
+        password_file=config.password_file,
+        state_dir=config.state_dir,
+        restic=config.restic,
+        mirror_dir=mirror_dir,
+    )
+
+
+class TestMirrorFirst:
+    def test_a_mirror_that_cannot_be_written_fails_with_no_primary_marker(self, tmp_path):
+        # A file where the directory should be: unwritable even as root.
+        config = _setup(tmp_path)
+        blocked = tmp_path / "not-a-dir"
+        blocked.write_text("")
+        outcome = _run(_with_mirror(config, blocked), FakeRestic())
+        assert outcome.exit_code == EXIT_FAILED
+        assert outcome.headline.startswith("FAILED - marker:")
+        assert not _last_ok(config).exists()
+
+    def test_a_mirror_failure_leaves_an_earlier_primary_marker_untouched(self, tmp_path):
+        config = _setup(tmp_path)
+        config.state_dir.mkdir()
+        _last_ok(config).write_text("2029-01-01T00:00:00 older\n")
+        blocked = tmp_path / "not-a-dir"
+        blocked.write_text("")
+        _run(_with_mirror(config, blocked), FakeRestic())
+        assert _last_ok(config).read_text() == "2029-01-01T00:00:00 older\n"
+
 
 class TestFailedRun:
     def test_restic_backup_failure_stops_before_forget(self, tmp_path):
