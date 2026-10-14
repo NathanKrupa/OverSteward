@@ -115,9 +115,12 @@ naming the last success and the latest blocker, at most once a day. Keep 1
 (measured ~131 GB on 2026-10-11, of which ~58 GB is regenerable cache; E: is
 shared). Monthly deliberate update via `Update-WslSafely.ps1`. Keep the last-good
 WSL MSI beside the backups so Path B/C never waits on a download. History does
-not come from stacking full exports: a daily live backup of `/home/natha`,
-taken with the distro running (restic), arrives in OS#582, and a health sweep over the
-backups in OS#583. Docker Desktop volumes live in the `docker-desktop` distro and
+not come from stacking full exports: the daily restic backup of `/home/natha`
+does that, taken with the distro running at 04:00 (`home-backup.timer`) into
+`/mnt/e/WSLBackups/restic`, each success stamping
+`~/.local/state/oversteward/backup/restic.last-ok` - see
+[the daily home backup](../../ops/wsl/README.md#the-daily-home-backup-restic-with-the-distro-running).
+A health sweep over the backups is OS#583. Docker Desktop volumes live in the `docker-desktop` distro and
 are **not** in this export.
 
 **Test the backup quarterly** — a backup never restored is not a backup:
@@ -135,7 +138,8 @@ wsl --unregister wsl-restore-test
 - **Backup size vs retention:** the ext4 image exports to **~131 GB** (measured
   2026-10-11, uncompressed; ~82 GB in June). E: is shared (not a dedicated backup
   drive), so the default is **Keep 1**. Depth of history is the daily restic
-  backup's job (OS#582), not the full export's.
+  backup's job ([the daily home backup](../../ops/wsl/README.md#the-daily-home-backup-restic-with-the-distro-running)),
+  not the full export's.
 - **Snapshot consistency vs work in progress:** `wsl --export` terminates every
   process in the distro to take its snapshot. Rather than pick an hour and hope,
   the export **runs only when the readiness check says the distro is idle** and
