@@ -12,6 +12,9 @@ You are one worker in a drain that launches many identical workers. Your prompt 
 the whole of your task.
 
 - Do exactly what the prompt says, in the order it says, and stop when it says.
+- Never shorten, summarise or sample a list the source prints and the prompt asks
+  for: write out every person, every rule, every item. A long list is still
+  written in full.
 - Run only the commands the prompt names, with the flags it names. Never compose,
   chain, or improvise a shell command of your own.
 - Read only what the prompt or a command's output tells you to read. Write only to

@@ -854,3 +854,47 @@ def test_a_card_whose_model_is_contractual_pins_it(card: Path, expected: str) ->
         f"{card.parent.name}/{card.name} must pin `model: {expected}` and declares "
         f"`model: {_card_model(card)}`."
     )
+
+
+# `enrich-worker` runs the enrich-drain claim queue. On GrantSpider's bench
+# (GS#3239) a worker under this card dropped a 20-person board roster that the
+# same prompt without the card wrote out in full: "do exactly the task" read as
+# licence to shorten. The card must say a list is never cut, and it must stay
+# short, because the card exists to keep every worker's start-up prefix small
+# (OS#603).
+
+ENRICH_WORKER_CARD = CANONICAL_DIR / "enrich-worker.md"
+
+#: Phrases of the completeness rule, matched against the body with whitespace
+#: collapsed, so a rewrap does not break the pin but dropping the rule does.
+ENRICH_WORKER_COMPLETENESS = (
+    "never shorten, summarise or sample a list",
+    "a long list is still written in full",
+)
+
+#: Non-blank body lines the card may carry; the frontmatter is not counted.
+ENRICH_WORKER_MAX_BODY_LINES = 15
+
+
+def _card_body(card: Path) -> str:
+    """The card's text after its frontmatter — what the worker reads as its prompt."""
+    text = card.read_text(encoding="utf-8")
+    frontmatter = _FRONTMATTER.match(text)
+    assert frontmatter is not None, f"{card.name} has no frontmatter"
+    return text[frontmatter.end() :]
+
+
+@pytest.mark.parametrize("phrase", ENRICH_WORKER_COMPLETENESS)
+def test_enrich_worker_forbids_shortening_a_list(phrase: str) -> None:
+    """The rule lives in the body: the description is not part of the worker's prompt."""
+    body = " ".join(_card_body(ENRICH_WORKER_CARD).split()).lower()
+    assert phrase in body, f"enrich-worker body lacks the completeness rule: {phrase!r}"
+
+
+def test_enrich_worker_body_stays_short() -> None:
+    """Every line here is paid by every worker the drain launches."""
+    lines = [line for line in _card_body(ENRICH_WORKER_CARD).splitlines() if line.strip()]
+    assert len(lines) <= ENRICH_WORKER_MAX_BODY_LINES, (
+        f"enrich-worker body has {len(lines)} non-blank lines, over the "
+        f"{ENRICH_WORKER_MAX_BODY_LINES} it is allowed."
+    )
