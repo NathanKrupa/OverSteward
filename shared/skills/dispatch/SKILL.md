@@ -307,8 +307,9 @@ repo's queue in the same order.
 - **Nathan's own ideas do not go to GitHub.** They go to the Estate Idea
   Incubator, `/mnt/c/Users/natha/OneDrive/Documents/Nathan Writing/Obsidian/GTD/Projects/Estate Idea Incubator.md`,
   until a working session with him scopes one into an issue. An idea he
-  retires is **shelved** — the verb is "shelve", never "kill" — and an issue
-  that held one carries the `shelved` label.
+  retires is **shelved** — the verb is "shelve", never "kill": its bullet
+  moves to the note's `## Shelved` section, and an *issue* that held one
+  carries the `shelved` label.
 - The labels (`tribe`, `agent-finding`, `shelved`, and the dispatch set) are
   upserted on every dispatch-target repo and OverSteward by
   `scripts/orchestration/setup_dispatch_labels.sh`; their names and meanings

@@ -65,7 +65,7 @@ Parse each inbound message into one verb. Repo shorthand resolves via the
   - Suffix **`!ready`** on the message → Nathan has already scoped it, so it is work, not an idea. File it with the relay primitive, `--no-agent-finding` because he is the filer:
     `shared/scripts/telegraph/file_cross_repo_issue.py --repo <slug> --title "<short title from the description>" --body "<description>" --label ready-for-agent --no-agent-finding`
     (no `--source-repo`: no `from:` provenance footer). It only *queues* the issue as dispatch-eligible; it does not dispatch. Reply with the issue URL.
-  - **`shelve <idea>`** retires an incubated idea — the verb is "shelve", never "kill".
+  - **`shelve <idea>`** retires an incubated idea — the verb is "shelve", never "kill". Move its bullet from the open list to the note's `## Shelved` section (create the heading at the end of the note if absent), prefixed with the date shelved; never delete it. Reply `Shelved: <short title>`. The `shelved` GitHub label is for an *issue* that held one of his ideas, never for a note bullet.
 - **`status`** — run `/project-status`; reply with the table (trim to the headline counts if long).
 - **`questions`** / **`what's waiting`** — run `/questions`; reply with the compact list.
 - **`help`** — reply with this grammar.

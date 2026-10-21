@@ -141,6 +141,22 @@ def test_backfill_apply_adds_the_planned_labels(tmp_path):
     assert (OS.full_name, 1, ("agent-finding",)) in fake.added
 
 
+def test_backfill_apply_exits_one_when_a_label_addition_fails(tmp_path, capsys):
+    fake = FakeGitHub({AG.full_name: AG_ISSUES, OS.full_name: [gh_row(1, labels=("kaizen",))]})
+
+    def add_labels(full_name, number, labels):
+        fake.added.append((full_name, number, tuple(labels)))
+        if number == 12:
+            raise GhError("HTTP 422")
+
+    deps = _deps(fake)
+    deps = cli.Deps(deps.repos, deps.list_issues, add_labels, deps.upsert_label)
+    code = cli.main(["backfill", "--apply", "--out", str(tmp_path / "r.md")], deps=deps)
+    assert code == 1
+    assert "FAILED aigranthelper#12: HTTP 422" in capsys.readouterr().err
+    assert (OS.full_name, 1, ("agent-finding",)) in fake.added
+
+
 def test_backfill_refuses_a_partial_read(tmp_path):
     fake = FakeGitHub({AG.full_name: AG_ISSUES}, broken=frozenset({OS.full_name}))
     out = tmp_path / "r.md"

@@ -13,8 +13,9 @@ Intake labels (OS#613, Nathan 2026-10-21):
   Goal 8). It outranks every other issue, a paying consulting client's ask
   included, "for now".
 * ``agent-finding`` — filed by an agent rather than asked for by Nathan.
-* ``shelved`` — one of Nathan's ideas, retired without being worked (OS#612).
-  The verb is "shelve", never "kill".
+* ``shelved`` — an issue holding one of Nathan's ideas, retired without being
+  worked (OS#612). The verb is "shelve", never "kill". An idea that lives only
+  in the Estate Idea Incubator note is shelved in the note, not by this label.
 """
 
 from __future__ import annotations
@@ -54,7 +55,7 @@ DISPATCH_LABELS: tuple[LabelSpec, ...] = (
     ),
     LabelSpec(TRIBE, "0052CC", "A food-pantry user of AI Grant Helper would notice it — ranks first"),
     LabelSpec(AGENT_FINDING, "BFD4F2", "Filed by an agent, not asked for by Nathan"),
-    LabelSpec(SHELVED, "D4C5F9", "One of Nathan's ideas, shelved without being worked"),
+    LabelSpec(SHELVED, "D4C5F9", "Holds one of Nathan's ideas, shelved without being worked"),
 )
 
 Upsert = Callable[[str, LabelSpec], object]

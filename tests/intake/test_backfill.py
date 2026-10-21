@@ -46,17 +46,18 @@ def test_the_plan_skips_unclassified_and_already_labelled_issues():
     assert ("oversteward", 5) not in numbers
 
 
-def test_apply_calls_the_adder_once_per_step_and_reports_failures():
+def test_apply_keeps_going_past_a_failed_step_and_reports_it():
+    """The failing step is a middle one, so a run that stopped there would skip #3."""
     calls = []
 
     def add(repo, number, labels):
         calls.append((repo, number, labels))
-        if number == 3:
+        if number == 2:
             raise RuntimeError("gh refused")
 
     failures = apply_plan(plan(_rows()), add)
     assert [c[1] for c in calls] == [1, 2, 3]
-    assert [(f.step.number, f.error) for f in failures] == [(3, "gh refused")]
+    assert [(f.step.number, f.error) for f in failures] == [(2, "gh refused")]
 
 
 def test_the_sample_is_reproducible_for_a_seed_and_capped_per_class():
