@@ -8,8 +8,9 @@
 Description=Nightly Estate Brief schedule
 
 [Timer]
-# 05:30 local: after the 03:00 checkout sync, so the run uses current code, and
-# before the morning check-in reads the note.
+# 05:30 local: after the 03:00 checkout sync, which normally brings the
+# primary checkout current (it skips a dirty tree or one on another branch),
+# and before the morning check-in reads the note.
 #
 # Persistent runs a tick missed while the laptop was closed once it is back up,
 # which is the usual case at this hour.

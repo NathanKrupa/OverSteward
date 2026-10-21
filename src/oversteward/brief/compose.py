@@ -6,8 +6,9 @@
 The brief is read aloud at the morning check-in by a skill that can only read
 vault files, so it says four things and nothing else:
 
-* **URGENT** — a Railway service that is down, or a liveness sweep that could
-  not look. Rendered only when there is something to say.
+* **URGENT** — a Railway service that is down or in a state nothing
+  classifies, or a liveness sweep that could not look. Rendered only when
+  there is something to say. Sentry is not read yet.
 * **Shipped** — pull requests *merged* in the window, grouped by repository,
   with a count. A pull request closed without merging never counts, and
   ``0 shipped`` is a measured answer, not a missing one.

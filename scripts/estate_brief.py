@@ -60,8 +60,8 @@ def load_registry() -> dict:
 def write_note(path: Path, text: str) -> None:
     """Replace the note atomically; never create the folder it lives in.
 
-    A missing folder means the vault is not mounted — creating it would plant a
-    stray tree on the Linux side that nothing ever reads.
+    A missing folder most likely means the Windows drive is not mounted;
+    creating it would plant a stray tree on the Linux side that nothing reads.
     """
     if not path.parent.is_dir():
         raise FileNotFoundError(f"vault folder {path.parent} does not exist")
