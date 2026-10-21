@@ -27,7 +27,8 @@ from oversteward.shelve.client import (
     read_linked_issue,
     read_snapshot,
 )
-from oversteward.shelve.ledger import LedgerEntry
+from oversteward.board.client import GhError
+from oversteward.shelve.ledger import LedgerEntry, confine, parse
 from oversteward.shelve.sweep import (
     MARKER,
     MissingLabelError,
@@ -37,6 +38,7 @@ from oversteward.shelve.sweep import (
     execute,
     plan,
     render,
+    run_entry,
     survey,
     targets_from_registry,
 )
@@ -96,13 +98,14 @@ def verbs(decided: Plan) -> dict[tuple[str, int | str | None], str]:
 
 
 class SpyWriter:
-    def __init__(self, fail_on: str | None = None):
+    def __init__(self, fail_on: str | None = None, error: type[Exception] = RuntimeError):
         self.calls: list[tuple] = []
         self.fail_on = fail_on
+        self.error = error
 
     def _hit(self, name, *args):
         if name == self.fail_on:
-            raise RuntimeError("write failed")
+            raise self.error("write failed")
         self.calls.append((name, *args))
 
     def shelve_pull(self, repo, number, comment):
@@ -119,9 +122,11 @@ class SpyWriter:
 
 
 def run(decided: Plan, *, apply: bool, writer=None):
+    """``(entries, recorded actions)``; the run's closing line is checked, then set aside."""
     recorded: list[LedgerEntry] = []
-    entries = execute(decided, apply=apply, writer=writer, record=recorded.extend, now=NOW)
-    return entries, recorded
+    outcome = execute(decided, apply=apply, writer=writer, record=recorded.extend, now=NOW)
+    assert recorded[-1].rule == "sweep-run"
+    return outcome.entries, recorded[:-1]
 
 
 # --- pull requests ---------------------------------------------------------
@@ -150,6 +155,12 @@ def test_a_recent_comment_is_motion():
     assert verbs(decide(snap(pulls=[pull(1, 50, ("any news?", ago(3)))]))) == {}
 
 
+def test_a_pull_request_opened_recently_from_an_old_branch_is_not_idle():
+    opened = OpenPull(**{**{f: getattr(pull(1, 50), f) for f in OpenPull.__slots__},
+                         "created_at": ago(1)})
+    assert verbs(decide(snap(pulls=[opened]))) == {}
+
+
 def test_a_recent_review_is_motion():
     reviewed = OpenPull(**{**{f: getattr(pull(1, 50), f) for f in OpenPull.__slots__},
                            "last_review_at": ago(2)})
@@ -172,6 +183,11 @@ def test_a_shelve_comment_left_on_an_open_pull_is_not_motion():
     comment = decide(snap(pulls=[pull(1, 30)])).actions[0].comment
     stuck = pull(1, 30, (comment, ago(1)))
     assert verbs(decide(snap(pulls=[stuck]))) == {("pr", 1): "shelve"}
+
+
+def test_a_comment_carrying_the_marker_never_exempts_even_if_it_begins_carried():
+    forged = (f"carried: by the sweep itself\n{MARKER} -->", ago(30))
+    assert verbs(decide(snap(pulls=[pull(1, 30, forged)]))) == {("pr", 1): "shelve"}
 
 
 def test_carried_inside_a_sentence_does_not_exempt():
@@ -237,6 +253,17 @@ def test_the_sweeps_shelve_comment_does_not_begin_with_reopen():
     assert verbs(decide(snap(shelved=[item]))) == {}
 
 
+@pytest.mark.parametrize("said", ["Reopened as #640 after the rebase; leave this one closed",
+                                  "reopening this in the new PR"])
+def test_a_comment_about_reopening_elsewhere_does_not_reopen(said):
+    assert verbs(decide(snap(shelved=[shelved_item(3, 10, (said, ago(1)))]))) == {}
+
+
+@pytest.mark.parametrize("said", ["reopen", "Reopen — the client answered", "  REOPEN: back on"])
+def test_reopen_as_a_word_at_the_start_reopens(said):
+    assert verbs(decide(snap(shelved=[shelved_item(3, 10, (said, ago(1)))]))) == {("pr", 3): "reopen"}
+
+
 def test_a_reopen_comment_from_before_the_close_does_not_reopen():
     item = shelved_item(3, 10, ("reopen please", ago(11)))
     assert verbs(decide(snap(shelved=[item]))) == {}
@@ -268,6 +295,17 @@ def test_a_branch_with_a_pull_request_and_the_trunks_are_never_reported():
     target = SweepTarget(WP, frozenset({"staging", "main"}), "staging", None)
     branches = [branch("feat/x", 90, has_pull=True), branch("main", 90), branch("staging", 90)]
     assert verbs(decide(snap(branches=branches), target=target)) == {}
+
+
+def test_the_github_default_branch_is_a_trunk_even_when_the_registry_names_another():
+    target = SweepTarget(WP, frozenset({"staging"}), "staging", None)
+    assert verbs(decide(snap(branches=[branch("main", 90)]), target=target)) == {}
+
+
+def test_a_cut_linked_thread_is_treated_as_already_noted():
+    linked = {("wphelper", 44): LinkedIssue(44, open=True, comment_bodies=(), complete=False)}
+    decided = decide(snap(branches=[branch("fix/issue-44-thing", 45)]), linked=linked)
+    assert verbs(decided) == {("branch", "fix/issue-44-thing"): "report"}
 
 
 def test_a_linked_open_issue_gets_one_close_out_note():
@@ -400,12 +438,41 @@ def test_an_apply_without_the_shelved_label_refuses_before_any_write():
     assert decided.unlabelled == ("wphelper",)
 
 
-def test_a_failed_write_leaves_only_completed_actions_in_the_ledger():
+def test_closing_a_finding_without_the_shelved_label_also_refuses():
+    decided = decide(snap(issues=[issue(5, 70, "agent-finding")], labels=("agent-finding",)))
+    spy = SpyWriter()
+
+    with pytest.raises(MissingLabelError):
+        run(decided, apply=True, writer=spy)
+    assert spy.calls == []
+
+
+def test_an_unexpected_write_error_stops_the_run_with_only_completed_actions_ledgered():
     spy = SpyWriter(fail_on="close_finding")
     recorded: list[LedgerEntry] = []
     with pytest.raises(RuntimeError):
         execute(_busy_plan(), apply=True, writer=spy, record=recorded.extend, now=NOW)
     assert [e.action for e in recorded] == ["reopen", "shelve"]
+
+
+def test_a_write_github_refuses_is_set_aside_and_the_rest_still_run():
+    spy = SpyWriter(fail_on="reopen", error=GhError)
+    recorded: list[LedgerEntry] = []
+
+    outcome = execute(_busy_plan(), apply=True, writer=spy, record=recorded.extend, now=NOW)
+
+    assert [c[0] for c in spy.calls] == ["shelve_pull", "close_finding", "note"]
+    assert [(f.action.verb, f.action.number) for f in outcome.failures] == [("reopen", 3)]
+    assert "reopen" not in [e.action for e in recorded]
+    assert recorded[-1].rule == "sweep-run" and recorded[-1].reason == "5 actions"
+
+
+def test_every_run_closes_with_a_run_line_even_when_it_decided_nothing():
+    recorded: list[LedgerEntry] = []
+    execute(decide(snap()), apply=False, writer=None, record=recorded.extend, now=NOW)
+
+    (line,) = recorded
+    assert (line.kind, line.rule, line.mode, line.reason) == ("run", "sweep-run", "dry", "0 actions")
 
 
 def test_render_says_would_for_a_dry_run():
@@ -428,6 +495,18 @@ def test_the_ledger_appends_one_json_line_per_entry(tmp_path):
     rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
     assert len(rows) == 6
     assert rows[0]["mode"] == "dry" and rows[0]["at"] == NOW.isoformat()
+    assert parse(path.read_text(encoding="utf-8")) == entries
+
+
+def test_a_ledger_line_that_does_not_parse_is_an_error_not_a_skip():
+    with pytest.raises(ValueError, match="line 2"):
+        parse('{"x": 1}\n'.replace('{"x": 1}', run_entry("dry", NOW, 0).to_json()) + "{torn\n")
+
+
+def test_confine_refuses_a_path_outside_the_state_directory(tmp_path):
+    assert confine(tmp_path / "a" / "l.jsonl", tmp_path) == (tmp_path / "a" / "l.jsonl").resolve()
+    with pytest.raises(ValueError):
+        confine(tmp_path / ".." / "l.jsonl", tmp_path)
 
 
 # --- GitHub transport ------------------------------------------------------
@@ -441,11 +520,12 @@ class FakeGh:
     """Answers gh argv: label/issue lists, GraphQL by connection, REST writes recorded."""
 
     def __init__(self, pulls_pages=None, labels=("shelved",), issues=(), branches=(),
-                 shelved_prs=(), rest=None):
+                 shelved_prs=(), rest=None, issue_total=1):
         self.pulls_pages = list(pulls_pages or [[]])
         self.labels, self.issues, self.branches = labels, issues, branches
         self.shelved_prs = shelved_prs
         self.rest = rest or {}
+        self.issue_total = issue_total
         self.calls: list[list[str]] = []
 
     def __call__(self, args):
@@ -467,7 +547,8 @@ class FakeGh:
                 return {"data": {"repository": {"defaultBranchRef": {"name": "main"},
                                                 "refs": _conn(list(self.branches))}}}
             if "issue(number" in query:
-                return {"data": {"repository": {"issue": {"comments": {"nodes": [{"body": "b"}]}}}}}
+                comments = {"totalCount": self.issue_total, "nodes": [{"body": "b"}]}
+                return {"data": {"repository": {"issue": {"comments": comments}}}}
         if args[0] == "api":
             key = args[-1] if args[1] != "-X" else args[3]
             if key in self.rest:
@@ -523,9 +604,13 @@ def test_a_connection_that_never_ends_is_refused(monkeypatch):
 def test_read_snapshot_reads_branches_with_their_pull_count():
     node = {"name": "feat/z", "target": {"committedDate": "2026-08-01T00:00:00Z"},
             "associatedPullRequests": {"totalCount": 0}}
-    snapshot = read_snapshot(WP, run=FakeGh(branches=[node]))
+    with_pull = {**node, "name": "feat/p", "associatedPullRequests": {"totalCount": 1}}
+    snapshot = read_snapshot(WP, run=FakeGh(branches=[node, with_pull]))
     assert snapshot.default_branch == "main"
-    assert snapshot.branches == (Branch("wphelper", "feat/z", datetime(2026, 8, 1, tzinfo=UTC), False),)
+    assert snapshot.branches == (
+        Branch("wphelper", "feat/z", datetime(2026, 8, 1, tzinfo=UTC), False),
+        Branch("wphelper", "feat/p", datetime(2026, 8, 1, tzinfo=UTC), True),
+    )
 
 
 def test_a_linked_number_that_is_a_pull_request_or_missing_is_no_issue():
@@ -536,8 +621,15 @@ def test_a_linked_number_that_is_a_pull_request_or_missing_is_no_issue():
 
 
 def test_a_linked_issue_reads_its_state_and_comments():
-    gh = FakeGh(rest={"repos/NathanKrupa/wphelper/issues/7": {"state": "open"}})
-    assert read_linked_issue(WP, 7, run=gh) == LinkedIssue(7, True, ("b",))
+    gh = FakeGh(rest={"repos/NathanKrupa/wphelper/issues/7": {"state": "open"},
+                      "repos/NathanKrupa/wphelper/issues/8": {"state": "closed"}})
+    assert read_linked_issue(WP, 7, run=gh) == LinkedIssue(7, True, ("b",), complete=True)
+    assert read_linked_issue(WP, 8, run=gh).open is False
+
+
+def test_a_linked_issue_with_more_comments_than_read_is_incomplete():
+    gh = FakeGh(rest={"repos/NathanKrupa/wphelper/issues/7": {"state": "open"}}, issue_total=250)
+    assert read_linked_issue(WP, 7, run=gh).complete is False
 
 
 def test_the_writer_labels_before_it_closes():
@@ -633,8 +725,9 @@ def test_cli_dry_run_is_the_default_and_never_builds_a_writer(tmp_path, capsys):
 
     assert _main(["--ledger", str(ledger)], writers=writers) == 0
     assert writers == []
-    (row,) = [json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines()]
+    row, closing = [json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines()]
     assert row["mode"] == "dry" and row["action"] == "shelve"
+    assert closing["rule"] == "sweep-run" and closing["mode"] == "dry"
     assert "would shelve wphelper#1" in capsys.readouterr().out
 
 
@@ -642,6 +735,22 @@ def test_cli_apply_writes_through_the_writer(tmp_path):
     writers: list = []
     assert _main(["--ledger", str(tmp_path / "l.jsonl"), "--apply"], writers=writers) == 0
     assert [c[0] for c in writers[0].calls] == ["shelve_pull"]
+
+
+def test_cli_exits_one_when_github_refuses_a_write_and_names_it(tmp_path, capsys):
+    module = _module()
+
+    class Refusing(SpyWriter):
+        def __init__(self):
+            super().__init__(fail_on="shelve_pull", error=GhError)
+
+    code = module.main(["--ledger", str(tmp_path / "l.jsonl"), "--apply"], registry=lambda: _REGISTRY,
+                       trees=lambda: (lambda t: ()), writer=Refusing,
+                       read_repo=lambda repo: snap(pulls=[pull(1, 30)]),
+                       read_issue=lambda repo, n: None, now=lambda: NOW, environ={},
+                       state_dir=tmp_path)
+    assert code == 1
+    assert "GitHub refused to shelve wphelper#1" in capsys.readouterr().err
 
 
 def test_cli_without_a_ledger_path_is_misconfigured():

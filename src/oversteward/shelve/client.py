@@ -97,7 +97,7 @@ query($owner: String!, $name: String!, $cursor: String) {
 _ISSUE_COMMENTS = """
 query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
-    issue(number: $number) { comments(last: 100) { nodes { body } } }
+    issue(number: $number) { comments(last: 100) { totalCount nodes { body } } }
   }
 }
 """
@@ -199,6 +199,8 @@ class LinkedIssue:
     number: int
     open: bool
     comment_bodies: tuple[str, ...]
+    #: Whether ``comment_bodies`` is the whole thread, not its newest 100.
+    complete: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -301,11 +303,13 @@ def read_linked_issue(repo: RepoRef, number: int, *, run: Runner = gh_json) -> L
     if "pull_request" in payload:
         return None
     found = _graphql(run, _ISSUE_COMMENTS, repo, number=str(number))
-    nodes = ((found.get("issue") or {}).get("comments") or {}).get("nodes") or []
+    thread = (found.get("issue") or {}).get("comments") or {}
+    nodes = thread.get("nodes") or []
     return LinkedIssue(
         number=number,
         open=payload.get("state") == "open",
         comment_bodies=tuple(node.get("body") or "" for node in nodes),
+        complete=int(thread.get("totalCount", 0)) <= len(nodes),
     )
 
 

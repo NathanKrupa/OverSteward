@@ -41,7 +41,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol
 
-from oversteward.board.client import read_estate
+from oversteward.board.client import GhError, read_estate
 from oversteward.board.config import RepoRef, repos_from_registry
 from oversteward.board.models import Issue
 from oversteward.shelve.client import (
@@ -70,6 +70,9 @@ WORKTREE_IDLE = timedelta(days=7)
 MARKER = "<!-- oversteward:shelve-sweep"
 SHELVE_LEAD = "shelved — reopen by comment."
 
+#: ``reopen`` as a whole word at the start: "Reopen — …" reopens, "Reopened as #640" does not.
+_REOPEN = re.compile(r"reopen\b", re.IGNORECASE)
+
 #: ``<type>/issue-<n>-<slug>``, the dispatch playbook's branch name.
 _BRANCH_ISSUE = re.compile(r"(?:^|/)issue-(\d+)(?:-|$)")
 
@@ -80,6 +83,8 @@ RULE_BRANCH = "branch-no-pr"
 RULE_WORKTREE = "worktree-unlanded"
 RULE_INCUBATOR = "incubator-candidate"
 RULE_REOPEN = "reopen-by-comment"
+#: The line each completed run appends last, so a reader can tell "nothing to do" from "did not run".
+RULE_RUN = "sweep-run"
 
 VERB_SHELVE = "shelve"
 VERB_CLOSE = "close"
@@ -87,6 +92,7 @@ VERB_REOPEN = "reopen"
 VERB_NOTE = "note"
 VERB_REPORT = "report"
 VERB_CANDIDATE = "candidate"
+VERB_RUN = "run"
 
 #: Verbs that change GitHub. Only these ever reach the writer.
 WRITE_VERBS = frozenset({VERB_SHELVE, VERB_CLOSE, VERB_REOPEN, VERB_NOTE})
@@ -162,6 +168,21 @@ class Action:
 
 
 @dataclass(frozen=True, slots=True)
+class Failure:
+    """A write GitHub refused: the action stays unperformed and unledgered."""
+
+    action: Action
+    error: str
+
+
+@dataclass(frozen=True, slots=True)
+class Outcome:
+    #: Ledgered actions — every action for a dry run; the performed ones for an apply.
+    entries: tuple[LedgerEntry, ...]
+    failures: tuple[Failure, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class Plan:
     actions: tuple[Action, ...]
     #: Repositories where an apply would need the ``shelved`` label and it does not exist.
@@ -228,11 +249,15 @@ def carried(thread: Thread) -> bool:
 
 
 def wants_reopen(item: ShelvedItem) -> bool:
-    """The newest comment came after the close, is not the sweep's, and begins ``reopen``."""
+    """The newest comment came after the close, is not the sweep's, and opens with the word ``reopen``."""
     if not item.thread.comments:
         return False
     newest = max(item.thread.comments, key=lambda c: c.created_at)
-    return newest.created_at > item.closed_at and _says(newest.body, "reopen")
+    return (
+        newest.created_at > item.closed_at
+        and not own(newest.body)
+        and _REOPEN.match(newest.body.lstrip()) is not None
+    )
 
 
 def _stale_branches(snapshot: RepoSnapshot, target: SweepTarget, now: datetime) -> list[Branch]:
@@ -320,7 +345,8 @@ def _branch_actions(
                     url=f"https://github.com/{target.repo.full_name}/tree/{branch.name}",
                     rule=RULE_BRANCH, idle_days=idle)
         actions.append(Action(**base, number=None, verb=VERB_REPORT, reason="no pull request"))
-        if issue is not None and issue.open and not any(
+        # A cut thread may hold an earlier note out of sight: treat it as noted.
+        if issue is not None and issue.open and issue.complete and not any(
             note_marker(branch.name) in body for body in issue.comment_bodies
         ):
             issue_url = f"https://github.com/{target.repo.full_name}/issues/{issue.number}"
@@ -391,6 +417,15 @@ def _entry(action: Action, mode: str, now: datetime) -> LedgerEntry:
     )
 
 
+def run_entry(mode: str, now: datetime, count: int) -> LedgerEntry:
+    """The closing line of a completed run, written even when it decided nothing."""
+    return LedgerEntry(
+        at=now, mode=mode, repo="*", kind="run", number=None, ref=None,
+        title="abandoned-work sweep", url="", rule=RULE_RUN, action=VERB_RUN, idle_days=None,
+        reason=f"{count} actions",
+    )
+
+
 def _perform(action: Action, writer: Writer) -> None:
     if action.verb == VERB_SHELVE:
         writer.shelve_pull(action.repo, action.number, action.comment)
@@ -409,17 +444,21 @@ def execute(
     writer: Writer | None,
     record: Callable[[Sequence[LedgerEntry]], None],
     now: datetime,
-) -> tuple[LedgerEntry, ...]:
+    refused: tuple[type[Exception], ...] = (GhError,),
+) -> Outcome:
     """Ledger every action; perform the writes only when ``apply`` is set.
 
     A dry run never touches ``writer``. An apply refuses before its first write
     when a repository lacks the ``shelved`` label, and records each action only
-    after its write returned.
+    after its write returned. A write that raises one of ``refused`` (GitHub said
+    no) is set aside as a :class:`Failure` and the run goes on — otherwise one
+    item GitHub will not reopen would stall every later apply at the same place.
+    A run that finishes records :func:`run_entry` last; it is not an entry.
     """
     if not apply:
         entries = tuple(_entry(a, MODE_DRY, now) for a in decided.actions)
-        record(entries)
-        return entries
+        record((*entries, run_entry(MODE_DRY, now, len(entries))))
+        return Outcome(entries)
     if writer is None:
         raise ValueError("an apply needs a writer")
     if decided.unlabelled:
@@ -427,14 +466,20 @@ def execute(
             f"label {SHELVED!r} does not exist in {', '.join(decided.unlabelled)} — "
             "create it first; the sweep never creates labels"
         )
-    entries = []
+    entries: list[LedgerEntry] = []
+    failures: list[Failure] = []
     for action in decided.actions:
         if action.verb in WRITE_VERBS:
-            _perform(action, writer)
+            try:
+                _perform(action, writer)
+            except refused as exc:
+                failures.append(Failure(action, str(exc)))
+                continue
         entry = _entry(action, MODE_APPLIED, now)
         record([entry])
         entries.append(entry)
-    return tuple(entries)
+    record([run_entry(MODE_APPLIED, now, len(entries))])
+    return Outcome(tuple(entries), tuple(failures))
 
 
 # --- rendering -------------------------------------------------------------
@@ -474,7 +519,9 @@ __all__ = [
     "PR_IDLE",
     "WORKTREE_IDLE",
     "Action",
+    "Failure",
     "MissingLabelError",
+    "Outcome",
     "Plan",
     "Survey",
     "SweepTarget",
@@ -484,6 +531,7 @@ __all__ = [
     "last_motion",
     "plan",
     "render",
+    "run_entry",
     "said",
     "survey",
     "targets_from_registry",

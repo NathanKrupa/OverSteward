@@ -12,8 +12,9 @@ The rules are in ``oversteward.shelve.sweep``.
 Exit codes carry meaning and must not be collapsed:
 
 * **0** — a measured answer, including no actions.
-* **1** — GitHub or git could not be read, or a write failed part-way (the
-  ledger holds every action that completed).
+* **1** — GitHub or git could not be read, the ledger could not be written,
+  or GitHub refused one or more writes (each is named; the other actions still
+  ran, and the ledger holds every one that completed).
 * **2** — nothing configured: no ledger path, a ledger path outside
   ``~/.local/state/oversteward/``, no dispatch target in the registry, or
   ``--apply`` against a repository without the ``shelved`` label.
@@ -49,9 +50,8 @@ from oversteward.shelve.worktrees import Worktree, WorktreeReadError, read_workt
 REPO_ROOT = Path(__file__).resolve().parent.parent
 REGISTRY_PATH = REPO_ROOT / "registry.yaml"
 DOCTOR_PATH = REPO_ROOT / "scripts" / "dev" / "worktree_doctor.py"
-LEDGER_ENV = "SHELVE_LEDGER_PATH"
-#: The only directory a ledger may live in. The Estate Brief reads it from here.
-STATE_DIR = Path.home() / ".local" / "state" / "oversteward"
+LEDGER_ENV = ledger.LEDGER_ENV
+STATE_DIR = ledger.STATE_DIR
 
 EXIT_OK = 0
 EXIT_COULD_NOT_LOOK = 1
@@ -66,19 +66,11 @@ def load_registry() -> dict:
         return yaml.safe_load(handle) or {}
 
 
-def ledger_path(requested: Path, base: Path) -> Path:
-    """The ledger path, resolved and refused unless it lies inside the state directory."""
-    resolved = Path(requested).expanduser().resolve()
-    if not resolved.is_relative_to(base.resolve()):
-        raise ValueError(f"ledger {resolved} is outside the state directory {base}")
-    return resolved
-
-
 def append_ledger(path: Path, base: Path, entries: Sequence[ledger.LedgerEntry]) -> None:
     """Append ``entries`` to the ledger inside ``base``, creating its folder if needed."""
     if not entries:
         return
-    safe = ledger_path(path, base)
+    safe = ledger.confine(path, base)
     safe.parent.mkdir(parents=True, exist_ok=True)
     with open(safe, "a", encoding="utf-8") as handle:
         handle.write(ledger.to_lines(entries))
@@ -136,7 +128,7 @@ def main(
     if args.ledger is None:
         return _fail(f"no ledger path — pass --ledger or set {LEDGER_ENV}", EXIT_MISCONFIGURED)
     try:
-        ledger_file = ledger_path(args.ledger, state_dir)
+        ledger_file = ledger.confine(args.ledger, state_dir)
     except ValueError as exc:
         return _fail(str(exc), EXIT_MISCONFIGURED)
     targets = targets_from_registry(registry())
@@ -147,14 +139,18 @@ def main(
         found = survey(targets, now=moment, read_repo=read_repo, read_issue=read_issue,
                        read_trees=trees())
         decided = plan(targets, found, moment)
-        entries = execute(decided, apply=args.apply, writer=writer() if args.apply else None,
+        outcome = execute(decided, apply=args.apply, writer=writer() if args.apply else None,
                           record=lambda rows: append_ledger(ledger_file, state_dir, rows), now=moment)
     except MissingLabelError as exc:
         return _fail(str(exc), EXIT_MISCONFIGURED)
     except (GhError, WorktreeReadError, OSError) as exc:
         return _fail(f"could not finish the sweep — {exc}", EXIT_COULD_NOT_LOOK)
-    print(render(entries, apply=args.apply, unlabelled=decided.unlabelled), end="")
-    return EXIT_OK
+    print(render(outcome.entries, apply=args.apply, unlabelled=decided.unlabelled), end="")
+    for failure in outcome.failures:
+        action = failure.action
+        print(f"ERROR: GitHub refused to {action.verb} {action.repo.id}#{action.number} — "
+              f"{failure.error}", file=sys.stderr)
+    return EXIT_COULD_NOT_LOOK if outcome.failures else EXIT_OK
 
 
 if __name__ == "__main__":
