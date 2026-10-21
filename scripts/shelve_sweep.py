@@ -88,6 +88,8 @@ def doctor_trees() -> TreeReader:
     """Read worktrees through the doctor's own ``git worktree list`` parser."""
     spec = importlib.util.spec_from_file_location("worktree_doctor", DOCTOR_PATH)
     doctor = importlib.util.module_from_spec(spec)
+    # dataclasses resolve their module through sys.modules while the class is built.
+    sys.modules.setdefault(spec.name, doctor)
     spec.loader.exec_module(doctor)
 
     def checkouts(primary: Path) -> list[tuple[Path, str | None]]:

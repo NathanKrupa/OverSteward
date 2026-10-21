@@ -161,6 +161,19 @@ def test_the_sweeps_own_comment_is_neither_motion_nor_carried():
     assert verbs(decide(snap(pulls=[pull(1, 30, own_comment)]))) == {("pr", 1): "shelve"}
 
 
+def test_every_comment_the_sweep_writes_carries_its_marker():
+    comments = [a.comment for a in _busy_plan().actions if a.comment is not None]
+
+    assert len(comments) == 3
+    assert all(MARKER in c for c in comments)
+
+
+def test_a_shelve_comment_left_on_an_open_pull_is_not_motion():
+    comment = decide(snap(pulls=[pull(1, 30)])).actions[0].comment
+    stuck = pull(1, 30, (comment, ago(1)))
+    assert verbs(decide(snap(pulls=[stuck]))) == {("pr", 1): "shelve"}
+
+
 def test_carried_inside_a_sentence_does_not_exempt():
     said = ("this is not carried: really", ago(40))
     assert verbs(decide(snap(pulls=[pull(1, 40, said)]))) == {("pr", 1): "shelve"}
@@ -669,6 +682,29 @@ def test_cli_refuses_a_ledger_outside_the_state_directory(tmp_path):
     outside = tmp_path / "elsewhere" / "l.jsonl"
     assert _main(["--ledger", str(outside)], state_dir=tmp_path / "state") == 2
     assert not outside.exists()
+
+
+def _git(*args, cwd):
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True,
+                   env={"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+                        "GIT_COMMITTER_EMAIL": "t@t", "PATH": "/usr/bin:/bin", "HOME": str(cwd)})
+
+
+def test_cli_reads_real_worktrees_through_the_doctor(tmp_path):
+    origin, primary, linked = tmp_path / "origin.git", tmp_path / "primary", tmp_path / "linked"
+    _git("init", "--bare", "-b", "main", str(origin), cwd=tmp_path)
+    _git("clone", str(origin), str(primary), cwd=tmp_path)
+    _git("commit", "--allow-empty", "-m", "base", cwd=primary)
+    _git("push", "origin", "HEAD:main", cwd=primary)
+    _git("fetch", "origin", cwd=primary)
+    _git("worktree", "add", "-b", "session/x", str(linked), cwd=primary)
+    _git("commit", "--allow-empty", "-m", "unlanded", cwd=linked)
+
+    target = SweepTarget(WP, frozenset({"main"}), "main", primary)
+    (found,) = _module().doctor_trees()(target)
+
+    assert found.path == linked and found.branch == "session/x"
+    assert found.landed is False and not found.missing
 
 
 def test_cli_reads_the_real_registry_targets():
