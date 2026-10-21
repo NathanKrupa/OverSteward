@@ -78,7 +78,7 @@ _INTERNAL_LABELS = frozenset(
 _INTERNAL_TITLE = re.compile(
     r"\b(?:staging|smoke|playwright|telemetry|lighthouse|unverified|investigate|cron|backfill)\b"
     r"|^\s*(?:\[[^\]]*\]\s*)?(?:tests?|test_\w+|chore|ci|docs?|refactor|build|ops|perf|spike)\b"
-    r"|\b(?:fix|chore|feat|perf|refactor)\((?:ci|tests?|ops|infra|deps|lint|gaudi|telemetry)\)",
+    r"|\b(?:fix|chore|feat|perf|refactor)\((?:ci|tests?|ops|infra|deps|lint|gaudi)\)",
     re.I,
 )
 
@@ -93,7 +93,7 @@ _AG_USER_LABELS = frozenset(
 #: AI Grant Helper surfaces a user touches, matched in the title only — a body
 #: mentions a draft or a deadline in passing far more often than it is about one.
 _AG_USER_SURFACE = re.compile(
-    r"\b(?:beta feedback|in-app feedback|food (?:pantr|bank)|pantry|on a phone|mobile|tap target|"
+    r"\b(?:beta feedback|in-app feedback|food bank|pantr(?:y|ies)|on a phone|mobile|tap target|"
     r"contrast|checkout|pricing page|foundation page|funder page|draft|deadline|studio|workshop|"
     r"dashboard|kanban|onboarding|sign[- ]?up|log[- ]?in|magic[- ]link|email)",
     re.I,

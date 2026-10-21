@@ -53,9 +53,8 @@ def displaced_by(target: IntakeIssue, issues: Iterable[IntakeIssue]) -> tuple[In
     """The ready ``tribe`` issues a dispatch of ``target`` passes over; none for a tribe target."""
     if is_tribe(target):
         return ()
-    return tuple(
-        i for i in dispatch_queue(issues) if is_tribe(i) and i.number != target.number
-    )
+    # The target is not tribe here, so it can never appear among the displaced.
+    return tuple(i for i in dispatch_queue(issues) if is_tribe(i))
 
 
 def render_displacement(

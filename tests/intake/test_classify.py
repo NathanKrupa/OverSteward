@@ -68,6 +68,7 @@ def test_a_near_miss_body_is_not_a_strong_marker(body):
         "Surfaced during the PR #40 pickup.",
         "Spotted in the gaudi baseline.",
         "Discovered while fixing the cache.",
+        "Noticed during the deploy.",
         "Adversarial review finding 3 on PR #9.",
         "The reviewer's round 2 verdict named this.",
         "Follow-up to #2443.",
@@ -85,7 +86,11 @@ def test_a_weak_marker_in_the_title_counts():
 
 @pytest.mark.parametrize(
     "phrase",
-    ["Nathan asked for this", "Nathan wants it", "Nathan's idea", "Nathan requested"],
+    [
+        "Nathan asked for this", "Nathan asks for this", "Nathan wants it", "Nathan wanted it",
+        "Nathan requested it", "Nathan's request", "Nathan's idea", "Nathan's ideas",
+        "Nathan suggested it",
+    ],
 )
 def test_a_nathan_origin_phrase_vetoes_a_weak_marker(phrase):
     proposal = classify(issue(1, repo="oversteward", body=f"{phrase}. Found while testing."))
@@ -111,7 +116,9 @@ def test_a_near_miss_weak_marker_is_left_alone(text):
 
 @pytest.mark.parametrize("repo", ["oversteward", "wphelper", "fiscus", "exchequer", "ai-assistants"])
 def test_only_the_product_repos_propose_tribe(repo):
-    proposal = classify(issue(1, repo=repo, title="Mobile checkout is broken", labels=("bug",)))
+    # A title both the AG and the GS rules accept, so no product rule can rescue it.
+    title = "Checkout shows the wrong foundation page"
+    proposal = classify(issue(1, repo=repo, title=title, labels=("bug",)))
     assert "tribe" not in proposal.labels
 
 
@@ -131,11 +138,35 @@ def test_an_ag_user_facing_label_proposes_tribe(label):
     assert "tribe" in classify(issue(1, title="Save button", labels=(label,))).labels
 
 
-@pytest.mark.parametrize(
-    "title",
-    ["Deadline field prints N/A", "Checkout accepts a retired price", "Foundation page header",
-     "Draft editor loses text", "Monday update email lists nothing", "beta feedback: slow"],
-)
+#: One title per alternative of the AG user-surface rule, each matching it alone.
+_AG_SURFACE_TITLES = [
+    "beta feedback: slow",
+    "in-app feedback asks for an export",
+    "Food bank users see the wrong total",
+    "Pantries cannot export a report",
+    "On a phone the header overlaps",
+    "Mobile header overlaps",
+    "Tap target under 24px",
+    "Contrast under 4.5:1",
+    "Checkout accepts a retired price",
+    "Pricing page shows a stale total",
+    "Foundation page header overlaps",
+    "Funder page header overlaps",
+    "Draft editor loses text",
+    "Deadline field prints N/A",
+    "Studio stalls on save",
+    "Workshop cards overlap",
+    "Dashboard counts are off",
+    "Kanban columns overlap",
+    "Onboarding step repeats",
+    "Sign-up form rejects a valid name",
+    "Login form rejects a valid name",
+    "Magic-link expires early",
+    "Monday update email lists nothing",
+]
+
+
+@pytest.mark.parametrize("title", _AG_SURFACE_TITLES)
 def test_an_ag_user_surface_in_the_title_proposes_tribe(title):
     assert "tribe" in classify(issue(1, title=title)).labels
 
@@ -157,32 +188,72 @@ def test_an_internal_label_vetoes_tribe(label):
     assert "tribe" not in proposal.labels
 
 
-@pytest.mark.parametrize(
-    "title",
-    [
-        "tests: pricing page red under with_test_env",
-        "test_pricing depends on .env",
-        "chore(ci): verify.sh records a spurious line",
-        "fix(ci): passthrough reports stub success",
-        "docs: deadline help page",
-        "Staging smoke times out on the checkout",
-        "Unverified: does caching skip the draft",
-        "Lighthouse mobile score",
-        "feat(telemetry): instrument the draft editor",
-    ],
-)
+#: One fixture per alternative of the internal-title rule, each matching that
+#: alternative alone, so deleting any one alternative turns its fixture tribe.
+_INTERNAL_TITLES = [
+    # words anywhere in the title
+    "Staging checkout times out",
+    "Smoke run hits the checkout",
+    "Playwright clicks the checkout",
+    "Draft editor telemetry gap",
+    "Lighthouse score on the checkout",
+    "Unverified: does caching skip the draft",
+    "Investigate the slow checkout",
+    "Cron sends the deadline email twice",
+    "Backfill draft rows",
+    # a leading type, optionally behind a bracketed tag
+    "tests: pricing page red under with_test_env",
+    "test_pricing depends on .env",
+    "chore: bump the checkout library",
+    "ci: checkout job flakes",
+    "docs: deadline help page",
+    "[P2] docs: deadline help page",
+    "refactor: checkout view",
+    "build: draft bundle size",
+    "ops: checkout alert",
+    "perf: draft editor",
+    "spike: checkout flow",
+    # a conventional-commit scope
+    "fix(ci): checkout passes",
+    "fix(tests): checkout fixture",
+    "feat(ops): checkout alert",
+    "fix(infra): checkout host",
+    "fix(deps): checkout library",
+    "fix(lint): checkout view",
+    "fix(gaudi): checkout view",
+]
+
+
+@pytest.mark.parametrize("title", _INTERNAL_TITLES)
 def test_an_internal_title_vetoes_tribe(title):
     assert "tribe" not in classify(issue(1, title=title, labels=("bug",))).labels
+
+
+@pytest.mark.parametrize("title", ["Checkout breaks", "Draft editor loses text"])
+def test_a_user_facing_title_with_a_user_label_is_tribe(title):
+    """The positive twin of the internal-title fixtures: same label, no internal word."""
+    assert "tribe" in classify(issue(1, title=title, labels=("bug",))).labels
 
 
 # --- tribe: grantspider ----------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "title",
-    ["Wrong figure on the foundation page", "beta corrections: seven reports",
-     "user-reported data correction for a funder"],
-)
+#: One title per alternative of the GS surface and user-report rules.
+_GS_SURFACE_TITLES = [
+    "Wrong figure on the foundation page",
+    "Funder page shows stale data",
+    "AG page lists the wrong city",
+    "AG search misses funders",
+    "Public page lists the wrong city",
+    "Wrong city shown on AG",
+    "AG users see stale data",
+    "beta corrections: seven reports",
+    "beta feedback on funder data",
+    "user-reported data correction for a funder",
+]
+
+
+@pytest.mark.parametrize("title", _GS_SURFACE_TITLES)
 def test_a_gs_title_naming_what_ag_users_see_proposes_tribe(title):
     assert "tribe" in classify(issue(1, repo="grantspider", title=title)).labels
 
