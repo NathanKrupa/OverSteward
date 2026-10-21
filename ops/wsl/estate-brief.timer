@@ -1,0 +1,22 @@
+# ABOUTME: systemd --user timer scheduling the nightly Estate Brief.
+# ABOUTME: 05:30, after sync-repos (03:00) has brought the checkout current; Persistent catches up a missed night.
+#
+# Enable:  systemctl --user enable --now estate-brief.timer
+# Inspect: systemctl --user list-timers estate-brief.timer
+
+[Unit]
+Description=Nightly Estate Brief schedule
+
+[Timer]
+# 05:30 local: after the 03:00 checkout sync, which normally brings the
+# primary checkout current (it skips a dirty tree or one on another branch),
+# and before the morning check-in reads the note.
+#
+# Persistent runs a tick missed while the laptop was closed once it is back up,
+# which is the usual case at this hour.
+OnCalendar=*-*-* 05:30:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

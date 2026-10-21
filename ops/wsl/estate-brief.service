@@ -1,0 +1,32 @@
+# ABOUTME: systemd --user unit that writes the nightly Estate Brief into the Obsidian vault.
+# ABOUTME: Paired with estate-brief.timer; the morning check-in skill reads the note it writes.
+#
+# Install (once per machine):
+#   mkdir -p ~/.config/systemd/user
+#   cp ops/wsl/estate-brief.service ops/wsl/estate-brief.timer ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemd-analyze --user verify ~/.config/systemd/user/estate-brief.service
+#   systemctl --user enable --now estate-brief.timer
+#   systemctl --user start estate-brief.service   # one run now; then read the note
+#
+# The check-in skill reads vault files only, so this note is its whole view of
+# the estate; it reports "the nightly estate brief did not run" when the note's
+# date is more than two days old. Exit 1 (GitHub or the vault unreadable, or
+# the Railway sweep blind) leaves the unit failed; `journalctl --user -u
+# estate-brief` names the cause. A blind Railway sweep still writes the note,
+# with the blind source under URGENT.
+
+[Unit]
+Description=Write the nightly Estate Brief into the vault
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/natha/OverSteward
+Environment=PYTHONPATH=/home/natha/OverSteward/src
+# The user manager's PATH is the system default and does not carry
+# ~/.railway/bin, where the railway CLI the liveness sweep runs is installed.
+Environment=PATH=/home/natha/.railway/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/natha/OverSteward/.venv/bin/python /home/natha/OverSteward/scripts/estate_brief.py --out "/mnt/c/Users/natha/OneDrive/Documents/Nathan Writing/Obsidian/GTD/Estate Brief.md"
+TimeoutStartSec=15min
