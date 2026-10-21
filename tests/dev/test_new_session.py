@@ -3,8 +3,11 @@
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -20,6 +23,12 @@ def _repo_root() -> Path:
 REPO_ROOT = _repo_root()
 CANONICAL = REPO_ROOT / "shared" / "scripts" / "dev" / "new-session.sh"
 DEPLOYED = REPO_ROOT / "scripts" / "dev" / "new-session.sh"
+DOCTOR = REPO_ROOT / "shared" / "scripts" / "dev" / "worktree_doctor.py"
+
+#: A hand-written direnv file of the kind ai-assistants commits — the content
+#: new-session.sh replaced there (OS#608).
+REPO_ENVRC = "# the repository's own direnv setup\nsource .venv/bin/activate\ndotenv_if_exists\n"
+TRACKED_NOTE = "this repo tracks its own .envrc"
 
 GIT_IDENTITY = (
     "-c",
@@ -42,8 +51,18 @@ def _git(cwd: Path, *args: str) -> str:
     return result.stdout
 
 
-def _make_repo(tmp_path: Path, *, with_src: bool, with_venv: bool = False) -> Path:
-    """A throwaway repo with a real `origin`, mirroring what the script expects."""
+def _make_repo(
+    tmp_path: Path,
+    *,
+    with_src: bool,
+    with_venv: bool = False,
+    tracked_envrc: str | None = None,
+) -> Path:
+    """A throwaway repo with a real `origin`, mirroring what the script expects.
+
+    ``tracked_envrc`` commits a ``.envrc`` with that content, as ai-assistants
+    and grantspider do (OS#608).
+    """
     origin = tmp_path / "origin.git"
     origin.mkdir()
     _git(origin, "init", "--bare", "--initial-branch=main", ".")
@@ -56,6 +75,8 @@ def _make_repo(tmp_path: Path, *, with_src: bool, with_venv: bool = False) -> Pa
         (repo / "src" / "mod.py").write_text("", encoding="utf-8")
     else:
         (repo / "manage.py").write_text("", encoding="utf-8")
+    if tracked_envrc is not None:
+        (repo / ".envrc").write_text(tracked_envrc, encoding="utf-8")
     _git(repo, "add", "-A")
     _git(repo, "commit", "-m", "base")
     _git(repo, "remote", "add", "origin", str(origin))
@@ -67,13 +88,16 @@ def _make_repo(tmp_path: Path, *, with_src: bool, with_venv: bool = False) -> Pa
     return repo
 
 
-def _run_new_session(script: Path, repo: Path, name: str) -> str:
+def _run_new_session(
+    script: Path, repo: Path, name: str, env: dict[str, str] | None = None
+) -> str:
     result = subprocess.run(
         ["bash", str(script), name, "origin/main"],
         cwd=repo,
         capture_output=True,
         text=True,
         check=True,
+        env=env,
     )
     return result.stdout
 
@@ -201,3 +225,114 @@ def test_worktree_bootstrap_artifacts_are_ignored(stray: str) -> None:
         capture_output=True,
     )
     assert ignored.returncode == 0, f"`{stray}` is not gitignored"
+
+
+# ---------------------------------------------------------------------------
+# a repository that tracks its own .envrc (OS#608)
+# ---------------------------------------------------------------------------
+
+
+def _tracked_note(stdout: str) -> list[str]:
+    """The stripped lines of the tracked-``.envrc`` paragraph, up to its closing ``)``.
+
+    Scoped to the paragraph because the banner's launch block already prints a
+    ``PYTHONPATH`` export of its own, which a whole-banner search would accept.
+    """
+    lines = [line.strip() for line in stdout.splitlines()]
+    starts = [i for i, line in enumerate(lines) if TRACKED_NOTE in line]
+    assert len(starts) == 1, f"expected one tracked-.envrc note, found {len(starts)}"
+    note = lines[starts[0] :]
+    return note[: note.index(")")]
+
+
+def test_a_tracked_envrc_is_left_byte_identical_to_head(script: Path, tmp_path: Path) -> None:
+    """ai-assistants #108: the script replaced 18 lines of the repo's own file."""
+    repo = _make_repo(tmp_path, with_src=True, with_venv=True, tracked_envrc=REPO_ENVRC)
+    _run_new_session(script, repo, "demo")
+
+    worktree = repo / ".claude" / "worktrees" / "demo"
+    assert ".envrc" not in _git(worktree, "status", "--porcelain")
+    assert (worktree / ".envrc").read_bytes() == REPO_ENVRC.encode("utf-8")
+    assert _git(worktree, "show", "HEAD:.envrc") == REPO_ENVRC
+
+
+def test_a_tracked_envrc_moves_the_exports_into_the_banner(script: Path, tmp_path: Path) -> None:
+    """What the script declined to write, the human is told to export themselves."""
+    repo = _make_repo(tmp_path, with_src=True, with_venv=True, tracked_envrc=REPO_ENVRC)
+    stdout = _run_new_session(script, repo, "demo")
+
+    worktree = repo / ".claude" / "worktrees" / "demo"
+    note = _tracked_note(stdout)
+    assert f'export PYTHONPATH="{worktree / "src"}"' in note
+    assert "export UV_NO_SYNC=1" in note
+    assert "a .envrc was written" not in stdout
+
+
+def test_a_tracked_envrc_without_a_shared_venv_asks_for_no_uv_export(
+    script: Path, tmp_path: Path
+) -> None:
+    """UV_NO_SYNC guards a borrowed venv; with none to borrow there is nothing to guard."""
+    repo = _make_repo(tmp_path, with_src=False, tracked_envrc=REPO_ENVRC)
+    stdout = _run_new_session(script, repo, "flat")
+
+    worktree = repo / ".claude" / "worktrees" / "flat"
+    assert f'export PYTHONPATH="{worktree}"' in _tracked_note(stdout)
+    assert "UV_NO_SYNC" not in stdout
+    assert (worktree / ".envrc").read_bytes() == REPO_ENVRC.encode("utf-8")
+
+
+def _git_that_cannot_answer_ls_files(tmp_path: Path) -> dict[str, str]:
+    """A PATH whose ``git`` fails ``ls-files`` the way a broken index does (exit 128)."""
+    real_git = shutil.which("git")
+    assert real_git, "git is not on PATH"
+    shim_dir = tmp_path / "shim"
+    shim_dir.mkdir()
+    shim = shim_dir / "git"
+    shim.write_text(
+        "#!/bin/sh\n"
+        'case " $* " in *" ls-files "*) echo "fatal: index file corrupt" >&2; exit 128;; esac\n'
+        f'exec "{real_git}" "$@"\n',
+        encoding="utf-8",
+    )
+    shim.chmod(0o755)
+    return {**os.environ, "PATH": f"{shim_dir}{os.pathsep}{os.environ['PATH']}"}
+
+
+def test_a_git_that_cannot_answer_reads_as_tracked(script: Path, tmp_path: Path) -> None:
+    """Only git's own "did not match" (exit 1) licenses the write; any other failure does not.
+
+    The repo tracks no ``.envrc``, so the write would have been safe here — but
+    the script cannot know that, and keeping its hands off costs one export.
+    """
+    repo = _make_repo(tmp_path, with_src=True, with_venv=True)
+    stdout = _run_new_session(script, repo, "demo", env=_git_that_cannot_answer_ls_files(tmp_path))
+
+    worktree = repo / ".claude" / "worktrees" / "demo"
+    assert not (worktree / ".envrc").exists()
+    note = _tracked_note(stdout)
+    assert f'export PYTHONPATH="{worktree / "src"}"' in note
+    assert "export UV_NO_SYNC=1" in note
+
+
+def test_a_tracked_envrc_worktree_tears_down_through_the_doctor(
+    script: Path, tmp_path: Path
+) -> None:
+    """ai-assistants #108 end to end: teardown refused until a manual ``git restore``.
+
+    ``--no-docker`` because the removal is the step under test and the fixture
+    owns no database; the docker leg runs after the removal and cannot change it.
+    """
+    repo = _make_repo(tmp_path, with_src=True, with_venv=True, tracked_envrc=REPO_ENVRC)
+    _run_new_session(script, repo, "demo")
+    worktree = repo / ".claude" / "worktrees" / "demo"
+
+    result = subprocess.run(
+        [sys.executable, str(DOCTOR), "teardown", str(worktree), "--no-docker"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not worktree.exists()
+    assert (repo / ".envrc").read_bytes() == REPO_ENVRC.encode("utf-8")
