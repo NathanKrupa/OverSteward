@@ -34,7 +34,7 @@ Conda env: `MacGregor`
 - **Soul:** `.claude/soul.md` (MacGregor identity and security doctrine)
 - **Security Audit:** `docs/SECURITY_AUDIT.md`
 - **Session:** `SESSION_STATE.md`
-- **Todo:** `MASTER_TODO.md` + `TODO_BACKLOG.md` + `TODO_COMPLETED.md`
+- **Todo:** GitHub issues (active work) + `TODO_BACKLOG.md` + `TODO_COMPLETED.md`
 
 ### Environment Variables
 Required in `.env`:

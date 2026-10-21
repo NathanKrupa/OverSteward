@@ -30,4 +30,4 @@ Conda env: `stocks`
 ### Key Files
 - **Input:** `My Portfolio.xlsx` (Trade_Log sheet with user's trades)
 - **Output:** `My Portfolio_BUILT.xlsx` (generated workbook — do NOT edit directly)
-- **Ledger:** `Chestertron_Stewards_Ledger.md` (project status and session log)
+- **Status:** `SESSION_STATE.md` (where the last session left off); active work, when there is any, is a GitHub issue

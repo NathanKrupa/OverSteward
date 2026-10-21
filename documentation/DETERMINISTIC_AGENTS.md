@@ -221,7 +221,7 @@ Same docs, rendered against the user's profile. "Your org is small, so this sect
 
 ### 7.3 Internal docs (already partly running)
 
-Per-repo pickup-context docs (`documentation/repos/*.md` — directory exists, mostly empty). Architecture maintenance (`architecture.md` — pull-based). ROADMAP / SESSION_STATE / Stewards_Ledger. These run on capture-first discipline today; future agent could lint citations + flag stale rows for re-verification.
+Per-repo pickup-context docs (`documentation/repos/*.md` — directory exists, mostly empty). Architecture maintenance (`architecture.md` — pull-based). ROADMAP / SESSION_STATE. These run on capture-first discipline today; future agent could lint citations + flag stale rows for re-verification.
 
 ---
 

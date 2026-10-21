@@ -1,5 +1,5 @@
 ABOUTME: OverSteward roadmap — what's been done, what's in flight, what's next, what's shelved.
-ABOUTME: Pulls from registry.yaml, OVERSTEWARD.md horizons, MASTER_TODO/TODO_BACKLOG, open issues, script stubs, and recent architectural moves.
+ABOUTME: Pulls from registry.yaml, OVERSTEWARD.md horizons, TODO_BACKLOG, open issues, script stubs, and recent architectural moves.
 
 # OverSteward Roadmap
 
@@ -7,7 +7,7 @@ ABOUTME: Pulls from registry.yaml, OVERSTEWARD.md horizons, MASTER_TODO/TODO_BAC
 
 Source files this roadmap consolidates:
 - `OVERSTEWARD.md` (vision, two pillars, phase plan)
-- `MASTER_TODO.md` (Horizon 1) + `TODO_BACKLOG.md` (Horizons 2-3)
+- Open issues (Horizon 1) + `TODO_BACKLOG.md` (Horizons 2-3)
 - `architecture.md` §5 recent moves
 - Open Oversteward issues (`gh issue list`)
 - Script stubs (`scripts/{coordinator,gather,diff,sow,sweep}.py`)
@@ -32,7 +32,7 @@ Both pillars share the same posture: **propose, don't impose**. Nathan is the pr
 
 ## §2 Done — Phase 1 (Governance foundation)
 
-Complete since 2026-02-26. Captured in `Stewards_Ledger.md` session log.
+Complete since 2026-02-26. Its session log lived in `Stewards_Ledger.md`, retired 2026-10-21 (OS#614) and kept in git history.
 
 - All 14 contexts registered in `registry.yaml` (5 local VS Code + 2 Obsidian + 7 GitHub-only).
 - Canonical souls deployed: `chestertron.md`, `macgregor.md`. MacGregor soul-protected — never leaks.
@@ -1864,7 +1864,7 @@ Active or partially-shipped items as of 2026-05-07.
 
 ## §5 Next up — Horizon 1 residue + Horizon 2 promotion
 
-Pulled from `MASTER_TODO.md` Active and `TODO_BACKLOG.md` Horizon 2.
+Pulled from the August 2026 `MASTER_TODO.md` Active list (retired 2026-10-21, OS#614) and `TODO_BACKLOG.md` Horizon 2.
 
 ### H1 residue (cleanup)
 

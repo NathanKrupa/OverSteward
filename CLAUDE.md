@@ -181,7 +181,7 @@ middle-layer service, never in a script.
 
 - **`registry.yaml`** — the manifest of every managed context, and the single source of truth driving sync and dispatch. Additive, surgical edits only; preserve key order and the per-context schema.
 - **`architecture.md`** — machine-readable snapshot of repos, cross-repo seams, load-bearing invariants and known liabilities. **Read at scope/plan time** when a task touches more than one repo or any §3 invariant; if a row is wrong, fix it before continuing. Dispatch agents do not read it. Before scoping "edit X and propagate through Y", `git grep` for the managed-block markers and confirm the consumer reads them — if the surface is absent, building it is in-scope, not a follow-up.
-- **`OVERSTEWARD.md`** — spec and design decisions. **`Stewards_Ledger.md`** — status and session log. **`MASTER_TODO.md`** (active) + `TODO_BACKLOG.md` + `TODO_COMPLETED.md`.
+- **`OVERSTEWARD.md`** — spec and design decisions. **GitHub issues** are the work queue; `TODO_BACKLOG.md` (horizon backlog) + `TODO_COMPLETED.md` (archive). Nathan sees estate status through his morning check-in, never a hand-kept status doc.
 - **`data/tool_registry.md`** — read it before grepping for a CLI, script or entry point. Regenerate after adding or removing one: `.venv/bin/python scripts/tools/generate_tool_registry.py`. `data/workflow_registry.md` is the same, one altitude up.
 - **`SESSION_STATE.md`** — local-only "where we left off" scratchpad; gitignored, **never committed**.
 

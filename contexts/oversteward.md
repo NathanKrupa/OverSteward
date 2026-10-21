@@ -12,4 +12,4 @@ This is the governance repo. Work here is meta — managing and improving the sy
 - Prefer simpler scripts over clever ones — this system must be maintainable and trustworthy.
 
 ## Active Work
-See MASTER_TODO.md for current tasks and OVERSTEWARD.md for architecture reference.
+See open GitHub issues for current tasks and OVERSTEWARD.md for architecture reference.
