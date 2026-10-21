@@ -232,8 +232,17 @@ def test_worktree_bootstrap_artifacts_are_ignored(stray: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _lines(stdout: str) -> list[str]:
-    return [line.strip() for line in stdout.splitlines()]
+def _tracked_note(stdout: str) -> list[str]:
+    """The stripped lines of the tracked-``.envrc`` paragraph, up to its closing ``)``.
+
+    Scoped to the paragraph because the banner's launch block already prints a
+    ``PYTHONPATH`` export of its own, which a whole-banner search would accept.
+    """
+    lines = [line.strip() for line in stdout.splitlines()]
+    starts = [i for i, line in enumerate(lines) if TRACKED_NOTE in line]
+    assert len(starts) == 1, f"expected one tracked-.envrc note, found {len(starts)}"
+    note = lines[starts[0] :]
+    return note[: note.index(")")]
 
 
 def test_a_tracked_envrc_is_left_byte_identical_to_head(script: Path, tmp_path: Path) -> None:
@@ -253,10 +262,9 @@ def test_a_tracked_envrc_moves_the_exports_into_the_banner(script: Path, tmp_pat
     stdout = _run_new_session(script, repo, "demo")
 
     worktree = repo / ".claude" / "worktrees" / "demo"
-    lines = _lines(stdout)
-    assert TRACKED_NOTE in stdout
-    assert f'export PYTHONPATH="{worktree / "src"}"' in lines
-    assert "export UV_NO_SYNC=1" in lines
+    note = _tracked_note(stdout)
+    assert f'export PYTHONPATH="{worktree / "src"}"' in note
+    assert "export UV_NO_SYNC=1" in note
     assert "a .envrc was written" not in stdout
 
 
@@ -268,8 +276,7 @@ def test_a_tracked_envrc_without_a_shared_venv_asks_for_no_uv_export(
     stdout = _run_new_session(script, repo, "flat")
 
     worktree = repo / ".claude" / "worktrees" / "flat"
-    assert TRACKED_NOTE in stdout
-    assert f'export PYTHONPATH="{worktree}"' in _lines(stdout)
+    assert f'export PYTHONPATH="{worktree}"' in _tracked_note(stdout)
     assert "UV_NO_SYNC" not in stdout
     assert (worktree / ".envrc").read_bytes() == REPO_ENVRC.encode("utf-8")
 
@@ -302,8 +309,9 @@ def test_a_git_that_cannot_answer_reads_as_tracked(script: Path, tmp_path: Path)
 
     worktree = repo / ".claude" / "worktrees" / "demo"
     assert not (worktree / ".envrc").exists()
-    assert TRACKED_NOTE in stdout
-    assert "export UV_NO_SYNC=1" in _lines(stdout)
+    note = _tracked_note(stdout)
+    assert f'export PYTHONPATH="{worktree / "src"}"' in note
+    assert "export UV_NO_SYNC=1" in note
 
 
 def test_a_tracked_envrc_worktree_tears_down_through_the_doctor(
