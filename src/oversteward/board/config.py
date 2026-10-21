@@ -30,21 +30,43 @@ class RepoRef:
         return self.full_name.split("/", 1)[1]
 
 
+def _context_id(context: dict[str, Any]) -> str:
+    return context.get("id") or context.get("name") or "<unnamed>"
+
+
+def _github_ref(context: dict[str, Any]) -> RepoRef | None:
+    """The context's repository, or ``None`` when its ``repo`` is not a GitHub https URL."""
+    match = _GITHUB_URL.match(context.get("repo") or "")
+    if match is None:
+        return None
+    return RepoRef(id=_context_id(context), full_name=f"{match[1]}/{match[2]}")
+
+
 def repos_from_registry(registry: dict[str, Any]) -> list[RepoRef]:
     """Every dispatch-target context, in registry order."""
     refs: list[RepoRef] = []
     for context in registry.get("contexts") or []:
         if not context.get("dispatch_target"):
             continue
-        context_id = context.get("id") or context.get("name") or "<unnamed>"
-        match = _GITHUB_URL.match(context.get("repo") or "")
-        if match is None:
+        ref = _github_ref(context)
+        if ref is None:
             raise ValueError(
-                f"dispatch target {context_id!r} has no GitHub https repo URL: "
+                f"dispatch target {_context_id(context)!r} has no GitHub https repo URL: "
                 f"{context.get('repo')!r}"
             )
-        refs.append(RepoRef(id=context_id, full_name=f"{match[1]}/{match[2]}"))
+        refs.append(ref)
     return refs
 
 
-__all__ = ["RepoRef", "repos_from_registry"]
+def github_repos_from_registry(registry: dict[str, Any]) -> list[RepoRef]:
+    """Every context whose ``repo`` is a GitHub https URL, in registry order.
+
+    Wider than :func:`repos_from_registry`: a context need not be a dispatch
+    target to ship work. A context whose ``repo`` is not a GitHub https URL has
+    no pull requests to read, so it is skipped rather than refused.
+    """
+    refs = (_github_ref(context) for context in registry.get("contexts") or [])
+    return [ref for ref in refs if ref is not None]
+
+
+__all__ = ["RepoRef", "github_repos_from_registry", "repos_from_registry"]
