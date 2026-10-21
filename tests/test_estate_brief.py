@@ -12,15 +12,16 @@ import pytest
 
 from oversteward.board.client import GhError, TruncatedReadError
 from oversteward.board.config import RepoRef, github_repos_from_registry
-from oversteward.brief.client import MERGED_LIMIT, read_activity
+from oversteward.brief.client import ASK_LIMIT, MERGED_LIMIT, read_activity
 from oversteward.brief.compose import (
     SHELVED_PLACEHOLDER,
     SHIPPED_PER_REPO,
+    UrgentRead,
     compose,
     liveness_urgent,
     render,
 )
-from oversteward.liveness.client import RailwayUnavailableError
+from oversteward.liveness.client import RailwayConfigError, RailwayUnavailableError
 from oversteward.liveness.models import LivenessReport, ServiceState
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -172,6 +173,22 @@ def test_the_merged_search_reaches_back_a_day_before_the_window_opens():
     assert pr_call[pr_call.index("--search") + 1] == "merged:>=2026-10-19"
 
 
+def test_the_ask_query_is_open_issues_labelled_needs_input():
+    gh = FakeGh()
+    read_activity(AG, SINCE, run=gh)
+
+    (issue_call,) = [c for c in gh.calls if c[0] == "issue"]
+    assert issue_call[issue_call.index("--state") + 1] == "open"
+    assert issue_call[issue_call.index("--label") + 1] == "needs-input"
+
+
+def test_a_full_page_of_asks_is_refused():
+    rows = [_ask(AG, n, "x", NOW) for n in range(ASK_LIMIT)]
+
+    with pytest.raises(TruncatedReadError):
+        read_activity(AG, SINCE, run=FakeGh(asks={AG.full_name: rows}))
+
+
 def test_a_full_page_is_refused_rather_than_read_as_the_estate():
     rows = [_pr(AG, n, "x", NOW) for n in range(MERGED_LIMIT)]
 
@@ -207,7 +224,7 @@ def test_urgent_is_absent_when_nothing_is_down():
     brief = _brief(FakeGh())
 
     assert "URGENT" not in render(brief)
-    assert brief.urgent_blind is False
+    assert brief.urgent_read is UrgentRead.MEASURED
 
 
 def test_a_down_service_is_rendered_above_everything_else():
@@ -223,7 +240,7 @@ def test_a_liveness_sweep_that_could_not_look_is_named_not_hidden():
 
     brief = _brief(FakeGh(), read_urgent=blind)
 
-    assert brief.urgent_blind is True
+    assert brief.urgent_read is UrgentRead.BLIND
     assert "Could not check Railway — railway exited 1" in render(brief)
 
 
@@ -357,6 +374,18 @@ def test_cli_writes_the_note_but_exits_one_when_liveness_is_blind(tmp_path):
     assert _main(["--out", str(out)], urgent=blind) == 1
     assert "Could not check Railway" in out.read_text(encoding="utf-8")
 
+
+
+def test_cli_writes_the_note_but_exits_two_when_railway_is_not_configured(tmp_path):
+    out = tmp_path / "Estate Brief.md"
+
+    def unconfigured():
+        raise RailwayConfigError("no Railway projects configured")
+
+    assert _main(["--out", str(out)], urgent=unconfigured) == 2
+    text = out.read_text(encoding="utf-8")
+    assert "Railway liveness is not configured" in text
+    assert "Could not check Railway" not in text
 
 # --- nightly host ----------------------------------------------------------
 

@@ -6,8 +6,10 @@
 Two ``gh`` calls per repository: pull requests GitHub reports merged since the
 day before the window opens (the search qualifier is date-granular, so the
 service trims to the exact instant), and every open issue labelled
-``needs-input``. Rows are returned as GitHub reported them; deciding which of
-them count is the service's job, not the transport's.
+``needs-input``. Pull-request rows are returned as GitHub reported them, and
+the service decides which count as shipped. For asks the query itself is the
+only filter — open and labelled ``needs-input`` — and nothing downstream
+re-checks it, so the argv is pinned by test.
 """
 
 from __future__ import annotations

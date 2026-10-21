@@ -17,9 +17,10 @@ vault files, so it says four things and nothing else:
 * **Shelved overnight** — a placeholder until the shelving sweep (#612) lands.
 
 GitHub failures propagate: a brief missing a repository is a smaller estate
-than exists. A liveness sweep that could not look does not stop the brief —
-the note still ships, with the blind source named under URGENT — but the
-brief records it, so the caller can exit non-zero.
+than exists. A liveness sweep that could not look, or had nothing configured to
+look at, does not stop the brief — the note still ships, naming the gap under
+URGENT — but the brief records which of the two it was, so the caller can give
+each its own exit code.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from enum import Enum
 
 from oversteward.board.client import read_estate
 from oversteward.board.config import RepoRef
@@ -45,6 +47,16 @@ ActivityReader = Callable[[RepoRef, datetime], RepoActivity]
 UrgentReader = Callable[[], Sequence[str]]
 
 
+class UrgentRead(Enum):
+    """How the URGENT source answered. The two failures must never print the same."""
+
+    MEASURED = "measured"
+    #: The sweep ran and could not look: Railway unreachable or unreadable.
+    BLIND = "blind"
+    #: Nothing was configured to look at: no context carries a ``railway:`` block.
+    UNCONFIGURED = "unconfigured"
+
+
 @dataclass(frozen=True, slots=True)
 class Brief:
     generated_at: datetime
@@ -53,8 +65,8 @@ class Brief:
     shipped: tuple[tuple[str, tuple[PullRequest, ...]], ...]
     ask: Issue | None
     urgent: tuple[str, ...]
-    #: True when an URGENT source could not be read; the note says so under URGENT.
-    urgent_blind: bool
+    #: Whether the URGENT lines are a measurement; when not, they name the gap.
+    urgent_read: UrgentRead
 
     @property
     def shipped_count(self) -> int:
@@ -86,11 +98,13 @@ def _oldest_ask(activity: Sequence[RepoActivity]) -> Issue | None:
     return min(asks, key=lambda issue: (issue.created_at, issue.repo, issue.number))
 
 
-def _read_urgent(read_urgent: UrgentReader) -> tuple[tuple[str, ...], bool]:
+def _read_urgent(read_urgent: UrgentReader) -> tuple[tuple[str, ...], UrgentRead]:
     try:
-        return tuple(read_urgent()), False
-    except (RailwayUnavailableError, RailwayConfigError) as exc:
-        return (f"Could not check Railway — {exc}",), True
+        return tuple(read_urgent()), UrgentRead.MEASURED
+    except RailwayConfigError as exc:
+        return (f"Railway liveness is not configured — {exc}",), UrgentRead.UNCONFIGURED
+    except RailwayUnavailableError as exc:
+        return (f"Could not check Railway — {exc}",), UrgentRead.BLIND
 
 
 def compose(
@@ -110,14 +124,14 @@ def compose(
         for repo_id, merged in ((a.repo, _merged_in_window(a.pulls, since)) for a in activity)
         if merged
     )
-    urgent, blind = _read_urgent(read_urgent)
+    urgent, urgent_read = _read_urgent(read_urgent)
     return Brief(
         generated_at=now,
         window=window,
         shipped=shipped,
         ask=_oldest_ask(activity),
         urgent=urgent,
-        urgent_blind=blind,
+        urgent_read=urgent_read,
     )
 
 
@@ -164,6 +178,7 @@ def render(brief: Brief) -> str:
 __all__ = [
     "SHELVED_PLACEHOLDER",
     "ActivityReader",
+    "UrgentRead",
     "UrgentReader",
     "SHIPPED_PER_REPO",
     "Brief",

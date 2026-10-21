@@ -14,8 +14,9 @@ Exit codes carry meaning and must not be collapsed:
 * **1** — GitHub could not be read (nothing is written), the vault folder is
   missing or unwritable, or the Railway liveness sweep could not look (the
   note is still written, naming the blind source under URGENT).
-* **2** — nothing configured: no registry context has a GitHub remote, or no
-  output path was given.
+* **2** — nothing configured: no registry context has a GitHub remote, no
+  output path was given, or no context carries a ``railway:`` block (the note
+  is still written, saying so under URGENT).
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ from oversteward.brief.client import read_activity
 from oversteward.brief.compose import (
     ActivityReader,
     Brief,
+    UrgentRead,
     UrgentReader,
     compose,
     liveness_urgent,
@@ -49,6 +51,12 @@ OUT_ENV = "ESTATE_BRIEF_PATH"
 EXIT_OK = 0
 EXIT_COULD_NOT_LOOK = 1
 EXIT_MISCONFIGURED = 2
+
+_URGENT_EXIT = {
+    UrgentRead.MEASURED: EXIT_OK,
+    UrgentRead.BLIND: EXIT_COULD_NOT_LOOK,
+    UrgentRead.UNCONFIGURED: EXIT_MISCONFIGURED,
+}
 
 
 def load_registry() -> dict:
@@ -92,8 +100,9 @@ def _publish(brief: Brief, out: Path, repos_read: int) -> int:
     except OSError as exc:
         return _fail(f"could not write the note — {exc}", EXIT_COULD_NOT_LOOK)
     print(f"{brief.shipped_count} shipped from {len(brief.shipped)} of {repos_read} repos → {out}")
-    if brief.urgent_blind:
-        return _fail("URGENT source unreadable — " + "; ".join(brief.urgent), EXIT_COULD_NOT_LOOK)
+    code = _URGENT_EXIT[brief.urgent_read]
+    if code != EXIT_OK:
+        return _fail("URGENT source not measured — " + "; ".join(brief.urgent), code)
     return EXIT_OK
 
 
