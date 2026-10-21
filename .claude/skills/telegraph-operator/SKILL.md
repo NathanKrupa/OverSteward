@@ -61,12 +61,11 @@ Parse each inbound message into one verb. Repo shorthand resolves via the
 
 ### Auto-fire verbs (no confirmation — reversible or read-only)
 
-- **`<REPO>: <description>`** — file a scoped issue.
-  Run the relay primitive:
-  `shared/scripts/telegraph/file_cross_repo_issue.py --repo <slug> --title "<short title from the description>" --body "<description>"`
-  (no `--source-repo`: this is Nathan filing directly, so a clean `needs-scoping` issue with no `from:` provenance footer.)
-  Reply with the issue URL.
-  - Suffix **`!ready`** on the message → add `--label ready-for-agent` instead of the default `needs-scoping` (still only *queues* it as dispatch-eligible; it does not dispatch).
+- **`<REPO>: <description>`** — Nathan's idea for that repo. **It does not go to GitHub** (OS#613, Nathan 2026-10-21): append it as one dated bullet, `- YYYY-MM-DD <REPO>: <description>`, to the Estate Idea Incubator note, `/mnt/c/Users/natha/OneDrive/Documents/Nathan Writing/Obsidian/GTD/Projects/Estate Idea Incubator.md`. It waits there until a working session with him scopes it. Reply `Incubated: <REPO>: <short title>`.
+  - Suffix **`!ready`** on the message → Nathan has already scoped it, so it is work, not an idea. File it with the relay primitive, `--no-agent-finding` because he is the filer:
+    `shared/scripts/telegraph/file_cross_repo_issue.py --repo <slug> --title "<short title from the description>" --body "<description>" --label ready-for-agent --no-agent-finding`
+    (no `--source-repo`: no `from:` provenance footer). It only *queues* the issue as dispatch-eligible; it does not dispatch. Reply with the issue URL.
+  - **`shelve <idea>`** retires an incubated idea — the verb is "shelve", never "kill".
 - **`status`** — run `/project-status`; reply with the table (trim to the headline counts if long).
 - **`questions`** / **`what's waiting`** — run `/questions`; reply with the compact list.
 - **`help`** — reply with this grammar.

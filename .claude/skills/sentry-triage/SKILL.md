@@ -49,12 +49,12 @@ being zero.
 | verdict | when | what else to do |
 |---|---|---|
 | `fixed` | small enough to fix in-session | ship the fix, then `--resolve` |
-| `filed` | real, but bigger than this session | open a repo issue in the **owning** repo with `gh` — that is the real tracker |
+| `filed` | real, but bigger than this session | open a repo issue in the **owning** repo with `gh`, labelled `agent-finding` — that is the real tracker |
 | `noise-resolved` | not a defect (retired cron, expected 404, third-party bot) | `--resolve` with the reason as the ref |
 
 ```bash
 # filed — the repo issue is the durable record; the ledger just remembers the ruling
-gh issue create --repo NathanKrupa/grantspider --title "..." --body "..."
+gh issue create --repo NathanKrupa/grantspider --label agent-finding --title "..." --body "..."
 $TRIAGE record PYTHON-9 filed --ref "GS#2166"
 
 # fixed or noise — resolve in Sentry too

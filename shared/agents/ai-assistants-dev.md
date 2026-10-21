@@ -191,7 +191,8 @@ Then:
   checks the file is a well-formed verdict. The loop is three rounds:
   each `BLOCK` earns one re-review on the delta, and a *third* `BLOCK` on the
   same change stops the pickup — emit `STOPPED_FOR_INPUT`, file the remaining
-  holes as issues, label the issue `needs-input`, and hand it to Nathan. A
+  holes as issues (each labelled `agent-finding`), label the issue
+  `needs-input`, and hand it to Nathan. A
   fourth round is refused without `--override-cap '<reason>'`, which is
   recorded in the ledger and printed in the input header; there is no restart
   flag.

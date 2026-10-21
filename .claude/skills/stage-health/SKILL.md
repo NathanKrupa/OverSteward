@@ -93,8 +93,9 @@ not queue items. Three verdicts, all terminal. **There is no `later`.**
 | `known` | already tracked by an open issue | while the issue is open; prints `KNOWN→GS#n` |
 
 ```bash
-# filed — open the issue first, labelled data-quality + ops; it is the real tracker
+# filed — open the issue first, labelled data-quality + ops + agent-finding; it is the real tracker
 gh issue create --repo NathanKrupa/grantspider --label data-quality --label ops \
+    --label agent-finding \
     --title "..." --body "..."
 $SH record fetch_attempts_below_median@homepage_snapshot filed --ref GS#2851
 

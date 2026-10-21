@@ -7,7 +7,7 @@ description: "Show a per-project status table of open issues, open PRs, items co
 
 One-table view of the four orchestration repos: what's open, what's landed since the last run, which agents are in flight, and (when the ready queue is thin) the oldest unscoped issue per repo so Nathan can scope it.
 
-All work is done by `scripts/project_status.py` -- a single `conda run` invocation replaces the 16-plus serial `gh` calls the previous version of this skill orchestrated from Claude. The skill's only jobs now are: run the script, present the output, and walk Nathan through any surfaced scoping candidates.
+All work is done by `scripts/project_status.py` -- a single invocation replaces the 16-plus serial `gh` calls the previous version of this skill orchestrated from Claude. The skill's only jobs now are: run the script, present the output, and walk Nathan through any surfaced scoping candidates.
 
 ## Invocation
 
@@ -22,7 +22,7 @@ No arguments.
 ### 1. Run the dashboard script
 
 ```bash
-conda run -n Oversteward python scripts/project_status.py
+.venv/bin/python scripts/project_status.py
 ```
 
 - Runs from the Oversteward repo root.
@@ -59,8 +59,9 @@ The script itself is read-only against GitHub. The only write is `state.json` lo
 - **Ready queue** column: count of open issues labeled `ready-for-agent` per repo. This is the dispatch runway.
 - **Needs scoping** column: count of open issues labeled `needs-scoping`. These have been triaged as "needs Nathan's input before it can be dispatched".
 - **PAUSED** section (only if any): lists repos where `/dispatch` is refusing new work because at least one open issue has the `dispatch-paused` label. Remove the label on the referenced issue to resume.
+- **Dispatch queue** block (OS#613): the head of each repo's `ready-for-agent` queue (top `DISPATCH_QUEUE_SHOWN`), **`tribe` first**, then oldest. `tribe` = a food-pantry user of AI Grant Helper would notice it; it outranks a paying client's ask (Nathan, 2026-10-21). Ranked by `oversteward.intake.queue`, the same order `scripts/intake.py queue <repo>` prints.
 - **In-flight agents** section: union of (a) open issues labeled `agent-in-progress` and (b) open PRs whose branch matches `^(fix|feat|ci|refactor|cleanup)/issue-<n>-`. `label only` = no PR pushed yet; `branch only` = possibly stale (label cleared but PR still open); `label+branch` = healthy.
-- **Next to scope** block: only appears when a repo's ready queue is below threshold (`SCOPING_SURFACE_THRESHOLD = 2`). Priority 1 is oldest `needs-scoping`-labeled issue; fallback is oldest open issue that carries none of {`ready-for-agent`, `agent-in-progress`, `agent-done`, `reject-close`, `needs-input`, `wontfix`, `duplicate`, `invalid`, `backlog`}.
+- **Next to scope** block: only appears when a repo's ready queue is below threshold (`SCOPING_SURFACE_THRESHOLD = 2`). Priority 1 is a `needs-scoping`-labeled issue; fallback is an open issue that carries none of {`ready-for-agent`, `agent-in-progress`, `agent-done`, `reject-close`, `needs-input`, `wontfix`, `duplicate`, `invalid`, `backlog`}. Within each priority a `tribe` issue comes first, then the oldest.
 - **Pipeline metrics (last 30d)** section: aggregate health over a rolling 30-day window.
   - *PR turnaround*: median + max hours from PR open to PR merge. Proxy for agent-side cycle time; full issue-creation → merge cycle-time (excluding needs-input stalls) is a follow-up.
   - *Merge rate*: merged PRs / (merged + closed-unmerged) in the window. Abandoned PRs drag this below 100%.

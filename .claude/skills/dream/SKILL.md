@@ -121,7 +121,10 @@ scripts/dev/new-session.sh dream-roadmap-$(date +%F)
 
 Intent found in transcripts that was never filed as an issue is **flagged, not
 filed** (epic OS#230 decision 2): surface it in the run report for the waking
-session; do not open issues from the dream.
+session; do not open issues from the dream. When the flagged intent is one of
+Nathan's own ideas, the waking session offers it to the Estate Idea Incubator
+note in his vault, not to GitHub (OS#613); an agent finding it files instead
+carries `agent-finding`.
 
 ## Step 6 — trajectory promotion (§13.5 lesson pass, OS#325)
 

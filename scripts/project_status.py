@@ -1,5 +1,5 @@
-# ABOUTME: Pipeline dashboard for the four orchestration repos.
-# ABOUTME: Status table + in-flight + scoping candidates + 30d metrics; appends a snapshot row per repo to data/pipeline_history.jsonl.
+# ABOUTME: Pipeline dashboard for the dispatch-target repos, ranking `tribe` work first (OS#613).
+# ABOUTME: Status table + in-flight + dispatch queue + scoping candidates + 30d metrics; appends a snapshot row per repo to data/pipeline_history.jsonl.
 
 from __future__ import annotations
 
@@ -13,6 +13,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from registry import OWNER, dispatch_targets
+
+from oversteward.intake.models import IntakeIssue
+from oversteward.intake.queue import dispatch_queue, is_tribe, rank
 
 # Display order for the dashboard table. Any registry-declared dispatch target
 # not listed here falls through to the end, in registry order, so a newly added
@@ -32,6 +35,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 STATE_PATH = REPO_ROOT / ".claude" / "skills" / "project-status" / "state.json"
 SNAPSHOT_PATH = REPO_ROOT / "data" / "pipeline_history.jsonl"
 SCOPING_SURFACE_THRESHOLD = 2
+DISPATCH_QUEUE_SHOWN = 3
 GH_LIMIT = 500
 METRIC_WINDOW_DAYS = 30
 STALE_QUESTION_HOURS = 48
@@ -149,26 +153,55 @@ def format_since(ts: datetime) -> str:
     return ts.strftime("%Y-%m-%d %H:%M UTC")
 
 
+def _first_ranked(issues: list[dict]) -> dict:
+    """The issue the intake ranking puts first: `tribe` before the rest, then oldest."""
+    head = rank(IntakeIssue.from_gh("", i) for i in issues)[0]
+    return next(i for i in issues if int(i["number"]) == head.number)
+
+
 def pick_scoping_candidate(
     open_issues: list[dict],
 ) -> tuple[dict, str] | None:
     """Return (issue, source) where source is 'labeled' or 'fallback'.
 
-    Priority 1: oldest issue labeled `needs-scoping`.
-    Priority 2: oldest issue carrying none of the UNSCOPED_EXCLUDES labels
+    Priority 1: issues labeled `needs-scoping`.
+    Priority 2: issues carrying none of the UNSCOPED_EXCLUDES labels
     (i.e., not already processed, in flight, declined, or deferred).
+    Within a priority, a `tribe` issue comes first, then the oldest.
     """
     labeled = [i for i in open_issues if "needs-scoping" in labels_of(i)]
     if labeled:
-        labeled.sort(key=lambda i: i["createdAt"])
-        return labeled[0], "labeled"
+        return _first_ranked(labeled), "labeled"
     fallback = [
         i for i in open_issues if not (labels_of(i) & UNSCOPED_EXCLUDES)
     ]
     if fallback:
-        fallback.sort(key=lambda i: i["createdAt"])
-        return fallback[0], "fallback"
+        return _first_ranked(fallback), "fallback"
     return None
+
+
+def render_dispatch_queues(results: list[dict]) -> list[str]:
+    """The head of each repo's ready-for-agent queue, `tribe` first (OS#613)."""
+    lines = [
+        f"Dispatch queue (tribe first; top {DISPATCH_QUEUE_SHOWN} per repo):",
+        "",
+    ]
+    shown = 0
+    for r in results:
+        if "error" in r:
+            continue
+        repo = r["repo"]
+        queue = dispatch_queue(IntakeIssue.from_gh(repo, i) for i in r["open_issues"])
+        for issue in queue[:DISPATCH_QUEUE_SHOWN]:
+            tag = "[tribe] " if is_tribe(issue) else ""
+            lines.append(f"- {repo}#{issue.number} {tag}{issue.title}  ({issue.url})")
+            shown += 1
+        if len(queue) > DISPATCH_QUEUE_SHOWN:
+            lines.append(f"  ... {len(queue) - DISPATCH_QUEUE_SHOWN} more ready in {repo}")
+    if not shown:
+        lines = ["Dispatch queue (tribe first): no ready-for-agent issue on any repo."]
+    lines.append("")
+    return lines
 
 
 def humanize_age(created: datetime, now: datetime) -> str:
@@ -461,6 +494,8 @@ def render(
     else:
         lines.append("No agents currently in flight.")
     lines.append("")
+
+    lines.extend(render_dispatch_queues(results))
 
     thin = [
         r for r in results

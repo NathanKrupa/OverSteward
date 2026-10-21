@@ -1,44 +1,23 @@
 #!/usr/bin/env bash
-# ABOUTME: Idempotently creates the dispatch-orchestration label taxonomy
-# ABOUTME: on aigranthelper, grantspider, wphelper (closes ai-assistants #44).
+# ABOUTME: Idempotently upserts the dispatch label taxonomy on every dispatch_target repo + OverSteward.
+# ABOUTME: Thin shell over `scripts/intake.py labels`; the taxonomy lives in oversteward.intake.labels.
 #
-# Labels created (6, identical across repos):
-#   ready-for-agent    #0E8A16  Scoped with acceptance — can dispatch
-#   needs-scoping      #FBCA04  Requires Nathan to scope before dispatch
-#   needs-input        #D93F0B  Agent waiting on Nathan's answer
-#   agent-in-progress  #5319E7  Agent actively working (auto-applied)
-#   reject-close       #CFD3D7  Triaged as bad/obsolete
-#   dispatch-paused    #B60205  Kill-switch — /dispatch refuses the whole repo while any open issue has this label
+# The label names, colours and descriptions are written once, in
+# src/oversteward/intake/labels.py (DISPATCH_LABELS) — read them there. The
+# repositories come from registry.yaml: every `dispatch_target: true` context,
+# plus OverSteward. `gh label create --force` upserts, so a re-run is safe.
 #
-# Run any time: `gh label create --force` upserts (create-or-update).
+# Exit codes: 0 every label upserted, 1 a gh call failed (named on stderr),
+# 2 the registry names no repository.
 #
 # Usage:
 #   bash scripts/orchestration/setup_dispatch_labels.sh
 set -euo pipefail
 
-REPOS=(aigranthelper grantspider wphelper)
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+PYTHON="${PYTHON:-$ROOT/.venv/bin/python}"
 
-declare -A LABELS=(
-  ["ready-for-agent"]="0E8A16|Scoped with acceptance — can dispatch"
-  ["needs-scoping"]="FBCA04|Requires Nathan to scope before dispatch"
-  ["needs-input"]="D93F0B|Agent waiting on Nathan's answer"
-  ["agent-in-progress"]="5319E7|Agent actively working (auto-applied)"
-  ["reject-close"]="CFD3D7|Triaged as bad/obsolete"
-  ["dispatch-paused"]="B60205|Kill-switch — /dispatch refuses the repo while any open issue has this label"
-)
-
-for repo in "${REPOS[@]}"; do
-  echo "=== NathanKrupa/$repo ==="
-  for name in "${!LABELS[@]}"; do
-    IFS='|' read -r color desc <<< "${LABELS[$name]}"
-    gh label create "$name" \
-      --repo "NathanKrupa/$repo" \
-      --color "$color" \
-      --description "$desc" \
-      --force >/dev/null
-    echo "  upserted: $name ($color)"
-  done
-done
-
-echo
-echo "Done. Dispatch-taxonomy labels are now consistent across all 3 target repos."
+# Import this tree's own source, not whatever checkout the shared venv's
+# editable install happens to name.
+export PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
+exec "$PYTHON" "$ROOT/scripts/intake.py" labels

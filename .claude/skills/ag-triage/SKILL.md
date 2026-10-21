@@ -125,7 +125,8 @@ $AGTRIAGE sweep    # the ones you ruled on should be gone
 - **It is a pass, not a gate.** A partial drain recorded honestly beats a full
   drain that blocks the day.
 - **A correction marked `reviewed` is a hand-off, not a fix.** The data change
-  itself belongs to GrantSpider; file it there if it will not happen today.
+  itself belongs to GrantSpider; file it there, labelled `agent-finding`, if it
+  will not happen today.
 - **Fixes flow through a worktree PR** like everything else (OS#90 — never
   commit to the primary checkout's `master`).
 - **Zero LLM calls in the tool.** It decides what is *unread*; you decide what to
