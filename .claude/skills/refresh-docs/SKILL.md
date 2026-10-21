@@ -1,6 +1,6 @@
 ---
 name: refresh-docs
-description: "Monthly cadence sweep that reconciles OverSteward's dated status docs (Stewards_Ledger.md, MASTER_TODO.md, TODO_BACKLOG.md, TODO_COMPLETED.md, documentation/ROADMAP.md) against current issue/PR/git state. Status docs encode dated state and drift unprompted within ~5 weeks, unlike the spec docs (OVERSTEWARD.md) which stay accurate. Read-only reconciliation — proposes edits, waits for Nathan's approval, never auto-writes the docs. Use when a month has passed since the last refresh, when the ledger's `Last Updated` is stale, or when Nathan asks to \"refresh docs\", \"reconcile the ledger\", \"sweep the TODOs\", or runs /refresh-docs."
+description: "Monthly cadence sweep that reconciles OverSteward's dated status docs (TODO_BACKLOG.md, TODO_COMPLETED.md, documentation/ROADMAP.md) against current issue/PR/git state. Status docs encode dated state and drift unprompted within ~5 weeks, unlike the spec docs (OVERSTEWARD.md) which stay accurate. Read-only reconciliation — proposes edits, waits for Nathan's approval, never auto-writes the docs. Use when a month has passed since the last refresh, when the ROADMAP's `Last updated` stamp is stale, or when Nathan asks to \"refresh docs\", \"sweep the TODOs\", or runs /refresh-docs."
 ---
 
 # /refresh-docs — dated-status-doc cadence sweep
@@ -29,7 +29,7 @@ No arguments.
 **Monthly.** The trigger is either:
 
 - Nathan asks for it explicitly, or
-- the ledger's `**Last Updated:**` line is more than ~4 weeks old (check it in
+- the ROADMAP's `*Last updated:*` stamp is more than ~4 weeks old (check it in
   step 1 and surface the age).
 
 Run from the OverSteward working tree (or a session worktree — use
@@ -40,8 +40,6 @@ the doc edits Nathan approves at the end.
 
 | Doc | What decays |
 |-----|-------------|
-| `Stewards_Ledger.md` | `**Last Updated:**` date; "Current State" narrative; recent session log |
-| `MASTER_TODO.md` | `## Active` items whose issue/PR has since closed or merged |
 | `TODO_BACKLOG.md` | queued items already picked up, closed, or superseded |
 | `TODO_COMPLETED.md` | should gain rows for work merged since the last refresh |
 | `documentation/ROADMAP.md` | `*Last updated:*` stamp; §4 in-flight rows landed; §5 next-up items shipped/closed; started-not-landed gap tables gone stale |
@@ -52,11 +50,11 @@ editing it here.
 
 ## Reconcile steps
 
-### 1. Read the four docs and note their dated state
+### 1. Read the three docs and note their dated state
 
-Read each doc. Capture the ledger's `**Last Updated:**` date and every
-issue/PR number referenced in the `## Active` / backlog sections. Report the
-ledger's age up front.
+Read each doc. Capture the ROADMAP's `*Last updated:*` stamp, the newest row in
+`TODO_COMPLETED.md`, and every issue/PR number referenced in the backlog
+sections. Report the ROADMAP's age up front.
 
 ### 2. Gather live state for OverSteward
 
@@ -72,16 +70,10 @@ git log --oneline --since="5 weeks ago" master
 
 For each doc, find the drift:
 
-- **MASTER_TODO `## Active`** — any item whose referenced issue is now
-  `CLOSED` or whose PR is `MERGED`/closed → propose moving it to
-  `TODO_COMPLETED.md` (with the merge/close date) and dropping it from Active.
 - **TODO_BACKLOG** — any queued item now closed, dispatched, or superseded →
   propose removing or annotating it.
-- **TODO_COMPLETED** — any PR merged since the ledger's `Last Updated` that has
-  no completed-row → propose adding one (date + PR/issue numbers + one line).
-- **Stewards_Ledger** — propose bumping `**Last Updated:**` to today and adding
-  a short "Current State" reconciliation note only if the narrative is now
-  materially wrong. Do not rewrite prose that is still accurate.
+- **TODO_COMPLETED** — any PR merged since its newest row that has no
+  completed-row → propose adding one (date + PR/issue numbers + one line).
 - **ROADMAP** — check the `*Last updated:*` stamp against merges since; propose
   a dated reconciliation section (§3.5/§3.6 pattern: shipped / corrections /
   started-not-landed) rather than rewriting historical sections. The dream

@@ -1,6 +1,6 @@
 # Deferred Tasks
 
-Queued work for future horizons. When a MASTER_TODO task completes, the next item from here promotes. Ordered by horizon and dependency.
+Queued work for future horizons. When a horizon item is picked up, it is filed as a GitHub issue. Ordered by horizon and dependency.
 
 Plan reference: `OVERSTEWARD.md` (Phase Roadmap).
 

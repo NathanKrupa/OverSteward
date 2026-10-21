@@ -1,6 +1,6 @@
 # Completed Tasks
 
-Tasks move here from MASTER_TODO.md when finished. Newest at top.
+Tasks move here when finished. Newest at top.
 
 ---
 
@@ -65,7 +65,7 @@ Trajectory note: [documentation/trajectories/2026-05-26-PR47.md](documentation/t
 - [x] Workflow content survived as `documentation/issue-to-pr-workflow.md`
 - [x] Per-repo pickup context survived as `documentation/repos/*.md`
 - [x] `/answer`, `/questions`, `/project-status` retained — not dispatch ceremony, just inbox/status tools
-- [ ] PR #33 (formal source-of-truth deletion) still open — see MASTER_TODO
+- [x] PR #33 (formal source-of-truth deletion) — closed 2026-05-30, superseded by #53
 
 Driver: Anthropic claude-code #47931/#47936 silent-termination bug (open since 2026-04-14, no upstream response).
 

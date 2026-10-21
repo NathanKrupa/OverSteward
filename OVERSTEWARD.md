@@ -95,8 +95,6 @@ Both pillars share a principle: **Nathan is the principal; the OverSteward is th
 ```
 oversteward/
 ├── OVERSTEWARD.md             # This document
-├── Stewards_Ledger.md         # Project status and session log
-├── MASTER_TODO.md             # Active work queue
 ├── TODO_BACKLOG.md            # Deferred work
 ├── SESSION_STATE.md           # Handoff between sessions
 ├── CLAUDE.md                  # Instructions for Claude Code sessions in this repo
@@ -586,7 +584,7 @@ The previous Chestertron Inbox round-trip (`/morning-digest` → Obsidian file �
 | `/project-status` | Ad-hoc | Pipeline dashboard — open issues, open PRs, recent merges, agents in flight, scoping candidates, 30d metrics, stale `needs-input` counter |
 | `/questions` | Ad-hoc | Compact list of `needs-input` items, flags stale (>=48h) |
 | `/answer` | Ad-hoc (per issue) | Post one answer on a `needs-input` issue and swap labels to `ready-for-agent` |
-| `/refresh-docs` | Monthly | Reconcile the dated status docs (Ledger, MASTER_TODO, TODO_BACKLOG, TODO_COMPLETED) against live issue/PR/git state; proposes edits, waits for approval |
+| `/refresh-docs` | Monthly | Reconcile the dated status docs (ROADMAP, TODO_BACKLOG, TODO_COMPLETED) against live issue/PR/git state; proposes edits, waits for approval |
 
 ### Self-critique gate
 
