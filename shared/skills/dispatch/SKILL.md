@@ -93,6 +93,11 @@ Run these checks. Any failure → refuse to dispatch, report the reason to the u
 - The agent's local `make verify` / full test suite needs the repo's `compose.test.yml` Postgres(+pgvector) container, which needs a docker runtime. Without it the verify marker can never be generated and a misbehaving agent may **loop** on the failing step (postmortem: AG#947, 2026-06-21). See `reference_gs_dispatch_needs_docker_verify` memory.
 - If the issue plausibly touches DB code (models, migrations, an ingest/seam service, anything that hits the test DB), run `docker info >/dev/null 2>&1`. If docker is **down**, refuse and tell the operator to start it first. Pure-doc / non-DB issues don't need this gate.
 
+**Tribe displacement (a notice, never a refusal — OS#613):**
+- `.venv/bin/python scripts/intake.py displaced <repo> <n>` (from the OverSteward checkout)
+- `tribe` — a food-pantry user of AI Grant Helper would notice it — outranks every other issue, a paying consulting client's ask included (Nathan, 2026-10-21, "for now"). If `#<n>` is not `tribe` and a ready `tribe` issue waits in the same repo, the command prints each one it passes over. Relay that list to Nathan verbatim and carry it into the dispatch report; it does not stop the dispatch.
+- Exit 0 is a measured answer either way ("0 ready tribe issues displaced" included). Exit 1 means GitHub could not be read or `#<n>` is not open — report it; exit 2 is an unknown repo.
+
 If all preflights pass: proceed.
 
 ### 3. Run the agent (foreground)
@@ -280,6 +285,35 @@ from the child alone is OS#573.)
 - **Open agent PR on repo:** "Repo has an open agent PR (#<pr>). One-per-repo rule — wait for it to merge or close."
 - **Branch exists:** "Branch `<name>` already exists — prior attempt not cleaned up. Delete the branch or pick a new issue."
 - **Docker down (DB-touching issue):** "Issue #<n> touches DB code, but docker isn't running — the agent's `make verify` needs the test container and would loop without it. Start docker, then re-dispatch."
+
+## Choosing what to dispatch — `tribe` first
+
+When Nathan asks for "the next issue" on a repo rather than naming one, take the
+head of the ranked queue:
+
+```bash
+.venv/bin/python scripts/intake.py queue <repo>
+```
+
+It lists the repo's `ready-for-agent` issues that nothing blocks, `tribe` first
+and oldest first within each class. `/project-status` prints the head of every
+repo's queue in the same order.
+
+## Issue intake — who files what (OS#613)
+
+- **Every issue an agent files carries `agent-finding`** at creation —
+  dispatch follow-ups, review holes, kaizen items, triage `filed` verdicts.
+  `shared/scripts/telegraph/file_cross_repo_issue.py` applies it by default.
+- **Nathan's own ideas do not go to GitHub.** They go to the Estate Idea
+  Incubator, `/mnt/c/Users/natha/OneDrive/Documents/Nathan Writing/Obsidian/GTD/Projects/Estate Idea Incubator.md`,
+  until a working session with him scopes one into an issue. An idea he
+  retires is **shelved** — the verb is "shelve", never "kill": its bullet
+  moves to the note's `## Shelved` section, and an *issue* that held one
+  carries the `shelved` label.
+- The labels (`tribe`, `agent-finding`, `shelved`, and the dispatch set) are
+  upserted on every dispatch-target repo and OverSteward by
+  `scripts/orchestration/setup_dispatch_labels.sh`; their names and meanings
+  live in `src/oversteward/intake/labels.py`.
 
 ## Batch mode — a few issues at once (via Workflow)
 

@@ -17,6 +17,10 @@ Two callers, one primitive:
 Every filed issue carries a ``from:<source-repo>`` provenance label and a
 back-link footer, so cross-repo work is queryable and traceable.
 
+Every filed issue also carries ``agent-finding`` unless the caller says Nathan
+filed it himself (``--no-agent-finding``) — OS#613. The default is the agent
+case, so an agent that forgets a flag still files a labelled issue.
+
 Pure composition is split from the ``gh`` subprocess call so the logic is
 unit-tested without GitHub. Stdlib-only by design: this file is byte-copied to
 repos that do not have the ``oversteward`` package installed.
@@ -30,13 +34,18 @@ import sys
 from collections.abc import Callable, Sequence
 
 DEFAULT_LABEL = "needs-scoping"
+AGENT_FINDING = "agent-finding"
 
 
-def compose_labels(label: str, source_repo: str | None) -> list[str]:
-    """Primary label plus a ``from:<source>`` provenance tag when known."""
+def compose_labels(
+    label: str, source_repo: str | None, *, agent_finding: bool = True
+) -> list[str]:
+    """Primary label, ``agent-finding`` unless Nathan filed it, and ``from:<source>`` when known."""
     if not label:
         raise ValueError("primary label must be non-empty")
     labels = [label]
+    if agent_finding:
+        labels.append(AGENT_FINDING)
     if source_repo:
         labels.append(f"from:{source_repo}")
     return labels
@@ -95,6 +104,7 @@ def file_cross_repo_issue(
     label: str = DEFAULT_LABEL,
     source_repo: str | None = None,
     backlink: str | None = None,
+    agent_finding: bool = True,
     run: Callable[[Sequence[str]], str] | None = None,
 ) -> str:
     """File an issue into ``target_repo`` and return its URL.
@@ -102,13 +112,17 @@ def file_cross_repo_issue(
     ``run`` is the gh invoker, injected for testing; defaults to the real one.
     """
     runner = run or _run_gh
-    labels = compose_labels(label, source_repo)
+    labels = compose_labels(label, source_repo, agent_finding=agent_finding)
     full_body = compose_body(body, source_repo, backlink)
     argv = build_issue_argv(target_repo, title, full_body, labels)
     return parse_issue_url(runner(argv))
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def main(
+    argv: Sequence[str] | None = None,
+    *,
+    run: Callable[[Sequence[str]], str] | None = None,
+) -> int:
     parser = argparse.ArgumentParser(description="File a cross-repo issue (The Telegraph relay).")
     parser.add_argument("--repo", required=True, help="target repo slug")
     parser.add_argument("--title", required=True)
@@ -116,6 +130,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--label", default=DEFAULT_LABEL)
     parser.add_argument("--source-repo", default=None, help="filing repo (from: label)")
     parser.add_argument("--backlink", default=None, help="originating issue URL")
+    parser.add_argument(
+        "--no-agent-finding",
+        dest="agent_finding",
+        action="store_false",
+        help="Nathan is filing this himself; omit the agent-finding label",
+    )
     args = parser.parse_args(argv)
     try:
         url = file_cross_repo_issue(
@@ -125,6 +145,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             label=args.label,
             source_repo=args.source_repo,
             backlink=args.backlink,
+            agent_finding=args.agent_finding,
+            run=run,
         )
     except subprocess.CalledProcessError as exc:
         sys.stderr.write(exc.stderr or "gh issue create failed\n")

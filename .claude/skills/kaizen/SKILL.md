@@ -78,6 +78,9 @@ the mode rather than caveat it, install the extra in the fiscus checkout:
   behaviour — `shared/references/`, a CLAUDE.md, an agent card, or memory. A
   trajectory note is where lessons are *captured*; it is not where they act.
 - An `issue` item is worked normally: scope, branch, PR.
+- A `kaizen` issue an agent files carries `agent-finding` too
+  (`gh issue create --label kaizen --label agent-finding …`): the queue reads
+  `kaizen`, the estate's intake split reads `agent-finding` (OS#613).
 
 Doctrine and memory changes flow through a worktree PR like everything else
 (OS#90 — never commit to the primary checkout's master).

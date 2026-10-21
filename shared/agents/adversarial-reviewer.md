@@ -294,8 +294,8 @@ text beneath it), is where that shows.
   assembler refuses: the author stops and hands the change to Nathan, and you
   see it only if he records `--override-cap`.
 - **Round 3 is the last.** If you would `BLOCK` again, return `BLOCK` and
-  list every remaining `hole` plainly: the operator files them as issues,
-  labels the change `needs-input`, and hands it to Nathan. You do not get a
+  list every remaining `hole` plainly: the operator files them as issues
+  (labelled `agent-finding`), labels the change `needs-input`, and hands it to Nathan. You do not get a
   fourth look.
 
 The author runs the same failure catalogue before round 1 — the destructive

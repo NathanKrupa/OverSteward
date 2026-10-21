@@ -32,12 +32,24 @@ filer = _load_filer()
 def test_compose_labels_adds_provenance_when_source_given():
     assert filer.compose_labels("needs-scoping", "grantspider") == [
         "needs-scoping",
+        "agent-finding",
         "from:grantspider",
     ]
 
 
 def test_compose_labels_omits_provenance_without_source():
-    assert filer.compose_labels("needs-scoping", None) == ["needs-scoping"]
+    assert filer.compose_labels("needs-scoping", None) == ["needs-scoping", "agent-finding"]
+
+
+def test_compose_labels_marks_an_agent_filing_by_default():
+    """OS#613: every agent filing carries agent-finding; forgetting a flag must not drop it."""
+    assert "agent-finding" in filer.compose_labels("ready-for-agent", None)
+
+
+def test_compose_labels_omits_agent_finding_only_when_told_nathan_filed_it():
+    assert filer.compose_labels("ready-for-agent", None, agent_finding=False) == [
+        "ready-for-agent"
+    ]
 
 
 def test_compose_labels_rejects_empty_primary_label():
@@ -171,3 +183,44 @@ def test_file_cross_repo_issue_conducted_mode_uses_ready_label():
     labels = [captured["argv"][i + 1] for i, a in enumerate(captured["argv"]) if a == "--label"]
     assert "ready-for-agent" in labels
     assert "from:aigranthelper" in labels
+
+
+# --- agent-finding through the flow and the CLI (OS#613) -------------------
+
+
+def _labels_of(argv):
+    return [argv[i + 1] for i, a in enumerate(argv) if a == "--label"]
+
+
+def test_file_cross_repo_issue_applies_agent_finding_by_default():
+    captured = {}
+
+    def fake_run(argv):
+        captured["argv"] = argv
+        return "https://github.com/owner/repo/issues/3\n"
+
+    filer.file_cross_repo_issue("owner/repo", "T", "B", run=fake_run)
+    assert "agent-finding" in _labels_of(captured["argv"])
+
+
+def test_main_applies_agent_finding_by_default():
+    captured = {}
+
+    def fake_run(argv):
+        captured["argv"] = argv
+        return "https://github.com/owner/repo/issues/4\n"
+
+    assert filer.main(["--repo", "owner/repo", "--title", "T"], run=fake_run) == 0
+    assert "agent-finding" in _labels_of(captured["argv"])
+
+
+def test_main_no_agent_finding_flag_drops_it_for_nathans_own_filing():
+    captured = {}
+
+    def fake_run(argv):
+        captured["argv"] = argv
+        return "https://github.com/owner/repo/issues/5\n"
+
+    argv = ["--repo", "owner/repo", "--title", "T", "--no-agent-finding"]
+    assert filer.main(argv, run=fake_run) == 0
+    assert "agent-finding" not in _labels_of(captured["argv"])
