@@ -79,7 +79,7 @@ def _merged_in_window(pulls: Sequence[PullRequest], since: datetime) -> tuple[Pu
 
 
 def _oldest_ask(activity: Sequence[RepoActivity]) -> Issue | None:
-    asks = [issue for repo in activity for issue in repo.asks if issue.is_open]
+    asks = [issue for repo in activity for issue in repo.asks]
     if not asks:
         return None
     return min(asks, key=lambda issue: (issue.created_at, issue.repo, issue.number))

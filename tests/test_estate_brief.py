@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import shlex
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -355,3 +356,48 @@ def test_cli_writes_the_note_but_exits_one_when_liveness_is_blind(tmp_path):
 
     assert _main(["--out", str(out)], urgent=blind) == 1
     assert "Could not check Railway" in out.read_text(encoding="utf-8")
+
+
+# --- nightly host ----------------------------------------------------------
+
+OPS = REPO_ROOT / "ops" / "wsl"
+
+
+def _directives(path: Path) -> dict[str, list[str]]:
+    found: dict[str, list[str]] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if "=" in line and not line.startswith("#"):
+            key, value = line.split("=", 1)
+            found.setdefault(key, []).append(value)
+    return found
+
+
+def test_the_timer_runs_nightly_after_the_checkout_sync_and_catches_up():
+    timer = _directives(OPS / "estate-brief.timer")
+
+    assert timer["OnCalendar"] == ["*-*-* 05:30:00"]
+    assert timer["Persistent"] == ["true"]
+
+
+def test_the_service_writes_the_vault_note_with_railway_on_path():
+    service = _directives(OPS / "estate-brief.service")
+    (exec_start,) = service["ExecStart"]
+    argv = shlex.split(exec_start)
+
+    assert service["Type"] == ["oneshot"]
+    assert argv[:2] == [
+        "/home/natha/OverSteward/.venv/bin/python",
+        "/home/natha/OverSteward/scripts/estate_brief.py",
+    ]
+    assert argv[2:] == [
+        "--out",
+        "/mnt/c/Users/natha/OneDrive/Documents/Nathan Writing/Obsidian/GTD/Estate Brief.md",
+    ]
+    path_line = next(v for v in service["Environment"] if v.startswith("PATH="))
+    assert "/home/natha/.railway/bin" in path_line.split("=", 1)[1].split(":")
+
+
+@pytest.mark.parametrize("name", ["estate-brief.service", "estate-brief.timer"])
+def test_the_units_open_with_aboutme(name):
+    first = (OPS / name).read_text(encoding="utf-8").splitlines()[:2]
+    assert all(line.startswith("# ABOUTME: ") for line in first)

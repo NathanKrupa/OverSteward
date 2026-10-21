@@ -34,6 +34,7 @@ from oversteward.board.config import github_repos_from_registry
 from oversteward.brief.client import read_activity
 from oversteward.brief.compose import (
     ActivityReader,
+    Brief,
     UrgentReader,
     compose,
     liveness_urgent,
@@ -78,6 +79,24 @@ def _liveness(loaded: dict) -> UrgentReader:
     return lambda: liveness_urgent(projects_from_registry(loaded))
 
 
+def _parser(environ: Mapping[str, str]) -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--out", type=Path, default=environ.get(OUT_ENV), help="note path")
+    parser.add_argument("--hours", type=int, default=24, help="window length (default 24)")
+    return parser
+
+
+def _publish(brief: Brief, out: Path, repos_read: int) -> int:
+    try:
+        write_note(out, render(brief))
+    except OSError as exc:
+        return _fail(f"could not write the note — {exc}", EXIT_COULD_NOT_LOOK)
+    print(f"{brief.shipped_count} shipped from {len(brief.shipped)} of {repos_read} repos → {out}")
+    if brief.urgent_blind:
+        return _fail("URGENT source unreadable — " + "; ".join(brief.urgent), EXIT_COULD_NOT_LOOK)
+    return EXIT_OK
+
+
 def main(
     argv: list[str] | None = None,
     *,
@@ -87,38 +106,19 @@ def main(
     read: ActivityReader = read_activity,
     environ: Mapping[str, str] = os.environ,
 ) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--out", type=Path, default=environ.get(OUT_ENV), help="note path")
-    parser.add_argument("--hours", type=int, default=24, help="window length (default 24)")
-    args = parser.parse_args(argv)
+    args = _parser(environ).parse_args(argv)
     if args.out is None:
         return _fail(f"no output path — pass --out or set {OUT_ENV}", EXIT_MISCONFIGURED)
-
     loaded = registry()
     repos = github_repos_from_registry(loaded)
     if not repos:
         return _fail("no registry.yaml context has a GitHub remote", EXIT_MISCONFIGURED)
-    read_urgent = urgent(loaded)
+    window = timedelta(hours=args.hours)
     try:
-        brief = compose(
-            repos,
-            now=now(),
-            window=timedelta(hours=args.hours),
-            read_urgent=read_urgent,
-            read=read,
-        )
+        brief = compose(repos, now=now(), window=window, read_urgent=urgent(loaded), read=read)
     except GhError as exc:
         return _fail(f"could not read GitHub — {exc}", EXIT_COULD_NOT_LOOK)
-    try:
-        write_note(Path(args.out), render(brief))
-    except OSError as exc:
-        return _fail(f"could not write the note — {exc}", EXIT_COULD_NOT_LOOK)
-
-    print(f"{brief.shipped_count} shipped across {len(repos)} repositories → {args.out}")
-    if brief.urgent_blind:
-        return _fail("URGENT source could not be read — " + "; ".join(brief.urgent),
-                     EXIT_COULD_NOT_LOOK)
-    return EXIT_OK
+    return _publish(brief, Path(args.out), len(repos))
 
 
 if __name__ == "__main__":
