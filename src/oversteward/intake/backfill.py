@@ -7,8 +7,10 @@ The report is what Nathan reads before anything is applied (OS#613): counts per
 repository per class, and a seeded random sample of each class with its title,
 proposal and reason. ``plan`` turns the proposals into label additions; it never
 removes a label, so re-running it after a partial apply is safe. Given ``only``,
-the plan adds only those labels and the report's header says so: Nathan applies
-``tribe`` to the existing backlog and never ``agent-finding`` (OS#620).
+the plan adds only those labels and the report's header says so. Without it the
+plan still adds every proposed label, ``agent-finding`` included: Nathan's ruling
+that the existing backlog gets ``tribe`` and never ``agent-finding`` (OS#620) is
+kept only by passing ``--only tribe``; nothing here enforces it.
 """
 
 from __future__ import annotations
@@ -75,7 +77,9 @@ def plan(rows: Iterable[Row], *, only: frozenset[str] | None = None) -> list[Ste
     """One step per issue missing a proposed label; with ``only``, other labels are dropped."""
     steps = []
     for row in rows:
-        labels = row.to_add if only is None else tuple(label for label in row.to_add if label in only)
+        labels = row.to_add
+        if only is not None:
+            labels = tuple(label for label in labels if label in only)
         if labels:
             steps.append(Step(row.issue.repo, row.issue.number, labels))
     return steps

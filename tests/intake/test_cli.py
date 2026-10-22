@@ -150,6 +150,13 @@ def test_backfill_only_tribe_applies_tribe_and_never_agent_finding(tmp_path):
     assert "--only tribe" in out.read_text(encoding="utf-8")
 
 
+def test_backfill_dry_run_hint_repeats_the_only_flags(tmp_path, capsys):
+    fake = FakeGitHub({AG.full_name: AG_ISSUES})
+    argv = ["backfill", "--only", "tribe", "--out", str(tmp_path / "r.md")]
+    assert cli.main(argv, deps=_deps(fake)) == 0
+    assert "Re-run with --only tribe --apply" in capsys.readouterr().out
+
+
 def test_backfill_only_is_repeatable_and_both_classes_match_the_default(tmp_path):
     rows = {AG.full_name: AG_ISSUES, OS.full_name: [gh_row(1, labels=("kaizen",))]}
     both, default = FakeGitHub(rows), FakeGitHub(rows)

@@ -113,7 +113,11 @@ def _cmd_backfill(args: argparse.Namespace, deps: Deps) -> int:
     steps = plan(rows, only=only)
     print(f"{len(rows)} open issues classified; {len(steps)} would gain labels. Report: {args.out}")
     if not args.apply:
-        print("Dry run — nothing applied. Re-run with --apply after Nathan has read the sample.")
+        flags = "".join(f" --only {label}" for label in sorted(only or ()))
+        print(
+            f"Dry run — nothing applied. Re-run with{flags} --apply "
+            "after Nathan has read the sample."
+        )
         return EXIT_OK
     by_id = {r.id: r.full_name for r in deps.repos}
     failures = apply_plan(
