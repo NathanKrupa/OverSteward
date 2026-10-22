@@ -12,17 +12,31 @@ import pytest
 
 from oversteward.board.client import GhError, TruncatedReadError
 from oversteward.board.config import RepoRef, github_repos_from_registry
-from oversteward.brief.client import ASK_LIMIT, MERGED_LIMIT, read_activity
+from oversteward.brief.client import (
+    ASK_LIMIT,
+    MERGED_LIMIT,
+    AskThread,
+    issue_is_open,
+    read_activity,
+    read_thread,
+)
 from oversteward.brief.compose import (
-    SHELVED_PLACEHOLDER,
+    QUESTION_CHARS,
     SHIPPED_PER_REPO,
+    KnownIssue,
+    ShelvedRead,
     UrgentRead,
     compose,
+    known_failures,
     liveness_urgent,
+    question_text,
     render,
 )
+from oversteward.board.client import NotFoundError
 from oversteward.liveness.client import RailwayConfigError, RailwayUnavailableError
 from oversteward.liveness.models import LivenessReport, ServiceState
+from oversteward.shelve.ledger import LedgerEntry, to_lines
+from oversteward.shelve.sweep import run_entry
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -83,8 +97,17 @@ def _quiet():
     return ()
 
 
-def _brief(gh: FakeGh, repos=(AG, GS), read_urgent=_quiet):
-    return compose(list(repos), now=NOW, window=WINDOW, read_urgent=read_urgent, read=_reader(gh))
+def _no_thread(repo, number):
+    return AskThread(body="", comments=())
+
+
+def _ran():
+    return (run_entry("dry", NOW - timedelta(hours=1), 0),)
+
+
+def _brief(gh: FakeGh, repos=(AG, GS), read_urgent=_quiet, thread=_no_thread, shelved=_ran):
+    return compose(list(repos), now=NOW, window=WINDOW, read_urgent=read_urgent, read=_reader(gh),
+                   read_thread=thread, read_shelved=shelved)
 
 
 # --- shipped ---------------------------------------------------------------
@@ -263,11 +286,11 @@ def test_liveness_urgent_names_only_services_that_are_down_or_unclassified():
 # --- note shape ------------------------------------------------------------
 
 
-def test_the_note_carries_a_date_line_and_the_shelved_placeholder():
+def test_the_note_carries_a_date_line_and_ends_with_the_shelved_section():
     text = render(_brief(FakeGh()))
 
     assert "Date: 2026-10-21 (Wednesday)" in text
-    assert text.rstrip().endswith(SHELVED_PLACEHOLDER)
+    assert text.rstrip().endswith("## Shelved overnight\n\nNothing shelved or reopened.")
 
 
 # --- registry --------------------------------------------------------------
@@ -306,15 +329,32 @@ _REGISTRY = {
 }
 
 
-def _main(argv, *, registry=_REGISTRY, gh=None, urgent=_quiet, environ=None):
+_LEDGER: dict[str, Path] = {}
+
+
+@pytest.fixture(autouse=True)
+def _sweep_ledger(tmp_path):
+    """A ledger holding one completed dry run, inside a state directory, for every CLI test."""
+    state = tmp_path / "state"
+    state.mkdir()
+    path = state / "shelve-ledger.jsonl"
+    path.write_text(to_lines(_ran()), encoding="utf-8")
+    _LEDGER.update(state=state, path=path)
+
+
+def _main(argv, *, registry=_REGISTRY, gh=None, urgent=_quiet, environ=None, known=None):
     gh = gh or FakeGh()
+    env = {"SHELVE_LEDGER_PATH": str(_LEDGER["path"])} if environ is None else environ
     return _module().main(
         argv,
         registry=lambda: registry,
-        urgent=lambda _loaded: urgent,
+        known=lambda: known or {},
+        urgent=lambda _loaded, _known, _repos: urgent,
         now=lambda: NOW,
         read=_reader(gh),
-        environ=environ or {},
+        thread=_no_thread,
+        environ=env,
+        state_dir=_LEDGER["state"],
     )
 
 
@@ -333,7 +373,8 @@ def test_cli_measured_answer_writes_the_note_and_exits_zero(tmp_path):
 def test_cli_takes_the_note_path_from_the_environment(tmp_path):
     out = tmp_path / "Estate Brief.md"
 
-    assert _main([], environ={"ESTATE_BRIEF_PATH": str(out)}) == 0
+    environ = {"ESTATE_BRIEF_PATH": str(out), "SHELVE_LEDGER_PATH": str(_LEDGER["path"])}
+    assert _main([], environ=environ) == 0
     assert out.exists()
 
 
@@ -421,6 +462,8 @@ def test_the_service_writes_the_vault_note_with_railway_on_path():
     assert argv[2:] == [
         "--out",
         "/mnt/c/Users/natha/OneDrive/Documents/Nathan Writing/Obsidian/GTD/Estate Brief.md",
+        "--sweep-max-age-minutes",
+        "60",
     ]
     path_line = next(v for v in service["Environment"] if v.startswith("PATH="))
     assert "/home/natha/.railway/bin" in path_line.split("=", 1)[1].split(":")
@@ -430,3 +473,361 @@ def test_the_service_writes_the_vault_note_with_railway_on_path():
 def test_the_units_open_with_aboutme(name):
     first = (OPS / name).read_text(encoding="utf-8").splitlines()[:2]
     assert all(line.startswith("# ABOUTME: ") for line in first)
+
+
+# --- shelved overnight -----------------------------------------------------
+
+
+def _line(action, number, *, mode="dry", rule="pr-idle", idle=30, hours_ago=1, kind="pr",
+          repo="wphelper", reason="no commit, comment or review"):
+    return LedgerEntry(
+        at=NOW - timedelta(hours=hours_ago), mode=mode, repo=repo, kind=kind, number=number,
+        ref=None, title=f"Item {number}", url=f"https://github.com/x/{number}", rule=rule,
+        action=action, idle_days=idle, reason=reason,
+    )
+
+
+def _shelved_text(*entries, ran=True):
+    rows = (*entries, *(_ran() if ran else ()))
+    return render(_brief(FakeGh(), shelved=lambda: rows))
+
+
+def test_dry_lines_render_as_would_never_as_done():
+    text = _shelved_text(_line("shelve", 1), _line("close", 2, rule="finding-idle", kind="issue"))
+
+    assert "Dry run — nothing below was changed on GitHub." in text
+    assert "- would shelve wphelper #1 — Item 1, idle 30d" in text
+    assert "- would close wphelper #2" in text
+    assert "- shelved " not in text and "- closed " not in text
+
+
+def test_applied_lines_render_as_done_without_the_dry_run_caveat():
+    text = _shelved_text(_line("shelve", 1, mode="applied"), _line("reopen", 3, mode="applied"))
+
+    assert "- shelved wphelper #1" in text
+    assert "- reopened wphelper #3" in text
+    assert "Dry run" not in text
+
+
+def test_a_failed_write_is_named_in_the_brief():
+    text = _shelved_text(_line("failed", 3, mode="applied", reason="reopen: HTTP 422"))
+    assert "- gh failed (reopen: HTTP 422) on wphelper #3 — Item 3" in text
+
+
+def test_report_and_candidate_lines_are_counted_not_listed():
+    text = _shelved_text(
+        _line("report", None, rule="branch-no-pr", kind="branch"),
+        _line("report", None, rule="branch-no-pr", kind="branch", repo="grantspider"),
+        _line("report", None, rule="worktree-unlanded", kind="worktree"),
+        _line("candidate", 9, rule="incubator-candidate", kind="issue", idle=120),
+    )
+    assert "Nothing shelved or reopened." in text
+    assert "Reported, untouched: 2 branches with no pull request, 1 unlanded worktree." in text
+    assert "1 issue idle 90+ days: Incubator candidates." in text
+
+
+def test_lines_outside_the_window_are_not_read():
+    brief = _brief(FakeGh(), shelved=lambda: (_line("shelve", 1, hours_ago=25), *_ran()))
+    assert brief.shelved.entries == ()
+    assert "would shelve" not in render(brief)
+
+
+def test_only_the_latest_completed_runs_entries_are_listed():
+    rows = (_line("shelve", 1, hours_ago=5), run_entry("dry", NOW - timedelta(hours=5), 1),
+            _line("shelve", 2, hours_ago=1), *_ran())
+    text = render(_brief(FakeGh(), shelved=lambda: rows))
+    assert "would shelve wphelper #2" in text
+    assert "wphelper #1" not in text
+
+
+def _brief_aged(rows, max_age):
+    return compose([AG], now=NOW, window=WINDOW, read_urgent=_quiet, read=_reader(FakeGh()),
+                   read_thread=_no_thread, read_shelved=lambda: rows, sweep_max_age=max_age)
+
+
+def test_yesterdays_run_does_not_stand_in_for_a_sweep_that_failed_tonight():
+    yesterday = NOW - timedelta(hours=20, minutes=30)
+    rows = (_line("shelve", 1, hours_ago=20.5), run_entry("dry", yesterday, 1))
+
+    stale = _brief_aged(rows, timedelta(minutes=60))
+    text = render(stale)
+    assert stale.shelved.read is ShelvedRead.NO_RUN
+    assert "did not finish a fresh run" in text and "latest completed run" in text
+    assert "would shelve wphelper #1" not in text
+
+    assert _brief_aged(rows, None).shelved.read is ShelvedRead.MEASURED
+
+
+def test_a_run_inside_the_freshness_bound_is_measured():
+    rows = (_line("shelve", 1, hours_ago=0.5), run_entry("dry", NOW - timedelta(hours=0.5), 1))
+    assert _brief_aged(rows, timedelta(minutes=60)).shelved.read is ShelvedRead.MEASURED
+
+
+def test_a_later_run_that_did_not_finish_is_named_with_what_it_recorded():
+    rows = (_line("shelve", 1, hours_ago=2), run_entry("dry", NOW - timedelta(hours=2), 1),
+            _line("shelve", 4, mode="applied", hours_ago=0.5))
+    brief = _brief(FakeGh(), shelved=lambda: rows)
+    text = render(brief)
+
+    assert brief.shelved.read is ShelvedRead.NO_RUN
+    assert "A run that did not finish recorded:\n- shelved wphelper #4" in text
+    assert "wphelper #1" not in text
+
+
+def test_lines_with_no_closing_run_line_are_an_unfinished_run_not_a_measurement():
+    brief = _brief(FakeGh(), shelved=lambda: (_line("shelve", 1),))
+    text = render(brief)
+
+    assert brief.shelved.read is ShelvedRead.NO_RUN
+    assert "A run that did not finish recorded:" in text
+    assert "Nothing shelved" not in text
+
+
+def test_a_run_line_stamped_after_now_is_not_read():
+    rows = (_line("shelve", 1, hours_ago=-1), run_entry("dry", NOW + timedelta(hours=1), 1))
+    brief = _brief(FakeGh(), shelved=lambda: rows)
+    assert brief.shelved.read is ShelvedRead.NO_RUN
+    assert "wphelper #1" not in render(brief)
+
+
+def test_mixed_modes_never_carry_the_dry_run_caveat_over_applied_lines():
+    at = NOW - timedelta(hours=1)
+    rows = (_line("shelve", 1), _line("shelve", 2, mode="applied"), run_entry("applied", at, 2))
+    text = render(_brief(FakeGh(), shelved=lambda: rows))
+    assert "- would shelve wphelper #1" in text and "- shelved wphelper #2" in text
+    assert "Dry run" not in text
+
+
+def test_a_failed_note_is_not_counted_as_a_second_reported_branch():
+    text = _shelved_text(
+        _line("report", None, rule="branch-no-pr", kind="branch", mode="applied"),
+        _line("failed", 5, rule="branch-no-pr", kind="issue", mode="applied", reason="note: HTTP 500"),
+    )
+    assert "Reported, untouched: 1 branch with no pull request." in text
+    assert "- gh failed (note: HTTP 500) on wphelper #5" in text
+
+
+def test_no_completed_run_in_the_window_says_so_rather_than_nothing_shelved():
+    brief = _brief(FakeGh(), shelved=lambda: (run_entry("dry", NOW - timedelta(hours=30), 0),))
+    text = render(brief)
+
+    assert brief.shelved.read is ShelvedRead.NO_RUN
+    assert "did not finish a fresh run in the last 24 hours" in text
+    assert "Nothing shelved" not in text
+
+
+def test_a_missing_ledger_is_no_run_and_an_unreadable_one_is_named():
+    def missing():
+        raise FileNotFoundError(2, "No such file", "/state/l.jsonl")
+
+    def torn():
+        raise ValueError("ledger line 3 does not parse")
+
+    assert _brief(FakeGh(), shelved=missing).shelved.read is ShelvedRead.NO_RUN
+    unreadable = _brief(FakeGh(), shelved=torn)
+    assert unreadable.shelved.read is ShelvedRead.UNREADABLE
+    assert "Could not read the sweep ledger — ledger line 3" in render(unreadable)
+
+
+def test_no_ledger_configured_says_so():
+    brief = compose([AG], now=NOW, window=WINDOW, read_urgent=_quiet, read=_reader(FakeGh()),
+                    read_thread=_no_thread)
+    assert brief.shelved.read is ShelvedRead.UNCONFIGURED
+    assert "No sweep ledger configured." in render(brief)
+
+
+# --- the one ask: its question, and the Incubator fallback ------------------
+
+
+def test_the_ask_renders_its_latest_question_trimmed_under_the_link():
+    thread = AskThread(body="Body text.", comments=(
+        "@nathankrupa question: an older question?",
+        "Some chatter.",
+        "**@NathanKrupa question:** approve the   over-cap PR?\n\n**Plan considered:** one PR.",
+        "[answering @nathankrupa question]: yes, approved",
+    ))
+    gh = FakeGh(asks={AG.full_name: [_ask(AG, 40, "Approve it?", NOW - timedelta(days=2))]})
+    text = render(_brief(gh, thread=lambda repo, n: thread))
+
+    link = "[Approve it?](https://github.com/NathanKrupa/aigranthelper/issues/40) — aigranthelper #40"
+    assert f"{link}\n\n> approve the over-cap PR? **Plan considered:** one PR." in text
+    assert "older question" not in text and "yes, approved" not in text
+
+
+def test_the_ask_falls_back_to_the_issue_body():
+    assert question_text(AskThread(body="  Which option,\nA or B?  ", comments=("hi",))) == (
+        "Which option, A or B?"
+    )
+
+
+def test_a_long_question_is_trimmed():
+    text = question_text(AskThread(body="", comments=("@nathankrupa question: " + "x" * 2000,)))
+    assert len(text) == QUESTION_CHARS and text.endswith("…")
+
+
+def test_the_question_is_read_from_the_asks_own_repository():
+    asked = []
+    gh = FakeGh(asks={GS.full_name: [_ask(GS, 30, "Q", NOW - timedelta(days=9))]})
+    _brief(gh, thread=lambda repo, n: asked.append((repo, n)) or AskThread("b", ()))
+    assert asked == [(GS, 30)]
+
+
+def test_with_no_ask_the_longest_idle_incubator_candidate_is_offered():
+    text = _shelved_text(
+        _line("candidate", 7, rule="incubator-candidate", kind="issue", idle=95),
+        _line("candidate", 8, rule="incubator-candidate", kind="issue", idle=200),
+    )
+    assert "Move to the Incubator? [Item 8](https://github.com/x/8) — wphelper #8, idle 200 days." in text
+
+
+def test_an_ask_outranks_an_incubator_candidate():
+    gh = FakeGh(asks={AG.full_name: [_ask(AG, 40, "Real ask", NOW - timedelta(days=2))]})
+    rows = (_line("candidate", 8, rule="incubator-candidate", kind="issue", idle=200), *_ran())
+    text = render(_brief(gh, shelved=lambda: rows))
+    assert "Move to the Incubator?" not in text and "Real ask" in text
+
+
+def test_read_thread_asks_for_the_newest_comments():
+    calls = []
+
+    def gh(args):
+        calls.append(args)
+        return {"data": {"repository": {"issue": {"body": "B", "comments": {"nodes": [{"body": "c"}]}}}}}
+
+    assert read_thread(AG, 40, run=gh) == AskThread("B", ("c",))
+    assert "comments(last: 100)" in calls[0][3]
+    assert calls[0][-2:] == ["-F", "number=40"]
+
+
+# --- KNOWN failures --------------------------------------------------------
+
+
+_DOWN = (ServiceState("aigranthelper", "monitor_indexation", "CRASHED", stopped=True),
+         ServiceState("aigranthelper", "web", "CRASHED", stopped=False))
+
+
+def _urgent(known, open_issues=frozenset({("aigranthelper", 2481)})):
+    return liveness_urgent([], sweeper=lambda _p: LivenessReport(states=_DOWN), known=known,
+                           is_open=lambda issue: (issue.repo, issue.number) in open_issues)
+
+
+def test_a_recorded_open_issue_marks_the_service_known():
+    lines = _urgent({"aigranthelper/monitor_indexation": KnownIssue("aigranthelper", 2481)})
+    assert lines == (
+        "KNOWN→aigranthelper#2481 — Railway: aigranthelper / monitor_indexation is CRASHED",
+        "Railway: aigranthelper / web is CRASHED",
+    )
+
+
+@pytest.mark.parametrize("key", ["monitor_indexation", "aigranthelper/monitor",
+                                 "aigranthelper/Monitor_Indexation", "aigranthelper/monitor_indexation "])
+def test_known_requires_the_exact_recorded_key(key):
+    lines = _urgent({key: KnownIssue("aigranthelper", 2481)})
+    assert not any(line.startswith("KNOWN") for line in lines)
+
+
+def test_a_recorded_issue_that_closed_is_a_fresh_alarm_again():
+    lines = _urgent({"aigranthelper/monitor_indexation": KnownIssue("aigranthelper", 2481)},
+                    open_issues=frozenset())
+    assert lines[0] == ("Railway: aigranthelper / monitor_indexation is CRASHED "
+                        "(recorded issue aigranthelper#2481 is no longer open)")
+
+
+def test_known_failures_validates_every_entry():
+    assert known_failures({"railway": {"aigranthelper/x": "aigranthelper#1"}}, [AG]) == {
+        "aigranthelper/x": KnownIssue("aigranthelper", 1)}
+    for bad in ({"x": "aigranthelper#1"}, {"aigranthelper/x": "aigranthelper 1"},
+                {"aigranthelper/x": "nosuchrepo#1"}, {"aigranthelper/x": "#1"},
+                {"aigranthelpr/x": "aigranthelper#1"}, {"/": "aigranthelper#1"},
+                {"aigranthelper/": "aigranthelper#1"}, {"aigranthelper/a b": "aigranthelper#1"}):
+        with pytest.raises(ValueError):
+            known_failures({"railway": bad}, [AG])
+
+
+def test_the_recorded_mapping_file_is_valid_and_seeds_monitor_indexation():
+    module = _module()
+    known = known_failures(module.load_known(), github_repos_from_registry(module.load_registry()))
+    assert known["aigranthelper/monitor_indexation"] == KnownIssue("aigranthelper", 2481)
+
+
+def test_issue_is_open_is_false_for_a_pull_request_a_closed_issue_or_a_missing_one():
+    answers = {"repos/NathanKrupa/aigranthelper/issues/1": {"state": "open"},
+               "repos/NathanKrupa/aigranthelper/issues/2": {"state": "closed"},
+               "repos/NathanKrupa/aigranthelper/issues/3": {"state": "open", "pull_request": {}}}
+
+    def gh(args):
+        if args[1] not in answers:
+            raise NotFoundError("HTTP 404")
+        return answers[args[1]]
+
+    assert [issue_is_open(AG, n, run=gh) for n in (1, 2, 3, 4)] == [True, False, False, False]
+
+
+# --- CLI: the ledger and the mapping ----------------------------------------
+
+
+def test_cli_without_a_sweep_ledger_writes_the_note_and_exits_two(tmp_path):
+    out = tmp_path / "Estate Brief.md"
+    assert _main(["--out", str(out)], environ={}) == 2
+    assert "No sweep ledger configured." in out.read_text(encoding="utf-8")
+
+
+def test_cli_with_no_run_in_the_window_writes_the_note_and_exits_one(tmp_path):
+    _LEDGER["path"].write_text("", encoding="utf-8")
+    out = tmp_path / "Estate Brief.md"
+    assert _main(["--out", str(out)]) == 1
+    assert "did not finish a fresh run" in out.read_text(encoding="utf-8")
+
+
+def test_cli_could_not_look_outranks_not_configured(tmp_path):
+    _LEDGER["path"].write_text("", encoding="utf-8")
+
+    def unconfigured():
+        raise RailwayConfigError("no Railway projects configured")
+
+    assert _main(["--out", str(tmp_path / "b.md")], urgent=unconfigured) == 1
+
+
+def test_cli_refuses_a_ledger_outside_the_state_directory(tmp_path):
+    out = tmp_path / "Estate Brief.md"
+    environ = {"SHELVE_LEDGER_PATH": str(tmp_path / "elsewhere.jsonl")}
+    assert _main(["--out", str(out)], environ=environ) == 2
+    assert not out.exists()
+
+
+def test_cli_refuses_a_malformed_known_failure_map(tmp_path):
+    out = tmp_path / "Estate Brief.md"
+    assert _main(["--out", str(out)], known={"railway": {"monitor": "aigranthelper#1"}}) == 2
+    assert not out.exists()
+
+
+def test_cli_with_a_stale_run_and_a_freshness_bound_exits_one(tmp_path):
+    rows = (_line("shelve", 7, hours_ago=20), run_entry("dry", NOW - timedelta(hours=20), 1))
+    _LEDGER["path"].write_text(to_lines(rows), encoding="utf-8")
+    out = tmp_path / "Estate Brief.md"
+    assert _main(["--out", str(out), "--sweep-max-age-minutes", "60"]) == 1
+    assert _main(["--out", str(out)]) == 0
+
+
+def test_cli_reads_the_ledger_it_is_given(tmp_path):
+    rows = (_line("shelve", 7), *_ran())
+    _LEDGER["path"].write_text(to_lines(rows), encoding="utf-8")
+    out = tmp_path / "Estate Brief.md"
+    assert _main(["--out", str(out)]) == 0
+    assert "- would shelve wphelper #7" in out.read_text(encoding="utf-8")
+
+
+# --- nightly host: the sweep runs first, in dry-run ------------------------
+
+
+def test_the_service_runs_the_sweep_first_in_dry_run_and_shares_the_ledger():
+    service = _directives(OPS / "estate-brief.service")
+    (pre,) = service["ExecStartPre"]
+
+    assert pre.startswith("-"), "a failed sweep must not stop the brief"
+    assert shlex.split(pre[1:]) == [
+        "/home/natha/OverSteward/.venv/bin/python",
+        "/home/natha/OverSteward/scripts/shelve_sweep.py",
+    ], "the sweep stays dry-run until Nathan approves --apply"
+    ledger_env = [v for v in service["Environment"] if v.startswith("SHELVE_LEDGER_PATH=")]
+    assert ledger_env == ["SHELVE_LEDGER_PATH=/home/natha/.local/state/oversteward/shelve-ledger.jsonl"]
