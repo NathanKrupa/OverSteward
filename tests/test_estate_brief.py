@@ -526,6 +526,14 @@ def test_report_and_candidate_lines_are_counted_not_listed():
     assert "1 issue idle 90+ days: Incubator candidates." in text
 
 
+def test_dependabot_pull_requests_left_open_are_counted_not_listed():
+    one = _shelved_text(_line("report", 4, rule="pr-dependabot", idle=200))
+    assert "Reported, untouched: 1 Dependabot PR left open for a session to merge." in one
+    assert "Nothing shelved or reopened." in one
+    many = _shelved_text(*(_line("report", n, rule="pr-dependabot", idle=200) for n in range(8)))
+    assert "Reported, untouched: 8 Dependabot PRs left open for a session to merge." in many
+
+
 def test_lines_outside_the_window_are_not_read():
     brief = _brief(FakeGh(), shelved=lambda: (_line("shelve", 1, hours_ago=25), *_ran()))
     assert brief.shelved.entries == ()
@@ -817,10 +825,10 @@ def test_cli_reads_the_ledger_it_is_given(tmp_path):
     assert "- would shelve wphelper #7" in out.read_text(encoding="utf-8")
 
 
-# --- nightly host: the sweep runs first, in dry-run ------------------------
+# --- nightly host: the sweep runs first, and applies -----------------------
 
 
-def test_the_service_runs_the_sweep_first_in_dry_run_and_shares_the_ledger():
+def test_the_service_runs_the_sweep_first_with_apply_and_shares_the_ledger():
     service = _directives(OPS / "estate-brief.service")
     (pre,) = service["ExecStartPre"]
 
@@ -828,6 +836,7 @@ def test_the_service_runs_the_sweep_first_in_dry_run_and_shares_the_ledger():
     assert shlex.split(pre[1:]) == [
         "/home/natha/OverSteward/.venv/bin/python",
         "/home/natha/OverSteward/scripts/shelve_sweep.py",
-    ], "the sweep stays dry-run until Nathan approves --apply"
+        "--apply",
+    ], "Nathan approved --apply on 2026-10-22, conditioned on the Dependabot exemption (OS#621)"
     ledger_env = [v for v in service["Environment"] if v.startswith("SHELVE_LEDGER_PATH=")]
     assert ledger_env == ["SHELVE_LEDGER_PATH=/home/natha/.local/state/oversteward/shelve-ledger.jsonl"]

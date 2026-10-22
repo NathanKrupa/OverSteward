@@ -8,6 +8,9 @@ The rules (OverSteward #612), each undone by one comment:
 * **Pull request** — no commit, comment or review for :data:`PR_IDLE` and not
   carried: label ``shelved``, comment "shelved — reopen by comment", close. The
   branch is kept. A comment beginning ``carried:`` exempts it at any age.
+  A pull request Dependabot opened (author login in :data:`DEPENDABOT_LOGINS`)
+  is never shelved: past :data:`PR_IDLE` it is reported, left open for a session
+  to merge (Nathan, 2026-10-22).
 * **Branch with no pull request** — no commit for :data:`BRANCH_IDLE`: reported,
   never deleted. When its name follows the dispatch convention
   ``<type>/issue-<n>-<slug>`` and issue *n* is open, a close-out note goes on
@@ -66,6 +69,11 @@ INCUBATOR_IDLE = timedelta(days=90)
 #: A worktree untouched this long, holding work not on the trunk, is reported.
 WORKTREE_IDLE = timedelta(days=7)
 
+#: Dependabot's login as each GitHub API spells it: GraphQL (what the sweep reads),
+#: REST, and the ``gh`` CLI. Matched exactly — a login merely containing the word is
+#: not Dependabot.
+DEPENDABOT_LOGINS = frozenset({"dependabot", "dependabot[bot]", "app/dependabot"})
+
 #: Every comment the sweep writes carries this; such a comment is never a trigger.
 MARKER = "<!-- oversteward:shelve-sweep"
 SHELVE_LEAD = "shelved — reopen by comment."
@@ -78,6 +86,7 @@ _BRANCH_ISSUE = re.compile(r"(?:^|/)issue-(\d+)(?:-|$)")
 
 RULE_PR = "pr-idle"
 RULE_PR_UNJUDGED = "pr-idle-unjudged"
+RULE_PR_DEPENDABOT = "pr-dependabot"
 RULE_FINDING = "finding-idle"
 RULE_BRANCH = "branch-no-pr"
 RULE_WORKTREE = "worktree-unlanded"
@@ -309,6 +318,10 @@ def _pull_actions(repo: RepoRef, pulls: Iterable[OpenPull], now: datetime) -> li
             continue
         base = dict(repo=repo, kind="pr", number=pull.number, ref=pull.branch, title=pull.title,
                     url=pull.url, idle_days=_days(idle))
+        if pull.author in DEPENDABOT_LOGINS:
+            actions.append(Action(**base, rule=RULE_PR_DEPENDABOT, verb=VERB_REPORT,
+                                  reason="Dependabot pull request: left open for a session to merge"))
+            continue
         if not pull.thread.complete:
             actions.append(Action(**base, rule=RULE_PR_UNJUDGED, verb=VERB_REPORT,
                                   reason="over 100 comments: a carried: marker may be unread"))
@@ -524,6 +537,7 @@ def render(entries: Sequence[LedgerEntry], *, apply: bool, unlabelled: Sequence[
 
 __all__ = [
     "BRANCH_IDLE",
+    "DEPENDABOT_LOGINS",
     "FINDING_IDLE",
     "INCUBATOR_IDLE",
     "MARKER",

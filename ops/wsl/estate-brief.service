@@ -25,10 +25,11 @@
 # so a failed sweep is not covered by yesterday's run line: the brief says no
 # fresh run finished, and exits 1, so the failure still shows on the unit.
 #
-# The sweep runs in DRY-RUN: it writes nothing to GitHub, and the brief renders
-# its lines as "would shelve …". Switching it to act is one change, made only
-# after Nathan has read a dry-run sample and approved it: append " --apply" to
-# the ExecStartPre line, copy this file to ~/.config/systemd/user/ and run
+# The sweep runs with --apply: it shelves on GitHub, and the brief renders its
+# lines as done. Nathan approved apply on 2026-10-22 after reading the dry-run
+# sample, conditioned on Dependabot pull requests being exempt — they are
+# reported, never shelved (OS#621). To return to a dry run, drop " --apply"
+# from the ExecStartPre line, copy this file to ~/.config/systemd/user/ and run
 # `systemctl --user daemon-reload`. --apply refuses (exit 2, nothing written)
 # in any repository that lacks the `shelved` label.
 
@@ -45,6 +46,6 @@ Environment=PYTHONPATH=/home/natha/OverSteward/src
 # ~/.railway/bin, where the railway CLI the liveness sweep runs is installed.
 Environment=PATH=/home/natha/.railway/bin:/usr/local/bin:/usr/bin:/bin
 Environment=SHELVE_LEDGER_PATH=/home/natha/.local/state/oversteward/shelve-ledger.jsonl
-ExecStartPre=-/home/natha/OverSteward/.venv/bin/python /home/natha/OverSteward/scripts/shelve_sweep.py
+ExecStartPre=-/home/natha/OverSteward/.venv/bin/python /home/natha/OverSteward/scripts/shelve_sweep.py --apply
 ExecStart=/home/natha/OverSteward/.venv/bin/python /home/natha/OverSteward/scripts/estate_brief.py --out "/mnt/c/Users/natha/OneDrive/Documents/Nathan Writing/Obsidian/GTD/Estate Brief.md" --sweep-max-age-minutes 60
 TimeoutStartSec=15min

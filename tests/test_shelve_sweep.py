@@ -58,11 +58,12 @@ def thread(*comments: tuple[str, datetime], complete: bool = True) -> Thread:
     return Thread(tuple(Comment(body, when) for body, when in comments), complete)
 
 
-def pull(number: int, idle_days: float, *comments, complete=True, repo=WP) -> OpenPull:
+def pull(number: int, idle_days: float, *comments, complete=True, repo=WP,
+         author: str | None = "NathanKrupa") -> OpenPull:
     return OpenPull(
         repo=repo.id, number=number, title=f"PR {number}", url=f"u/{number}", branch=f"feat/b{number}",
         created_at=ago(400), last_commit_at=ago(idle_days), last_review_at=None,
-        thread=thread(*comments, complete=complete),
+        thread=thread(*comments, complete=complete), author=author,
     )
 
 
@@ -199,6 +200,53 @@ def test_a_cut_thread_is_reported_not_shelved():
     decided = decide(snap(pulls=[pull(1, 40, ("old", ago(40)), complete=False)]))
     assert verbs(decided) == {("pr", 1): "report"}
     assert decided.actions[0].rule == "pr-idle-unjudged"
+
+
+# --- Dependabot pull requests (OS#621) -------------------------------------
+
+
+def test_a_200_day_dependabot_pull_request_is_reported_never_shelved():
+    decided = decide(snap(pulls=[pull(1, 200, author="dependabot")]))
+
+    assert verbs(decided) == {("pr", 1): "report"}
+    (action,) = decided.actions
+    assert action.rule == "pr-dependabot"
+    assert action.comment is None
+
+
+def test_a_22_day_human_pull_request_beside_a_dependabot_one_is_still_shelved():
+    decided = decide(snap(pulls=[pull(1, 200, author="dependabot"), pull(2, 22)]))
+    assert verbs(decided) == {("pr", 1): "report", ("pr", 2): "shelve"}
+
+
+@pytest.mark.parametrize("login", ["dependabot", "dependabot[bot]", "app/dependabot"])
+def test_every_form_of_dependabots_login_is_exempt(login):
+    assert verbs(decide(snap(pulls=[pull(1, 200, author=login)]))) == {("pr", 1): "report"}
+
+
+@pytest.mark.parametrize(
+    "login", ["dependabot-preview", "my-dependabot", "dependabot[bot]x", "app/dependabot2", None]
+)
+def test_a_login_merely_containing_dependabot_is_not_exempt(login):
+    assert verbs(decide(snap(pulls=[pull(1, 200, author=login)]))) == {("pr", 1): "shelve"}
+
+
+def test_a_young_dependabot_pull_request_is_not_reported():
+    assert verbs(decide(snap(pulls=[pull(1, 20, author="dependabot")]))) == {}
+
+
+def test_an_apply_never_writes_to_a_dependabot_pull_request():
+    spy = SpyWriter()
+    entries, _ = run(decide(snap(pulls=[pull(1, 200, author="dependabot")])), apply=True, writer=spy)
+
+    assert spy.calls == []
+    assert [(e.rule, e.action, e.mode) for e in entries] == [("pr-dependabot", "report", "applied")]
+
+
+def test_render_counts_the_dependabot_pull_requests_left_open():
+    pulls = [pull(n, 200, author="dependabot") for n in (1, 2)]
+    entries, _ = run(decide(snap(pulls=pulls)), apply=False)
+    assert "  wphelper: pr-dependabot 2" in render(entries, apply=False, unlabelled=())
 
 
 # --- issues ----------------------------------------------------------------
@@ -563,10 +611,10 @@ class FakeGh:
         raise AssertionError(f"unexpected gh call {args}")
 
 
-def _pr_node(number, comments=(), total=None):
+def _pr_node(number, comments=(), total=None, author=None):
     return {
         "number": number, "title": "t", "url": "u", "createdAt": "2026-01-01T00:00:00Z",
-        "headRefName": "feat/x",
+        "headRefName": "feat/x", "author": author,
         "commits": {"nodes": [{"commit": {"committedDate": "2026-09-01T00:00:00Z"}}]},
         "reviews": {"nodes": []},
         "comments": {"totalCount": total if total is not None else len(comments),
@@ -583,6 +631,15 @@ def test_read_snapshot_pages_open_pulls_and_reads_the_newest_comments():
     assert "comments(last: 100)" in pull_queries[0][3]
     assert "cursor=c1" in pull_queries[1]
     assert snapshot.pulls[1].last_commit_at == datetime(2026, 9, 1, tzinfo=UTC)
+
+
+def test_read_snapshot_reads_each_pull_requests_author_login():
+    gh = FakeGh(pulls_pages=[[_pr_node(1, author={"login": "dependabot"}), _pr_node(2)]])
+    snapshot = read_snapshot(WP, run=gh)
+
+    pull_query = next(c for c in gh.calls if c[:2] == ["api", "graphql"] and "states: OPEN" in c[3])
+    assert "author { login }" in pull_query[3]
+    assert [p.author for p in snapshot.pulls] == ["dependabot", None]
 
 
 def test_a_thread_longer_than_the_window_reads_as_incomplete():

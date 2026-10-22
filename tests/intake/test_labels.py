@@ -33,6 +33,17 @@ def test_every_colour_is_six_hex_digits_and_every_label_is_described():
         assert spec.description.strip(), spec
 
 
+def test_every_description_fits_githubs_hundred_character_limit():
+    for spec in DISPATCH_LABELS:
+        assert len(spec.description) <= 100, spec
+
+
+def test_the_shelved_label_describes_everything_the_sweep_shelves():
+    (shelved,) = [spec for spec in DISPATCH_LABELS if spec.name == "shelved"]
+    for word in ("pull request", "agent finding", "Nathan's idea", "reopen"):
+        assert word in shelved.description, word
+
+
 def test_ensure_labels_upserts_every_label_on_every_repo():
     calls = []
     failures = ensure_labels(["o/a", "o/b"], lambda repo, spec: calls.append((repo, spec.name)))
