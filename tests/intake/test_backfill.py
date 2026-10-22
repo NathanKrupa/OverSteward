@@ -92,3 +92,36 @@ def test_the_report_carries_counts_samples_titles_and_reasons():
 def test_the_report_states_how_many_labels_apply_would_add():
     report = render_report(_rows(), per_class=10, seed=0, generated="2026-10-21")
     assert "3 issues" in report
+
+
+# --- --only: restrict the plan to named labels (OS#620) ---------------------
+
+TRIBE_ONLY = frozenset({"tribe"})
+
+
+def test_only_tribe_adds_tribe_alone_to_a_tribe_and_agent_finding_proposal():
+    steps = {(s.repo, s.number): s.labels for s in plan(_rows(), only=TRIBE_ONLY)}
+    assert steps[("aigranthelper", 2)] == ("tribe",)
+    assert all("agent-finding" not in labels for labels in steps.values())
+
+
+def test_only_tribe_plans_nothing_for_an_agent_finding_only_proposal():
+    numbers = {(s.repo, s.number) for s in plan(_rows(), only=TRIBE_ONLY)}
+    assert ("oversteward", 3) not in numbers
+    assert numbers == {("aigranthelper", 1), ("aigranthelper", 2)}
+
+
+def test_no_filter_plans_every_proposed_label():
+    assert plan(_rows(), only=None) == plan(_rows())
+
+
+def test_the_report_header_states_the_filter_and_the_filtered_counts():
+    report = render_report(_rows(), per_class=10, seed=0, generated="2026-10-22", only=TRIBE_ONLY)
+    header = report.split("## Counts per repository")[0]
+    assert "--only tribe" in header
+    assert "2 issues (2 label additions)" in header
+
+
+def test_the_unfiltered_report_header_names_no_filter():
+    report = render_report(_rows(), per_class=10, seed=0, generated="2026-10-22")
+    assert "--only" not in report
