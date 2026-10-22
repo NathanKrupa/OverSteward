@@ -6,7 +6,9 @@
 The report is what Nathan reads before anything is applied (OS#613): counts per
 repository per class, and a seeded random sample of each class with its title,
 proposal and reason. ``plan`` turns the proposals into label additions; it never
-removes a label, so re-running it after a partial apply is safe.
+removes a label, so re-running it after a partial apply is safe. Given ``only``,
+the plan adds only those labels and the report's header says so: Nathan applies
+``tribe`` to the existing backlog and never ``agent-finding`` (OS#620).
 """
 
 from __future__ import annotations
@@ -21,6 +23,8 @@ from oversteward.intake.labels import AGENT_FINDING, TRIBE
 from oversteward.intake.models import IntakeIssue
 
 CLASSES = (TRIBE, AGENT_FINDING, f"{TRIBE}+{AGENT_FINDING}", UNCLASSIFIED)
+#: The labels a plan may be restricted to.
+LABELS = (TRIBE, AGENT_FINDING)
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,8 +71,14 @@ def sample_by_class(rows: list[Row], *, per_class: int, seed: int) -> dict[str, 
     return samples
 
 
-def plan(rows: Iterable[Row]) -> list[Step]:
-    return [Step(r.issue.repo, r.issue.number, r.to_add) for r in rows if r.to_add]
+def plan(rows: Iterable[Row], *, only: frozenset[str] | None = None) -> list[Step]:
+    """One step per issue missing a proposed label; with ``only``, other labels are dropped."""
+    steps = []
+    for row in rows:
+        labels = row.to_add if only is None else tuple(label for label in row.to_add if label in only)
+        if labels:
+            steps.append(Step(row.issue.repo, row.issue.number, labels))
+    return steps
 
 
 def apply_plan(
@@ -88,15 +98,34 @@ def _cell(text: str) -> str:
     return text.replace("|", "\\|").replace("\n", " ")
 
 
-def render_report(rows: list[Row], *, per_class: int, seed: int, generated: str) -> str:
+def _filter_lines(only: frozenset[str] | None) -> list[str]:
+    if only is None:
+        return []
+    flags = " ".join(f"--only {label}" for label in sorted(only))
+    return [
+        f"Filter: `{flags}` — the plan adds only these labels. The counts and samples below "
+        "show every proposal; the rest are not applied.",
+        "",
+    ]
+
+
+def render_report(
+    rows: list[Row],
+    *,
+    per_class: int,
+    seed: int,
+    generated: str,
+    only: frozenset[str] | None = None,
+) -> str:
     counts = count_by_repo(rows)
-    steps = plan(rows)
+    steps = plan(rows, only=only)
     lines = [
         f"# Intake backfill — dry run ({generated})",
         "",
         f"{len(rows)} open issues read across {len(counts)} repositories. Deterministic rules only "
         "(labels, agent body markers, title shapes, repo); no LLM call. Nothing has been applied.",
         "",
+        *_filter_lines(only),
         f"`--apply` would add labels to {len(steps)} issues "
         f"({sum(len(s.labels) for s in steps)} label additions); it never removes a label.",
         "",

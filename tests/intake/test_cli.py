@@ -141,6 +141,31 @@ def test_backfill_apply_adds_the_planned_labels(tmp_path):
     assert (OS.full_name, 1, ("agent-finding",)) in fake.added
 
 
+def test_backfill_only_tribe_applies_tribe_and_never_agent_finding(tmp_path):
+    fake = FakeGitHub({AG.full_name: AG_ISSUES, OS.full_name: [gh_row(1, labels=("kaizen",))]})
+    out = tmp_path / "r.md"
+    code = cli.main(["backfill", "--only", "tribe", "--apply", "--out", str(out)], deps=_deps(fake))
+    assert code == 0
+    assert fake.added == [(AG.full_name, 12, ("tribe",))]
+    assert "--only tribe" in out.read_text(encoding="utf-8")
+
+
+def test_backfill_only_is_repeatable_and_both_classes_match_the_default(tmp_path):
+    rows = {AG.full_name: AG_ISSUES, OS.full_name: [gh_row(1, labels=("kaizen",))]}
+    both, default = FakeGitHub(rows), FakeGitHub(rows)
+    argv = ["backfill", "--apply", "--out", str(tmp_path / "r.md")]
+    assert cli.main([*argv, "--only", "tribe", "--only", "agent-finding"], deps=_deps(both)) == 0
+    assert cli.main(argv, deps=_deps(default)) == 0
+    assert both.added == default.added and default.added
+
+
+def test_backfill_only_refuses_an_unknown_class(tmp_path, capsys):
+    fake = FakeGitHub({})
+    with pytest.raises(SystemExit):
+        cli.main(["backfill", "--only", "bug", "--out", str(tmp_path / "r.md")], deps=_deps(fake))
+    assert "invalid choice: 'bug'" in capsys.readouterr().err
+
+
 def test_backfill_apply_exits_one_when_a_label_addition_fails(tmp_path, capsys):
     fake = FakeGitHub({AG.full_name: AG_ISSUES, OS.full_name: [gh_row(1, labels=("kaizen",))]})
 

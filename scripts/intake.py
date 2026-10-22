@@ -9,8 +9,9 @@ Verbs:
 * ``queue <repo>`` — the repository's ready-for-agent issues, ``tribe`` first.
 * ``displaced <repo> <n>`` — the ready ``tribe`` issues a dispatch of ``#n``
   passes over. A notice, never a refusal: it exits 0 either way.
-* ``backfill [--apply]`` — classify every open issue in every covered
-  repository and write the report. Dry run unless ``--apply`` is given.
+* ``backfill [--only <label>]... [--apply]`` — classify every open issue in
+  every covered repository and write the report. Dry run unless ``--apply`` is
+  given; ``--only`` restricts the labels the plan adds.
 * ``labels`` — upsert the dispatch label taxonomy on every covered repository.
 
 Covered repositories are every ``dispatch_target`` in ``registry.yaml`` plus
@@ -32,7 +33,7 @@ import yaml
 
 from oversteward.board.config import RepoRef
 from oversteward.intake import github
-from oversteward.intake.backfill import apply_plan, classify_all, plan, render_report
+from oversteward.intake.backfill import LABELS, apply_plan, classify_all, plan, render_report
 from oversteward.intake.labels import DISPATCH_LABELS, LabelSpec, ensure_labels
 from oversteward.intake.queue import (
     dispatch_queue,
@@ -104,9 +105,12 @@ def _cmd_displaced(args: argparse.Namespace, deps: Deps) -> int:
 def _cmd_backfill(args: argparse.Namespace, deps: Deps) -> int:
     rows = classify_all(read_repos(deps.repos, deps.list_issues))
     generated = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
-    report = render_report(rows, per_class=args.sample, seed=args.seed, generated=generated)
+    only = frozenset(args.only) if args.only else None
+    report = render_report(
+        rows, per_class=args.sample, seed=args.seed, generated=generated, only=only
+    )
     args.out.write_text(report, encoding="utf-8")
-    steps = plan(rows)
+    steps = plan(rows, only=only)
     print(f"{len(rows)} open issues classified; {len(steps)} would gain labels. Report: {args.out}")
     if not args.apply:
         print("Dry run — nothing applied. Re-run with --apply after Nathan has read the sample.")
@@ -149,6 +153,12 @@ def _parser() -> argparse.ArgumentParser:
     backfill.add_argument("--sample", type=int, default=10, help="sample rows per class")
     backfill.add_argument("--seed", type=int, default=0, help="sample seed")
     backfill.add_argument("--apply", action="store_true", help="add the proposed labels")
+    backfill.add_argument(
+        "--only",
+        action="append",
+        choices=LABELS,
+        help="add only this label (repeatable); without it, every proposed label",
+    )
     labels = verbs.add_parser("labels", help="upsert the dispatch label taxonomy on every repo")
     labels.set_defaults(handler=_cmd_labels)
     return parser
