@@ -193,6 +193,8 @@ def question_text(thread: AskThread) -> str:
     if asked:
         latest = asked[-1]
         text = latest[latest.lower().index(QUESTION_MARKER) + len(QUESTION_MARKER):]
+        # The marker is often bolded (``**@nathankrupa question:**``); drop the closing emphasis.
+        text = text.lstrip("*_ \t\n")
     else:
         text = thread.body
     text = " ".join(text.split())
