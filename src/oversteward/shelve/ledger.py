@@ -3,11 +3,13 @@
 
 """The action ledger: what the sweep did, or would have done, and when.
 
-Every action the sweep decides is one line, written whether or not it was
-performed. ``mode`` is ``dry`` for a dry run and ``applied`` for a write that
-completed; a reader must never render a ``dry`` line as something that
-happened. An applied line is written only after its write returned, so a run
-that dies part-way leaves a ledger that claims no more than was done.
+Every action the sweep decides is one line. ``mode`` is the run's: ``dry`` for
+a dry run, ``applied`` for an apply. A reader must never render a ``dry`` line
+as something that happened. In an applied run a line is written only after its
+write returned, so a run that dies part-way claims no more than was done; a
+write ``gh`` did not complete is written with ``action`` ``failed`` and the
+attempted verb in ``reason``. Each completed run ends with one ``sweep-run``
+line, whose ``reason`` counts its actions and failures.
 """
 
 from __future__ import annotations

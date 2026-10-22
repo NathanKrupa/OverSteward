@@ -93,6 +93,8 @@ VERB_NOTE = "note"
 VERB_REPORT = "report"
 VERB_CANDIDATE = "candidate"
 VERB_RUN = "run"
+#: Ledger action for a write gh did not complete; the attempted verb leads ``reason``.
+VERB_FAILED = "failed"
 
 #: Verbs that change GitHub. Only these ever reach the writer.
 WRITE_VERBS = frozenset({VERB_SHELVE, VERB_CLOSE, VERB_REOPEN, VERB_NOTE})
@@ -169,7 +171,7 @@ class Action:
 
 @dataclass(frozen=True, slots=True)
 class Failure:
-    """A write GitHub refused: the action stays unperformed and unledgered."""
+    """A write gh did not complete: ledgered as ``failed``, never as performed."""
 
     action: Action
     error: str
@@ -417,13 +419,20 @@ def _entry(action: Action, mode: str, now: datetime) -> LedgerEntry:
     )
 
 
-def run_entry(mode: str, now: datetime, count: int) -> LedgerEntry:
+def run_entry(mode: str, now: datetime, count: int, failed: int = 0) -> LedgerEntry:
     """The closing line of a completed run, written even when it decided nothing."""
     return LedgerEntry(
         at=now, mode=mode, repo="*", kind="run", number=None, ref=None,
         title="abandoned-work sweep", url="", rule=RULE_RUN, action=VERB_RUN, idle_days=None,
-        reason=f"{count} actions",
+        reason=f"{count} actions, {failed} failed",
     )
+
+
+def _failed_entry(failure: Failure, now: datetime) -> LedgerEntry:
+    entry = _entry(failure.action, MODE_APPLIED, now)
+    return LedgerEntry(**{**{f: getattr(entry, f) for f in LedgerEntry.__slots__},
+                          "action": VERB_FAILED,
+                          "reason": f"{failure.action.verb}: {failure.error}"})
 
 
 def _perform(action: Action, writer: Writer) -> None:
@@ -450,8 +459,9 @@ def execute(
 
     A dry run never touches ``writer``. An apply refuses before its first write
     when a repository lacks the ``shelved`` label, and records each action only
-    after its write returned. A write that raises one of ``refused`` (GitHub said
-    no) is set aside as a :class:`Failure` and the run goes on — otherwise one
+    after its write returned. A write that raises one of ``refused`` — any ``gh``
+    failure: a 422, an expired token, a dropped network — is set aside as a
+    :class:`Failure`, ledgered as ``failed``, and the run goes on; otherwise one
     item GitHub will not reopen would stall every later apply at the same place.
     A run that finishes records :func:`run_entry` last; it is not an entry.
     """
@@ -474,11 +484,12 @@ def execute(
                 _perform(action, writer)
             except refused as exc:
                 failures.append(Failure(action, str(exc)))
+                record([_failed_entry(failures[-1], now)])
                 continue
         entry = _entry(action, MODE_APPLIED, now)
         record([entry])
         entries.append(entry)
-    record([run_entry(MODE_APPLIED, now, len(entries))])
+    record([run_entry(MODE_APPLIED, now, len(entries), len(failures))])
     return Outcome(tuple(entries), tuple(failures))
 
 

@@ -464,7 +464,9 @@ def test_a_write_github_refuses_is_set_aside_and_the_rest_still_run():
     assert [c[0] for c in spy.calls] == ["shelve_pull", "close_finding", "note"]
     assert [(f.action.verb, f.action.number) for f in outcome.failures] == [("reopen", 3)]
     assert "reopen" not in [e.action for e in recorded]
-    assert recorded[-1].rule == "sweep-run" and recorded[-1].reason == "5 actions"
+    (failed,) = [e for e in recorded if e.action == "failed"]
+    assert (failed.mode, failed.number, failed.reason) == ("applied", 3, "reopen: write failed")
+    assert recorded[-1].rule == "sweep-run" and recorded[-1].reason == "5 actions, 1 failed"
 
 
 def test_every_run_closes_with_a_run_line_even_when_it_decided_nothing():
@@ -472,7 +474,8 @@ def test_every_run_closes_with_a_run_line_even_when_it_decided_nothing():
     execute(decide(snap()), apply=False, writer=None, record=recorded.extend, now=NOW)
 
     (line,) = recorded
-    assert (line.kind, line.rule, line.mode, line.reason) == ("run", "sweep-run", "dry", "0 actions")
+    assert (line.kind, line.rule, line.mode, line.reason) == (
+        "run", "sweep-run", "dry", "0 actions, 0 failed")
 
 
 def test_render_says_would_for_a_dry_run():
@@ -750,7 +753,7 @@ def test_cli_exits_one_when_github_refuses_a_write_and_names_it(tmp_path, capsys
                        read_issue=lambda repo, n: None, now=lambda: NOW, environ={},
                        state_dir=tmp_path)
     assert code == 1
-    assert "GitHub refused to shelve wphelper#1" in capsys.readouterr().err
+    assert "gh failed to shelve wphelper#1" in capsys.readouterr().err
 
 
 def test_cli_without_a_ledger_path_is_misconfigured():

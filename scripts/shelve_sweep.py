@@ -13,8 +13,8 @@ Exit codes carry meaning and must not be collapsed:
 
 * **0** — a measured answer, including no actions.
 * **1** — GitHub or git could not be read, the ledger could not be written,
-  or GitHub refused one or more writes (each is named; the other actions still
-  ran, and the ledger holds every one that completed).
+  or gh failed on one or more writes (each is named here and ledgered as
+  ``failed``; the other actions still ran).
 * **2** — nothing configured: no ledger path, a ledger path outside
   ``~/.local/state/oversteward/``, no dispatch target in the registry, or
   ``--apply`` against a repository without the ``shelved`` label.
@@ -148,7 +148,7 @@ def main(
     print(render(outcome.entries, apply=args.apply, unlabelled=decided.unlabelled), end="")
     for failure in outcome.failures:
         action = failure.action
-        print(f"ERROR: GitHub refused to {action.verb} {action.repo.id}#{action.number} — "
+        print(f"ERROR: gh failed to {action.verb} {action.repo.id}#{action.number} — "
               f"{failure.error}", file=sys.stderr)
     return EXIT_COULD_NOT_LOOK if outcome.failures else EXIT_OK
 
