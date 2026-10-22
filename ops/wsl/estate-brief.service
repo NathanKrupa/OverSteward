@@ -19,8 +19,11 @@
 # The abandoned-work sweep (#612) runs first, as ExecStartPre, and appends what
 # it decided to the ledger at $SHELVE_LEDGER_PATH; the brief's "Shelved
 # overnight" reads that ledger. The leading "-" keeps a failed sweep from
-# stopping the brief: the brief then finds no completed run in its window, says
-# so in the note, and exits 1, so the failure still shows on the unit.
+# stopping the brief. The brief is told (--sweep-max-age-minutes 60) that
+# tonight's run must be under an hour old — the sweep stamps its lines when it
+# starts, moments before the brief, and the whole unit is capped at 15 minutes —
+# so a failed sweep is not covered by yesterday's run line: the brief says no
+# fresh run finished, and exits 1, so the failure still shows on the unit.
 #
 # The sweep runs in DRY-RUN: it writes nothing to GitHub, and the brief renders
 # its lines as "would shelve …". Switching it to act is one change, made only
@@ -43,5 +46,5 @@ Environment=PYTHONPATH=/home/natha/OverSteward/src
 Environment=PATH=/home/natha/.railway/bin:/usr/local/bin:/usr/bin:/bin
 Environment=SHELVE_LEDGER_PATH=/home/natha/.local/state/oversteward/shelve-ledger.jsonl
 ExecStartPre=-/home/natha/OverSteward/.venv/bin/python /home/natha/OverSteward/scripts/shelve_sweep.py
-ExecStart=/home/natha/OverSteward/.venv/bin/python /home/natha/OverSteward/scripts/estate_brief.py --out "/mnt/c/Users/natha/OneDrive/Documents/Nathan Writing/Obsidian/GTD/Estate Brief.md"
+ExecStart=/home/natha/OverSteward/.venv/bin/python /home/natha/OverSteward/scripts/estate_brief.py --out "/mnt/c/Users/natha/OneDrive/Documents/Nathan Writing/Obsidian/GTD/Estate Brief.md" --sweep-max-age-minutes 60
 TimeoutStartSec=15min

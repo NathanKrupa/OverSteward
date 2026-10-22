@@ -462,6 +462,8 @@ def test_the_service_writes_the_vault_note_with_railway_on_path():
     assert argv[2:] == [
         "--out",
         "/mnt/c/Users/natha/OneDrive/Documents/Nathan Writing/Obsidian/GTD/Estate Brief.md",
+        "--sweep-max-age-minutes",
+        "60",
     ]
     path_line = next(v for v in service["Environment"] if v.startswith("PATH="))
     assert "/home/natha/.railway/bin" in path_line.split("=", 1)[1].split(":")
@@ -530,9 +532,79 @@ def test_lines_outside_the_window_are_not_read():
     assert "would shelve" not in render(brief)
 
 
-def test_a_repeated_dry_run_lists_each_item_once():
-    text = _shelved_text(_line("shelve", 1, hours_ago=5), _line("shelve", 1, hours_ago=1))
-    assert text.count("would shelve wphelper #1") == 1
+def test_only_the_latest_completed_runs_entries_are_listed():
+    rows = (_line("shelve", 1, hours_ago=5), run_entry("dry", NOW - timedelta(hours=5), 1),
+            _line("shelve", 2, hours_ago=1), *_ran())
+    text = render(_brief(FakeGh(), shelved=lambda: rows))
+    assert "would shelve wphelper #2" in text
+    assert "wphelper #1" not in text
+
+
+def _brief_aged(rows, max_age):
+    return compose([AG], now=NOW, window=WINDOW, read_urgent=_quiet, read=_reader(FakeGh()),
+                   read_thread=_no_thread, read_shelved=lambda: rows, sweep_max_age=max_age)
+
+
+def test_yesterdays_run_does_not_stand_in_for_a_sweep_that_failed_tonight():
+    yesterday = NOW - timedelta(hours=20, minutes=30)
+    rows = (_line("shelve", 1, hours_ago=20.5), run_entry("dry", yesterday, 1))
+
+    stale = _brief_aged(rows, timedelta(minutes=60))
+    text = render(stale)
+    assert stale.shelved.read is ShelvedRead.NO_RUN
+    assert "did not finish a fresh run" in text and "latest completed run" in text
+    assert "would shelve wphelper #1" not in text
+
+    assert _brief_aged(rows, None).shelved.read is ShelvedRead.MEASURED
+
+
+def test_a_run_inside_the_freshness_bound_is_measured():
+    rows = (_line("shelve", 1, hours_ago=0.5), run_entry("dry", NOW - timedelta(hours=0.5), 1))
+    assert _brief_aged(rows, timedelta(minutes=60)).shelved.read is ShelvedRead.MEASURED
+
+
+def test_a_later_run_that_did_not_finish_is_named_with_what_it_recorded():
+    rows = (_line("shelve", 1, hours_ago=2), run_entry("dry", NOW - timedelta(hours=2), 1),
+            _line("shelve", 4, mode="applied", hours_ago=0.5))
+    brief = _brief(FakeGh(), shelved=lambda: rows)
+    text = render(brief)
+
+    assert brief.shelved.read is ShelvedRead.NO_RUN
+    assert "A run that did not finish recorded:\n- shelved wphelper #4" in text
+    assert "wphelper #1" not in text
+
+
+def test_lines_with_no_closing_run_line_are_an_unfinished_run_not_a_measurement():
+    brief = _brief(FakeGh(), shelved=lambda: (_line("shelve", 1),))
+    text = render(brief)
+
+    assert brief.shelved.read is ShelvedRead.NO_RUN
+    assert "A run that did not finish recorded:" in text
+    assert "Nothing shelved" not in text
+
+
+def test_a_run_line_stamped_after_now_is_not_read():
+    rows = (_line("shelve", 1, hours_ago=-1), run_entry("dry", NOW + timedelta(hours=1), 1))
+    brief = _brief(FakeGh(), shelved=lambda: rows)
+    assert brief.shelved.read is ShelvedRead.NO_RUN
+    assert "wphelper #1" not in render(brief)
+
+
+def test_mixed_modes_never_carry_the_dry_run_caveat_over_applied_lines():
+    at = NOW - timedelta(hours=1)
+    rows = (_line("shelve", 1), _line("shelve", 2, mode="applied"), run_entry("applied", at, 2))
+    text = render(_brief(FakeGh(), shelved=lambda: rows))
+    assert "- would shelve wphelper #1" in text and "- shelved wphelper #2" in text
+    assert "Dry run" not in text
+
+
+def test_a_failed_note_is_not_counted_as_a_second_reported_branch():
+    text = _shelved_text(
+        _line("report", None, rule="branch-no-pr", kind="branch", mode="applied"),
+        _line("failed", 5, rule="branch-no-pr", kind="issue", mode="applied", reason="note: HTTP 500"),
+    )
+    assert "Reported, untouched: 1 branch with no pull request." in text
+    assert "- gh failed (note: HTTP 500) on wphelper #5" in text
 
 
 def test_no_completed_run_in_the_window_says_so_rather_than_nothing_shelved():
@@ -540,7 +612,7 @@ def test_no_completed_run_in_the_window_says_so_rather_than_nothing_shelved():
     text = render(brief)
 
     assert brief.shelved.read is ShelvedRead.NO_RUN
-    assert "did not finish a run in the last 24 hours" in text
+    assert "did not finish a fresh run in the last 24 hours" in text
     assert "Nothing shelved" not in text
 
 
@@ -665,7 +737,9 @@ def test_known_failures_validates_every_entry():
     assert known_failures({"railway": {"aigranthelper/x": "aigranthelper#1"}}, [AG]) == {
         "aigranthelper/x": KnownIssue("aigranthelper", 1)}
     for bad in ({"x": "aigranthelper#1"}, {"aigranthelper/x": "aigranthelper 1"},
-                {"aigranthelper/x": "nosuchrepo#1"}, {"aigranthelper/x": "#1"}):
+                {"aigranthelper/x": "nosuchrepo#1"}, {"aigranthelper/x": "#1"},
+                {"aigranthelpr/x": "aigranthelper#1"}, {"/": "aigranthelper#1"},
+                {"aigranthelper/": "aigranthelper#1"}, {"aigranthelper/a b": "aigranthelper#1"}):
         with pytest.raises(ValueError):
             known_failures({"railway": bad}, [AG])
 
@@ -702,7 +776,7 @@ def test_cli_with_no_run_in_the_window_writes_the_note_and_exits_one(tmp_path):
     _LEDGER["path"].write_text("", encoding="utf-8")
     out = tmp_path / "Estate Brief.md"
     assert _main(["--out", str(out)]) == 1
-    assert "did not finish a run" in out.read_text(encoding="utf-8")
+    assert "did not finish a fresh run" in out.read_text(encoding="utf-8")
 
 
 def test_cli_could_not_look_outranks_not_configured(tmp_path):
@@ -725,6 +799,14 @@ def test_cli_refuses_a_malformed_known_failure_map(tmp_path):
     out = tmp_path / "Estate Brief.md"
     assert _main(["--out", str(out)], known={"railway": {"monitor": "aigranthelper#1"}}) == 2
     assert not out.exists()
+
+
+def test_cli_with_a_stale_run_and_a_freshness_bound_exits_one(tmp_path):
+    rows = (_line("shelve", 7, hours_ago=20), run_entry("dry", NOW - timedelta(hours=20), 1))
+    _LEDGER["path"].write_text(to_lines(rows), encoding="utf-8")
+    out = tmp_path / "Estate Brief.md"
+    assert _main(["--out", str(out), "--sweep-max-age-minutes", "60"]) == 1
+    assert _main(["--out", str(out)]) == 0
 
 
 def test_cli_reads_the_ledger_it_is_given(tmp_path):

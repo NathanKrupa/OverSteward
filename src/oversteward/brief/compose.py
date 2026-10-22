@@ -20,9 +20,13 @@ vault files, so it says four things and nothing else:
   so the check-in can put the question word for word. With no ask waiting, the
   longest-idle Incubator candidate from the sweep is offered instead. Every
   other ask stays out of the note by design.
-* **Shelved overnight** — what the abandoned-work sweep's ledger says it did in
-  the window. A dry-run line renders as "would …", never as a thing done; a
-  window with no completed sweep run says so rather than "nothing shelved".
+* **Shelved overnight** — what the latest completed abandoned-work sweep run
+  in the window decided, from its ledger. A dry-run line renders as "would …",
+  never as a thing done. The run must also be fresh when ``sweep_max_age`` is
+  given (the nightly unit gives it, because its sweep runs moments before the
+  brief): otherwise yesterday's run would stand in for tonight's failed one.
+  With no such run the note says so rather than "nothing shelved", and lists
+  only what a run that did not finish recorded after the last completed one.
 
 GitHub failures propagate: a brief missing a repository is a smaller estate
 than exists. A liveness sweep that could not look, or had nothing configured to
@@ -62,6 +66,7 @@ from oversteward.shelve.sweep import (
     RULE_RUN,
     RULE_WORKTREE,
     VERB_FAILED,
+    VERB_REPORT,
     WRITE_VERBS,
     said,
 )
@@ -76,6 +81,7 @@ QUESTION_MARKER = "@nathankrupa question:"
 QUESTION_CHARS = 600
 
 _KNOWN_ISSUE = re.compile(r"^([a-z0-9][a-z0-9-]*)#(\d+)$")
+_KNOWN_KEY = re.compile(r"^([a-z0-9][a-z0-9-]*)/(\S+)$")
 
 ActivityReader = Callable[[RepoRef, datetime], RepoActivity]
 UrgentReader = Callable[[], Sequence[str]]
@@ -128,15 +134,19 @@ def known_failures(data: Mapping[str, Any], repos: Sequence[RepoRef]) -> dict[st
     """The ``railway:`` map of ``data/known_failures.yaml``, validated.
 
     Keys are ``<registry context id>/<service name>`` exactly as the liveness
-    sweep names them; values are ``<registry id>#<issue>``. Anything else is a
-    ``ValueError``, because a mapping that silently fails to match turns a known
-    failure back into a fresh alarm, and one that matches loosely hides a new one.
+    sweep names them; values are ``<registry id>#<issue>``. Both registry ids
+    must be contexts with a GitHub remote, and the service name must be one
+    whitespace-free token; anything else is a ``ValueError``. Whether the
+    service exists on Railway is not checked here: a key naming a service that
+    does not exist never matches, so it fails toward the alarm, never a mute.
+    Lookup is an exact dictionary match — never a pattern or a title.
     """
     ids = {repo.id for repo in repos}
     found: dict[str, KnownIssue] = {}
     for key, value in (data.get("railway") or {}).items():
         match = _KNOWN_ISSUE.match(str(value))
-        if "/" not in str(key) or match is None or match[1] not in ids:
+        named = _KNOWN_KEY.match(str(key))
+        if named is None or named[1] not in ids or match is None or match[1] not in ids:
             raise ValueError(f"known_failures: {key!r}: {value!r} is not <context>/<service>: <repo>#<n>")
         found[str(key)] = KnownIssue(match[1], int(match[2]))
     return found
@@ -203,7 +213,17 @@ def question_text(thread: AskThread) -> str:
     return text
 
 
-def _shelved(read_shelved: ShelvedReader | None, since: datetime, now: datetime) -> Shelved:
+def _shelved(
+    read_shelved: ShelvedReader | None,
+    since: datetime,
+    now: datetime,
+    max_age: timedelta | None,
+) -> Shelved:
+    """The latest completed run's entries, or why there is none.
+
+    Every line a run writes carries the run's one start time, so a run's entries
+    are exactly the lines stamped with its closing line's time.
+    """
     if read_shelved is None:
         return Shelved(ShelvedRead.UNCONFIGURED)
     try:
@@ -213,12 +233,17 @@ def _shelved(read_shelved: ShelvedReader | None, since: datetime, now: datetime)
     except (OSError, ValueError) as exc:
         return Shelved(ShelvedRead.UNREADABLE, detail=str(exc))
     window = [e for e in entries if since <= e.at <= now]
-    latest: dict[tuple, LedgerEntry] = {}
-    for entry in sorted(window, key=lambda e: e.at):
-        if entry.rule != RULE_RUN:
-            latest[(entry.mode, entry.repo, entry.kind, entry.number, entry.ref, entry.action)] = entry
-    ran = any(e.rule == RULE_RUN for e in window)
-    return Shelved(ShelvedRead.MEASURED if ran else ShelvedRead.NO_RUN, tuple(latest.values()))
+    runs = [e for e in window if e.rule == RULE_RUN]
+    latest = max(runs, key=lambda e: e.at) if runs else None
+    after = latest.at if latest is not None else since
+    # Lines newer than the last closing line belong to a run that did not finish.
+    unfinished = tuple(e for e in window if e.rule != RULE_RUN and e.at > after)
+    fresh = latest is not None and (max_age is None or now - latest.at <= max_age)
+    if fresh and not unfinished:
+        ran = tuple(e for e in window if e.at == latest.at and e.rule != RULE_RUN)
+        return Shelved(ShelvedRead.MEASURED, ran)
+    detail = f"latest completed run {latest.at:%Y-%m-%d %H:%M}" if latest is not None else ""
+    return Shelved(ShelvedRead.NO_RUN, unfinished, detail)
 
 
 def _merged_in_window(pulls: Sequence[PullRequest], since: datetime) -> tuple[PullRequest, ...]:
@@ -258,6 +283,7 @@ def compose(
     read: ActivityReader = read_activity,
     read_thread: ThreadReader = read_thread,
     read_shelved: ShelvedReader | None = None,
+    sweep_max_age: timedelta | None = None,
 ) -> Brief:
     """Read every repository and decide what the brief says."""
     since = now - window
@@ -278,7 +304,7 @@ def compose(
         urgent=urgent,
         urgent_read=urgent_read,
         question=_question(ask, repos, read_thread),
-        shelved=_shelved(read_shelved, since, now),
+        shelved=_shelved(read_shelved, since, now, sweep_max_age),
     )
 
 
@@ -334,7 +360,7 @@ _REPORTED = (
 
 
 def _reported_line(entries: Sequence[LedgerEntry]) -> str | None:
-    counts = Counter(e.rule for e in entries if e.action not in WRITE_VERBS)
+    counts = Counter(e.rule for e in entries if e.action == VERB_REPORT)
     parts = [
         f"{counts[rule]} {one if counts[rule] == 1 else many}"
         for rule, one, many in _REPORTED
@@ -352,9 +378,12 @@ def _shelved_lines(brief: Brief) -> list[str]:
         return lines + [f"Could not read the sweep ledger — {shelved.detail}"]
     if shelved.read is ShelvedRead.NO_RUN:
         detail = f" ({shelved.detail})" if shelved.detail else ""
-        lines += [f"The abandoned-work sweep did not finish a run in {_window_phrase(brief.window)}{detail}."]
+        lines += [f"The abandoned-work sweep did not finish a fresh run in "
+                  f"{_window_phrase(brief.window)}{detail}."]
+        if shelved.entries:
+            lines.append("A run that did not finish recorded:")
     writes = [e for e in shelved.entries if e.action in WRITE_VERBS]
-    if any(e.mode != MODE_APPLIED for e in writes):
+    if writes and all(e.mode != MODE_APPLIED for e in writes):
         lines.append("Dry run — nothing below was changed on GitHub.")
     for entry in writes[:SHELVED_LISTED]:
         idle = f", idle {entry.idle_days}d" if entry.idle_days is not None else ""

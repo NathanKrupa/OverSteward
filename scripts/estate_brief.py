@@ -9,7 +9,9 @@ The note goes to ``--out`` (or ``$ESTATE_BRIEF_PATH``), which is the vault's
 aloud; it cannot run a shell, so this note is its only view of the estate.
 "Shelved overnight" reads the abandoned-work sweep's ledger at
 ``--shelve-ledger`` (or ``$SHELVE_LEDGER_PATH``), which must lie inside
-``~/.local/state/oversteward/``. URGENT marks failures already filed through
+``~/.local/state/oversteward/``; ``--sweep-max-age-minutes`` makes a sweep run
+older than that count as no run (the nightly unit passes it, since its sweep
+runs moments before the brief). URGENT marks failures already filed through
 ``data/known_failures.yaml``.
 
 Exit codes carry meaning and must not be collapsed:
@@ -17,8 +19,8 @@ Exit codes carry meaning and must not be collapsed:
 * **0** — a measured answer, including ``0 shipped``.
 * **1** — GitHub could not be read (nothing is written), the vault folder is
   missing or unwritable, the Railway liveness sweep could not look, or the
-  sweep ledger is unreadable or holds no completed run in the window (in those
-  three the note is still written, naming the gap).
+  sweep ledger is unreadable or holds no completed (and, when asked, fresh)
+  run in the window (in those three the note is still written, naming the gap).
 * **2** — nothing configured: no registry context has a GitHub remote, no
   output path was given, no context carries a ``railway:`` block, no sweep
   ledger was given, the ledger path lies outside the state directory, or
@@ -118,6 +120,10 @@ def _liveness(loaded: dict, known: Mapping[str, KnownIssue], repos: list[RepoRef
     )
 
 
+def _minutes(value: int | None) -> timedelta | None:
+    return None if value is None else timedelta(minutes=value)
+
+
 def _ledger_reader(path: Path | None, state_dir: Path) -> ShelvedReader | None:
     """Read the sweep ledger; ``ValueError`` here (before any read) when the path is outside."""
     if path is None:
@@ -137,6 +143,8 @@ def _parser(environ: Mapping[str, str]) -> argparse.ArgumentParser:
     parser.add_argument("--hours", type=int, default=24, help="window length (default 24)")
     parser.add_argument("--shelve-ledger", type=Path, default=environ.get(ledger.LEDGER_ENV),
                         help=f"abandoned-work sweep ledger (default ${ledger.LEDGER_ENV})")
+    parser.add_argument("--sweep-max-age-minutes", type=int, default=None,
+                        help="treat a sweep run older than this as no run")
     return parser
 
 
@@ -185,7 +193,8 @@ def main(
     try:
         brief = compose(repos, now=now(), window=window,
                         read_urgent=urgent(loaded, known_map, repos), read=read,
-                        read_thread=thread, read_shelved=read_shelved)
+                        read_thread=thread, read_shelved=read_shelved,
+                        sweep_max_age=_minutes(args.sweep_max_age_minutes))
     except GhError as exc:
         return _fail(f"could not read GitHub — {exc}", EXIT_COULD_NOT_LOOK)
     return _publish(brief, Path(args.out), len(repos))
