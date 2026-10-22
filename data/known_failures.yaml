@@ -1,0 +1,11 @@
+# ABOUTME: Recorded failures the Estate Brief marks KNOWN→<repo>#n under URGENT instead of a fresh alarm.
+# ABOUTME: Exact keys only — "<registry context id>/<service name>" as the liveness sweep names them.
+#
+# A line here silences nothing on its own: the brief marks the service KNOWN only
+# while the named issue is open. When the issue closes, the alarm comes back and
+# says the recorded issue is no longer open — then fix the service or remove the
+# line. Never key on a title or a pattern; an entry that is not an exact key and
+# a "<registry id>#<number>" value stops the brief (exit 2).
+
+railway:
+  aigranthelper/monitor_indexation: aigranthelper#2481

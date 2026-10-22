@@ -12,17 +12,31 @@ import pytest
 
 from oversteward.board.client import GhError, TruncatedReadError
 from oversteward.board.config import RepoRef, github_repos_from_registry
-from oversteward.brief.client import ASK_LIMIT, MERGED_LIMIT, read_activity
+from oversteward.brief.client import (
+    ASK_LIMIT,
+    MERGED_LIMIT,
+    AskThread,
+    issue_is_open,
+    read_activity,
+    read_thread,
+)
 from oversteward.brief.compose import (
-    SHELVED_PLACEHOLDER,
+    QUESTION_CHARS,
     SHIPPED_PER_REPO,
+    KnownIssue,
+    ShelvedRead,
     UrgentRead,
     compose,
+    known_failures,
     liveness_urgent,
+    question_text,
     render,
 )
+from oversteward.board.client import NotFoundError
 from oversteward.liveness.client import RailwayConfigError, RailwayUnavailableError
 from oversteward.liveness.models import LivenessReport, ServiceState
+from oversteward.shelve.ledger import LedgerEntry, to_lines
+from oversteward.shelve.sweep import run_entry
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -83,8 +97,17 @@ def _quiet():
     return ()
 
 
-def _brief(gh: FakeGh, repos=(AG, GS), read_urgent=_quiet):
-    return compose(list(repos), now=NOW, window=WINDOW, read_urgent=read_urgent, read=_reader(gh))
+def _no_thread(repo, number):
+    return AskThread(body="", comments=())
+
+
+def _ran():
+    return (run_entry("dry", NOW - timedelta(hours=1), 0),)
+
+
+def _brief(gh: FakeGh, repos=(AG, GS), read_urgent=_quiet, thread=_no_thread, shelved=_ran):
+    return compose(list(repos), now=NOW, window=WINDOW, read_urgent=read_urgent, read=_reader(gh),
+                   read_thread=thread, read_shelved=shelved)
 
 
 # --- shipped ---------------------------------------------------------------
@@ -263,11 +286,11 @@ def test_liveness_urgent_names_only_services_that_are_down_or_unclassified():
 # --- note shape ------------------------------------------------------------
 
 
-def test_the_note_carries_a_date_line_and_the_shelved_placeholder():
+def test_the_note_carries_a_date_line_and_ends_with_the_shelved_section():
     text = render(_brief(FakeGh()))
 
     assert "Date: 2026-10-21 (Wednesday)" in text
-    assert text.rstrip().endswith(SHELVED_PLACEHOLDER)
+    assert text.rstrip().endswith("## Shelved overnight\n\nNothing shelved or reopened.")
 
 
 # --- registry --------------------------------------------------------------
@@ -306,15 +329,32 @@ _REGISTRY = {
 }
 
 
-def _main(argv, *, registry=_REGISTRY, gh=None, urgent=_quiet, environ=None):
+_LEDGER: dict[str, Path] = {}
+
+
+@pytest.fixture(autouse=True)
+def _sweep_ledger(tmp_path):
+    """A ledger holding one completed dry run, inside a state directory, for every CLI test."""
+    state = tmp_path / "state"
+    state.mkdir()
+    path = state / "shelve-ledger.jsonl"
+    path.write_text(to_lines(_ran()), encoding="utf-8")
+    _LEDGER.update(state=state, path=path)
+
+
+def _main(argv, *, registry=_REGISTRY, gh=None, urgent=_quiet, environ=None, known=None):
     gh = gh or FakeGh()
+    env = {"SHELVE_LEDGER_PATH": str(_LEDGER["path"])} if environ is None else environ
     return _module().main(
         argv,
         registry=lambda: registry,
-        urgent=lambda _loaded: urgent,
+        known=lambda: known or {},
+        urgent=lambda _loaded, _known, _repos: urgent,
         now=lambda: NOW,
         read=_reader(gh),
-        environ=environ or {},
+        thread=_no_thread,
+        environ=env,
+        state_dir=_LEDGER["state"],
     )
 
 
@@ -333,7 +373,8 @@ def test_cli_measured_answer_writes_the_note_and_exits_zero(tmp_path):
 def test_cli_takes_the_note_path_from_the_environment(tmp_path):
     out = tmp_path / "Estate Brief.md"
 
-    assert _main([], environ={"ESTATE_BRIEF_PATH": str(out)}) == 0
+    environ = {"ESTATE_BRIEF_PATH": str(out), "SHELVE_LEDGER_PATH": str(_LEDGER["path"])}
+    assert _main([], environ=environ) == 0
     assert out.exists()
 
 

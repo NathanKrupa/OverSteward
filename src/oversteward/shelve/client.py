@@ -40,11 +40,7 @@ from oversteward.board.client import (
 )
 from oversteward.board.config import RepoRef
 from oversteward.board.models import Issue
-
-#: The label every shelved item carries; reopening removes it.
-SHELVED = "shelved"
-#: The label marking an issue an agent filed, the only kind the sweep may close.
-AGENT_FINDING = "agent-finding"
+from oversteward.intake.labels import AGENT_FINDING, SHELVED
 
 #: GraphQL pages read per connection before the read is refused as incomplete.
 MAX_PAGES = 40

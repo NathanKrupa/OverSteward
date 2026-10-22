@@ -1,4 +1,4 @@
-# ABOUTME: INNER transport for the Estate Brief — one repository's merged PRs and needs-input issues.
+# ABOUTME: INNER transport for the Estate Brief — merged PRs, needs-input issues, an ask's thread, issue state.
 # ABOUTME: Reads through the board's gh runner; a page that fills its limit is refused, never shortened.
 
 """Read what one repository shipped and what it is waiting on.
@@ -10,6 +10,11 @@ service trims to the exact instant), and every open issue labelled
 the service decides which count as shipped. For asks the query itself is the
 only filter — open and labelled ``needs-input`` — and nothing downstream
 re-checks it, so the argv is pinned by test.
+
+For the one ask, one more read: that issue's body and its newest 100 comment
+bodies (GraphQL ``last: 100`` — ``gh``'s own ``--json comments`` reads the
+oldest 100, the wrong end for "the latest question"). For a crashed service
+with a recorded issue, one REST read of that issue's state.
 """
 
 from __future__ import annotations
@@ -17,7 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from oversteward.board.client import Runner, _page, gh_json
+from oversteward.board.client import NotFoundError, Runner, _page, gh_json
 from oversteward.board.config import RepoRef
 from oversteward.board.models import NEEDS_INPUT, Issue
 
@@ -88,4 +93,49 @@ def read_activity(repo: RepoRef, since: datetime, *, run: Runner = gh_json) -> R
     )
 
 
-__all__ = ["ASK_LIMIT", "MERGED_LIMIT", "PullRequest", "RepoActivity", "read_activity"]
+_THREAD = """
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    issue(number: $number) { body comments(last: 100) { nodes { body } } }
+  }
+}
+"""
+
+
+@dataclass(frozen=True, slots=True)
+class AskThread:
+    """An ask's body and its newest comment bodies, oldest first."""
+
+    body: str
+    comments: tuple[str, ...]
+
+
+def read_thread(repo: RepoRef, number: int, *, run: Runner = gh_json) -> AskThread:
+    """The issue's body and newest comments."""
+    owner, name = repo.full_name.split("/", 1)
+    data = run(["api", "graphql", "-f", f"query={_THREAD}", "-f", f"owner={owner}",
+                "-f", f"name={name}", "-F", f"number={number}"])
+    issue = data["data"]["repository"]["issue"] or {}
+    nodes = (issue.get("comments") or {}).get("nodes") or []
+    return AskThread(body=issue.get("body") or "", comments=tuple(n.get("body") or "" for n in nodes))
+
+
+def issue_is_open(repo: RepoRef, number: int, *, run: Runner = gh_json) -> bool:
+    """Whether ``number`` is an open issue. A pull request or a missing number is not."""
+    try:
+        payload = run(["api", f"repos/{repo.full_name}/issues/{number}"])
+    except NotFoundError:
+        return False
+    return "pull_request" not in payload and payload.get("state") == "open"
+
+
+__all__ = [
+    "ASK_LIMIT",
+    "MERGED_LIMIT",
+    "AskThread",
+    "PullRequest",
+    "RepoActivity",
+    "issue_is_open",
+    "read_activity",
+    "read_thread",
+]
