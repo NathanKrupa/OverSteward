@@ -1850,6 +1850,284 @@ Every §3.14 watch-list row, in order:
 
 ---
 
+## §3.18 Late October 2026 — AG braces for a signup surge, GS stops holding Neon open, and the backup goes live (reconciled 2026-10-20)
+
+> Twelfth dream-produced pass. It covers the 10-20 cycle's 11 transcripts.
+> Five were earlier dream runs, Sentry sweeps or adversarial-reviewer verdicts;
+> the rest were AG sessions plus one-off research questions. Three
+> through-lines. **AG was built for a surge.** Nathan's 10-16 rulings for the
+> FBNYC coupon scenario (AG#2467) produced bounded outbound calls, threaded
+> gunicorn with pooled tenant connections, a durable mail outbox, cohort
+> admission behind Turnstile, and a load-test harness. Promote #2477 (10-17)
+> carried the first half. **GrantSpider's drains stopped holding Neon active.**
+> The enrich drain became a claim-queue hub (GS#3239), and the funding-profile
+> and synopsis drains moved to segment drains: they pull a manifest, do the
+> work with Neon idle, and write back in batches (GS#3271, #3272), as Nathan's
+> GS#2384 ruling requires. **OverSteward's WSL backup is live.** The sixth
+> session-start sweep and the logon canary shipped, and TD81 and TD82 closed.
+
+### Shipped (2026-10-13 → 10-20)
+
+- **OverSteward.**
+  - Backup health as the sixth session-start sweep, with a mirrored restic
+    marker (#594). The logon canary reads backup age, and the runbook gained
+    Path C via restic (#595, OS#583). The runbook names the live restic
+    backup (#593, OS#589). The host install (TD81) and the key copy (TD82)
+    are closed, so the timer counts as live.
+  - The `.claude/tmp` scratchpad janitor (#601, OS#584). The first attempt,
+    #598, closed unmerged, and the janitor now skips any session directory
+    that holds a git repository. Round-3 holes OS#596 and OS#597 are closed.
+  - The `enrich-worker` agent card, a lean Sonnet worker for the GS
+    enrich-drain claim queue (#600, OS#599). Its completeness rule says never
+    shorten a list (#604, OS#603).
+- **AG signup surge, AG#2467.**
+  - Every request-path outbound call is bounded under gunicorn's 60 s
+    (#2468).
+  - T1: threaded gunicorn, pooled tenant connections and a DB capacity row
+    (#2470).
+  - T2: a durable mail outbox, where every mail is a row first (#2471).
+  - T3: cohort admission for a 2,000-seat launch (#2476), and Cloudflare
+    Turnstile on signup and `/beta/` (#2480). The Turnstile token is TD85.
+  - T4: load-test settings and endpoints (#2482), and a locust scenario,
+    evaluator and Railway recipe (#2487). #2487 merged before its CI
+    finished; the checks have since finished green (11 success, 1 skipped).
+  - Test settings pin `STRIPE_PRICE_*`, so the primary `.env` can no longer
+    change rendered pricing (#2472).
+- **AG billing disclosure and board.**
+  - LAUNCH1 (once-coupon) subscribers get the T-7, T-1 and T-0 emails, and a
+    cancelled free month gets none (#2463, AG#2459). The card and the
+    follow-up charge are disclosed after a free month (#2465, AG#2439), and
+    on the home-page promo note (#2462, AG#2460).
+  - Click a board date to change it in place (#2456, AG#2446). Twin rows
+    written before it remain in the data (AG#2475).
+  - Mobile: the signed-in workspace fits a phone (#2455, AG#2443), and the
+    signup honeypot is clipped (#2449, AG#2448). The work now has an epic,
+    AG#2486.
+  - A naive ProPublica lastmod is read as UTC (#2445, AG#2444).
+- **AG promote #2477 (10-17).** Its commits carry #2468 and #2470–#2472
+  (threaded gunicorn with the pooled DB, the email outbox, the pricing pin),
+  board date editing (#2456), the billing disclosure (#2459–#2465) and the
+  mobile fixes; its title adds the help-centre reconcile (#2474). Back-merge
+  #2479. Cohort admission (#2476),
+  Turnstile (#2480) and the T4 harness (#2482, #2487) are on staging only.
+- **GS IRS keep-current fixes**, which closed the 10-13 watch-list rows:
+  - archive handle reuse (#3220, GS#3219; promote #3221);
+  - refusal rows, a pull-missing drain and a plan lock for the facsimile
+    drain (#3225, #3228, #3229, GS#2398; promote #3230). GS#3218 closed with
+    them;
+  - the SOI annual extract download streams through the shared downloader
+    (#3234, GS#3215; promote #3235);
+  - the archive year is resolved from every cached index year, and a refusal
+    class is re-admitted (#3274, GS#3242; promote #3277).
+- **GS enrich drain, GS#3239.**
+  - The drain-cost meter (#3240) and model and cache pricing (#3251).
+  - The claim queue (#3245) and the claim-queue hub (#3249). The slice drain
+    was removed (#3260, #3261).
+  - The proving-run kit (#3252); quality parity and the completeness rule
+    (#3256); the hub cap (#3263); and one extract per funder per run
+    (#3266).
+  - Promotes: #3246, #3253, #3257 and #3268.
+- **GS segment drains.** The funding-profile scope verb, chunked pull and
+  chunked write-back (#3282, #3283, #3285, GS#3271). The synopsis segment
+  drain (#3287, #3288, GS#3272). Funding profiles no longer trip the style
+  gate on recipient data (#3276, GS#2530). Promote #3289 (10-17), back-merge
+  #3291.
+- **GS other.** A registry-reconciling prune for corporate-direct rows (#3250,
+  GS#3244). funding_profile chooses a or an by sound (#3243, GS#3241). The
+  weekly bandit audit (#3227).
+- **Sentry (10-19).** AIGRANTHELPER-3G was filed as AG#2481: the weekly
+  `monitor_indexation` sweep hit the 15 s statement timeout in
+  `_largest_giving_by_foundation`. PYTHON-2W was filed as GS#3293:
+  `grants_gov_daily_job` was reaped as a zombie, the fifth job hit that way.
+  PYTHON-2V and PYTHON-2X were filed as GS#3294: a malformed worker
+  `results.json` crashes `enrich-profile`. PYTHON-2Y and PYTHON-2Z were
+  resolved as noise.
+
+### Corrections to the §3.17 watch-list
+
+| §3.17 row | Correction as of 2026-10-20 |
+|---|---|
+| IRS keep-current fixes GS#3215, #3218, #3219 | **all closed**: #3220, #3229 and #3234, promoted. The re-run of the annual summary ingest for the orgs updated on 10-12 does not appear in any transcript; carried |
+| Stale current-year index GS#3214; negative FMV GS#3217 | both open |
+| Full 990-PF facsimile pass | its drain was rebuilt (GS#2398, GS#3242). Whether the 10-13 pass finished is not in any transcript; carried |
+| Weekly backup reaped GS#3213, GS#2551; GS#2128 | all open. GS#3293 now names a fifth reaped job and asks whether to fix it once in the reaper |
+| Gift a year G3b/G4, TD80 | AG#2271 and TD80 both still open. TD80 is eight days past due |
+| Consultant allowance, top-up pack, trial allowance AG#2414, #2396, #2288 | all open |
+| Stripe upgrade epic AG#2424 | open |
+| WSL backup PR 3 of 3, runbook OS#583, #589 | **closed** (#593, #594, #595). TD81 and TD82 closed |
+| Scratchpad janitor OS#584 | **closed** (#601). Mid-exec blind reads are filed as OS#602 |
+| Cleanup verb rollout and stack cleanup OS#572, #573 | open |
+| Review tooling gaps OS#574, #580, #591 | all open. OS#606 (the AG card's lite gate loads the primary `.env`) and OS#607 (the orchestrator polls inline) were added |
+| OS#576 follow-ups OS#578 | open |
+| Reviewer worktrees and DBs OS#555, #546; dispatch `--auto` OS#551; one `--issue` OS#549 | all open |
+| `migrate-prod` boot guard GS#3116 vs #3208 (GS#3207) | GS#3116 still open and still unchecked against #3208 |
+| Crawl plan read GS#3069; indexability readers AG#2324 | both open |
+| Home-page A/B Worker AG#2353, TD70 (code in #2381–#2383) | both open; not deployed |
+| AG mobile/edge follow-ons #2318, #2336, #2302, #2349, #2350, #2351, #2251 | all open. The new epic AG#2486 should parent them |
+| Government lane AG#945, canonicals AG#2228 vs #2373, GSC 500 AG#2224, AG#2012 | all open. AG#2228 is still unchecked against #2373 |
+| GS#2940, #2939, #2764, #2765, #2766/TD46, #2941, #2767, #2722, #2630 | all open |
+| `db scratch` typos reach Sentry AG#1743, GS#2166, GS#2345 | all open |
+| Keep-current GS#2759 → #2760; Form 990 facsimile GS#2763 | all open (GS#2398 closed, above) |
+| AG residue AG#2127, #2132, #2133, #2134, #2137, #2138, #2140, #2141, #2145 → GS#2761, #2762 | all open |
+| Thankathon OS#525, TD53, TD78; steward probe OS#526, TD68 | all open |
+| Board connections GS#1673; Google Ads ai-assistants#10, TD11, TD20 | all open; TD20 is three weeks overdue |
+| GS#2452 section 2, #2464, #2466 | all open |
+| Dispatch agents → reviewer OS#459, #460; review tooling PR C OS#534 | all open |
+| Review-loop residue OS#454, #467, #468, #470, #544 | all open. OS#454 is still unchecked against #554 |
+| Rows §3.17 already closed or dropped (OS#553 via #557/#558; GS#3101/#3130, GS#3106/#3131 in promote #3133; GS#2468; the #1853 experiment via #2375; the AG#2424 sub-PRs #2431, #2435; the dispatch `--auto` recurrence on AG#2323; TD45, TD51, TD60, TD65, TD66, TD72, TD73) | dropped |
+| COF directory `--apply`, the GS#2465 corpus refresh, the home-page A/B conversion read, `guard_main_worktree` blind to `git -C`, TD61 find-and-confirm | not raised this pass; carried |
+| Operator steps | still open: TD3, TD6, TD11, TD20, TD25, TD38, TD46, TD53, TD56, TD61, TD62, TD63, TD64, TD67, TD68, TD69, TD70, TD74, TD76, TD77, TD78 and TD80. **No longer open: TD79, TD81 and TD82.** Added: TD85, open |
+| `GH_INSTALLATION_TOKEN` expiry 2026-11-12 | still unfiled, and now 23 days out |
+
+### Started, not yet landed (October 20 watch-list)
+
+| Item | Where | State |
+|---|---|---|
+| Signup surge T5 and promote | AG#2467 | T1–T4 are merged to staging, and T1/T2 are in production (#2477). T5 is next: the restore drill, the preflight script, sent-outbox pruning and a cohort-lock concurrency test. The loadtest environment (about $0.30 a session) needs Nathan's OK before it is provisioned |
+| Post-promote checks | AG#2467 | still owed: the tenant connection headroom row, and web memory with 3 workers each loading MiniLM |
+| Turnstile on production | AG#2480, TD85 | the token needs Turnstile Edit permission, which no existing token has |
+| Plain-English foundation search | AG#2457 | planned, not built. The LLM translates a question into SearchParams and never runs a query |
+| Test DB allow-list guard | AG#2473 | open; queued after T5 |
+| Board reminder twins | AG#2475 | open. The row count is unverified, and cleanup is dry-run first |
+| Indexation sweep timeout | AG#2481 | open |
+| Mobile-excellence epic | AG#2486 | open, 11 sub-issues |
+| Zombie reaper, fifth job | GS#3293 | open |
+| Malformed worker `results.json` | GS#3294 | open |
+| Janitor mid-exec blind read | OS#602 | open |
+| Dispatch skill text says the opposite of the harness about `run_in_background` | OS#605 | open |
+| §3.17 carried rows | see the table above | every row marked open or carried |
+
+**Unfiled intent seen in this pass's transcripts (flagged, not filed):**
+
+- the `pgrep -f` self-match. A dispatch agent's wait loop, `until ! pgrep -f
+  "run-local.sh gaudi"`, matched its own shell and ran for 27 hours, and it
+  blocked the WSL full export twice on 10-19. The 10-19 session meant to file
+  it as a kaizen item on Monday, and no issue exists. OS#559 and OS#580 cover
+  `pkill -f`, not this;
+- the #2487 trajectory note is named PR2483 and needs a docs fix;
+- dream `finalize` still leaves the regenerated `MEMORY_FULL.md` (and any
+  memories a session hand-wrote) uncommitted. That is now 16 runs in a row
+  (carried);
+- a `GH_INSTALLATION_TOKEN` and `BUMP_PR_TOKEN` expiry check (carried);
+- a `--since-date` or per-org mode for `ingest-annual-extracts` (carried).
+
+---
+
+## §3.19 October 22 2026 — Railway is breached, GS maps sub-state pass-through money, and OverSteward starts carrying Nathan's follow-through (reconciled 2026-10-22)
+
+> Thirteenth dream-produced pass. §3.18 was drafted on 10-20 but never
+> committed: its run stopped at the Docker-gated commit hook, and it ships in
+> the same PR as this section. This pass covers 54 transcripts. Forty-six were
+> adversarial-reviewer verdicts, earlier dream runs, or one-line sessions; the
+> rest were working sessions. Three through-lines. **Railway disclosed a breach
+> of customer environment variables on 10-21.** The rotation of every Railway
+> secret is TD89, which is still open. On 10-22 Railway invalidated every
+> platform API token, which killed Exchequer's billing connector and GS's
+> daemon-watchdog until new tokens are minted (TD90). Two of AG's three
+> database backup lanes failed in the rotation, which left only Railway's own
+> volume snapshot live. **GrantSpider began mapping sub-state pass-through
+> funding** (GS#3295): the authority schema, the GA and SC census seeds, a
+> Federal Audit Clearinghouse connector, and USASpending subawards into funds
+> edges. **OverSteward began carrying Nathan's follow-through for him.** The
+> nightly Estate Brief writes to his vault, abandoned work is shelved by a
+> sweep, and the intake splits `tribe` from `agent-finding`. The status docs
+> nobody maintained are retired.
+
+### Shipped (2026-10-20 → 10-22)
+
+- **OverSteward.**
+  - The nightly Estate Brief in the vault: a shipped ledger plus one ask
+    (#616, OS#611). A later change adds work shelved overnight, the ask's
+    actual question, and known failures (#619, OS#612).
+  - The abandoned-work sweep, dry-run by default (#618, OS#612 part 1).
+  - The intake split: `tribe` and `agent-finding` labels, a tribe-first queue,
+    and a backfill classifier (#617, OS#613). Nathan's own ideas go to the
+    Estate Idea Incubator note in his vault, not to GitHub.
+  - `Stewards_Ledger.md` and `MASTER_TODO.md` are retired (#615, OS#614).
+  - `new-session.sh` leaves a tracked `.envrc` alone and prints its exports
+    instead (#610, OS#608).
+- **AG (staging only).** There has been no promote since #2477 (10-17).
+  Railway's GitHub trigger stopped deploying staging after 10-20, so the
+  merges below are not yet on the staging service either (AG#2508).
+  - Ops charts get a fixed-height parent and stop growing off the page (#2492,
+    AG#2491).
+  - Tailwind scans only shipped files, so prose can no longer mint utilities
+    (#2496, AG#2495). An inline-CSS ratchet lets per-template counts only fall
+    (#2497, #2499, #2500).
+  - The Django admin is branded, with a Navy Night dark mode (#2494).
+  - Billing: a warning before any charge that follows a discounted period
+    (#2503, AG#2466). The billing docs and the promo disclosure now say what
+    Stripe does (#2505, AG#2461). The Pro trial switch and return services
+    (#2506) and the Stripe coupon tool (#2507) are both for AG#2458, which is
+    still open.
+- **GS funding-authority map, GS#3295 (all on staging).**
+  - Schema: authorities, aliases, areas, channels, edges, sightings, and
+    completeness tables with an attribution-floor ratchet (#3308–#3311,
+    GS#3297).
+  - State-funded programs are first-class (#3313, GS#3312). A program listed
+    under two roles confers both (#3320, GS#3316).
+  - GA and SC census seeds and `authorities load` (#3314, #3315, GS#3298).
+  - A FAC single-audit connector, resumable ledger and `discover fac`
+    (#3317, #3318, GS#3299).
+  - USASpending all-ALN subawards into sightings (#3321). Name resolution,
+    $250k auto-nodes and funds edges (#3324). Corrected runbook numbers
+    (#3325). These close GS#3300.
+  - GA regional commissions and SC COGs are seeded as host nodes (#3326,
+    GS#3322).
+  - Weekly bandit audit (#3307).
+
+### Corrections to the §3.18 watch-list
+
+| §3.18 row | Correction as of 2026-10-22 |
+|---|---|
+| Signup surge T5 and promote, AG#2467 | open. No AG promote since #2477 |
+| Turnstile on production, AG#2480, TD85 | #2480 is merged to staging. TD85 is still open |
+| Plain-English search AG#2457; test DB guard AG#2473; board twins AG#2475; indexation timeout AG#2481; mobile epic AG#2486 | all open |
+| GS#3293 zombie reaper; GS#3294 malformed `results.json` | both open |
+| OS#602 janitor blind read; OS#605 `run_in_background` text | both open |
+| Unfiled intent: `pgrep -f` self-match, #2487 note misnamed, finalize residue, token-expiry check, per-org annual ingest | still unfiled. Finalize left residue again this run (17 in a row) |
+| Operator steps | still open: TD3, TD6, TD11, TD20, TD25, TD38, TD46, TD53, TD56, TD61, TD62, TD63, TD64, TD67, TD68, TD69, TD70, TD74, TD76, TD77, TD78, TD80 and TD85. Added: TD89 and TD90, both open |
+| Stale index GS#3214; negative FMV GS#3217; reaped jobs GS#3213, GS#2551, GS#2128 | all open; not raised this pass |
+| AG billing AG#2271, #2288, #2396, #2414; Stripe epic AG#2424 | all open |
+| Cleanup rollout OS#572, #573; review tooling OS#574, #580, #591, #606, #607; OS#578; reviewer DBs OS#555, #546; OS#551, #549 | all open |
+| `migrate-prod` guard GS#3116 (vs #3208); crawl plan GS#3069; indexability AG#2324; A/B Worker AG#2353 | all open. GS#3116 is still unchecked against #3208 |
+| AG mobile follow-ons AG#2318, #2336, #2302, #2349, #2350, #2351, #2251 | all open |
+| Government lane AG#945, canonicals AG#2228, GSC 500 AG#2224, AG#2012 | all open. AG#2373, which AG#2228 was to be checked against, is closed; the check is still owed |
+| GS#2940, #2939, #2764, #2765, #2766, #2941, #2767, #2722, #2630 | all open |
+| `db scratch` typos AG#1743, GS#2166, GS#2345 | all open |
+| Keep-current GS#2759, #2760; facsimile GS#2763 | all open |
+| AG residue AG#2127, #2132, #2133, #2134, #2137, #2138, #2140, #2141, #2145; GS#2761, #2762 | all open |
+| Thankathon OS#525; steward probe OS#526 | both open |
+| Board connections GS#1673; Google Ads ai-assistants#10 | both open |
+| GS#2452, #2464, #2466 | all open |
+| OS#459, #460, #534; OS#454, #467, #468, #470, #544 | all open. OS#454 is still unchecked against #554 |
+
+### Started, not yet landed (October 22 watch-list)
+
+| Item | Where | State |
+|---|---|---|
+| Railway breach rotation | TD89 | open. AG's Postgres password has to be rotated through the dashboard's Regenerate button, not by setting a variable |
+| Railway API tokens | TD90 | open. Exchequer's billing connector and GS's daemon-watchdog are dead until it is done |
+| AG backup lanes | AG (PITR bucket, nightly B2 dump) | both failed with 403s after the key rotation, so Railway's volume snapshot is the only live backup. Not filed |
+| AG staging not deploying | AG#2508 | open. A manual `--from-source` redeploy was correctly refused, because staging shares the production database |
+| CI mobile matrix red | AG#2502 | open. Playwright cannot install Chromium on `ubuntu-latest` (26.04) |
+| AG Pro trial | AG#2458 | open. Services and coupon tool merged to staging |
+| Funding-authority map, rest of the epic | GS#3295; GS#3301–#3306, #3323 | open: completeness, tracker, views, email intake and the `subscribe` drain with its CRAWL_POLICY amendment |
+| PyMuPDF still imported | GS#3296 | open, against the GS#2602 permissive-stack ruling |
+| `is_tracked` reads exit 128 as untracked | OS#609 | open |
+
+**Unfiled intent seen in this pass's transcripts (flagged, not filed):**
+
+- the failure of AG's two self-managed backup lanes after the rotation;
+- the Standing Orders layer is again within 24 bytes of its budget after this
+  run's trims, so the next new Law will refuse finalize. OS#501 covers the
+  missing procedure, not the headroom;
+- the 10-08 lesson-promotion commit was never pushed. It ships in its own PR
+  from this run;
+- every §3.18 unfiled item (carried).
+
+---
+
 ## §4 In flight
 
 Active or partially-shipped items as of 2026-05-07.
@@ -1955,4 +2233,4 @@ Captured in `IDEA_STORE.md` from gstack research and conversational drift. None 
 - If §2-§3 grow past readable length, extract to a `documentation/changelog.md` and keep this doc thin.
 - This doc is the single answer to "what are we trying to do, what's done, what's next?" If it can't answer that in under 60 seconds of reading, it's grown past its purpose — restructure rather than expand.
 
-*Last updated: 2026-10-13 (mid-October reconciliation — §3.17 added: AG's Stripe upgrade, annual Pro and Gift a year promote, OverSteward's WSL backup and symlinked deploys, GS's section and about passes, and the 10-12 IRS catch-up with its five filed bugs).*
+*Last updated: 2026-10-22 (late-October reconciliation — §3.18 added: AG's signup-surge build and promote #2477, GS's claim-queue enrich drain and segment drains, the IRS keep-current fixes, and OverSteward's backup sweep going live; §3.19 added: the Railway breach, GS's funding-authority map, and the Estate Brief and intake split).*
