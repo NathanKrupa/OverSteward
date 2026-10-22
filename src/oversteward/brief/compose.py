@@ -62,6 +62,7 @@ from oversteward.shelve.ledger import MODE_APPLIED, LedgerEntry
 from oversteward.shelve.sweep import (
     RULE_BRANCH,
     RULE_INCUBATOR,
+    RULE_PR_DEPENDABOT,
     RULE_PR_UNJUDGED,
     RULE_RUN,
     RULE_WORKTREE,
@@ -356,6 +357,8 @@ _REPORTED = (
     (RULE_BRANCH, "branch with no pull request", "branches with no pull request"),
     (RULE_WORKTREE, "unlanded worktree", "unlanded worktrees"),
     (RULE_PR_UNJUDGED, "pull request too long to judge", "pull requests too long to judge"),
+    (RULE_PR_DEPENDABOT, "Dependabot PR left open for a session to merge",
+     "Dependabot PRs left open for a session to merge"),
 )
 
 

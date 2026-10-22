@@ -54,6 +54,7 @@ query($owner: String!, $name: String!, $cursor: String) {
       pageInfo { hasNextPage endCursor }
       nodes {
         number title url createdAt headRefName
+        author { login }
         commits(last: 1) { nodes { commit { committedDate } } }
         reviews(last: 1) { nodes { submittedAt } }
         comments(last: 100) { totalCount nodes { body createdAt } }
@@ -136,6 +137,8 @@ class OpenPull:
     last_commit_at: datetime | None
     last_review_at: datetime | None
     thread: Thread
+    #: The author's GraphQL login (``dependabot`` for Dependabot); ``None`` for a deleted account.
+    author: str | None = None
 
     @classmethod
     def from_gh(cls, repo: str, raw: dict) -> OpenPull:
@@ -151,6 +154,7 @@ class OpenPull:
             last_commit_at=_when(commits[-1]["commit"]["committedDate"]) if commits else None,
             last_review_at=_when(reviews[-1].get("submittedAt")) if reviews else None,
             thread=Thread.from_gh(raw["comments"]),
+            author=(raw.get("author") or {}).get("login"),
         )
 
 
