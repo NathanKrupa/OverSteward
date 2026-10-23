@@ -43,8 +43,8 @@ vars — known gap). GitHub Actions secrets are a separate store for CI/smoke.
 | Secret | Consumer | Regenerate | Apply / notes |
 |---|---|---|---|
 | `SECRET_KEY` | Django core | operator: `python -c "import secrets; print(secrets.token_urlsafe(64))"` (`docs/operations/production-deploy.md` Phase 1) | Railway per-env; rotating invalidates sessions |
-| `DATABASE_URL` | tenant Neon DB | Neon dashboard → rotate connection string | Railway per-env (staging = staging tenant) |
-| `RESEARCH_DATABASE_URL` | `apps/research` read-only (`ag_research_reader` role) | Neon research project → reset role password | shared across envs by design |
+| `DATABASE_URL` | tenant DB — the Railway `Postgres` service in the AI Grant Helper project (role `postgres`); also `tenant_db_backup`'s nightly `pg_dump` | see [§ Rotating the AG tenant Postgres password](#rotating-the-ag-tenant-postgres-password) | **production:** every service holds the reference `${{Postgres.DATABASE_URL}}`, never a literal. **Staging shares the production DB** (no staging tenant): its services hold the public-proxy URL as a literal and must be re-copied on every rotation. GH Actions secret `RAILWAY_PUBLIC_DATABASE_URL` is a third literal copy. The Neon tenant DB (`ep-young-cherry`) is the frozen pre-cutover copy, kept until the cutover is certain (AG#2512) |
+| `RESEARCH_DATABASE_URL` (+ `_POOLED`, local `_DIRECT`) | `apps/research` read-only (`ag_research_reader` role on GS's research Neon `ep-plain-breeze`) | Neon research project → Roles → reset `ag_research_reader` | per-service literal copies in **both** environments and the laptop `.env` — re-copy every one; a rotation that stops at production leaves staging and the laptop failing (2026-10-23) |
 | `ORIGIN_VERIFY_SECRET` | Cloudflare→origin lock (`apps/core/origin_lock.py`) | operator-gen random | must be updated in the **Cloudflare rule and Railway together** |
 | `RESEND_API_KEY` | magic-link/email (Anymail) | Resend dashboard | also a GH Actions secret for smoke |
 | `STRIPE_SECRET_KEY` + `DJSTRIPE_WEBHOOK_SECRET` (+ price IDs) | dj-stripe billing | Stripe dashboard → roll key; Webhooks → per-endpoint signing secret | staging is TEST mode by design (Nathan-law); CI smoke uses distinct name `STRIPE_TEST_SECRET_KEY` |
@@ -76,22 +76,25 @@ undocumented.
 
 Composition root: `src/grantspider/config/settings.py` (pydantic-settings,
 `env_prefix="GRANTSPIDER_"`; most secrets also accept a bare legacy alias).
-Set in Railway shared vars (GrantSpider project, production env), local `.env`
-via `scripts/dev/with_test_env.py`, and GitHub Actions secrets for CI/DQ.
+Set in Railway (GrantSpider project, production env), local `.env` via
+`scripts/dev/with_test_env.py`, and GitHub Actions secrets for CI/DQ. The
+database credentials were measured on 2026-10-23 as **per-service literals**,
+not shared variables. The other rows' "Railway shared" claims are unmeasured
+until the OS#629 reconciliation sweep reads them.
 
 | Secret | Consumer | Where set | Regenerate | Apply / notes |
 |---|---|---|---|---|
-| `GRANTSPIDER_NEON_DATABASE_URL` (alias `NEON_DATABASE_URL`) | research DB — crawler, enrichment, Dagster assets | Railway shared; `.env`; GH secret `NEON_DATABASE_URL` (DQ workflows) | Neon dashboard → reset role password | ⚠ #1849: in the daemon the bare alias points at the *metadata* DB — orchestration requires the prefixed name |
+| `GRANTSPIDER_NEON_DATABASE_URL` (alias `NEON_DATABASE_URL`; local `NEON_DATABASE_URL_DIRECT`) | research DB (`gs_owner` role on `ep-plain-breeze`) — crawler, enrichment, Dagster assets | per-service Railway literals (not shared vars); `.env` in both `grantspider` and the detached `grantspider-crawl` checkout. No GH Actions copy (CI uses `NEON_DATABASE_URL_CI`) | Neon dashboard → Roles → reset `gs_owner` | ⚠ #1849: in the daemon the bare alias points at the *metadata* DB — orchestration requires the prefixed name |
 | `NEON_DATABASE_URL_CI` | CI test DB | GH Actions secret only | Neon (CI branch/role) | — |
 | `GRANTSPIDER_ANTHROPIC_API_KEY` (alias) | enrichment/classifier LLM calls | Railway shared; `.env`; GH secret | console.anthropic.com → API Keys | — |
 | `GRANTSPIDER_BRAVE_SEARCH_API_KEY` | website discovery | `.env` / Railway | api-dashboard.search.brave.com | optional; empty disables |
 | `GRANTSPIDER_SAM_API_KEY` | SAM.gov sync | Railway shared; `.env` | sam.gov account → API key | optional; empty disables |
-| `GRANTSPIDER_B2_ACCESS_KEY_ID` + `GRANTSPIDER_B2_SECRET_ACCESS_KEY` | B2 snapshots, backups, audit archive | Railway shared; `.env` | Backblaze B2 → Application Keys (secret shown once) | bucket shared with AG |
+| `GRANTSPIDER_B2_ACCESS_KEY_ID` + `GRANTSPIDER_B2_SECRET_ACCESS_KEY` | B2 snapshots, backups, audit archive | Railway shared; `.env` | Backblaze B2 → Application Keys (secret shown once) | GS's own bucket `GrantSpider`, independent of AG's `AIGrantHelper` key and bucket — rotating one never affects the other |
 | `GRANTSPIDER_TYPESENSE_ADMIN_API_KEY` | nightly foundations reindex/alias swap | Railway (engine lives in AG project — cross-project reach) | Typesense bootstrap key / API-key endpoint on the AG `typesense` service | **admin/write key** — distinct from AG's search-only key |
 | `GRANTSPIDER_NEON_API_KEY` | pre-migration Neon branch snapshot (armed-migration path) | local `.env` only | Neon console → API keys | `SecretStr`; migration path only |
 | `GRANTSPIDER_CORRECTION_EXPORT_TOKEN` | AG corrections export bearer | `.env` / Railway | issued by aigranthelper (`/internal/corrections/` auth) | — |
-| `DAGSTER_PG_PASSWORD` (+ non-secret HOST/USERNAME/DB) | Dagster metadata DB | Railway shared (webserver+daemon) | Neon → reset `grantspider_dagster_user` password | probed at boot by `pg_probe_entrypoint.sh` |
-| `AG_TENANT_DATABASE_URL` | daily AG-tenant pg_dump → B2 | Railway (backup path) | Neon (AG tenant, `pg_read_all_data` role) | **read-only role**, direct endpoint for pg_dump |
+| `DAGSTER_PG_PASSWORD` **and** `DAGSTER_PG_DB_URL` (+ non-secret HOST/USERNAME/DB; local-only `DAGSTER_PG_DB_OWNER_URL` as `neondb_owner`) | Dagster metadata DB (`grantspider_dagster_user` on Neon `ep-orange-sun`) | per-service Railway literals; `.env` in `grantspider` and `grantspider-crawl` | Neon → reset `grantspider_dagster_user` password | **one password, two variable forms** — a rotation must update both the bare password and the full URL on every service. Probed at boot by `pg_probe_entrypoint.sh` |
+| `AG_TENANT_DATABASE_URL` | **weekly** (Sun 23:30, `weekly_db_backup_schedule`) read-only `pg_dump` → GS's `GrantSpider` bucket `db-backups/ag-tenant/` | Railway per-service | Neon (`gs_backup_reader` role on `ep-young-cherry`) | ⚠ points at the **frozen pre-cutover Neon copy**, not the live Railway tenant DB — its dumps are stale data under a live-sounding label (AG#2512) |
 | `GRANTSPIDER_SMTP_PASSWORD` (+ HOST/PORT/USER) | dead-man's-switch alerting | `.env` / Railway | SMTP provider dashboard | — |
 | `GRANTSPIDER_OUTBOUND_PROXY_URL` | egress proxy pinning the published crawler IP | Railway / `.env` | `docs/runbooks/tinyproxy_egress_proxy.md` | URL embeds `user:pass` — treat whole URL as secret |
 | `GRANTSPIDER_WEB_BOT_AUTH_PRIVATE_KEY` | Web Bot Auth request signer (Cloudflare Verified Bots) | **currently unset in prod** (signer disabled; verified 2026-07-23) | new Ed25519 pair; publish pubkey at `GRANTSPIDER_WEB_BOT_AUTH_KEY_DIR_URL` (default `bot.thealmoner.com` directory) | separate identity from AG's pair |
@@ -200,10 +203,6 @@ Known gaps (from 2026-07-23 sweep): no rotation cadence documented; connectors
 never exercised against live APIs; `.gitignore` `*.json` guard for stray SA keys
 possibly unmerged.
 
-## 6. fiscus
-
-<!-- filled from repo sweep -->
-
 ## 7. OverSteward
 
 Two runtime env-secret families: the Vintner reader DSNs and the steward
@@ -217,7 +216,7 @@ telegraph) rides estate-level CLI auth (§0) — deliberately no
 | `STEWARD_PROBE_TOKEN` | `src/oversteward/probe/config.py` → `scripts/dev/probe_url.py` (live-URL checks through Cloudflare's challenge) | `scripts/dev/mint_env_secret.py STEWARD_PROBE_TOKEN` — in-process, never printed | Lives in **two** places that must agree: this `.env` and the Cloudflare WAF skip rule on each protected zone (AG today), installed first in the custom ruleset with no path bound — it skips **every** remaining custom rule and the rate-limit phase zone-wide, so it belongs to the steward alone and never to CI (the smoke has `SMOKE_PROBE_TOKEN`). Rotate = mint, then `scripts/dev/install_probe_rule.py` per zone (needs that zone's `CLOUDFLARE_API_TOKEN`, Zone→WAF→Edit, from the consumer repo's `.env`). Rotated 2026-09-07 after a raw ruleset read printed its value into a session transcript — read rulesets only through `scripts/dev/show_waf_rules.py`, which redacts every quoted literal, subscript keys included. Anyone holding the token bypasses the zone's custom firewall, so treat it as a credential. |
 | `SMOKE_PROBE_TOKEN` | aigranthelper's post-promotion smoke — the PR for AG#1968 (`apps/accounts/smoke_client.smoke_probe_headers`, sent as `X-Smoke-Probe` to the smoke's own host, and as the `smoke_probe` cookie on that host — the rule accepts either, because a browser scopes a cookie to its host, carries it across every redirect hop, and sends it on API requests, which a per-request header cannot do without also reaching third parties), which lands after this row; until it merges the rule and the Actions secret are installed with no consumer — Cloudflare's skip rule *smoke probe — skip challenge + rate limit for the post-promotion smoke on /foundations/\** | `scripts/dev/mint_env_secret.py SMOKE_PROBE_TOKEN` — in-process, never printed | Lives in **three** places that must agree, rotated **in this order**: (1) this `.env` — mint; (2) the AG zone's WAF rule — `scripts/dev/install_probe_rule.py --consumer smoke --zone-id <id>` through the chained runner; (3) the aigranthelper Actions secret — `scripts/dev/push_actions_secret.py SMOKE_PROBE_TOKEN --repo NathanKrupa/aigranthelper` (stdin-fed; never `--body`, never `--env-file`, which uploads the whole file). The rule is bounded to `starts_with(path, "/foundations/")`, so this token opens only the challenged foundation pages and their rate limit — the smoke's need and no wider. A stale Actions secret shows as the smoke naming "served Cloudflare's managed challenge" on `/foundations/*`. |
 | `VINTNER_RESEARCH_DATABASE_URL` | `src/oversteward/vintner/reader.py` (sole `os.environ` touch, ARCH-020) → `/pipeline-status` | re-run `documentation/designs/vintner/provision_vintner_reader.grantspider.sql` as the **GS Neon owner** (Neon SQL console, top-to-bottom); rebuild the DSN with the new password | export in shell or repo-root `.env` (gitignored). Role sees only `vintner.*` views. |
-| `VINTNER_AG_DATABASE_URL` | ⚠ documented, **no code consumer yet** (Vintner AG adapter unbuilt) | `provision_vintner_reader.aigranthelper.sql` as the **AG Neon owner** | provision only when the adapter lands |
+| `VINTNER_AG_DATABASE_URL` | ⚠ documented, **no code consumer yet** (Vintner AG adapter unbuilt) | `provision_vintner_reader.aigranthelper.sql` as the tenant DB owner | the laptop `.env` holds a value pointing at the **frozen Neon AG copy** (`ep-young-cherry`); unused today. When the adapter lands, provision on the Railway `Postgres` tenant DB instead and replace it (AG#2512) |
 
 **Neon provisioning invariant** (the-vintner.md §9): create the role `LOGIN`
 **with the password at creation** — a non-super owner cannot `ALTER` a role it
@@ -229,6 +228,46 @@ Gaps (2026-07-23 sweep): no `.env.example` (violates the process below — first
 follow-up); no standalone Vintner rotation runbook (procedure lives in the SQL
 file headers); sibling-repo secret names appearing in OverSteward design docs
 are references, not requirements.
+
+---
+
+## Rotating the AG tenant Postgres password
+
+The 2026-10-22 outage (AG#2512) came from this trap: **editing `PGPASSWORD` /
+`POSTGRES_PASSWORD` on the Railway `Postgres` service does not change the
+role's password.** The image reads those variables only when the volume is first
+initialised. After that, the variables and the real password drift apart, and
+every *new* connection is refused, while running containers carry on with their
+open connections until they restart. Change both sides, in this order, in one
+sitting:
+
+1. Generate 32 letters and digits (no URL-special characters), and hold it in a
+   shell variable without echoing it: `read -rs PW`.
+2. Change the real password over the container's local socket. This needs no
+   current password, and the prompt never echoes:
+   `railway ssh -s Postgres -e production`, then
+   `unset PGHOST PGPASSWORD DATABASE_URL; psql -h /var/run/postgresql -U postgres`,
+   then `\password postgres`. (`railway connect` and plain `psql` go over the
+   network with the variable's password, so they fail when the two have
+   drifted.)
+3. Make the service's variables match:
+   `printf %s "$PW" | railway variable set PGPASSWORD --stdin -s Postgres -e production --skip-deploys`,
+   and the same for `POSTGRES_PASSWORD`. Then confirm in-process that the
+   password inside the service's `DATABASE_URL` and `DATABASE_PUBLIC_URL`
+   equals `$PW` (print a boolean, never the value).
+4. **Production services:** set `DATABASE_URL='${{Postgres.DATABASE_URL}}'`
+   (single quotes) on each one. Each set redeploys the service.
+5. **Staging services** (same DB, no cross-environment reference): pipe the
+   production `DATABASE_PUBLIC_URL` into each one with `railway variable set
+   DATABASE_URL --stdin -s <svc> -e staging`. Do the same for the GH Actions
+   secret `RAILWAY_PUBLIC_DATABASE_URL`.
+6. Run `unset PW`, then verify: the web deploy reaches `SUCCESS`, there are no
+   `password authentication failed` lines in its logs, and
+   `scripts/service_liveness.py` reports 0 down.
+
+Neon roles have no such trap: the console's **Reset password** changes the role
+and issues the new string in one step. What remains is re-copying it to every
+holder named in that row.
 
 ---
 
