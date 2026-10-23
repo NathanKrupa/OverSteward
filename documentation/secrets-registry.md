@@ -15,6 +15,12 @@ find its row, follow the *Regenerate* and *Apply* columns, done. When you mint a
 **new** secret, follow [§ New-secret standard process](#new-secret-standard-process)
 — the entry lands here in the same PR that introduces the secret.
 
+**Where each copy lives:** `data/secrets_registry.yaml` lists every Railway
+service, laptop `.env` file and GitHub secret that holds each secret (names
+only). It is the list a rotation works through, and the one the OS#629
+reconciliation sweep measures. A new secret, or a new copy of an existing
+one, goes into both files in the same PR.
+
 ---
 
 ## 0. Estate-level credentials (no single repo)
