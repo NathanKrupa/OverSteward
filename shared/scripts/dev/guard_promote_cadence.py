@@ -24,9 +24,18 @@ inert control, so this refuses instead (OS#634).
   read here, so it is treated as a promote: inside the window it is refused
   and can be overridden, outside it passes.
 
+**Wrappers.** ``gh`` is found behind ``env`` (its ``VAR=value`` words count
+as the command's own environment, ``-C``/``--chdir`` moves its directory),
+``command``, ``exec``, ``nohup``, ``time`` and ``timeout``, and inside the
+script of ``bash``/``sh``/``zsh``/``dash`` ``-c``, which inherits the
+directory and environment prefix around it. Not seen: ``xargs``, ``sudo``,
+``env -S``, aliases, shell functions, ``eval`` and scripts on disk.
+
 A head or repo this guard could not read is treated as a promote rather than
-waved through; everything it *could* read and found to be some other repo,
-base or head passes untouched, and never reaches GitHub.
+waved through — an unexpanded ``cd "$GS"``, a directory with no readable
+``origin``, an unresolvable ``{owner}/{repo}``. That costs one lookup and
+refuses only inside the window. Everything it *could* read and found to be
+some other repo, base or head passes untouched, and never reaches GitHub.
 
 **Rule.** Ask GitHub for the most recent merged PR into ``main`` from
 ``staging``. Under :data:`CADENCE` ago, refuse, naming its date and the next
@@ -38,8 +47,10 @@ reason, recorded on the hook's stderr:
 
     GS_PROMOTE_HOTFIX='<why this cannot wait>' gh pr create ...
 
-An empty or blank reason does not count. Only the promote's own prefix counts:
-the variable in the session environment, or on another command, does not.
+An empty or blank reason does not count. Only the promote's own environment
+counts — its prefix, an ``env`` word before it, or the prefix of the
+``bash -c`` running it. The variable in the session environment, or on
+another command, does not.
 
 **Unlexable text** (an unbalanced quote) is allowed: no shell would run it
 either, and it never reaches ``gh``.
@@ -348,6 +359,75 @@ def _next_cwd(argv: list[str], cwd: str) -> str:
     return os.path.normpath(os.path.join(cwd, os.path.expanduser(target)))
 
 
+# Commands that run their arguments as another command, with the flags of
+# theirs that take a value. ``timeout`` also takes its duration first.
+_WRAPPER_VALUE_FLAGS = {
+    "command": frozenset(),
+    "exec": frozenset({"-a"}),
+    "nohup": frozenset(),
+    "time": frozenset({"-f", "--format", "-o", "--output"}),
+    "timeout": frozenset({"-s", "--signal", "-k", "--kill-after"}),
+}
+_ENV_VALUE_FLAGS = frozenset({"-u", "--unset", "-C", "--chdir"})
+_SHELLS = frozenset({"bash", "sh", "zsh", "dash"})
+
+
+def _skip_flags(args: list[str], value_flags: frozenset[str]) -> list[str]:
+    """``args`` after a wrapper's own leading flags (and their values)."""
+    while args and args[0].startswith("-") and args[0] != "-":
+        if args[0] == "--":
+            return args[1:]
+        args = args[2:] if args[0] in value_flags else args[1:]
+    return args
+
+
+def _after_env(args: list[str], assignments: list[str], cwd: str) -> tuple[list[str], list[str], str]:
+    """(argv, assignments, cwd) of the command ``env args`` runs."""
+    assignments = list(assignments)
+    while args:
+        word = args[0]
+        name, _, value = word.partition("=")
+        if word in ("-C", "--chdir") and len(args) > 1:
+            cwd = os.path.normpath(os.path.join(cwd, os.path.expanduser(args[1])))
+        elif name == "--chdir":
+            cwd = os.path.normpath(os.path.join(cwd, os.path.expanduser(value)))
+        elif _ASSIGNMENT.match(word):
+            assignments.append(word)
+        elif not word.startswith("-"):
+            break
+        args = args[2:] if word in _ENV_VALUE_FLAGS else args[1:]
+    return args, assignments, cwd
+
+
+def _unwrap(argv: list[str], assignments: list[str], cwd: str) -> tuple[list[str], list[str], str]:
+    """(argv, assignments, cwd) of the command ``argv`` finally runs, wrappers removed."""
+    while argv:
+        name = os.path.basename(argv[0])
+        if name == "env":
+            argv, assignments, cwd = _after_env(argv[1:], assignments, cwd)
+        elif name in _WRAPPER_VALUE_FLAGS:
+            argv = _skip_flags(argv[1:], _WRAPPER_VALUE_FLAGS[name])
+            if name == "timeout":
+                argv = argv[1:]
+        else:
+            break
+    return argv, assignments, cwd
+
+
+def _shell_script(argv: list[str]) -> str | None:
+    """The script a ``bash -c '<script>'`` (or ``-lc``, ``sh``, …) runs, or None."""
+    if os.path.basename(argv[0]) not in _SHELLS:
+        return None
+    args = argv[1:]
+    while args and args[0].startswith(("-", "+")):
+        flag, args = args[0], args[1:]
+        if flag.startswith("-") and not flag.startswith("--") and "c" in flag[1:]:
+            return args[0] if args else None
+        if flag in ("-o", "+o", "-O", "+O"):
+            args = args[1:]
+    return None
+
+
 def _is_promote(base: str | None, head: str | None) -> bool:
     """True for base main and head staging. None — could not read — counts as either."""
     return _branch(base) in (TRUNK, None) and _branch(head) in (SOURCE, None)
@@ -379,8 +459,8 @@ def _pr_create_is_promote(args: list[str], ctx: _Context) -> bool:
     if repo is None:
         checkout = ctx.checkout()
         repo = checkout.origin
-    if _slug(repo) != GS_REPO:
-        return False
+    if _slug(repo) not in (GS_REPO, None):
+        return False  # None — could not read the repo — fails closed
     head = _last(pairs, "-H", "--head")
     if head is None:
         head = (checkout or ctx.checkout()).branch
@@ -397,8 +477,8 @@ def _api_repo(owner: str, name: str, ctx: _Context) -> str | None:
 def _api_is_promote(args: list[str], ctx: _Context) -> bool:
     pairs, positionals = _options(args, _API_VALUE_FLAGS)
     match = _PULLS_ENDPOINT.match(positionals[0].split("?")[0]) if positionals else None
-    if match is None or _api_repo(*match.groups(), ctx) != GS_REPO:
-        return False
+    if match is None or _api_repo(*match.groups(), ctx) not in (GS_REPO, None):
+        return False  # None — could not resolve {owner}/{repo} — fails closed
     fields = dict(value.partition("=")[::2] for name, value in pairs if name in _API_FIELD_FLAGS)
     has_body = bool(fields) or _last(pairs, "--input") is not None
     method = _last(pairs, "-X", "--method") or ("POST" if has_body else "GET")
@@ -427,16 +507,42 @@ class Promote:
     override: str | None
 
 
+def _promote_in(argv: list[str], ctx: _Context) -> Promote | None:
+    """The promote one unwrapped invocation runs, looking inside ``sh -c`` scripts."""
+    script = _shell_script(argv)
+    if script is not None:
+        return find_promote(
+            script,
+            ctx.cwd,
+            environ=ctx.environ,
+            read_checkout=ctx.read_checkout,
+            inherited=ctx.assignments,
+        )
+    if _gh_promote(argv, ctx):
+        return Promote(override=_assigned(ctx.assignments, OVERRIDE_VAR))
+    return None
+
+
 def find_promote(
-    command: str, cwd: str, *, environ: Mapping[str, str], read_checkout: ReadCheckout
+    command: str,
+    cwd: str,
+    *,
+    environ: Mapping[str, str],
+    read_checkout: ReadCheckout,
+    inherited: list[str] | None = None,
 ) -> Promote | None:
-    """The first grantspider staging→main promote ``command`` would run, or None."""
+    """The first grantspider staging→main promote ``command`` would run, or None.
+
+    ``inherited`` is the environment prefix of the shell running ``command``,
+    which every command inside it receives.
+    """
     for assignments, argv in _invocations(command) or []:
+        argv, run_assignments, run_cwd = _unwrap(argv, [*(inherited or []), *assignments], cwd)
         if not argv:
             continue
-        ctx = _Context(assignments, cwd, environ, read_checkout)
-        if _gh_promote(argv, ctx):
-            return Promote(override=_assigned(assignments, OVERRIDE_VAR))
+        found = _promote_in(argv, _Context(run_assignments, run_cwd, environ, read_checkout))
+        if found is not None:
+            return found
         cwd = _next_cwd(argv, cwd)
     return None
 

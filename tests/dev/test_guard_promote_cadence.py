@@ -239,8 +239,13 @@ def test_promote_spellings_are_refused(command):
 
 
 def test_gh_repo_in_the_session_environment_names_the_repo():
+    """The cwd is a readable OverSteward checkout, so only GH_REPO can name grantspider."""
+    oversteward = g.Checkout("git@github.com:NathanKrupa/OverSteward.git", "master")
+    checkouts = FakeCheckouts({"/home/natha/OverSteward": oversteward})
     command = "gh pr create --base main --head staging"
-    assert_too_soon(*run(command, environ={"GH_REPO": "NathanKrupa/grantspider"}))
+    environ = {"GH_REPO": "NathanKrupa/grantspider"}
+    assert_too_soon(*run(command, checkouts=checkouts, environ=environ))
+    assert_allowed(*run(command, checkouts=checkouts))
 
 
 def test_cd_into_a_grantspider_checkout_names_the_repo():
@@ -293,6 +298,102 @@ def test_omitted_head_with_an_unreadable_branch_is_treated_as_a_promote():
 def test_a_flag_value_that_looks_like_a_flag_is_not_read_as_one():
     command = "gh pr create --repo NathanKrupa/grantspider --title --base --base staging --head staging"
     assert_allowed(*run(command))
+
+
+# --- a repo the guard could not read fails closed ---------------------------------
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "gh pr create --base main --head staging",
+        'cd "$GS" && gh pr create --base main --head staging',
+        "gh api 'repos/{owner}/{repo}/pulls' -f base=main -f head=staging",
+    ],
+)
+def test_an_unreadable_repo_is_treated_as_a_promote(command):
+    github = FakeGitHub(ago=timedelta(days=1))
+    assert_too_soon(*run(command, github=github))
+    assert github.calls == 1
+
+
+def test_an_unreadable_repo_outside_the_window_is_allowed():
+    """Failing closed costs one lookup, never a refusal outside the window."""
+    assert_allowed(*run("gh pr create --base main --head staging", github=FakeGitHub(ago=timedelta(days=7))))
+
+
+# --- gh run through a wrapper ------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        f"env {GS_PROMOTE}",
+        f"env -u FOO GH_TOKEN=x {GS_PROMOTE}",
+        f"command {GS_PROMOTE}",
+        f"exec {GS_PROMOTE}",
+        f"nohup {GS_PROMOTE}",
+        f"time -p {GS_PROMOTE}",
+        f"timeout 60 {GS_PROMOTE}",
+        f"timeout -s KILL 60 {GS_PROMOTE}",
+        f"env timeout 60 {GS_PROMOTE}",
+        f"bash -c '{GS_PROMOTE}'",
+        f'sh -lc "{GS_PROMOTE}"',
+        f"/bin/bash -c 'cd /tmp && {GS_PROMOTE}'",
+        f"bash --login -c '{GS_PROMOTE}'",
+        f"bash -o pipefail -c '{GS_PROMOTE}'",
+        f"""bash -c "bash -c '{GS_PROMOTE}'" """,
+    ],
+)
+def test_a_wrapped_promote_is_refused(command):
+    assert_too_soon(*run(command))
+
+
+def test_env_chdir_names_the_checkout():
+    checkouts = FakeCheckouts({"/home/natha/grantspider": g.Checkout(GS_ORIGIN, "main")})
+    command = "env -C /home/natha/grantspider gh pr create --base main --head staging"
+    assert_too_soon(*run(command, checkouts=checkouts))
+    assert checkouts.asked == ["/home/natha/grantspider"]
+
+
+def test_a_shell_script_inherits_the_cd_before_it():
+    checkouts = FakeCheckouts({"/home/natha/grantspider": g.Checkout(GS_ORIGIN, "main")})
+    command = "cd /home/natha/grantspider && bash -c 'gh pr create --base main --head staging'"
+    assert_too_soon(*run(command, checkouts=checkouts))
+    assert checkouts.asked == ["/home/natha/grantspider"]
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        f"env GS_PROMOTE_HOTFIX=why {GS_PROMOTE}",
+        f"GS_PROMOTE_HOTFIX=why bash -c '{GS_PROMOTE}'",
+        f"bash -c 'GS_PROMOTE_HOTFIX=why {GS_PROMOTE}'",
+    ],
+)
+def test_an_override_carried_by_the_wrapper_is_the_promotes_own(command):
+    github = FakeGitHub(ago=timedelta(days=1))
+    code, message = run(command, github=github)
+    assert_allowed(code, message)
+    assert "reason: why" in message
+    assert github.calls == 0
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "env FOO=1 git status",
+        "bash deploy.sh --base main",
+        "timeout 60 gh pr list",
+        f"bash -c 'echo \"{GS_PROMOTE}\"'",
+        "bash -c 'gh pr create --repo NathanKrupa/aigranthelper --base main --head staging'",
+    ],
+)
+def test_wrapped_commands_that_are_not_promotes_pass_without_a_lookup(command):
+    github, checkouts = FakeGitHub(ago=timedelta(days=1)), FakeCheckouts()
+    assert_allowed(*run(command, github=github, checkouts=checkouts))
+    assert github.calls == 0
+    assert checkouts.asked == []
 
 
 # --- the REST form -------------------------------------------------------------
