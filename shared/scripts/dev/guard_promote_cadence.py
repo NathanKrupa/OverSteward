@@ -68,8 +68,9 @@ CADENCE = timedelta(days=6)
 OVERRIDE_VAR = "GS_PROMOTE_HOTFIX"
 GH_REPO_VAR = "GH_REPO"
 
-# The newest merged staging→main PR is among the 100 most recently updated
-# closed ones: its merge updated it, so only PRs touched since can rank above.
+# Its merge updated the newest merged staging→main PR, so only closed
+# staging→main PRs touched since then can rank above it. Unverified assumption:
+# fewer than 100 of those exist; were there more, an older merge would be read.
 _LOOKUP_ENDPOINT = (
     "repos/NathanKrupa/grantspider/pulls?state=closed&base=main"
     "&head=NathanKrupa:staging&sort=updated&direction=desc&per_page=100"
