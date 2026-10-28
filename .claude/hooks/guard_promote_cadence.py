@@ -1,0 +1,1 @@
+../../shared/scripts/dev/guard_promote_cadence.py
