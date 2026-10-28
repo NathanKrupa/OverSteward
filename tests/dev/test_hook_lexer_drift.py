@@ -1,4 +1,4 @@
-# ABOUTME: Family-level drift check — the shell lexer duplicated across four Bash guards must not diverge.
+# ABOUTME: Family-level drift check — the shell lexer duplicated across five Bash guards must not diverge.
 # ABOUTME: Compares the lexer members of every canonical source and its deployed byte-copy.
 
 from __future__ import annotations
@@ -8,11 +8,12 @@ from pathlib import Path
 
 import pytest
 
-# The four guards that carry the DUPLICATE lexer block, each held together by a
+# The five guards that carry the DUPLICATE lexer block, each held together by a
 # prose comment and nothing else. This test is the "nothing else".
 _HOOKS = (
     "check_destructive_command.py",
     "guard_main_worktree.py",
+    "guard_promote_cadence.py",
     "guard_shared_venv.py",
     "guard_trunk_pull.py",
 )
@@ -110,7 +111,7 @@ def test_every_guard_carrying_the_block_is_present():
 
 
 def test_the_duplicated_lexer_has_not_drifted():
-    """The whole point: four hooks, eight files, one lexer."""
+    """The whole point: five hooks, ten files, one lexer."""
     signatures = _signatures(_lexer_paths())
     distinct = set(signatures.values())
     assert len(distinct) == 1, (
