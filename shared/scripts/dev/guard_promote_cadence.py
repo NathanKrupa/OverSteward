@@ -28,8 +28,10 @@ inert control, so this refuses instead (OS#634).
 as the command's own environment, ``-C``/``--chdir`` moves its directory),
 ``command``, ``exec``, ``nohup``, ``time`` and ``timeout``, and inside the
 script of ``bash``/``sh``/``zsh``/``dash`` ``-c``, which inherits the
-directory and environment prefix around it. Not seen: ``xargs``, ``sudo``,
-``env -S``, aliases, shell functions, ``eval`` and scripts on disk.
+directory and environment prefix around it. Those are the only wrappers seen:
+any other prefix hides ``gh`` — for example ``nice``, ``stdbuf``, ``setsid``,
+``xargs``, ``sudo``, ``env -S``, aliases, shell functions, ``eval`` and
+scripts on disk.
 
 A head or repo this guard could not read is treated as a promote rather than
 waved through — an unexpanded ``cd "$GS"``, a directory with no readable
@@ -370,6 +372,7 @@ _WRAPPER_VALUE_FLAGS = {
 }
 _ENV_VALUE_FLAGS = frozenset({"-u", "--unset", "-C", "--chdir"})
 _SHELLS = frozenset({"bash", "sh", "zsh", "dash"})
+_SHELL_VALUE_FLAGS = frozenset({"-o", "+o", "-O", "+O", "--rcfile", "--init-file"})
 
 
 def _skip_flags(args: list[str], value_flags: frozenset[str]) -> list[str]:
@@ -415,17 +418,21 @@ def _unwrap(argv: list[str], assignments: list[str], cwd: str) -> tuple[list[str
 
 
 def _shell_script(argv: list[str]) -> str | None:
-    """The script a ``bash -c '<script>'`` (or ``-lc``, ``sh``, …) runs, or None."""
+    """The script a ``bash -c '<script>'`` (or ``-lc``, ``sh``, …) runs, or None.
+
+    As in bash, ``-c`` makes the first non-option argument the script, so
+    options (and a ``--``) may sit between ``-c`` and the script.
+    """
     if os.path.basename(argv[0]) not in _SHELLS:
         return None
-    args = argv[1:]
-    while args and args[0].startswith(("-", "+")):
+    args, reads_script = argv[1:], False
+    while args and args[0].startswith(("-", "+")) and args[0] not in ("-", "+"):
         flag, args = args[0], args[1:]
         if flag.startswith("-") and not flag.startswith("--") and "c" in flag[1:]:
-            return args[0] if args else None
-        if flag in ("-o", "+o", "-O", "+O"):
+            reads_script = True
+        if flag in _SHELL_VALUE_FLAGS:
             args = args[1:]
-    return None
+    return args[0] if reads_script and args else None
 
 
 def _is_promote(base: str | None, head: str | None) -> bool:

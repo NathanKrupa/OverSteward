@@ -259,6 +259,16 @@ def test_a_relative_cd_resolves_against_the_hook_cwd():
     checkouts = FakeCheckouts({"/home/natha/grantspider": g.Checkout(GS_ORIGIN, "main")})
     command = "cd ../grantspider && gh pr create --base main --head staging"
     assert_too_soon(*run(command, checkouts=checkouts, cwd="/home/natha/OverSteward"))
+    assert checkouts.asked == ["/home/natha/grantspider"]
+
+
+def test_a_gh_repo_prefix_names_the_repo_over_a_readable_checkout():
+    """The cwd is a readable OverSteward checkout, so only the prefix can name grantspider."""
+    oversteward = g.Checkout("git@github.com:NathanKrupa/OverSteward.git", "master")
+    checkouts = FakeCheckouts({"/home/natha/OverSteward": oversteward})
+    command = "GH_REPO=NathanKrupa/grantspider gh pr create --base main --head staging"
+    assert_too_soon(*run(command, checkouts=checkouts))
+    assert checkouts.asked == []
 
 
 def test_the_hook_cwd_inside_a_grantspider_worktree_names_the_repo():
@@ -342,6 +352,9 @@ def test_an_unreadable_repo_outside_the_window_is_allowed():
         f"/bin/bash -c 'cd /tmp && {GS_PROMOTE}'",
         f"bash --login -c '{GS_PROMOTE}'",
         f"bash -o pipefail -c '{GS_PROMOTE}'",
+        f"bash -c -- '{GS_PROMOTE}'",
+        f"bash --rcfile /dev/null -c '{GS_PROMOTE}'",
+        f"bash --init-file /dev/null -c '{GS_PROMOTE}'",
         f"""bash -c "bash -c '{GS_PROMOTE}'" """,
     ],
 )
