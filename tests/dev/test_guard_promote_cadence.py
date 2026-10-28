@@ -208,7 +208,8 @@ def test_omitted_base_targets_the_default_branch_and_is_not_a_promote():
 
 
 def test_a_quoted_mention_is_not_a_command():
-    assert_allowed(*run(f'git commit -m "{GS_PROMOTE}"'))
+    """A separator inside quotes is prose: only a real lexer keeps the promote an argument."""
+    assert_allowed(*run(f'git commit -m "release notes; {GS_PROMOTE}"'))
 
 
 def test_other_commands_never_reach_a_seam():
@@ -308,6 +309,7 @@ def test_the_rest_form_is_refused():
         "gh api --method=POST repos/NathanKrupa/grantspider/pulls --field=base=main -Fhead=staging",
         "gh api repos/NathanKrupa/grantspider/pulls -f head=NathanKrupa:staging -f base=main",
         "gh api repos/NathanKrupa/grantspider/pulls --input body.json",
+        "gh api 'repos/NathanKrupa/grantspider/pulls?x=1' -f base=main -f head=staging",
     ],
 )
 def test_rest_spellings_are_refused(command):
@@ -328,7 +330,7 @@ def test_the_rest_form_resolves_owner_and_repo_placeholders_from_the_cwd():
         "gh api -X GET repos/NathanKrupa/grantspider/pulls -f base=main -f head=staging",
         "gh api repos/NathanKrupa/grantspider/pulls -f base=staging -f head=feat/x",
         "gh api repos/NathanKrupa/aigranthelper/pulls -f base=main -f head=staging",
-        "gh api repos/NathanKrupa/grantspider/pulls/12/merge -X PUT",
+        "gh api repos/NathanKrupa/grantspider/pulls/12/comments -f body=hi",
     ],
 )
 def test_rest_reads_and_other_targets_are_allowed(command):
@@ -362,7 +364,7 @@ def test_latest_merge_with_no_merged_promote_is_none():
     assert g.latest_merge(json.dumps([_pull(2, None)])) is None
 
 
-@pytest.mark.parametrize("payload", ["not json", '{"message": "Bad credentials"}', '[{"number": 1}]', "[1]"])
+@pytest.mark.parametrize("payload", ["not json", "{}", '{"message": "Bad credentials"}', '[{"number": 1}]', "[1]"])
 def test_an_unreadable_answer_is_a_lookup_failure(payload):
     with pytest.raises(g.LookupFailed):
         g.latest_merge(payload)
@@ -411,9 +413,11 @@ def test_the_hook_allows_a_promote_a_week_on_end_to_end(tmp_path):
 
 
 def test_the_hook_refuses_when_gh_fails_end_to_end(tmp_path):
-    result = _hook(tmp_path, GS_REST, gh_stdout="", gh_exit=1)
+    """A readable empty listing on a failed exit: only the exit code says gh failed."""
+    result = _hook(tmp_path, GS_REST, gh_stdout="[]", gh_exit=1)
     assert result.returncode == 2
     assert COULD_NOT_LOOK in result.stderr
+    assert "gh api exited 1" in result.stderr
     assert TOO_SOON not in result.stderr
     assert "Traceback" not in result.stderr
 
