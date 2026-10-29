@@ -2220,14 +2220,28 @@ Every §3.14 watch-list row, in order:
 | AG staging not deploying, AG#2508 | closed |
 | CI mobile matrix red, AG#2502 | closed by #2510 |
 | AG Pro trial, AG#2458 | closed; shipped in #2535 |
-| Funding-authority map, GS#3295 | open. GS#3301 and GS#3302 are closed on staging |
-| PyMuPDF still imported, GS#3296 | open |
+| Funding-authority map, GS#3295; GS#3301–#3306, #3323 | GS#3295 is open. GS#3301 and GS#3302 are closed on staging. GS#3303, #3304, #3305, #3306 and #3323 are open |
+| PyMuPDF still imported, GS#3296 | open, against the GS#2602 permissive-stack ruling |
 | `is_tracked` exit 128, OS#609 | open |
 | Signup surge AG#2467; plain-English search AG#2457; test DB guard AG#2473; mobile epic AG#2486 | all open |
 | Turnstile on production, TD85 | closed; Turnstile shipped in #2535 |
 | GS#3293 zombie reaper; GS#3294 malformed `results.json`; OS#602; OS#605 | all open |
 | Operator steps | closed since 10-22: TD6, TD25, TD38, TD53, TD78 and TD85. Still open: TD3, TD11, TD20, TD46, TD56, TD61, TD62, TD63, TD64, TD67, TD68, TD69, TD70, TD74, TD76, TD77, TD80, TD89 and TD90. Added and open: TD91 to TD96, TD98 and TD101 |
-| All other §3.19 correction rows | not re-measured this pass; carried as written |
+| Board twins AG#2475; indexation timeout AG#2481 | both open |
+| Stale index GS#3214; negative FMV GS#3217; reaped jobs GS#3213, GS#2551, GS#2128 | all open |
+| AG billing AG#2271, #2288, #2396, #2414; Stripe epic AG#2424 | AG#2288 is closed (#2531). The rest are open |
+| Cleanup rollout OS#572, #573; review tooling OS#574, #580, #591, #606, #607; OS#578; reviewer DBs OS#555, #546; OS#551, #549 | all open |
+| `migrate-prod` guard GS#3116 (vs #3208); crawl plan GS#3069; indexability AG#2324; A/B Worker AG#2353 | all open. GS#3208 is closed, and GS#3116 has still not been checked against it |
+| AG mobile follow-ons AG#2318, #2336, #2302, #2349, #2350, #2351, #2251 | all open |
+| Government lane AG#945, canonicals AG#2228, GSC 500 AG#2224, AG#2012 | all open. AG#2228 has still not been checked against the closed AG#2373 |
+| GS#2940, #2939, #2764, #2765, #2766, #2941, #2767, #2722, #2630 | all open |
+| `db scratch` typos AG#1743, GS#2166, GS#2345 | all open |
+| Keep-current GS#2759, #2760; facsimile GS#2763 | all open |
+| AG residue AG#2127, #2132, #2133, #2134, #2137, #2138, #2140, #2141, #2145; GS#2761, #2762 | all open |
+| Thankathon OS#525; steward probe OS#526 | both open |
+| Board connections GS#1673; Google Ads ai-assistants#10 | both open |
+| GS#2452, #2464, #2466 | all open |
+| OS#459, #460, #534; OS#454, #467, #468, #470, #544 | all open. OS#454 has still not been checked against #554 |
 
 ### Started, not yet landed (October 29 watch-list)
 
