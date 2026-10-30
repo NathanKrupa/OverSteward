@@ -2166,15 +2166,16 @@ Every §3.14 watch-list row, in order:
   with the consultant path's free month built in (#2561, AG#2550). Deadline
   reminders reach consultants who manage a client org (#2562, AG#2560). The
   help centre now has separate nonprofit and consultant walkthroughs (#2559),
-  and the phone menu has Sign Out (#2564).
+  and the phone menu has Sign Out (#2564). Help-centre screenshot capture
+  survives Turnstile and redacts every email (#2542, #2545–#2547, #2549), and
+  the help centre is reconciled with the 10-26 promote (#2540). The CI mobile
+  matrix pinned to ubuntu-24.04, which closed AG#2502 (#2510), went out
+  earlier, in promote #2535.
 - **AG (staging only, after #2566).** Consultants no longer see firm-billing
   links or checkout in a client org (#2571, #2584, #2586). A program created
   from the funder handoff now saves (#2587). The saved-funder page swaps in on
   save and unsave (#2588). The Programs page has search and sort (#2590,
-  AG#2574). Help-centre screenshot capture survives Turnstile and redacts
-  every email (#2542–#2549), and the help centre is reconciled with the 10-26
-  promote (#2540). The CI mobile matrix is pinned to ubuntu-24.04, which closes
-  AG#2502 (#2510).
+  AG#2574).
 - **GS — promotes #3348, #3355, #3361, #3366, #3379, #3386, #3400
   (10-24 → 10-28), plus hotfix #3391.**
   - Identity-gate mismatches are written back as verdicts, and finished drain
@@ -2247,7 +2248,7 @@ Every §3.14 watch-list row, in order:
 
 | Item | Where | State |
 |---|---|---|
-| Website accuracy | GS#3407; GS#3375 | open. Every PR so far is on staging only. Hand review found that about 93% of the identity check's rejects were genuine sites (GS#3375) |
+| Website accuracy | GS#3407; GS#3375 | open. Every PR so far is on staging only. A hand read found most of the identity check's rejects were the funder's own site (GS#3375) |
 | Deep-pass source quality | GS#3337 | open; PR1–PR4 are promoted |
 | Dagster outage | GS#3390 | open, although the #3391 pin is on main |
 | AG consultant follow-through | AG#2338, AG#2553 | open. On 10-27 Nathan lifted the hold on AG#2338 and set its order: #1386, #2232, #2339–#2342, then #2553 |
