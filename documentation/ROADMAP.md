@@ -2126,6 +2126,149 @@ Every §3.14 watch-list row, in order:
   from this run;
 - every §3.18 unfiled item (carried).
 
+## §3.20 Late October 2026 — AG ships two promotes for consultants and trials, GS goes after website accuracy, and OverSteward rate-limits GS promotes (reconciled 2026-10-29)
+
+> Fourteenth dream-produced pass. It covers 47 transcripts. Thirty-one were
+> adversarial-reviewer verdicts or one-line sessions, and the rest were
+> working sessions. Three through-lines. **AG ended its promote drought.**
+> #2535 (10-26) and #2566 (10-28) shipped the Pro trial, multi-month passes,
+> Turnstile cohort admission, the nonprofit-or-consultant signup fork, and
+> deadline reminders for consultants. **GrantSpider turned from enrichment
+> volume to website accuracy.** It held funders whose giving pages were
+> uncrawled, crawled them before the run ended, then measured the website
+> verifier against the drain's identity gate (GS#3407: the verifier passes
+> 15–20% wrong sites). **OverSteward put a brake on GS promotes.** In October,
+> 40 pushes to GS `main` each ran the roughly 103-minute neon-integration job,
+> about 4,100 Actions minutes in all, even though the doctrine called for
+> weekly promotes. Nathan approved a hook on 10-28. `guard_promote_cadence`
+> now refuses a staging→main promote PR within six days of the last one
+> unless the command carries a hotfix reason (#635, OS#634). GS also moved
+> neon-integration to a weekly pre-promote run (#3411).
+
+### Shipped (2026-10-22 → 10-29)
+
+- **OverSteward.**
+  - `guard_promote_cadence` (#635, OS#634).
+  - `data/secrets_registry.yaml`, the per-copy secrets list, with the drifted
+    database rows corrected and the tenant Postgres rotation procedure
+    (#630). OS#629 stays open for the reconciliation sweep.
+- **AG — promote #2535 (10-26).** The in-app Pro trial and the
+  discounted-subscription plan switch close AG#2458 (#2511, #2517). Multi-month
+  passes redeemed from `/pass/<CODE>/` close AG#2519 (#2520, #2521, #2523). A
+  live signup trial draws Pro's application allowance, closing AG#2288 (#2531).
+  Also in this promote: giving-radius cleanup (#2526, #2529), Typical Grant
+  quartiles over every current grant (#2528), and the seven-day edge window on
+  foundation profiles (#2534), which is AG#2356's origin half. The issue stays
+  open. Cohort admission with Turnstile (#2480) went to production here.
+- **AG — hotfix #2513 (10-23).** Builder advertises and enforces no
+  application allowance.
+- **AG — promote #2566 (10-28).** The nonprofit-or-consultant signup fork,
+  with the consultant path's free month built in (#2561, AG#2550). Deadline
+  reminders reach consultants who manage a client org (#2562, AG#2560). The
+  help centre now has separate nonprofit and consultant walkthroughs (#2559),
+  and the phone menu has Sign Out (#2564). Help-centre screenshot capture
+  survives Turnstile and redacts every email (#2542, #2545–#2547, #2549), and
+  the help centre is reconciled with the 10-26 promote (#2540). The CI mobile
+  matrix pinned to ubuntu-24.04, which closed AG#2502 (#2510), went out
+  earlier, in promote #2535.
+- **AG (staging only, after #2566).** Consultants no longer see firm-billing
+  links or checkout in a client org (#2571, #2584, #2586). A program created
+  from the funder handoff now saves (#2587). The saved-funder page swaps in on
+  save and unsave (#2588). The Programs page has search and sort (#2590,
+  AG#2574).
+- **GS — promotes #3348, #3355, #3361, #3366, #3379, #3386, #3400
+  (10-24 → 10-28), plus hotfix #3391.**
+  - Identity-gate mismatches are written back as verdicts, and finished drain
+    journals are harvested for them (#3334, #3336, #3338). This closes GS#2636.
+  - The GS#3337 enrichment-source fixes: 990 placeholder recipients are
+    dropped and site evidence outranks the Part XV checkbox (#3339). A funder
+    is held while its giving page is uncrawled (#3340). A giving facet lets
+    crawl discovery reach a corporate parent's giving hub (#3342). Guideline
+    PDFs are captured (#3346, #3347). GS#3337 stays open.
+  - `crawl add-document` attaches an operator-named document (#3354).
+  - `find-pull --deep-pass` for the websiteless and mismatch cohorts (#3360).
+    `find-websites` searches three ways before returning a null (#3365) and
+    never counts a refused search (#3374).
+  - verify-apply requires per-row verbatim evidence (#3377).
+  - Regional concentration beats national reach in the archetype (#3378).
+  - enrich-drain crawls the funders a run held before the run ends (#3382,
+    #3385, GS#3372, Nathan's ruling) and reserves those crawl passes out of
+    its agent cap (#3399).
+  - sqlalchemy is held below 2.1 so dagster-postgres stays on psycopg2
+    (#3391). GS#3390, the Dagster outage behind it, is still open.
+- **GS (staging only).**
+  - Funding-authority completeness: county closure, pass-through dollar
+    attribution, and FAC resubmission exclusion close GS#3301 (#3328, #3330).
+    The opportunity tracker's date events, revisions, close_date mirror and
+    closed verdict close GS#3302 (#3421, #3422).
+  - Website accuracy, GS#3407: `dq verify-precision` (#3414, #3415, GS#3413),
+    an `unsure` verdict routed to find-and-confirm (#3417, GS#3416), more
+    evidence for the judge (#3419), and an identity gate that treats a
+    funder's page on a host domain as its own (#3420). GS#3418 is closed.
+  - Crawl counts distinct pages rather than link rows (#3406). The weekly
+    neon-integration change is #3411 (GS#3408).
+- **Thankathon (unregistered, OS#525).** The django-axes lockout keys on
+  `X-Real-IP` (PR#62). The 09-24 fix used the rightmost X-Forwarded-For hop,
+  and that hop turned out to be Railway's CDN edge. Mail goes through Resend on
+  the root `goldenharvest.org` domain.
+
+### Corrections to the §3.19 watch-list
+
+| §3.19 row | Correction as of 2026-10-29 |
+|---|---|
+| Railway breach rotation, TD89; Railway API tokens, TD90 | both still open. TD93 (re-mint `GS_PROD_TOKEN` in the right project) and TD94 (Neon passwords) were added |
+| AG backup lanes | not raised this pass; still unfiled |
+| AG staging not deploying, AG#2508 | closed |
+| CI mobile matrix red, AG#2502 | closed by #2510 |
+| AG Pro trial, AG#2458 | closed; shipped in #2535 |
+| Funding-authority map, GS#3295; GS#3301–#3306, #3323 | GS#3295 is open. GS#3301 and GS#3302 are closed on staging. GS#3303, #3304, #3305, #3306 and #3323 are open |
+| PyMuPDF still imported, GS#3296 | open, against the GS#2602 permissive-stack ruling |
+| `is_tracked` exit 128, OS#609 | open |
+| Signup surge AG#2467; plain-English search AG#2457; test DB guard AG#2473; mobile epic AG#2486 | all open |
+| Turnstile on production, TD85 | closed; Turnstile shipped in #2535 |
+| GS#3293 zombie reaper; GS#3294 malformed `results.json`; OS#602; OS#605 | all open |
+| Operator steps | closed since 10-22: TD6, TD25, TD38, TD53, TD78 and TD85. Still open: TD3, TD11, TD20, TD46, TD56, TD61, TD62, TD63, TD64, TD67, TD68, TD69, TD70, TD74, TD76, TD77, TD80, TD89 and TD90. Added and open: TD91 to TD96, TD98 and TD101 |
+| Board twins AG#2475; indexation timeout AG#2481 | both open |
+| Stale index GS#3214; negative FMV GS#3217; reaped jobs GS#3213, GS#2551, GS#2128 | all open |
+| AG billing AG#2271, #2288, #2396, #2414; Stripe epic AG#2424 | AG#2288 is closed (#2531). The rest are open |
+| Cleanup rollout OS#572, #573; review tooling OS#574, #580, #591, #606, #607; OS#578; reviewer DBs OS#555, #546; OS#551, #549 | all open |
+| `migrate-prod` guard GS#3116 (vs #3208); crawl plan GS#3069; indexability AG#2324; A/B Worker AG#2353 | all open. GS#3208 is closed, and GS#3116 has still not been checked against it |
+| AG mobile follow-ons AG#2318, #2336, #2302, #2349, #2350, #2351, #2251 | all open |
+| Government lane AG#945, canonicals AG#2228, GSC 500 AG#2224, AG#2012 | all open. AG#2228 has still not been checked against the closed AG#2373 |
+| GS#2940, #2939, #2764, #2765, #2766, #2941, #2767, #2722, #2630 | all open |
+| `db scratch` typos AG#1743, GS#2166, GS#2345 | all open |
+| Keep-current GS#2759, #2760; facsimile GS#2763 | all open |
+| AG residue AG#2127, #2132, #2133, #2134, #2137, #2138, #2140, #2141, #2145; GS#2761, #2762 | all open |
+| Thankathon OS#525; steward probe OS#526 | both open |
+| Board connections GS#1673; Google Ads ai-assistants#10 | both open |
+| GS#2452, #2464, #2466 | all open |
+| OS#459, #460, #534; OS#454, #467, #468, #470, #544 | all open. OS#454 has still not been checked against #554 |
+
+### Started, not yet landed (October 29 watch-list)
+
+| Item | Where | State |
+|---|---|---|
+| Website accuracy | GS#3407; GS#3375 | open. Every PR so far is on staging only. A hand read found most of the identity check's rejects were the funder's own site (GS#3375) |
+| Deep-pass source quality | GS#3337 | open; PR1–PR4 are promoted |
+| Dagster outage | GS#3390 | open, although the #3391 pin is on main |
+| AG consultant follow-through | AG#2338, AG#2553 | open. On 10-27 Nathan lifted the hold on AG#2338 and set its order: #1386, #2232, #2339–#2342, then #2553 |
+| AG staging ahead of main | AG #2571–#2590; open PR #2592 (Archive replaces Delete) | not yet promoted |
+| Secrets reconciliation sweep | OS#629 | open; the registry half is merged |
+| New OverSteward defects | OS#631 (TD number re-issued), OS#632 (dead branch-push signal in the watchdog) | open |
+| `ag_ops` www→apex 405 | OS#633, #562, #497, #481 | **four open issues for one bug.** OS#506 closed an earlier copy. The duplicates should be collapsed into one and the bug fixed |
+
+**Unfiled intent seen in this pass's transcripts (flagged, not filed):**
+
+- the dream prefilter misses a near-duplicate when the existing memory file
+  was written by a live session without a `provenance` field. The 10-27 run
+  caught one by hand;
+- the Standing Orders layer is still 8 bytes under its budget. This run kept
+  it flat only by writing every new fact at `tier: model`. OS#501 is still
+  open;
+- finalize left live-session residue for the store to commit again (eighteen
+  runs in a row);
+- every §3.19 unfiled item (carried).
+
 ---
 
 ## §4 In flight
@@ -2233,4 +2376,4 @@ Captured in `IDEA_STORE.md` from gstack research and conversational drift. None 
 - If §2-§3 grow past readable length, extract to a `documentation/changelog.md` and keep this doc thin.
 - This doc is the single answer to "what are we trying to do, what's done, what's next?" If it can't answer that in under 60 seconds of reading, it's grown past its purpose — restructure rather than expand.
 
-*Last updated: 2026-10-22 (late-October reconciliation — §3.18 added: AG's signup-surge build and promote #2477, GS's claim-queue enrich drain and segment drains, the IRS keep-current fixes, and OverSteward's backup sweep going live; §3.19 added: the Railway breach, GS's funding-authority map, and the Estate Brief and intake split).*
+*Last updated: 2026-10-29 (late-October reconciliation — §3.20 added: AG's promotes #2535 and #2566 for the Pro trial, passes and consultants, GS's held-funder crawl and website-accuracy epic GS#3407, and OverSteward's GS promote-cadence guard). Previously 2026-10-22 (late-October reconciliation — §3.18 added: AG's signup-surge build and promote #2477, GS's claim-queue enrich drain and segment drains, the IRS keep-current fixes, and OverSteward's backup sweep going live; §3.19 added: the Railway breach, GS's funding-authority map, and the Estate Brief and intake split).*
