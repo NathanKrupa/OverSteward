@@ -108,6 +108,16 @@ class TestManagedBlock:
         )
         assert len(_by_surface(diff_state(_snapshot([ctx])), "reference")) == 1
 
+    def test_an_indented_import_is_a_code_block_and_does_not_count(self):
+        ctx = _context(references_always_on=["estate-map/demo.md"])
+        ctx["claude_md"]["managed"]["text"] += "    @~/.claude/shared/references/estate-map/demo.md\n"
+        assert len(_by_surface(diff_state(_snapshot([ctx])), "reference")) == 1
+
+    def test_trailing_whitespace_after_an_import_still_counts(self):
+        ctx = _context(references_always_on=["estate-map/demo.md"])
+        ctx["claude_md"]["managed"]["text"] += "@~/.claude/shared/references/estate-map/demo.md  \r\n"
+        assert _by_surface(diff_state(_snapshot([ctx])), "reference") == []
+
     def test_declared_reference_outside_the_managed_block_is_drift(self):
         ctx = _context(references_always_on=["estate-map/demo.md"])
         assert len(_by_surface(diff_state(_snapshot([ctx])), "reference")) == 1

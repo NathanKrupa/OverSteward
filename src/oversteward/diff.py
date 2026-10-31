@@ -61,8 +61,12 @@ def _diff_managed_block(ctx: dict[str, Any]) -> list[Finding]:
 
 
 def _diff_references(cid: str, declared: list[str], block: str | None) -> list[Finding]:
-    """Each declared reference must be an import line of its own inside the managed block."""
-    lines = {line.strip() for line in (block or "").splitlines()}
+    """Each declared reference must be an import line of its own inside the managed block.
+
+    Leading indentation is not stripped: indented four spaces, the line is a
+    Markdown code block, which Claude Code does not import.
+    """
+    lines = {line.rstrip() for line in (block or "").splitlines()}
     return [
         _finding("drift", "reference", f"managed block lacks the line `{expected}`", cid)
         for expected in (REFERENCE_IMPORT.format(path=path) for path in declared)

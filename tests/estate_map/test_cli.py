@@ -195,7 +195,8 @@ def test_render_write_removes_a_slice_for_a_repo_that_lost_its_capabilities(
 def test_render_write_leaves_files_that_are_not_slices(cli, capsys, tmp_path, local):
     slices = tmp_path / "slices"
     (slices / "notes").mkdir(parents=True)
-    keep = [slices / "README.txt", slices / "notes" / "wphelper.md"]
+    (slices / "archive.md").mkdir()
+    keep = [slices / "README.txt", slices / "notes" / "wphelper.md", slices / "archive.md" / "x"]
     for path in keep:
         path.write_text("kept", encoding="utf-8")
     assert cli.main([*_args(tmp_path, local), "render", "--write"]) == 0
