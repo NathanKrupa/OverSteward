@@ -117,6 +117,22 @@ def test_aigranthelper_floor_is_measured_so_the_sweep_reads_it():
     assert (floor.orphans, floor.overlaps) == (0, 0)
 
 
+def test_grantspider_floor_is_measured_so_the_sweep_reads_it():
+    # Same reason as AG: a null floor drops GS from `check`. The two orphans are
+    # `services/matcher.py` and `services/sqlite_migrate.py`, which belong to no
+    # capability; the sweep compares the floor with GS origin/main.
+    floor = load(MAP_PATH).policy.coverage_floor["grantspider"]
+    assert floor is not None
+    assert (floor.orphans, floor.overlaps) == (2, 0)
+
+
+def test_grantspider_services_and_connectors_are_claimed_file_by_file():
+    # The explicit-only policy is what keeps GS coverage from being vacuous; a map
+    # that dropped it would let one `services/` claim cover 380 modules.
+    roots = load(MAP_PATH).policy.explicit_only["grantspider"]
+    assert set(roots) == {"src/grantspider/services", "src/grantspider/connectors"}
+
+
 def test_oversteward_coverage_meets_its_floor_on_this_checkout():
     estate = load(MAP_PATH)
     found = checkouts(_registry(), home_repo="oversteward", home_root=ROOT)

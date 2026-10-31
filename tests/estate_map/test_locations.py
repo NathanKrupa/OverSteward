@@ -146,3 +146,19 @@ def test_directory_claim_is_matched_without_its_trailing_slash(raw, tmp_path):
     ls = [c for c in git.calls if c[1] == "ls-tree" and c[0] == str(tmp_path / "home")][0]
     assert "src/oversteward/sow" in ls and "src/oversteward/sow/" not in ls
     assert outcome.exit_code == EXIT_CLEAN
+
+
+def test_a_directory_claim_survives_a_path_named_inside_it(raw, tmp_path):
+    # `git ls-tree` without `-r` descends into a directory when another pathspec names a
+    # file inside it, and then never prints the directory: the claim read as missing.
+    raw["capabilities"][1]["locations"] = [{"type": "path", "ref": "oversteward:src/oversteward/sow/plan.py"}]
+    outcome = _run(raw, tmp_path, _git())
+    assert outcome.findings == ()
+    assert outcome.exit_code == EXIT_CLEAN
+
+
+def test_a_directory_with_nothing_tracked_under_it_is_still_missing(raw, tmp_path):
+    raw["capabilities"][2]["claims"]["oversteward"].append("src/oversteward/nowhere/")
+    outcome = _run(raw, tmp_path, _git())
+    assert [(f.check, f.subject) for f in outcome.findings] == [("missing-path", "os.sow")]
+    assert "oversteward:src/oversteward/nowhere/" in outcome.findings[0].message

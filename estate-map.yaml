@@ -73,7 +73,9 @@ policy:
     aigranthelper:
       orphans: 0
       overlaps: 0
-    grantspider: null
+    grantspider:
+      orphans: 2
+      overlaps: 0
     oversteward:
       orphans: 0
       overlaps: 0
@@ -584,6 +586,7 @@ capabilities:
   kind: code
   purpose: 'Feedback: in-app bug reports, visitor data corrections exported to GS, and captured email leads.'
   status: live
+  feeds: [gs.corrections]
   claims:
     aigranthelper: [apps/feedback/]
   current_shape: '13 modules, 1,510 lines; 12 feature PRs in 90 days. GS pulls the triaged corrections into
@@ -724,97 +727,1165 @@ capabilities:
     one Todoist review step. As of 2026-10-31: 218 drafts, 90 approved, 61 sent.'
   target_shape: 'The pipeline in a tracked, tested home with its ledgers outside git, so a send is reviewed
     code (L-MKT-1).'
+- id: gs.research-schema
+  kind: code
+  purpose: 'Research schema: the ORM models and Alembic history GS alone writes, and the `ag_research` view
+    manifest that is AG''s read surface.'
+  status: live
+  serves: [ag.research]
+  claims:
+    grantspider:
+    - src/grantspider/models/
+    - src/grantspider/ag_research_views/
+    - src/grantspider/db/
+    - src/grantspider/_alembic_guards.py
+    - src/grantspider/_migration_guards.py
+    - src/grantspider/services/alembic_ledger.py
+    - src/grantspider/services/research_schema_dump.py
+    - alembic/
+    - schema/research.sql
+  invariants: [I-6, I-7, I-8]
+  liabilities: [L-GS-1]
+  current_shape: '89 modules, 15,425 lines; 76 feature PRs in 90 days, because nearly every feature adds a
+    table. Two registration files take most of it: `ag_research_views/__init__.py` (AG''s read manifest, 923
+    lines, 22 feature PRs) and `models/__init__.py` (21), which loads every model module by dotted path. Five
+    models copy a `column IN (...)` CHECK renderer under two names (L-GS-1).'
+  target_shape: hold
+- id: gs.ontology
+  kind: code
+  purpose: 'Ontology: typed entities (Foundation, Grant, NteeCode), semantic types and property lineage; the
+    one GS package AG imports for types.'
+  status: live
+  serves: [ag.research]
+  claims:
+    grantspider:
+    - src/grantspider/ontology/
+  invariants: [I-18]
+  current_shape: '24 modules, 4,479 lines; 11 feature PRs in 90 days. `entities/foundation.py` is 1,347 lines.
+    A lint and pre-commit hook keep it free of services, connectors, cli and orchestration (I-18).
+    `types/website_resolution.py` holds the protocols the entity-driven website path implements.'
+  target_shape: hold
+- id: gs.runtime
+  kind: code
+  purpose: 'Runtime: settings (the one env reader), Neon sessions with reconnect, B2 storage, logging, Sentry,
+    the operations ledger and the CLI root.'
+  status: live
+  serves: [ag.ops]
+  claims:
+    grantspider:
+    - src/grantspider/__init__.py
+    - src/grantspider/config/__init__.py
+    - src/grantspider/config/settings.py
+    - src/grantspider/config/logging.py
+    - src/grantspider/config/source_licenses.py
+    - src/grantspider/connectors/__init__.py
+    - src/grantspider/connectors/neon.py
+    - src/grantspider/connectors/storage.py
+    - src/grantspider/connectors/b2_storage.py
+    - src/grantspider/connectors/_text.py
+    - src/grantspider/services/__init__.py
+    - src/grantspider/services/_paths.py
+    - src/grantspider/services/error_reporting.py
+    - src/grantspider/services/operations_ledger.py
+    - src/grantspider/services/data_licenses.py
+    - src/grantspider/cli/__init__.py
+  invariants: [I-17]
+  liabilities: [L-GS-3]
+  current_shape: '16 modules, 2,767 lines; 48 feature PRs in 90 days. `cli/__init__.py` registers every
+    command group and was touched by 37 feature PRs, more than any other GS module. `config/settings.py` (827
+    lines) is the composition root for connectors. AG imports `connectors.b2_storage` at runtime (S-2).
+    `connectors/storage.py`, the local-filesystem store, has no live importer (L-GS-3). depends_on is omitted:
+    the CLI root imports every command module.'
+  target_shape: hold
+- id: gs.outbound-http
+  kind: code
+  purpose: 'Outbound HTTP: one client factory composing bot identity, Web Bot Auth, robots, per-host limits
+    and breaker; SSRF guard; the request audit log.'
+  status: live
+  claims:
+    grantspider:
+    - src/grantspider/config/user_agent.py
+    - src/grantspider/config/crawl_politeness.py
+    - src/grantspider/connectors/_body_cap.py
+    - src/grantspider/connectors/_rate_limiter.py
+    - src/grantspider/connectors/_local_rate_limiter.py
+    - src/grantspider/connectors/_retry.py
+    - src/grantspider/connectors/bounce_classifier.py
+    - src/grantspider/connectors/http_client.py
+    - src/grantspider/connectors/http_errors.py
+    - src/grantspider/connectors/http_head_client.py
+    - src/grantspider/connectors/pinned_transport.py
+    - src/grantspider/connectors/proxy_transport.py
+    - src/grantspider/connectors/robots.py
+    - src/grantspider/connectors/robots_fetch.py
+    - src/grantspider/connectors/tls_context.py
+    - src/grantspider/connectors/web_bot_auth.py
+    - src/grantspider/services/safe_http.py
+    - src/grantspider/services/blocklist_provider.py
+    - src/grantspider/services/robots_cache.py
+    - src/grantspider/services/audit_log_writer.py
+    - src/grantspider/services/audit_rollup.py
+    - src/grantspider/cli/audit.py
+    - src/grantspider/cli/blocklist.py
+    - src/grantspider/cli/robots.py
+    - src/grantspider/orchestration/audit_assets.py
+    - src/grantspider/orchestration/robots_assets.py
+  liabilities: [L-GS-3]
+  current_shape: '26 modules, 6,310 lines; 14 feature PRs in 90 days. Connectors get their httpx clients from
+    `connectors/http_client.py` (1,576 lines); `services/safe_http.py` pins the vetted IP; the audit log is a
+    structlog processor rolled up nightly into `host_request_summary`. The Postgres advisory-lock limiter
+    `_rate_limiter.py` and `config/crawl_politeness.py` have no live importer (L-GS-3).'
+  target_shape: hold
+- id: gs.llm-access
+  kind: code
+  purpose: 'Model access: the Anthropic connector and the provider-neutral LlmClient, each Anthropic client
+    built only behind the metered-key arm.'
+  status: live
+  depends_on: [gs.outbound-http]
+  claims:
+    grantspider:
+    - src/grantspider/config/metered_api.py
+    - src/grantspider/connectors/anthropic.py
+    - src/grantspider/connectors/ollama.py
+    - src/grantspider/connectors/llm/__init__.py
+    - src/grantspider/connectors/llm/anthropic.py
+    - src/grantspider/connectors/llm/base.py
+    - src/grantspider/connectors/llm/google.py
+    - src/grantspider/connectors/llm/ollama.py
+    - src/grantspider/connectors/llm/openai.py
+    - src/grantspider/services/classifier_portability_eval.py
+  current_shape: '10 modules, 1,628 lines; 2 feature PRs in 90 days. Every Anthropic client is built after
+    `require_metered_api_armed()` (`config/metered_api.py`, GS#2322), so an unarmed run refuses rather than
+    bills. Two client layers coexist: `connectors/anthropic.py`, imported by 15 modules, and `connectors/llm/`
+    (Anthropic and Ollama; Google and OpenAI raise NotImplementedError), imported by 10.'
+  target_shape: hold
 - id: gs.irs-ingestion
   kind: code
-  purpose: 'IRS ingestion: 990-PF Part XV and Schedule I grants (TEOS bulk), BMF monthly sync, SOI annual
-    extract.'
+  purpose: 'IRS filings: TEOS cache, BMF monthly sync, SOI extract, 990-PF and 990 XML extraction, Part XV and
+    Schedule I grant lines, officers.'
   status: live
   serves: [ag.research]
-  claims: {}
+  depends_on: [gs.outbound-http, gs.grant-records, gs.funder-records, gs.deadlines, gs.website-resolution,
+    gs.llm-access, gs.entity-resolution]
+  claims:
+    grantspider:
+    - src/grantspider/connectors/irs.py
+    - src/grantspider/connectors/irs_990.py
+    - src/grantspider/connectors/irs_bulk.py
+    - src/grantspider/connectors/irs_bmf_client.py
+    - src/grantspider/connectors/irs_soi_extract.py
+    - src/grantspider/connectors/_bulk_download.py
+    - src/grantspider/connectors/propublica.py
+    - src/grantspider/services/irs_990_extraction.py
+    - src/grantspider/services/irs_990_ingestion.py
+    - src/grantspider/services/irs_990_part_ix_backfill.py
+    - src/grantspider/services/irs_990_pf_coverage_gap.py
+    - src/grantspider/services/irs_990_pf_extract_backfill.py
+    - src/grantspider/services/irs_990_pf_filer_seed.py
+    - src/grantspider/services/irs_990_pf_index.py
+    - src/grantspider/services/irs_990_pf_missing_period_backfill.py
+    - src/grantspider/services/irs_990_pf_pipeline.py
+    - src/grantspider/services/irs_990_schedule_i.py
+    - src/grantspider/services/irs_990_schedule_i_discovery.py
+    - src/grantspider/services/irs_990_schedule_i_ingest.py
+    - src/grantspider/services/irs_annual_extract_ingest.py
+    - src/grantspider/services/irs_bmf_check.py
+    - src/grantspider/services/irs_bmf_coverage.py
+    - src/grantspider/services/irs_bmf_freshness.py
+    - src/grantspider/services/irs_bmf_sync.py
+    - src/grantspider/services/irs_cache_backfill.py
+    - src/grantspider/services/irs_extract_metadata_backfill.py
+    - src/grantspider/services/irs_extraction.py
+    - src/grantspider/services/irs_persistence.py
+    - src/grantspider/services/irs_reextract.py
+    - src/grantspider/services/irs_zero_extracts.py
+    - src/grantspider/services/foundation_ingest.py
+    - src/grantspider/services/people_population.py
+    - src/grantspider/cli/irs.py
+    - src/grantspider/cli/foundation_ingest.py
+    - src/grantspider/cli/people.py
+    - src/grantspider/orchestration/irs_990_pf_assets.py
+    - src/grantspider/orchestration/schedule_i_assets.py
+    - src/grantspider/orchestration/irs_bmf_freshness_checks.py
+    - src/grantspider/orchestration/people_population_assets.py
   invariants: [I-11]
-  current_shape: 'Unclaimed stub until the GS seed. Source: `services/irs_990_ingestion.py`, `services/irs_990_schedule_i*.py`,
-    `services/irs_bmf_sync.py`, `services/irs_annual_extract_ingest.py`'
-  target_shape: hold
+  liabilities: [L-GS-2]
+  current_shape: '39 modules, 14,386 lines; 32 feature PRs in 90 days. `services/irs_persistence.py` (1,130
+    lines, 10 feature PRs) is the single write transaction for extracts, grants and the foundation fold. Five
+    modules are named backfills, and `irs_reextract.py` repairs the #982 wipe. `cli/irs.py` (972 lines) holds
+    13 commands.'
+  target_shape: 'Repairs that have run are retired: each one-shot is deleted once `operations_ledger` shows
+    its apply and its target set measures empty, and a scheduled backfill is renamed as the producer it is
+    (L-GS-2).'
+- id: gs.grant-records
+  kind: code
+  purpose: 'Grant rows after landing: 360Giving ingest, recipient EIN and NTEE, PCS coding, source precedence,
+    reconciliation and amount repairs.'
+  status: live
+  serves: [ag.research]
+  depends_on: [gs.irs-ingestion, gs.llm-access, gs.outbound-http, gs.entity-resolution]
+  claims:
+    grantspider:
+    - src/grantspider/config/ntee.py
+    - src/grantspider/connectors/threesixtygiving.py
+    - src/grantspider/services/three_sixty_giving_ingestion.py
+    - src/grantspider/services/grant_ein_backfill.py
+    - src/grantspider/services/grant_ntee_backfill.py
+    - src/grantspider/services/grant_ntee_bulk_backfill.py
+    - src/grantspider/services/ntee_lookup.py
+    - src/grantspider/services/grant_source_backfill.py
+    - src/grantspider/services/grant_source_precedence.py
+    - src/grantspider/services/grant_reconciliation.py
+    - src/grantspider/services/grant_reconciliation_canary.py
+    - src/grantspider/services/grant_amount_scale_repair.py
+    - src/grantspider/services/grant_collapse_audit.py
+    - src/grantspider/services/irs_990_pf_source_rederive.py
+    - src/grantspider/services/pcs_coder.py
+    - src/grantspider/services/pcs_seeder.py
+    - src/grantspider/cli/grants.py
+    - src/grantspider/cli/grant_precedence.py
+    - src/grantspider/cli/grant_repair.py
+    - src/grantspider/cli/pcs.py
+    - src/grantspider/orchestration/ntee_backfill_assets.py
+  invariants: [I-11]
+  liabilities: [L-GS-2]
+  current_shape: '21 modules, 7,875 lines; 12 feature PRs in 90 days. Seven of the 21 are repairs or
+    backfills, among them the 100x amount repair (#2082) and its from-source re-derivation
+    (`irs_990_pf_source_rederive.py`, 805 lines). `grant_reconciliation.py` (893 lines) keeps a discrepancy
+    ledger and never mutates its sources.'
+  target_shape: 'Repairs that have run are retired: each one-shot is deleted once `operations_ledger` shows
+    its apply and its target set measures empty, and a scheduled backfill is renamed as the producer it is
+    (L-GS-2).'
 - id: gs.facsimiles
   kind: code
-  purpose: '990-PF facsimiles: IRS XSL → PDF → B2.'
+  purpose: '990-PF facsimiles: the filing printed onto the IRS''s own blank with Schedule B and statements,
+    rendered with Neon idle, stored in B2.'
   status: live
   serves: [ag.funder-pages]
-  claims: {}
-  current_shape: 'Unclaimed stub until the GS seed. Source: `services/facsimile*.py`, `cli/facsimile.py`'
+  depends_on: [gs.irs-ingestion, gs.outbound-http]
+  claims:
+    grantspider:
+    - src/grantspider/connectors/irs_blank_forms.py
+    - src/grantspider/connectors/irs_stylesheets.py
+    - src/grantspider/services/facsimile.py
+    - src/grantspider/services/facsimile_ledger.py
+    - src/grantspider/services/facsimile_render.py
+    - src/grantspider/services/facsimile_segments.py
+    - src/grantspider/services/facsimile_worker.py
+    - src/grantspider/services/irs_990pf_field_map.py
+    - src/grantspider/services/irs_990pf_form_fill.py
+    - src/grantspider/services/irs_990pf_return.py
+    - src/grantspider/services/irs_990pf_schedule_b.py
+    - src/grantspider/services/irs_990pf_schedules.py
+    - src/grantspider/services/irs_990pf_statements.py
+    - src/grantspider/services/irs_990pf_year_maps.py
+    - src/grantspider/services/irs_form_field_census.py
+    - src/grantspider/services/document_filename.py
+    - src/grantspider/cli/facsimile.py
+  liabilities: [L-GS-3]
+  current_shape: '17 modules, 10,847 lines; 31 feature PRs in 90 days. The form-fill engine (epic #2348)
+    renders; the XSL renderer `facsimile_render.py` stays as a reference that ships nothing (Nathan''s ruling
+    on #2348) and shares only `parse_return` and `content_hash_for`, so its stylesheet connector
+    `irs_stylesheets.py` has no live importer (L-GS-3). `irs_990pf_field_map.py` is 1,392 lines of reviewed
+    data; `facsimile.py` (1,484 lines) took 15 feature PRs.'
   target_shape: hold
-- id: gs.other-sources
+- id: gs.fiscal-synopsis
   kind: code
-  purpose: 'Other sources: 360Giving; federal opportunities (Grants.gov, SAM, USAspending, agency hydration);
-    community, corporate and diocesan foundation discovery.'
+  purpose: 'Fiscal synopsis: a two-page funder PDF (giving line, sector box plot) rendered by WeasyPrint and
+    stored in B2.'
+  status: live
+  serves: [ag.funder-pages]
+  claims:
+    grantspider:
+    - src/grantspider/services/synopsis.py
+    - src/grantspider/services/synopsis_brand.py
+    - src/grantspider/services/synopsis_charts.py
+    - src/grantspider/services/synopsis_data.py
+    - src/grantspider/services/synopsis_gather.py
+    - src/grantspider/services/synopsis_pdf.py
+    - src/grantspider/services/synopsis_segments.py
+    - src/grantspider/services/synopsis_template.py
+    - src/grantspider/services/synopsis_text.py
+    - src/grantspider/cli/synopsis.py
+  current_shape: '10 modules, 2,757 lines; 6 feature PRs in 90 days. The drain pulls to SQLite, renders with
+    Neon idle and upserts in batches (`synopsis_segments.py`, #3272). AG serves it from
+    `apps/research/services/filing_downloads.py`.'
+  target_shape: hold
+- id: gs.federal-opportunities
+  kind: code
+  purpose: 'Federal openings: Grants.gov with detail hydration, SAM listings and contracts, USASpending,
+    agency page hydration, NOFO PDFs.'
+  status: live
+  serves: [ag.funder-pages]
+  depends_on: [gs.outbound-http, gs.state-opportunities, gs.dagster-runtime, gs.llm-access, gs.irs-ingestion,
+    gs.data-quality, gs.crawl]
+  claims:
+    grantspider:
+    - src/grantspider/connectors/grants_gov.py
+    - src/grantspider/connectors/grants_gov_detail.py
+    - src/grantspider/connectors/sam_gov.py
+    - src/grantspider/connectors/sam_opportunities.py
+    - src/grantspider/connectors/usaspending.py
+    - src/grantspider/connectors/gov_pdf.py
+    - src/grantspider/connectors/nofo_pdf_store.py
+    - src/grantspider/connectors/hydration/__init__.py
+    - src/grantspider/connectors/hydration/_base.py
+    - src/grantspider/connectors/hydration/doe_osti.py
+    - src/grantspider/connectors/hydration/doj_ojp.py
+    - src/grantspider/connectors/hydration/nih_guide.py
+    - src/grantspider/connectors/hydration/nsf_funding.py
+    - src/grantspider/services/gov_detail_hydration.py
+    - src/grantspider/services/gov_normalize.py
+    - src/grantspider/services/gov_pdf_pipeline.py
+    - src/grantspider/services/gov_pipeline.py
+    - src/grantspider/services/gov_public_sources.py
+    - src/grantspider/services/agency_hydration.py
+    - src/grantspider/services/hydration_pipeline.py
+    - src/grantspider/services/pdf_markdown.py
+    - src/grantspider/services/nofo_enrichment.py
+    - src/grantspider/services/nofo_prompts.py
+    - src/grantspider/services/program_intelligence.py
+    - src/grantspider/services/opportunity_classifier.py
+    - src/grantspider/services/opportunity_dedup.py
+    - src/grantspider/services/opportunity_reaper.py
+    - src/grantspider/services/entity_cleanup.py
+    - src/grantspider/services/sam_opportunities_sync.py
+    - src/grantspider/services/state_program_watchlist.py
+    - src/grantspider/cli/gov.py
+    - src/grantspider/orchestration/federal_assets.py
+    - src/grantspider/orchestration/gov_detail_hydration_assets.py
+    - src/grantspider/orchestration/agency_hydration_assets.py
+    - src/grantspider/orchestration/classify_opportunities.py
+  liabilities: [L-GS-1, L-GS-2, L-GS-3]
+  current_shape: '35 modules, 10,227 lines; 16 feature PRs in 90 days. `gov_pipeline.py` (939 lines) loads
+    federal and state rows alike. Only the NIH and NSF hydration lanes are assets (#2428); the DOE strategy
+    has no discovery feed. NOFO summarisation (`nofo_enrichment.py`, `nofo_prompts.py`, `nofo_pdf_store.py`)
+    and `connectors/hydration/doe_osti.py` have no live importer (L-GS-3).'
+  target_shape: hold
+- id: gs.state-opportunities
+  kind: code
+  purpose: 'State and local openings: state portals, municipal leagues, vendor tenants (Submittable,
+    AmpliFund, WebGrants) and RSS feeds.'
+  status: live
+  serves: [ag.funder-pages]
+  depends_on: [gs.outbound-http, gs.federal-opportunities, gs.crawl-frontier, gs.data-quality]
+  claims:
+    grantspider:
+    - src/grantspider/config/registry.py
+    - src/grantspider/config/vendor_tenants.py
+    - src/grantspider/config/feed_sources.py
+    - src/grantspider/connectors/rss.py
+    - src/grantspider/connectors/state_portals/__init__.py
+    - src/grantspider/connectors/state_portals/_base.py
+    - src/grantspider/connectors/state_portals/amplifund.py
+    - src/grantspider/connectors/state_portals/bidnet.py
+    - src/grantspider/connectors/state_portals/ckan.py
+    - src/grantspider/connectors/state_portals/feeds.py
+    - src/grantspider/connectors/state_portals/scbo.py
+    - src/grantspider/connectors/state_portals/sitemap.py
+    - src/grantspider/connectors/state_portals/socrata.py
+    - src/grantspider/connectors/state_portals/submittable.py
+    - src/grantspider/connectors/state_portals/usaspending.py
+    - src/grantspider/connectors/state_portals/vendor_probe.py
+    - src/grantspider/connectors/state_portals/webgrants.py
+    - src/grantspider/connectors/state_municipal_associations/__init__.py
+    - src/grantspider/connectors/state_municipal_associations/ak_aml.py
+    - src/grantspider/connectors/state_municipal_associations/fl_flc.py
+    - src/grantspider/connectors/state_municipal_associations/ga_gma.py
+    - src/grantspider/connectors/state_municipal_associations/ok_oml.py
+    - src/grantspider/connectors/state_municipal_associations/vt_vlct.py
+    - src/grantspider/services/state_pipeline.py
+    - src/grantspider/services/state_transforms.py
+    - src/grantspider/services/state_extractor.py
+    - src/grantspider/services/normalizer.py
+    - src/grantspider/services/portal_status.py
+    - src/grantspider/services/registry_state.py
+    - src/grantspider/services/state_fleet_health.py
+    - src/grantspider/services/sync_dispatcher.py
+    - src/grantspider/services/deadline_text.py
+    - src/grantspider/services/amplifund_pipeline.py
+    - src/grantspider/services/submittable_pipeline.py
+    - src/grantspider/services/webgrants_pipeline.py
+    - src/grantspider/services/vendor_discovery.py
+    - src/grantspider/services/vendor_lifecycle.py
+    - src/grantspider/services/feed_poller.py
+    - src/grantspider/cli/gov_discovery.py
+    - src/grantspider/orchestration/asset_factory.py
+    - src/grantspider/orchestration/state_fleet_assets.py
+  liabilities: [L-GS-1, L-GS-3]
+  current_shape: '41 modules, 8,172 lines; 4 feature PRs in 90 days. A YAML jurisdiction registry drives
+    `orchestration/asset_factory.py` (1,019 lines), one asset per jurisdiction, over 13 `state_portals/` and 6
+    `state_municipal_associations/` modules. `vendor_lifecycle.py` has no live importer (L-GS-3).'
+  target_shape: hold
+- id: gs.funder-discovery
+  kind: code
+  purpose: 'Grantmaker discovery beyond the BMF: candidate queue, corporate sweeps and giving-platform probes,
+    corporate-direct programmes, diocesan foundations.'
   status: live
   serves: [ag.research]
-  claims: {}
+  depends_on: [gs.funder-records, gs.outbound-http, gs.llm-access, gs.crawl, gs.corrections,
+    gs.grantmaker-status]
+  claims:
+    grantspider:
+    - src/grantspider/connectors/company_domain.py
+    - src/grantspider/connectors/crt_sh.py
+    - src/grantspider/connectors/cybergrants.py
+    - src/grantspider/connectors/grants_platforms.py
+    - src/grantspider/connectors/corporate_direct/__init__.py
+    - src/grantspider/connectors/corporate_foundations/__init__.py
+    - src/grantspider/connectors/corporate_foundations/us_chamber/__init__.py
+    - src/grantspider/connectors/corporate_foundations/us_chamber/program_models.py
+    - src/grantspider/connectors/corporate_foundations/us_chamber/spider.py
+    - src/grantspider/services/foundation_candidate_discovery.py
+    - src/grantspider/services/foundation_candidate_persist.py
+    - src/grantspider/services/corporate_grantmaker_discovery.py
+    - src/grantspider/services/corporate_direct_ingest.py
+    - src/grantspider/services/corporate_direct_prune.py
+    - src/grantspider/services/corporate_direct_website_source_backfill.py
+    - src/grantspider/services/csr_registry.py
+    - src/grantspider/services/company_domain_discovery.py
+    - src/grantspider/services/ct_log_subdomain_discovery.py
+    - src/grantspider/services/cybergrants_slug_discovery.py
+    - src/grantspider/services/corp_platform_corpus_scan.py
+    - src/grantspider/services/diocesan_foundation_ingest.py
+    - src/grantspider/cli/corp_ct_discover.py
+    - src/grantspider/cli/corp_cybergrants_discover.py
+    - src/grantspider/cli/corp_discover.py
+    - src/grantspider/cli/corp_domain_discover.py
+    - src/grantspider/cli/corp_platform_scan.py
+    - src/grantspider/cli/corporate_direct.py
+    - src/grantspider/cli/corporate_direct_website_source_backfill.py
+    - src/grantspider/cli/diocesan.py
+    - src/grantspider/orchestration/foundation_candidate_assets.py
+  liabilities: [L-GS-1, L-GS-2, L-GS-3]
+  current_shape: '30 modules, 6,039 lines; 4 feature PRs in 90 days. Corporate giving alone has six discovery
+    modules: a BMF name-and-NTEE sweep, CT-log, CyberGrants and company-domain probes, a platform scan of the
+    crawled corpus, and the `registry/corporate_direct.yaml` ingest. The US Chamber connector package (4
+    modules) and `csr_registry.py` have no live importer (L-GS-3).'
+  target_shape: hold
+- id: gs.community-foundations
+  kind: code
+  purpose: 'Community foundations: the COF locator and directory, ACF affiliates, site-platform detection,
+    CFCSRA funds and scholarships.'
+  status: live
+  serves: [ag.research]
+  depends_on: [gs.outbound-http, gs.website-resolution, gs.grantmaker-status]
+  claims:
+    grantspider:
+    - src/grantspider/connectors/cf_platforms.py
+    - src/grantspider/connectors/community_foundations/__init__.py
+    - src/grantspider/connectors/community_foundations/acf_affiliates.py
+    - src/grantspider/connectors/community_foundations/cfcsra.py
+    - src/grantspider/connectors/community_foundations/cip_codes.py
+    - src/grantspider/connectors/community_foundations/cof_locator.py
+    - src/grantspider/services/acf_affiliate_sync.py
+    - src/grantspider/services/cf_funds_fund_type_migrator.py
+    - src/grantspider/services/cf_funds_normalizer.py
+    - src/grantspider/services/cf_platform_detect.py
+    - src/grantspider/services/cfcsra_sync.py
+    - src/grantspider/services/cof_directory_import.py
+    - src/grantspider/services/cof_locator_sync.py
+    - src/grantspider/cli/cf.py
+    - src/grantspider/cli/cof_directory.py
+    - src/grantspider/orchestration/community_foundation_assets.py
   invariants: [I-11]
-  current_shape: 'Unclaimed stub until the GS seed. Source: `connectors/threesixtygiving.py`, `services/gov_pipeline.py`,
-    `connectors/community_foundations/`, `services/corporate_grantmaker_discovery.py`'
+  current_shape: '16 modules, 4,607 lines; 4 feature PRs in 90 days. `cof_directory_import.py` (988 lines)
+    also stamps websites through the verification spine. `connectors/community_foundations/cfcsra.py` (933
+    lines) scrapes one foundation.'
+  target_shape: hold
+- id: gs.funder-records
+  kind: code
+  purpose: 'Funder record fields: display names from filer names, acronym casing, slugs, addresses, source
+    labels, Haiku-beautified IRS text.'
+  status: live
+  serves: [ag.funder-pages]
+  depends_on: [gs.irs-ingestion, gs.data-quality, gs.llm-access]
+  claims:
+    grantspider:
+    - src/grantspider/services/name_beautify.py
+    - src/grantspider/services/name_gazetteer.py
+    - src/grantspider/services/display_name_cleaning.py
+    - src/grantspider/services/display_name_drain.py
+    - src/grantspider/services/filer_display_name.py
+    - src/grantspider/services/filer_name_backfill.py
+    - src/grantspider/services/filer_name_index_backfill.py
+    - src/grantspider/services/filer_name_sanity.py
+    - src/grantspider/services/foundation_slug.py
+    - src/grantspider/services/text_beautification.py
+    - src/grantspider/services/beautify_batch_io.py
+    - src/grantspider/services/beautify_cleanup.py
+    - src/grantspider/services/beautify_pipeline.py
+    - src/grantspider/services/address_backfill.py
+    - src/grantspider/services/source_backfill.py
+    - src/grantspider/cli/beautify_repair.py
+    - src/grantspider/cli/cleanup_slugs.py
+    - src/grantspider/cli/grants_filer_index.py
+    - src/grantspider/cli/address_backfill.py
+    - src/grantspider/orchestration/display_name_assets.py
+    - src/grantspider/orchestration/filer_name_index_assets.py
+  liabilities: [L-GS-2]
+  current_shape: '21 modules, 4,397 lines; 3 feature PRs in 90 days. Eight of the 21 are backfills or repairs.
+    Two filer-name backfills coexist: the 990 XML walk (#1581), reached only from `cli/grants.py`, and the
+    index-CSV drain (#1602), which is scheduled.'
+  target_shape: 'Repairs that have run are retired: each one-shot is deleted once `operations_ledger` shows
+    its apply and its target set measures empty, and a scheduled backfill is renamed as the producer it is
+    (L-GS-2).'
+- id: gs.entity-resolution
+  kind: code
+  purpose: 'Entity resolution: Splink, Jaro-Winkler/TF-IDF and name-cluster resolvers over an organization
+    spine with exact-EIN edges.'
+  status: live
+  serves: [ag.funder-search]
+  claims:
+    grantspider:
+    - src/grantspider/services/entity_resolution.py
+    - src/grantspider/services/jw_tfidf_resolver.py
+    - src/grantspider/services/name_cluster_resolution.py
+    - src/grantspider/services/organization_spine.py
+    - src/grantspider/services/org_funding_stats.py
+    - src/grantspider/services/peer_similarity.py
+    - src/grantspider/services/ein_holdout_eval.py
+    - src/grantspider/services/name_match_duckdb.py
+    - src/grantspider/services/name_normalization.py
+    - src/grantspider/services/_similarity.py
+    - src/grantspider/services/foundation_near_duplicates.py
+    - src/grantspider/cli/dedupe.py
+    - src/grantspider/cli/name_cluster.py
+    - src/grantspider/cli/ontology.py
+    - src/grantspider/orchestration/dedup_assets.py
+    - src/grantspider/orchestration/organization_resolution_assets.py
+  liabilities: [L-GS-3]
+  current_shape: '16 modules, 4,618 lines; 2 feature PRs in 90 days. Three resolvers coexist, each writing
+    candidates: Splink on DuckDB, `jw_tfidf_resolver.py` and the human-gated no-EIN name clusters (#1910),
+    with an EIN-holdout precision gate (#1906). AG''s `peer_donors.py` mirrors GS''s reference
+    `peer_similarity.py` over the ag_research views, and GS''s copy has no live importer (L-GS-3).'
+  target_shape: hold
+- id: gs.grantmaker-status
+  kind: code
+  purpose: 'Grantmaker status: one versioned derivation over override, disposition, behaviour and classifier
+    signals, kept fresh by a dirty-flag drain.'
+  status: live
+  serves: [ag.funder-search]
+  depends_on: [gs.enrichment, gs.data-quality, gs.funder-records, gs.llm-access]
+  claims:
+    grantspider:
+    - src/grantspider/services/grantmaker_status.py
+    - src/grantspider/services/grantmaker_status_dirty.py
+    - src/grantspider/services/grantmaker_status_drain.py
+    - src/grantspider/services/grantmaker_status_freshness.py
+    - src/grantspider/services/foundation_classifier.py
+    - src/grantspider/services/foundation_classification_sweep.py
+    - src/grantspider/services/pass_through_trust.py
+    - src/grantspider/services/grantmaker_signal_backfill.py
+    - src/grantspider/services/disposition_prepass.py
+    - src/grantspider/services/website_grant_program_classifier.py
+    - src/grantspider/cli/pass_through.py
+    - src/grantspider/cli/signal_backfill.py
+    - src/grantspider/cli/disposition_prepass.py
+    - src/grantspider/orchestration/grantmaker_status_assets.py
+  liabilities: [L-GS-2]
+  current_shape: '14 modules, 4,121 lines; 8 feature PRs in 90 days. Beside it sit the ADR-011 classifier and
+    its sweep, pass-through trust detection, the website programme classifier (ADR-011 W7) and a local-GPU
+    qwen disposition pre-pass. AG''s Typesense search filters on the result.'
+  target_shape: hold
+- id: gs.corrections
+  kind: code
+  purpose: 'Corrections: AG visitor corrections pulled and promoted by a human into pinned overrides; operator
+    one-field edits with lineage.'
+  status: live
+  depends_on: [gs.website-resolution]
+  claims:
+    grantspider:
+    - src/grantspider/connectors/ag_corrections.py
+    - src/grantspider/services/ag_corrections.py
+    - src/grantspider/services/ag_corrections_backlog.py
+    - src/grantspider/services/foundation_correction.py
+    - src/grantspider/cli/corrections.py
+    - src/grantspider/cli/foundation.py
+    - src/grantspider/orchestration/ag_corrections_assets.py
+  current_shape: '7 modules, 1,970 lines; 9 feature PRs in 90 days. A daily asset pulls AG''s export into
+    `ag_correction` (S-4); promotion is a human step and nothing auto-classifies. `foundation set` writes one
+    field through FoundationEntity, and a website correction also writes a verification record.'
   target_shape: hold
 - id: gs.website-resolution
   kind: code
-  purpose: 'Websites: Discovery (IRS, Wikidata, Brave, DDG, crt.sh providers) + Anthropic verification
-    judge.'
+  purpose: 'Websites: finding each funder''s site (IRS, Wikidata, Wikipedia, GiveFreely, Brave, DDG, agent
+    proposals), verifying identity, clearing wrong ones.'
   status: live
+  depends_on: [gs.outbound-http, gs.enrichment, gs.crawl-frontier, gs.irs-ingestion, gs.crawl, gs.page-triage,
+    gs.data-quality, gs.llm-access, gs.entity-resolution]
+  feeds: [gs.crawl-frontier]
+  claims:
+    grantspider:
+    - src/grantspider/connectors/brave_search.py
+    - src/grantspider/connectors/duckduckgo.py
+    - src/grantspider/connectors/wikidata.py
+    - src/grantspider/connectors/wikipedia.py
+    - src/grantspider/connectors/givefreely.py
+    - src/grantspider/connectors/_search_filters.py
+    - src/grantspider/services/website_find.py
+    - src/grantspider/services/website_finder.py
+    - src/grantspider/services/website_resolver.py
+    - src/grantspider/services/website_givefreely_provider.py
+    - src/grantspider/services/website_irs_provider.py
+    - src/grantspider/services/website_wikidata_provider.py
+    - src/grantspider/services/website_wikipedia_provider.py
+    - src/grantspider/services/website_identity.py
+    - src/grantspider/services/website_identity_rules.py
+    - src/grantspider/services/website_verification.py
+    - src/grantspider/services/website_verification_evidence.py
+    - src/grantspider/services/verification/__init__.py
+    - src/grantspider/services/verification/admission.py
+    - src/grantspider/services/verification/evidence.py
+    - src/grantspider/services/verification/records.py
+    - src/grantspider/services/verification/vocabulary.py
+    - src/grantspider/services/llm_judge.py
+    - src/grantspider/services/gf_csv_etl.py
+    - src/grantspider/services/brave_requeue.py
+    - src/grantspider/services/mis_resolved_websites.py
+    - src/grantspider/services/directory_host_websites.py
+    - src/grantspider/services/directory_hosts.py
+    - src/grantspider/services/identity_mismatch_harvest.py
+    - src/grantspider/services/identity_mismatch_writeback.py
+    - src/grantspider/services/verify_precision.py
+    - src/grantspider/services/site_resolution.py
+    - src/grantspider/services/excerpt_failure.py
+    - src/grantspider/cli/website.py
+    - src/grantspider/cli/website_find.py
+    - src/grantspider/cli/website_verify.py
+    - src/grantspider/cli/website_directory_clear.py
+    - src/grantspider/cli/cleanup_websites.py
+    - src/grantspider/cli/cleanup_brave.py
+    - src/grantspider/cli/gf.py
+    - src/grantspider/cli/dq_verify_precision.py
+    - src/grantspider/cli/foundations.py
+    - src/grantspider/orchestration/website_resolution_assets.py
+    - src/grantspider/orchestration/website_resolution_wiring.py
+    - src/grantspider/orchestration/ddg_website_resolution_assets.py
+    - src/grantspider/orchestration/ddg_990pf_website_resolution_assets.py
+  locations:
+  - {type: workflow, ref: 'grantspider:.claude/workflows/find-websites.js'}
+  liabilities: [L-GS-1, L-GS-2]
+  current_shape: '46 modules, 17,784 lines; 64 feature PRs in 90 days (95 counting promotions). Three write
+    paths: the provider finder (`website_finder.py`, 2,053 lines), fed six providers by `website_resolver.py`
+    and wrapped again for the entity path (`cli/website.py`, `orchestration/website_resolution_wiring.py`);
+    agent find-and-confirm (`website_find.py`, 1,746 lines, #2928); and the GiveFreely CSV ETL. Identity is
+    judged by a pure EIN-in-URL predicate, a rule table, a Brave-result LLM judge inside the finder, and the
+    Haiku drain `website_verification.py` (2,427 lines, 22 feature PRs). Three repairs clear wrong websites
+    behind two CLIs. `website_find.py` and `website_verification.py` import the enrichment cohort from
+    `enrichment_apply.py`.'
+  target_shape: 'One resolver: the providers and the agent''s proposal become candidate sources into one
+    confirm step (fetch, identity rules, verdict), retiring the finder, find-and-confirm and CSV write paths.
+    One verifier: the rule table and the Haiku judge as one ordered stage on the verification spine, retiring
+    `llm_judge.py`. One evidence store: every verdict, write and clear lands in `verification_records`, and
+    the three clearing repairs become one verb. The cohort helpers move out of `enrichment_apply.py` into a
+    module both capabilities import.'
+- id: gs.crawl-frontier
+  kind: code
+  purpose: 'Crawl frontier: the crawl graph (`mine_urls` + links), tiered cadence, and URL sources (sitemaps,
+    homepage links, Common Crawl, on demand).'
+  status: live
+  depends_on: [gs.outbound-http, gs.crawl, gs.enrichment]
   feeds: [gs.crawl]
-  claims: {}
-  current_shape: 'Unclaimed stub until the GS seed. Source: `services/website_resolver.py`, `services/llm_judge.py`,
-    `services/verification/`'
+  claims:
+    grantspider:
+    - src/grantspider/connectors/common_crawl.py
+    - src/grantspider/connectors/sitemap.py
+    - src/grantspider/connectors/homepage_links.py
+    - src/grantspider/services/mine_map.py
+    - src/grantspider/services/mine_url_transitions.py
+    - src/grantspider/services/priority.py
+    - src/grantspider/services/cadence.py
+    - src/grantspider/services/discovery.py
+    - src/grantspider/services/discover_dispatcher.py
+    - src/grantspider/services/sitemap_discovery.py
+    - src/grantspider/services/sitemap_enumeration.py
+    - src/grantspider/services/sitemap_iteration.py
+    - src/grantspider/services/sitemap_queue_drain.py
+    - src/grantspider/services/homepage_fallback.py
+    - src/grantspider/services/link_walker.py
+    - src/grantspider/services/cc_discovery.py
+    - src/grantspider/services/canonical_promotion.py
+    - src/grantspider/services/website_crawl_request.py
+    - src/grantspider/services/dead_url_sweep.py
+    - src/grantspider/services/scrape_block_backfill.py
+    - src/grantspider/services/url_filters.py
+    - src/grantspider/services/acquisition_completeness.py
+    - src/grantspider/services/cohort_page_stats.py
+    - src/grantspider/services/snapshot_rescore.py
+    - src/grantspider/cli/mine_map.py
+    - src/grantspider/cli/plateau.py
+    - src/grantspider/cli/page_stats.py
+    - src/grantspider/cli/snapshot_rescore.py
+    - src/grantspider/orchestration/sitemap_assets.py
+    - src/grantspider/orchestration/cadence_assets.py
+    - src/grantspider/orchestration/cohort_page_stats_assets.py
+  liabilities: [L-GS-1, L-GS-2]
+  current_shape: '31 modules, 9,479 lines; 21 feature PRs in 90 days. Sitemap discovery runs both as the
+    original single pass (`sitemap_discovery.py`, still the asset''s path) and as the two-phase queue of epic
+    #1029 (`sitemap_enumeration.py` + `sitemap_queue_drain.py`). `_base_url_for` is copied into three of these
+    modules (L-GS-1).'
   target_shape: hold
 - id: gs.crawl
   kind: code
-  purpose: 'Crawl: Railway sitemap/crawlee crawler; laptop crawler with a local SQLite resume ledger;
-    Common Crawl + Wayback; URL-heuristic page classification (no LLM).'
+  purpose: 'Capture: the Railway snapshot drain and the laptop crawler with its SQLite resume ledger; Wayback;
+    markdown snapshots to B2.'
   status: live
+  depends_on: [gs.outbound-http, gs.crawl-frontier, gs.website-resolution, gs.enrichment, gs.page-triage,
+    gs.data-quality]
+  feeds: [gs.enrichment, gs.embeddings-search]
+  claims:
+    grantspider:
+    - src/grantspider/connectors/crawl_ledger.py
+    - src/grantspider/connectors/page_scraper.py
+    - src/grantspider/connectors/wayback.py
+    - src/grantspider/services/sitemap_snapshot.py
+    - src/grantspider/services/sitemap_snapshot_async.py
+    - src/grantspider/services/local_crawl.py
+    - src/grantspider/services/crawlee_bridge.py
+    - src/grantspider/services/host_ready_scheduler.py
+    - src/grantspider/services/host_refusal.py
+    - src/grantspider/services/crawl_reattempt.py
+    - src/grantspider/services/fetch_strategy_classifier.py
+    - src/grantspider/services/nav_discovery.py
+    - src/grantspider/services/second_hop.py
+    - src/grantspider/services/operator_document.py
+    - src/grantspider/services/guideline_pdf.py
+    - src/grantspider/services/pdf_extractor.py
+    - src/grantspider/services/markdown_snapshot.py
+    - src/grantspider/services/markdown_frontmatter.py
+    - src/grantspider/services/html_normalisation.py
+    - src/grantspider/services/structured_metadata.py
+    - src/grantspider/services/snapshot_error_requeue.py
+    - src/grantspider/services/snapshot_refresh.py
+    - src/grantspider/services/snapshot_requeue.py
+    - src/grantspider/services/wayback_parse.py
+    - src/grantspider/services/wayback_pipeline.py
+    - src/grantspider/services/b2_orphan_recovery.py
+    - src/grantspider/extraction/foundation_match.py
+    - src/grantspider/cli/crawl_local.py
+    - src/grantspider/cli/crawl_add_document.py
+    - src/grantspider/cli/snapshot.py
+    - src/grantspider/cli/wayback.py
+    - src/grantspider/cli/b2.py
+    - src/grantspider/orchestration/snapshot_checks.py
+    - src/grantspider/orchestration/snapshot_requeue_assets.py
+    - src/grantspider/orchestration/refresh_tier_assets.py
+  liabilities: [L-GS-3]
+  current_shape: '35 modules, 12,790 lines; 32 feature PRs in 90 days. Two lanes share one fetch, robots and
+    stamp: the host-concurrent drain (`sitemap_snapshot_async.py`) and the laptop crawler (`local_crawl.py`,
+    1,867 lines, 19 feature PRs). `crawlee_bridge.py`, `fetch_strategy_classifier.py` and `pdf_extractor.py`
+    (PyMuPDF, barred by GS#2602) have no live importer (L-GS-3).'
+  target_shape: hold
+- id: gs.page-triage
+  kind: code
+  purpose: 'Page triage: URL-and-content heuristic page labels (no LLM), and the safety pass over untrusted
+    crawl text before prompts and embeddings.'
+  status: live
+  depends_on: [gs.crawl]
   feeds: [gs.enrichment]
-  claims: {}
-  invariants: [I-17]
-  current_shape: 'Unclaimed stub until the GS seed. Source: `services/sitemap_snapshot*.py`, `services/local_crawl.py`,
-    `connectors/crawl_ledger.py`, `services/page_classification.py`'
+  claims:
+    grantspider:
+    - src/grantspider/services/page_classification.py
+    - src/grantspider/services/page_classification_backfill.py
+    - src/grantspider/services/page_triage.py
+    - src/grantspider/services/content_safety.py
+    - src/grantspider/services/corpus_scan.py
+    - src/grantspider/cli/triage.py
+    - src/grantspider/orchestration/page_classification_assets.py
+  liabilities: [L-GS-2, L-GS-3]
+  current_shape: '7 modules, 1,291 lines; 2 feature PRs in 90 days. Labels come from `page_classification.py`.
+    `page_triage.py`, a Haiku labeller, is reached only through `crawlee_bridge.py`, which nothing live
+    imports (L-GS-3).'
   target_shape: hold
 - id: gs.enrichment
   kind: code
-  purpose: 'Enrichment: SKIP LOCKED claim queue drained by in-session Sonnet workers (`.claude/workflows/enrich-drain.*`);
-    metered Anthropic key fail-closed; token-free funding profiles.'
+  purpose: 'Funder profiles: the enrich-drain pull and apply, the two-pass research bench, section and about
+    passes, gates, generations and TTL.'
   status: live
-  serves: [ag.research]
-  claims: {}
-  liabilities: [G4]
-  current_shape: 'Unclaimed stub until the GS seed. Source: `services/enrichment_queue.py`, `config/metered_api.py:94`,
-    `services/funding_profile*.py`'
+  serves: [ag.funder-pages]
+  depends_on: [gs.page-triage, gs.crawl, gs.website-resolution, gs.outbound-http, gs.data-quality,
+    gs.crawl-frontier, gs.grantmaker-status, gs.state-opportunities, gs.metered-enrichment]
+  claims:
+    grantspider:
+    - src/grantspider/services/enrichment_apply.py
+    - src/grantspider/services/enrichment_assembly.py
+    - src/grantspider/services/enrichment_selection.py
+    - src/grantspider/services/enrichment_prompt.py
+    - src/grantspider/services/enrichment_prompt_stamp.py
+    - src/grantspider/services/enrichment_source_stamp.py
+    - src/grantspider/services/enrichment_gates.py
+    - src/grantspider/services/enrichment_trusted_context.py
+    - src/grantspider/services/enrichment_hold.py
+    - src/grantspider/services/enrichment_fixture.py
+    - src/grantspider/services/enrichment_generation.py
+    - src/grantspider/services/enrichment_story.py
+    - src/grantspider/services/enrichment_coverage.py
+    - src/grantspider/services/enrichment_signal.py
+    - src/grantspider/services/enrichment_drain_steps.py
+    - src/grantspider/services/enrichment_profile_runner.py
+    - src/grantspider/services/drain_queue.py
+    - src/grantspider/services/drain_run_ledger.py
+    - src/grantspider/services/drain_cost.py
+    - src/grantspider/services/enrichment_reaper.py
+    - src/grantspider/services/enrichment_ttl.py
+    - src/grantspider/services/enrichment_ttl_rebase.py
+    - src/grantspider/services/story_generation_restore.py
+    - src/grantspider/services/scrub_enrichments.py
+    - src/grantspider/services/placeholder_cleanup.py
+    - src/grantspider/services/cleanup.py
+    - src/grantspider/services/cleanup_dispatcher.py
+    - src/grantspider/services/backfill.py
+    - src/grantspider/services/neutral_voice_rolling.py
+    - src/grantspider/extraction/__init__.py
+    - src/grantspider/extraction/schemas.py
+    - src/grantspider/cli/enrichment_profile.py
+    - src/grantspider/cli/enrichment_drain.py
+    - src/grantspider/cli/cleanup.py
+    - src/grantspider/orchestration/enrichment_assets.py
+    - src/grantspider/orchestration/enrichment_freshness_assets.py
+    - src/grantspider/services/research_pass.py
+    - src/grantspider/services/research_pull.py
+    - src/grantspider/services/fact_merge.py
+    - src/grantspider/services/fact_recall.py
+    - src/grantspider/services/fact_append.py
+    - src/grantspider/services/compose_gates.py
+    - src/grantspider/services/compose_fixture.py
+    - src/grantspider/services/profile_gates.py
+    - src/grantspider/services/profile_apply.py
+    - src/grantspider/services/profile_results.py
+    - src/grantspider/services/profile_rows.py
+    - src/grantspider/services/section_pass.py
+    - src/grantspider/services/section_apply.py
+    - src/grantspider/services/about_pass.py
+    - src/grantspider/services/programme_inventory.py
+    - src/grantspider/services/readability.py
+    - src/grantspider/services/drain_bench.py
+    - src/grantspider/cli/enrichment_research.py
+    - src/grantspider/cli/enrichment_section.py
+    - src/grantspider/cli/enrichment_about.py
+    - src/grantspider/cli/_selectors.py
+    - src/grantspider/cli/programme_inventory.py
+  locations:
+  - {type: workflow, ref: 'grantspider:.claude/workflows/enrich-drain.js'}
+  - {type: workflow, ref: 'grantspider:.claude/workflows/section-pass.js'}
+  - {type: workflow, ref: 'grantspider:.claude/workflows/about-pass.js'}
+  liabilities: [G4, L-GS-1, L-GS-2, L-GS-3]
+  current_shape: 'The largest capability: 58 modules, 28,267 lines (16,792 code); 94 feature PRs in 90 days,
+    139 counting promotions. `enrichment_apply.py` is 3,431 lines (1,611 code) and was touched by 36 feature
+    PRs (60 counting promotions); `cli/enrichment_profile.py` (1,266 lines, 27) and `enrichment_selection.py`
+    (21) follow. Four passes write one profile generation: the enrich-drain, the two-pass bench (#2978), the
+    section pass (#3136) and the about pass (#3170). The bench, section and about modules and the drain
+    modules share 49 module-to-module import edges. Five modules are cleanups or backfills;
+    `enrichment_coverage.py` has no live importer (L-GS-3).'
+  target_shape: '`enrichment_apply.py` split along its seams: the cohort and pull (`CohortSpec`, `pull_batch`,
+    the clauses website resolution imports) into one module; the generation lifecycle (archive, renew,
+    reactivate) into `enrichment_generation.py`; the site contact and address write-through; disposition
+    routing with its Sonnet corroboration (GS#2776). `apply_results` stays as the orchestrator. The four
+    passes share one pull, one gate tuple and one writer.'
+- id: gs.metered-enrichment
+  kind: code
+  purpose: 'Metered-key enrichment: the `enrich` CLI, the on-demand SKIP LOCKED queue and worker, and LLM
+    snapshot extraction.'
+  status: live
+  depends_on: [gs.enrichment, gs.outbound-http, gs.llm-access, gs.crawl]
+  claims:
+    grantspider:
+    - src/grantspider/services/enricher.py
+    - src/grantspider/services/enrichment.py
+    - src/grantspider/services/enrichment_runner.py
+    - src/grantspider/services/enrichment_worker.py
+    - src/grantspider/services/enrichment_queue.py
+    - src/grantspider/services/enrichment_prompts.py
+    - src/grantspider/services/contact_extractor.py
+    - src/grantspider/services/llm_extract.py
+    - src/grantspider/services/llm_extract_queue.py
+    - src/grantspider/cli/enrichment.py
+    - src/grantspider/cli/enrichment_worker.py
+    - src/grantspider/cli/llm_extract.py
+    - src/grantspider/orchestration/enrichment_worker_assets.py
+  locations:
+  - {type: workflow, ref: 'grantspider:.claude/workflows/llm-extract.md'}
+  liabilities: [L-GS-3]
+  current_shape: '13 modules, 3,425 lines; 5 feature PRs in 90 days. The hourly queue drain is stopped by
+    default (`orchestration/schedules.py:1035`) and the in-process asset is dormant (#1116); enrichment runs
+    through the enrich-drain workflow instead. `contact_extractor.py` has no live importer (L-GS-3).'
+  target_shape: hold
+- id: gs.funding-profile
+  kind: code
+  purpose: 'Funding profiles: token-free facets and prose derived from a funder''s grant set, refreshed only
+    for funders whose grants moved.'
+  status: live
+  serves: [ag.funder-pages]
+  claims:
+    grantspider:
+    - src/grantspider/services/funding_profile.py
+    - src/grantspider/services/funding_profile_backfill.py
+    - src/grantspider/services/funding_profile_derive.py
+    - src/grantspider/services/funding_profile_facets.py
+    - src/grantspider/services/funding_profile_gather.py
+    - src/grantspider/services/funding_profile_prose.py
+    - src/grantspider/services/funding_profile_scope.py
+    - src/grantspider/services/funding_profile_segments.py
+    - src/grantspider/services/languagetool_sweep.py
+    - src/grantspider/cli/funding_profile.py
+    - src/grantspider/cli/funding_profile_backfill.py
+  liabilities: [L-GS-2]
+  current_shape: '11 modules, 3,744 lines; 15 feature PRs in 90 days. Gather, facets, prose and write, with
+    per-foundation transactions to keep Neon''s xmin horizon short (#1969); the refresh drain pulls to SQLite
+    and re-derives with Neon idle (#3271).'
+  target_shape: hold
+- id: gs.giving-stats
+  kind: code
+  purpose: 'Giving statistics: per-funder fingerprints and distributions, top funders by state, city and
+    sector, and the one sector taxonomy.'
+  status: live
+  serves: [ag.funder-pages]
+  depends_on: [gs.funding-profile, gs.deadlines]
+  claims:
+    grantspider:
+    - src/grantspider/services/funding_fingerprint.py
+    - src/grantspider/services/foundation_distribution_stats.py
+    - src/grantspider/services/area_funding_stats.py
+    - src/grantspider/services/sector_funding_stats.py
+    - src/grantspider/services/sector_taxonomy.py
+    - src/grantspider/cli/fingerprint.py
+    - src/grantspider/cli/distribution_stats.py
+    - src/grantspider/cli/sector_stats.py
+    - src/grantspider/orchestration/funding_fingerprint_assets.py
+  current_shape: '9 modules, 3,040 lines; 8 feature PRs in 90 days. `sector_taxonomy.py` is the one definition
+    of a sector for GS and AG.'
+  target_shape: hold
+- id: gs.deadlines
+  kind: code
+  purpose: 'Deadlines: deterministic extraction from crawled pages and the 990-PF, rolling-cue classification,
+    and the one open-to-applications predicate.'
+  status: live
+  serves: [ag.funder-pages]
+  depends_on: [gs.state-opportunities]
+  claims:
+    grantspider:
+    - src/grantspider/services/deadline_extractor.py
+    - src/grantspider/services/deadline_refresh.py
+    - src/grantspider/services/deadline_rolling_cue.py
+    - src/grantspider/services/deadline_dated_sample.py
+    - src/grantspider/services/irs_deadlines.py
+    - src/grantspider/services/open_to_applications.py
+    - src/grantspider/services/foundation_opportunity_promotion.py
+    - src/grantspider/orchestration/deadline_assets.py
+  current_shape: '8 modules, 2,493 lines; 5 feature PRs in 90 days. `open_to_applications.py` renders the SQL
+    the `ag_research` seam publishes as a column; the rolling-cue classifier carries its own labelled sample.'
   target_shape: hold
 - id: gs.embeddings-search
   kind: code
-  purpose: 'Embeddings / search index: Local all-MiniLM-L6-v2 (384-d), source-hash staleness; GS owns
-    the Typesense indexing.'
+  purpose: 'Embeddings and search: local all-MiniLM-L6-v2 (384-d) for funders, open opportunities and page
+    chunks; Typesense reindexes.'
   status: live
   serves: [ag.funder-search]
-  claims: {}
-  current_shape: 'Unclaimed stub until the GS seed. Source: `services/embedding_generation.py`, `services/embedding_hash.py`,
-    `services/foundation_search_index.py`'
+  depends_on: [gs.page-triage, gs.crawl]
+  claims:
+    grantspider:
+    - src/grantspider/connectors/embeddings.py
+    - src/grantspider/connectors/typesense_client.py
+    - src/grantspider/services/embedding_generation.py
+    - src/grantspider/services/embedding_hash.py
+    - src/grantspider/services/embedding_stale_reembed.py
+    - src/grantspider/services/gov_opportunity_embedding.py
+    - src/grantspider/services/foundation_search_index.py
+    - src/grantspider/services/gov_opportunity_search_index.py
+    - src/grantspider/services/page_chunking.py
+    - src/grantspider/services/page_embedding.py
+    - src/grantspider/cli/embeddings.py
+    - src/grantspider/cli/gov_embeddings.py
+    - src/grantspider/cli/page_embeddings.py
+    - src/grantspider/orchestration/embedding_assets.py
+    - src/grantspider/orchestration/foundation_search_index_assets.py
+    - src/grantspider/orchestration/gov_opportunity_embedding_assets.py
+    - src/grantspider/orchestration/gov_opportunity_search_index_assets.py
+    - src/grantspider/orchestration/page_chunk_embedding_assets.py
+  current_shape: '18 modules, 4,510 lines; 4 feature PRs in 90 days. A source hash marks stale embeddings for
+    a nightly re-embed; foundations and open opportunities are reindexed by alias swap.'
+  target_shape: hold
+- id: gs.authority-map
+  kind: code
+  purpose: 'Funding-authority map: who passes public money down, from FAC audits and USASpending subawards,
+    with county closure and attribution.'
+  status: building
+  depends_on: [gs.outbound-http]
+  claims:
+    grantspider:
+    - src/grantspider/config/authorities.py
+    - src/grantspider/config/authority_roles.py
+    - src/grantspider/connectors/fac.py
+    - src/grantspider/connectors/usaspending_subawards.py
+    - src/grantspider/services/authority_attribution.py
+    - src/grantspider/services/authority_coverage.py
+    - src/grantspider/services/authority_discovery.py
+    - src/grantspider/services/authority_roles.py
+    - src/grantspider/services/authority_seed.py
+    - src/grantspider/services/attribution_floor.py
+    - src/grantspider/services/fac_discovery.py
+    - src/grantspider/services/usaspending_discovery.py
+    - src/grantspider/services/opportunity_tracker.py
+    - src/grantspider/cli/authorities.py
+  liabilities: [L-GS-3]
+  current_shape: '14 modules, 4,082 lines; 23 feature PRs in 90 days. CLI only: no Dagster asset yet, and AG
+    reads none of it. Epic GS#3295 is open. `opportunity_tracker.py` has no live importer (L-GS-3).'
   target_shape: hold
 - id: gs.data-quality
   kind: code
-  purpose: 'Data quality: Stage-health ledger (`dq health`), freshness SLAs, canaries, Sentry run-failure
-    sensor, Neon consumption canary.'
+  purpose: 'Data quality: the write gate, nightly snapshots and drift scans, freshness SLAs, the stage-health
+    ledger, canaries, the Vintner funnel, operator stats.'
   status: live
-  feeds: [os.session-sweeps]
-  claims: {}
-  current_shape: 'Unclaimed stub until the GS seed. Source: `cli/dq_health.py`, `services/stage_health*.py`,
-    `services/freshness_sla.py`, `orchestration/run_failure_sensor.py`'
+  depends_on: [gs.federal-opportunities, gs.website-resolution, gs.enrichment, gs.irs-ingestion,
+    gs.outbound-http, gs.crawl, gs.llm-access, gs.funder-records, gs.embeddings-search]
+  feeds: [os.session-sweeps, os.vintner]
+  claims:
+    grantspider:
+    - src/grantspider/services/dq_cross_table.py
+    - src/grantspider/services/dq_report.py
+    - src/grantspider/services/dq_rowcount.py
+    - src/grantspider/services/dq_schema_drift.py
+    - src/grantspider/services/dq_snapshot.py
+    - src/grantspider/services/stage_health.py
+    - src/grantspider/services/stage_health_report.py
+    - src/grantspider/services/stage_canaries.py
+    - src/grantspider/services/stage_canary_evaluation.py
+    - src/grantspider/services/freshness_sla.py
+    - src/grantspider/services/quality.py
+    - src/grantspider/services/quality_audit.py
+    - src/grantspider/services/quality_dispatcher.py
+    - src/grantspider/services/reprocess.py
+    - src/grantspider/services/hygiene.py
+    - src/grantspider/services/hygiene_rules.py
+    - src/grantspider/services/verify_quality.py
+    - src/grantspider/services/url_reachability.py
+    - src/grantspider/services/ntee_semantic_check.py
+    - src/grantspider/services/db_state.py
+    - src/grantspider/services/database_status.py
+    - src/grantspider/services/stats.py
+    - src/grantspider/services/analytics.py
+    - src/grantspider/services/table_stats_registry.py
+    - src/grantspider/services/funnel_snapshot.py
+    - src/grantspider/services/gov_fetch_log.py
+    - src/grantspider/cli/dq.py
+    - src/grantspider/cli/dq_health.py
+    - src/grantspider/cli/stats.py
+    - src/grantspider/cli/quality.py
+    - src/grantspider/cli/reprocess.py
+    - src/grantspider/cli/hygiene.py
+    - src/grantspider/orchestration/suites/
+    - src/grantspider/orchestration/asset_checks.py
+    - src/grantspider/orchestration/quality_contracts.py
+    - src/grantspider/orchestration/coverage_ratchet.py
+    - src/grantspider/orchestration/stage_health_assets.py
+    - src/grantspider/orchestration/stage_canary_assets.py
+    - src/grantspider/orchestration/db_state_assets.py
+  locations:
+  - {type: workflow, ref: 'grantspider:.github/workflows/dq-irs-bmf.yml'}
+  - {type: workflow, ref: 'grantspider:.github/workflows/dq-grant-reconcile.yml'}
+  - {type: workflow, ref: 'grantspider:.github/workflows/dq-ntee-check.yml'}
+  - {type: workflow, ref: 'grantspider:.github/workflows/dq-url-reachability.yml'}
+  - {type: workflow, ref: 'grantspider:.github/workflows/dq-neutral-voice-rolling.yml'}
+  - {type: workflow, ref: 'grantspider:.github/workflows/dq-er-candidates.yml'}
+  - {type: workflow, ref: 'grantspider:.github/workflows/quality-audit.yml'}
+  liabilities: [L-GS-2]
+  current_shape: '43 modules, 18,616 lines; 46 feature PRs in 90 days. `quality.py` holds `validate_batch()`,
+    which its ABOUTME names the single pre-write gate (not measured here). `cli/dq.py` is 1,807 lines (1,337
+    code). `table_stats_registry.py` maps every table to a display group, so it was touched by 21 feature PRs.
+    `dq health` feeds the stage-health sweep (S-11).'
   target_shape: hold
 - id: gs.safety
   kind: code
-  purpose: 'Safety: Operator-armed prod migrations (`db migrate-prod arm|run|cleanup`), pre-migration
-    backup, weekly backups of research + Dagster + AG tenant DBs, monthly restore drill.'
+  purpose: 'Database safety: operator-armed prod migrations, pre-migration and weekly B2 backups, the restore
+    drill, wipe canaries, the Neon budget canary.'
   status: live
-  claims: {}
+  serves: [ag.ops]
+  depends_on: [gs.dagster-runtime]
+  claims:
+    grantspider:
+    - src/grantspider/_prod_migration_token.py
+    - src/grantspider/config/db_identity.py
+    - src/grantspider/connectors/neon_api.py
+    - src/grantspider/services/prod_migration.py
+    - src/grantspider/services/db_backup.py
+    - src/grantspider/services/db_backup_weekly.py
+    - src/grantspider/services/backup_drill.py
+    - src/grantspider/services/db_canary.py
+    - src/grantspider/services/db_sentinels.py
+    - src/grantspider/services/neon_consumption.py
+    - src/grantspider/cli/migrate_prod.py
+    - src/grantspider/cli/backup.py
+    - src/grantspider/cli/canary.py
+    - src/grantspider/cli/sentinels.py
+    - src/grantspider/cli/db.py
+    - src/grantspider/cli/cost.py
+    - src/grantspider/orchestration/ops_assets.py
+    - src/grantspider/orchestration/canary.py
+    - src/grantspider/orchestration/sentinel_checks.py
+    - src/grantspider/orchestration/neon_consumption_assets.py
   invariants: [I-7, I-8]
-  current_shape: 'Unclaimed stub until the GS seed. Source: `_prod_migration_token.py`, `services/prod_migration.py`,
-    `services/db_backup_weekly.py`, `services/backup_drill.py`'
+  current_shape: '20 modules, 4,847 lines; 5 feature PRs in 90 days. Weekly backups cover the research and
+    Dagster databases with 30-day retention; AG''s `backup_database` imports `services.db_backup` (S-2). The
+    hourly row-count canary and the sentinel rows guard against silent wipes.'
+  target_shape: hold
+- id: gs.dagster-runtime
+  kind: code
+  purpose: 'Dagster runtime: definitions, schedules, sensors and run guards; zombie and orphan reapers; the
+    out-of-band daemon watchdog; cron check-ins.'
+  status: live
+  claims:
+    grantspider:
+    - src/grantspider/connectors/railway.py
+    - src/grantspider/services/zombie_reaper.py
+    - src/grantspider/services/orphan_reaper.py
+    - src/grantspider/services/daemon_watchdog.py
+    - src/grantspider/services/cron_monitor.py
+    - src/grantspider/services/alerting.py
+    - src/grantspider/cli/daemon_watchdog.py
+    - src/grantspider/cli/queue_backlog.py
+    - src/grantspider/cli/watchdog_state.py
+    - src/grantspider/cli/ops.py
+    - src/grantspider/orchestration/__init__.py
+    - src/grantspider/orchestration/definitions.py
+    - src/grantspider/orchestration/schedules.py
+    - src/grantspider/orchestration/sensors.py
+    - src/grantspider/orchestration/active_run_guard.py
+    - src/grantspider/orchestration/asset_metadata.py
+    - src/grantspider/orchestration/assets.py
+    - src/grantspider/orchestration/run_failure_sensor.py
+    - src/grantspider/orchestration/zombie_reaper_sensor.py
+  locations:
+  - {type: path, ref: 'grantspider:railway.toml'}
+  current_shape: '19 modules, 5,258 lines; 20 feature PRs in 90 days. `definitions.py` is the single import
+    surface for every asset, check, schedule and sensor (17 feature PRs); `schedules.py` is 1,727 lines. The
+    daemon watchdog redeploys through the Railway connector. depends_on is omitted: the definitions import
+    every asset module.'
+  target_shape: hold
+- id: gs.dev-gates
+  kind: code
+  purpose: 'Dev gates: the gaudi boy-scout ratchet, migration and reader-privilege drift, Dagster lints, the
+    pin-bump notice to AG, the divergence watchdog.'
+  status: live
+  feeds: [ag.dev-gates]
+  claims:
+    grantspider:
+    - src/grantspider/dev/
+    - src/grantspider/services/coverage_report.py
+    - src/grantspider/services/coverage_runner.py
+    - src/grantspider/services/api_discovery.py
+    - src/grantspider/services/foundation_snapshot.py
+    - src/grantspider/services/session_snapshot.py
+    - src/grantspider/services/session_snapshot_io.py
+    - src/grantspider/cli/dev.py
+  locations:
+  - {type: workflow, ref: 'grantspider:.github/workflows/ci.yml'}
+  - {type: workflow, ref: 'grantspider:.github/workflows/divergence-watchdog.yml'}
+  - {type: workflow, ref: 'grantspider:.github/workflows/notify-ag-on-main.yml'}
+  - {type: workflow, ref: 'grantspider:.github/workflows/lock-drift.yml'}
+  invariants: [I-16, I-19, I-20]
+  current_shape: '15 modules, 3,439 lines; 15 feature PRs in 90 days, 13 of them on `dev/boy_scout.py`. GS
+    `staging` requires the `ci` check (I-16). `notify-ag-on-main.yml` fires AG''s pin bump (I-19).'
   target_shape: hold
 - id: wp.connectors
   kind: code
@@ -1097,10 +2168,10 @@ capabilities:
   entry_points:
   - scripts/estate_map.py check
   - scripts/estate_map.py render --write
-  current_shape: OverSteward and AG are seeded and their coverage floors measured (AG at 580 modules,
-    0 orphans, 0 overlaps). GS capabilities are unclaimed stubs, and its floor is null (unmeasured).
-  target_shape: GS (PR 3) seeded with claims and a measured floor, per-repo slices deployed (PR 4), and
-    in-flight work derived from GitHub (PR 5) — OS#640.
+  current_shape: OverSteward, AG and GS are seeded and their coverage floors measured (AG at 580 modules,
+    0 orphans, 0 overlaps; GS at 781 modules, 2 orphans, 0 overlaps, with services and connectors claimed
+    file by file).
+  target_shape: Per-repo slices deployed (PR 4), and in-flight work derived from GitHub (PR 5) — OS#640.
 
 seams:
 - id: S-1
@@ -1251,19 +2322,19 @@ invariants:
   status: live
   text: Data-contract §7 fields are not removed/renamed/re-meant without the §8 dual-write procedure
   cite: data contract §7-8
-  capabilities: [ag.research]
+  capabilities: [ag.research, gs.research-schema]
 - id: I-7
   status: live
   text: 'GS data migrations use the ORM (ADR-006). **App code is not ORM-only**: ~129 `text()` calls across
     services/cli/orchestration/connectors, with no lint. Raw SQL must not bypass client-side defaults'
   cite: GS `docs/adr/006-alembic-data-migrations-use-orm.md`; e.g. `services/address_backfill.py:164-228`
-  capabilities: [gs.safety]
+  capabilities: [gs.research-schema, gs.safety]
 - id: I-8
   status: live
   text: Pre-migration UPDATEs collapsing many rows to one value audit every sibling UNIQUE (partial +
     full) on touched columns
   cite: memory `feedback_migration_sibling_unique_audit`
-  capabilities: [gs.safety]
+  capabilities: [gs.research-schema, gs.safety]
 - id: I-9
   status: live
   text: wphelper is the canonical connector home; other repos import rather than duplicate. **Violated
@@ -1281,7 +2352,7 @@ invariants:
     never writes them. A writer census test pins the set
   cite: GS `services/irs_990_ingestion.py:348`, `services/irs_persistence.py:732`, `services/three_sixty_giving_ingestion.py:230`,
     `services/cfcsra_sync.py`, `tests/services/test_grant_source_backfill.py`
-  capabilities: [gs.irs-ingestion, gs.other-sources]
+  capabilities: [gs.irs-ingestion, gs.grant-records, gs.community-foundations]
 - id: I-12
   status: live
   text: Architect decisions address every audit finding in a STOPPED_FOR_INPUT report, not just the headline
@@ -1308,30 +2379,30 @@ invariants:
   text: 'Required CI checks are mostly off, by design: null on AG main/staging, GS main, OverSteward master,
     fiscus main. **Exceptions:** GS `staging` requires `ci`; gaudi main requires lint/security/test'
   cite: GitHub branch-protection API, 2026-10-31; `.github/workflows/ci.yml:10-12`
-  capabilities: [os.dispatch]
+  capabilities: [os.dispatch, gs.dev-gates]
 - id: I-17
   status: live
   text: 'Long Neon writes reconnect and commit per batch: `with_reconnect()` invalidates a dropped pooler
     connection and retries'
   cite: GS `src/grantspider/connectors/neon.py:95-146` (also `services/sqlite_migrate.py:265` `_bulk_upsert`)
-  capabilities: [gs.crawl]
+  capabilities: [gs.runtime]
 - id: I-18
   status: live
   text: '`grantspider.ontology` must not import `services`, `connectors`, `cli`, `orchestration` — lint
     + pre-commit'
   cite: GS `scripts/lint/check_ontology_imports.py:41`, `.pre-commit-config.yaml:64-72`
-  capabilities: []
+  capabilities: [gs.ontology]
 - id: I-19
   status: live
   text: AG production pins only GS `main` SHAs, via the human-gated draft bump PR (§2)
   cite: GS `notify-ag-on-main.yml`; AG `bump-gs-pin.yml:79,212`
-  capabilities: [ag.dev-gates]
+  capabilities: [ag.dev-gates, gs.dev-gates]
 - id: I-20
   status: live
   text: '`main ⊆ staging` in **both** GS and AG; back-merges are true merges, never squash. Each repo''s
     `divergence-watchdog.yml` (push + daily 13:00 UTC) fails and files an issue on divergence'
   cite: GS and AG `.github/workflows/divergence-watchdog.yml`
-  capabilities: [ag.dev-gates]
+  capabilities: [ag.dev-gates, gs.dev-gates]
 - id: I-21
   status: live
   text: One git worktree per session via `scripts/dev/new-session.sh` → `session/<name>`; `guard_main_worktree.py`
@@ -1413,6 +2484,44 @@ liabilities:
   owner: aigranthelper
   tracking: '`git grep -n "def _apply_[a-z_]*cache_control" origin/main -- apps/` (AG f2a8d99)'
   capabilities: [ag.funder-pages, ag.landing-pages, ag.edge]
+- id: L-GS-1
+  text: 'Copied helpers, identical once docstrings are dropped: `_coerce_positive_int` in `enrichment_reaper.py`,
+    `enrichment_ttl.py` and `opportunity_reaper.py`; `_base_url_for` in `homepage_fallback.py`, `sitemap_discovery.py`
+    and `sitemap_enumeration.py`; `_parse_us_date` in the US Chamber spider and `ga_gma.py`; `_db_url` in six
+    `scripts/audits/` scripts. Five models render a `column IN (...)` CHECK body with `_in_list` (2) or `_check_in`
+    (3), which differ only in quoting. `read_foundation_ids` lives in `cli/cleanup_websites.py`, and five other
+    CLIs import it from there'
+  owner: grantspider
+  tracking: '`git grep -n "def \(_coerce_positive_int\|_base_url_for\|_parse_us_date\|_in_list\|_check_in\|_db_url\)\b"
+    origin/main -- src/ scripts/audits/` (GS be9ed67)'
+  capabilities: [gs.research-schema, gs.federal-opportunities, gs.state-opportunities, gs.funder-discovery,
+    gs.website-resolution, gs.crawl-frontier, gs.enrichment]
+- id: L-GS-2
+  text: '41 modules (27 services, 13 CLIs, 1 asset) are named for a cleanup, repair, backfill, clear, rescore
+    or reprocess, and nothing retires one after it has run. 18 of them have not changed since before 2026-08-02;
+    at least four of those are scheduled producers rather than repairs (NTEE, filer-name index, page
+    classification). `services/operations_ledger.py` exists to stamp out-of-band ops, so a run can be proven
+    before a repair is deleted'
+  owner: grantspider
+  tracking: '`git ls-tree -r --name-only origin/main -- src/grantspider | grep -E "cleanup|repair|backfill|clear|rescore|reprocess"`
+    (GS be9ed67; the `fix` stem matches only `*_fixture.py`)'
+  capabilities: [gs.irs-ingestion, gs.grant-records, gs.federal-opportunities, gs.funder-discovery, gs.funder-records,
+    gs.grantmaker-status, gs.website-resolution, gs.crawl-frontier, gs.page-triage, gs.enrichment, gs.funding-profile,
+    gs.data-quality]
+- id: L-GS-3
+  text: '23 modules have no live importer: no CLI command, Dagster definition, script, Alembic file, AG import
+    or dotted-path string reaches them, only tests. Among them are `page_triage.py`, a Haiku page labeller
+    beside the standing rule of no LLM tokens on page classification, the NOFO summariser, the US Chamber
+    connector package and the local-filesystem store'
+  owner: grantspider
+  tracking: 'Import graph at GS be9ed67. The 23: `config/crawl_politeness.py`; `connectors/` `_rate_limiter`,
+    `corporate_foundations/` (4), `hydration/doe_osti`, `irs_stylesheets`, `nofo_pdf_store`, `storage`; `services/`
+    `contact_extractor`, `crawlee_bridge`, `csr_registry`, `enrichment_coverage`, `fetch_strategy_classifier`,
+    `matcher`, `nofo_enrichment`, `nofo_prompts`, `opportunity_tracker`, `page_triage`, `pdf_extractor`,
+    `peer_similarity`, `vendor_lifecycle`'
+  capabilities: [gs.runtime, gs.outbound-http, gs.facsimiles, gs.federal-opportunities, gs.state-opportunities,
+    gs.funder-discovery, gs.entity-resolution, gs.crawl, gs.page-triage, gs.enrichment, gs.metered-enrichment,
+    gs.authority-map]
 - id: L-MKT-1
   text: 'The resource-page outreach pipeline, which sends live email on a weekday timer, is untracked
     files in the primary OverSteward checkout: no review, no tests, no history. Its user systemd units
