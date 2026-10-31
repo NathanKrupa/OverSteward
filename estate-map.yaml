@@ -514,7 +514,7 @@ capabilities:
   claims:
     oversteward: [src/oversteward/brief/, src/oversteward/board/, scripts/estate_brief.py, scripts/estate_board.py]
   entry_points: [scripts/estate_brief.py, scripts/estate_board.py]
-  current_shape: brief/ (3 modules, 588 lines) and board/ (7, 1,141), each with its own GitHub reader.
+  current_shape: brief/ (3 modules, 588 lines) and board/ (7, 1,141), each with its own GitHub client; the brief reads through the board's gh runner.
   target_shape: hold
 - id: os.page-judging
   kind: code
