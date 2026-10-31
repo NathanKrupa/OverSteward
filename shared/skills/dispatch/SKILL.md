@@ -98,6 +98,10 @@ Run these checks. Any failure → refuse to dispatch, report the reason to the u
 - `tribe` — a food-pantry user of AI Grant Helper would notice it — outranks every other issue, a paying consulting client's ask included (Nathan, 2026-10-21, "for now"). If `#<n>` is not `tribe` and a ready `tribe` issue waits in the same repo, the command prints each one it passes over. Relay that list to Nathan verbatim and carry it into the dispatch report; it does not stop the dispatch.
 - Exit 0 is a measured answer either way ("0 ready tribe issues displaced" included). Exit 1 means GitHub could not be read or `#<n>` is not open — report it; exit 2 is an unknown repo.
 
+**Capability line (a notice, never a refusal — OS#640):**
+- `gh issue view <n> --repo <owner>/<repo> --json body --jq .body | grep -Eiq '^[[:space:]>*-]*\**Capability\**[[:space:]]*:'`
+- No match: tell Nathan the issue names no `Capability: <id>` line and carry the note into the dispatch report. `scripts/estate_map.py status` derives each capability's in-flight work from that line first, then from the paths a PR changes or the body names, so a missing line only costs attribution. Do not add the line yourself, and do not stop the dispatch.
+
 If all preflights pass: proceed.
 
 ### 3. Run the agent (foreground)

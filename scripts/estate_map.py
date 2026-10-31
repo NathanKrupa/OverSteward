@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# ABOUTME: OUTER entrypoint for the estate capability map — validate, locations, coverage, render, check.
+# ABOUTME: OUTER entrypoint for the estate capability map — validate, locations, coverage, render, check, status.
 # ABOUTME: Thin: parse arguments, call oversteward.estate_map, print, map the outcome to an exit code.
 
 """Check and render `estate-map.yaml`, the estate's capability map.
@@ -12,11 +12,17 @@ meaning and must not be collapsed:
 * **2** — could not look: the map, the registry, a checkout, a fetch or a ref
   could not be read, or nothing was claimed to check. Outranks 1, and a crash
   is 2, so no failure to read ever exits like a pass.
+
+`status` attributes every open issue and PR to capabilities at read time and
+stores nothing. It exits 0 when it measured every repo it was asked for, and 2
+when any could not be read — then it prints the reasons and no counts, so a
+failed `gh` never reads as an idle estate.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -43,16 +49,19 @@ def _parse(argv: list[str]) -> argparse.Namespace:
     render = sub.add_parser("render")
     render.add_argument("--write", action="store_true")
     sub.add_parser("check")
+    status = sub.add_parser("status")
+    status.add_argument("--repo", default=None)
+    status.add_argument("--json", action="store_true")
     return parser.parse_args(argv)
 
 
-def main(argv: list[str] | None = None, git=None) -> int:
+def main(argv: list[str] | None = None, git=None, fetch=None) -> int:
     args = _parse(sys.argv[1:] if argv is None else argv)
     try:
         # Imported here so a broken venv reads as could-not-look with a reason, not a traceback.
         from registry import REGISTRY_PATH, load_registry
 
-        from oversteward.estate_map import checks, model, render
+        from oversteward.estate_map import checks, model, render, status, status_github
         from oversteward.estate_map.checkouts import TreeReader, checkouts
         from oversteward.sow.runners import GitCommand
     except Exception as exc:  # noqa: BLE001 — a crash must read as could-not-look, never clean
@@ -71,6 +80,8 @@ def main(argv: list[str] | None = None, git=None) -> int:
     try:
         if args.command == "render":
             return _render(args, estate, render)
+        if args.command == "status":
+            return _status(args, estate, status, fetch or status_github.fetcher(registry))
         reader = TreeReader(git or GitCommand(), checkouts(registry, home_repo=HOME_REPO, home_root=ROOT))
         outcome = checks.run(args.command, estate, registry, reader, repo=getattr(args, "repo", None))
     except Exception as exc:  # noqa: BLE001 — a crash mid-check is could-not-look, never clean
@@ -102,6 +113,24 @@ def _render(args: argparse.Namespace, estate, render) -> int:
     for finding in findings:
         print(f"FINDING - {finding}", file=sys.stderr)
     return EXIT_FINDINGS if findings else 0
+
+
+def _status(args: argparse.Namespace, estate, status, fetch) -> int:
+    repos = status.status_repos(estate, args.repo)
+    unknown = [r for r in repos if r not in {repo.id for repo in estate.repos}]
+    blind = [f"{r}: not a repo in the estate map" for r in unknown]
+    items, unreadable = status.gather([r for r in repos if r not in unknown], fetch)
+    blind += unreadable
+    if blind or not repos:
+        for reason in blind or ["status: no repo has a capability claiming a path"]:
+            print(f"COULD NOT LOOK - {reason}")
+        return EXIT_COULD_NOT_LOOK
+    report = status.build(estate, repos, items)
+    if args.json:
+        print(json.dumps(status.to_dict(report), indent=2))
+    else:
+        print("\n".join(status.lines(report)))
+    return 0
 
 
 def _write(path: Path, text: str) -> None:

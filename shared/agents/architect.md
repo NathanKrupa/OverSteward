@@ -179,6 +179,13 @@ with no `## Acceptance` and refuses an issue whose options are unpicked. So it
 carries a scope, an `## Acceptance` checklist, and a decision already made
 wherever you were tempted to offer the agent a choice.
 
+Its first line is `Capability: <id>`, naming the `estate-map.yaml` capability
+the work changes (several, comma-separated, when it changes several). Nothing
+stores what the estate is working on: `scripts/estate_map.py status` derives it
+from open issues and PRs at read time, and this line is the one attribution it
+takes over inferring from named paths. `/dispatch` warns when an issue lacks it,
+and never refuses.
+
 **Bounded by `output_max_lines`.** Count what you are about to return — pipe it
 through `wc -l` — before you answer; a ceiling nobody measures against is prose.
 Over it, tighten `Changes` first: an entry may lose its rationale and keep its
@@ -225,6 +232,7 @@ Needs Nathan
   none
 
 Dispatch brief
+  Capability: os.dispatch
   <the issue body, scope + ## Acceptance, ready to paste>
 ```
 

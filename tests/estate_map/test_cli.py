@@ -227,3 +227,62 @@ def test_a_render_that_cannot_write_exits_2(cli, capsys, tmp_path, local):
     args[args.index("--digest") + 1] = str(tmp_path)
     assert cli.main([*args, "render", "--write"]) == 2
     assert "COULD NOT LOOK - render crashed: IsADirectoryError" in capsys.readouterr().out
+
+
+# --- status ----------------------------------------------------------------
+
+
+def _fetch_from(items_by_repo):
+    from oversteward.estate_map.status import Item
+
+    def fetch(repo):
+        return [Item(repo, "issue", n, title, body) for n, title, body in items_by_repo.get(repo, [])]
+
+    return fetch
+
+
+def test_status_prints_capabilities_and_the_unmapped_line(cli, capsys, tmp_path, local):
+    fetch = _fetch_from({"oversteward": [(5, "sow bug", "see src/oversteward/sow/x.py"), (6, "vague", "")]})
+    assert cli.main([*_args(tmp_path, local), "status"], fetch=fetch) == 0
+    out = capsys.readouterr().out
+    assert "os.sow: 1 open" in out
+    assert "unmapped: 1" in out
+    assert "oversteward issue #6 vague" in out
+
+
+def test_status_when_gh_fails_exits_2_and_reports_no_counts(cli, capsys, tmp_path, local):
+    from oversteward.estate_map.checkouts import CouldNotLook
+
+    def fetch(repo):
+        raise CouldNotLook(f"{repo}: gh issue list failed (exit 1): HTTP 502")
+
+    assert cli.main([*_args(tmp_path, local), "status"], fetch=fetch) == 2
+    out = capsys.readouterr().out
+    assert "COULD NOT LOOK - oversteward: gh issue list failed" in out
+    assert "unmapped" not in out
+    assert "0 open" not in out
+
+
+def test_status_json_is_parseable(cli, capsys, tmp_path, local):
+    import json
+
+    fetch = _fetch_from({"oversteward": [(6, "vague", "")]})
+    assert cli.main([*_args(tmp_path, local), "status", "--json"], fetch=fetch) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["repos"]["oversteward"]["unmapped"] == 1
+
+
+def test_status_repo_flag_reads_only_that_repo(cli, capsys, tmp_path, local):
+    seen = []
+
+    def fetch(repo):
+        seen.append(repo)
+        return []
+
+    assert cli.main([*_args(tmp_path, local), "status", "--repo", "grantspider"], fetch=fetch) == 0
+    assert seen == ["grantspider"]
+
+
+def test_status_for_a_repo_not_in_the_map_exits_2(cli, capsys, tmp_path, local):
+    assert cli.main([*_args(tmp_path, local), "status", "--repo", "nope"], fetch=_fetch_from({})) == 2
+    assert "COULD NOT LOOK - nope: not a repo in the estate map" in capsys.readouterr().out
