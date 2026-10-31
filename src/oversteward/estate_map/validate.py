@@ -7,6 +7,7 @@ import re
 from collections import Counter
 from collections.abc import Collection, Iterable, Iterator
 
+from .coverage import COVERAGE_ROOTS
 from .model import Capability, EstateMap, Location
 from .outcome import Finding
 
@@ -29,6 +30,7 @@ def validate(estate: EstateMap, registry_ids: Collection[str]) -> list[Finding]:
     return [
         *_duplicates(estate),
         *_registry(estate, registry_ids),
+        *_floor_keys(estate),
         *_capability_shapes(estate),
         *_references(estate),
         *_link_agreement(estate),
@@ -65,6 +67,15 @@ def _registry(estate: EstateMap, registry_ids: Collection[str]) -> Iterator[Find
     for repo in estate.repos:
         if repo.id not in registry_ids:
             yield Finding("registry", repo.id, "repo id is not a registry.yaml context id")
+
+
+def _floor_keys(estate: EstateMap) -> Iterator[Finding]:
+    """A measurable repo must say `null` to be unmeasured; an absent key would skip it unseen."""
+    for repo in estate.repos:
+        if repo.id in COVERAGE_ROOTS and repo.id not in estate.policy.coverage_floor:
+            yield Finding(
+                "coverage-floor-key", repo.id, "repo has coverage roots but no policy.coverage_floor key"
+            )
 
 
 def _capability_shapes(estate: EstateMap) -> Iterator[Finding]:

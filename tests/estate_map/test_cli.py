@@ -74,6 +74,32 @@ def test_check_on_a_map_this_checkout_satisfies_is_clean(cli, capsys, tmp_path, 
     assert out.rstrip().endswith("estate-map: clean")
 
 
+def test_check_runs_validate(cli, capsys, tmp_path, local):
+    _cap(local, "gs.website-resolution")["serves"] = ["ag.nope"]
+    assert cli.main([*_args(tmp_path, local), "check"]) == 1
+    assert "dangling-ref: gs.website-resolution" in capsys.readouterr().out
+
+
+def test_check_runs_locations(cli, capsys, tmp_path, local):
+    _cap(local, "os.sow")["claims"]["oversteward"].append("src/oversteward/nope.py")
+    assert cli.main([*_args(tmp_path, local), "check"]) == 1
+    assert "missing-path: os.sow" in capsys.readouterr().out
+
+
+def test_coverage_with_no_measured_floor_exits_2(cli, capsys, tmp_path, local):
+    local["policy"]["coverage_floor"]["oversteward"] = None
+    assert cli.main([*_args(tmp_path, local), "coverage"]) == 2
+    assert "COULD NOT LOOK - coverage: no repo has a measured floor" in capsys.readouterr().out
+
+
+def test_coverage_repo_flag_measures_the_named_repo(cli, capsys, tmp_path, local):
+    # Without --repo only oversteward (measured) is read; naming grantspider
+    # sends coverage to its checkout, which this registry says is absent.
+    _cap(local, "gs.website-resolution")["claims"] = {"grantspider": ["src/grantspider/cli/x.py"]}
+    assert cli.main([*_args(tmp_path, local), "coverage", "--repo", "grantspider"]) == 2
+    assert "COULD NOT LOOK - grantspider: checkout" in capsys.readouterr().out
+
+
 def test_validate_finding_exits_1(cli, capsys, tmp_path, local):
     _cap(local, "gs.website-resolution")["serves"] = ["ag.nope"]
     assert cli.main([*_args(tmp_path, local), "validate"]) == 1

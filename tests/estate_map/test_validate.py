@@ -47,6 +47,18 @@ class TestReferences:
         raw["seams"][0]["producer"] = ["grantsider"]
         assert ("dangling-ref", "S-1") in _findings(raw)
 
+    def test_seam_citing_an_undefined_invariant_is_a_finding(self, raw):
+        raw["seams"][0]["invariants"] = ["I-99"]
+        assert ("dangling-ref", "S-1") in _findings(raw)
+
+    def test_invariant_naming_an_undefined_capability_is_a_dangling_ref(self, raw):
+        raw["invariants"][0]["capabilities"] = ["ag.research", "os.nowhere"]
+        assert ("dangling-ref", "I-1") in _findings(raw)
+
+    def test_liability_naming_an_undefined_capability_is_a_dangling_ref(self, raw):
+        raw["liabilities"][0]["capabilities"] = ["gs.website-resolution", "gs.nowhere"]
+        assert ("dangling-ref", "G1") in _findings(raw)
+
     def test_external_seam_party_is_accepted(self, raw):
         raw["seams"][0]["producer"] = ["ext:Railway"]
         assert _findings(raw) == []
@@ -75,6 +87,11 @@ class TestOrphans:
 
     def test_retired_invariant_needs_no_reference(self, raw):
         assert ("orphan", "I-3") not in _findings(raw)
+
+    def test_liability_referenced_only_by_a_seam_is_not_orphaned(self, raw):
+        raw["liabilities"].append({"id": "L-X-2", "text": "t", "owner": "o", "tracking": "k"})
+        raw["seams"][0]["liabilities"] = ["L-X-2"]
+        assert _findings(raw) == []
 
     def test_liability_referenced_by_nothing_is_a_finding(self, raw):
         raw["liabilities"].append(
@@ -121,10 +138,34 @@ class TestRegistry:
         assert ("registry", "aigranthelper") in _findings(raw, ("oversteward", "grantspider"))
 
 
+class TestFloorKeys:
+    def test_repo_with_coverage_roots_but_no_floor_key_is_a_finding(self, raw):
+        # Leaving the key out must not skip coverage silently; `null` is the
+        # explicit, printed way to say "unmeasured".
+        del raw["policy"]["coverage_floor"]["grantspider"]
+        assert ("coverage-floor-key", "grantspider") in _findings(raw)
+
+    def test_repo_without_coverage_roots_needs_no_floor_key(self, raw):
+        raw["repos"].append({"id": "gaudi", "purpose": "linter", "stack": "Python"})
+        assert _findings(raw, (*REGISTRY_IDS, "gaudi")) == []
+
+
 class TestShape:
     def test_duplicate_capability_id_is_a_finding(self, raw):
         raw["capabilities"].append(dict(_cap(raw, "os.sow")))
         assert ("duplicate-id", "os.sow") in _findings(raw)
+
+    @pytest.mark.parametrize(
+        ("table", "index", "ident"),
+        [("seams", 0, "S-1"), ("repos", 0, "oversteward"), ("liabilities", 0, "G1")],
+    )
+    def test_duplicate_row_id_is_a_finding(self, raw, table, index, ident):
+        raw[table].append(dict(raw[table][index]))
+        assert ("duplicate-id", ident) in _findings(raw)
+
+    def test_duplicate_product_id_is_a_finding(self, raw):
+        raw["mission"]["products"].append(dict(raw["mission"]["products"][0]))
+        assert ("duplicate-id", "os") in _findings(raw)
 
     def test_duplicate_invariant_id_is_a_finding(self, raw):
         raw["invariants"].append(dict(raw["invariants"][0]))
