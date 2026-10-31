@@ -180,10 +180,14 @@ middle-layer service, never in a script.
 ## Key Files
 
 - **`registry.yaml`** — the manifest of every managed context, and the single source of truth driving sync and dispatch. Additive, surgical edits only; preserve key order and the per-context schema.
-- **`architecture.md`** — machine-readable snapshot of repos, cross-repo seams, load-bearing invariants and known liabilities. **Read at scope/plan time** when a task touches more than one repo or any §3 invariant; if a row is wrong, fix it before continuing. Dispatch agents do not read it. Before scoping "edit X and propagate through Y", `git grep` for the managed-block markers and confirm the consumer reads them — if the surface is absent, building it is in-scope, not a follow-up.
+- **`estate-map.yaml`** — the estate capability map: repos, capabilities (what each claims, its current and target shape), cross-repo seams, load-bearing invariants (`I-n`) and known liabilities. **Read at scope/plan time** when a task touches more than one repo or any invariant; if a row is wrong, fix it before continuing, and edit it in the same PR as any direction decision. Dispatch agents do not read it. Before scoping "edit X and propagate through Y", `git grep` for the managed-block markers and confirm the consumer reads them — if the surface is absent, building it is in-scope, not a follow-up. After an edit, `.venv/bin/python scripts/estate_map.py render --write` regenerates the digest below, which a test compares with a fresh render.
 - **`OVERSTEWARD.md`** — spec and design decisions. **GitHub issues** are the work queue; `TODO_BACKLOG.md` (horizon backlog) + `TODO_COMPLETED.md` (archive). Nathan sees estate status through his morning check-in, never a hand-kept status doc.
 - **`data/tool_registry.md`** — read it before grepping for a CLI, script or entry point. Regenerate after adding or removing one: `.venv/bin/python scripts/tools/generate_tool_registry.py`. `data/workflow_registry.md` is the same, one altitude up.
 - **`SESSION_STATE.md`** — local-only "where we left off" scratchpad; gitignored, **never committed**.
+
+The estate map's digest (mission and one line per capability):
+
+@data/estate-map-digest.md
 
 ## Session handoff
 
@@ -234,7 +238,7 @@ systemctl --user daemon-reload
 systemctl --user enable --now sync-repos.timer   # 03:00, ahead of the dream cycle
 ```
 
-## Session start — the six sweeps
+## Session start — the seven sweeps
 
 Run these at the start of every session, after the `git pull --ff-only`. **They
 are passes, not gates: if Nathan opened the session with a task, his task goes
@@ -249,12 +253,14 @@ simply at the head of the list again next session.
 .venv/bin/python scripts/ag_ops_triage.py sweep      # what AG's users are waiting on
 .venv/bin/python scripts/stage_health.py sweep       # what GS's pipeline stopped doing
 .venv/bin/python scripts/backup_health.py            # whether the laptop could be rebuilt
+.venv/bin/python scripts/estate_map.py check        # whether the map still matches the code
 .venv/bin/python scripts/operator_steps.py list      # what Nathan owes
 ```
 
 **The exit codes carry meaning across all of them and must not be collapsed:
 `0` is a measured answer, `1` means the source could not be read, `2` means
-nothing was configured to look.** A red exit is a finding to report, not a quiet
+nothing was configured to look.** The estate map is the one exception, named
+below: it uses the lint shape. A red exit is a finding to report, not a quiet
 morning. A clean result always names the count it checked — "all 20 accounted
 for" is a measurement, "ok" is a claim.
 
@@ -264,6 +270,7 @@ for" is a measurement, "ok" is a claim.
 - **AG ops** sweeps untriaged in-app feedback and visitor-reported data corrections over the `/internal/ops/` seam (`.claude/skills/ag-triage/`). Exit 2 today, until `OPS_REPORTS_TOKEN` and `OPS_VERDICTS_TOKEN` are minted.
 - **Stage health** (`.claude/skills/stage-health/`) reads GrantSpider's `grantspider dq health --json` — whether each pipeline stage is still doing its work, not merely whether data is present (GS#2075 cut snapshot fetches ~10x for weeks and nothing alerted). The producer's exit code passes through unchanged; its **2** is "no `stage_health` rows in the window": the nightly asset is not running, and nothing was there to look at — a finding of its own, never a quiet morning. A document with an unknown `schema` is exit 1. When the laptop cannot reach Neon (a local `database unreadable: OperationalError`, a timeout, or an exit 1 with no document and a psycopg/SQLAlchemy connection error on stderr), the sweep retries once inside the production service via `railway ssh`. The headline then reads `via: railway-ssh; local: <reason>`, and a failed fallback is exit 1, never 2. Every RED row takes `stage_health.py record <row> fixed|filed|known --ref GS#<n>`; `fixed` holds for the ledger day it was recorded on, `filed`/`known` re-print as `FILED→GS#n`/`KNOWN→GS#n` until that issue closes, and there is no `later`.
 - **Backup health** (`scripts/backup_health.py`, `oversteward.backup.health`) reads both backups from inside the distro and prints four named rows under "4 backup checks measured — N RED": the latest restic snapshot (RED past 48 h), the verified restore (`restic.last-ok` past 48 h, absent, in the future, naming a snapshot other than the repository's latest, or its C: mirror absent or different — "logon canary blind"), the newest full export (RED when none, zero bytes, or past 45 days), and free space on E: (RED below 1.1x the newest archive). **RUNNING is not red**: a stale snapshot while `home-backup.service` is active or activating is the backup in flight. A **NOTE** is not RED either — `export.last-ok` absent or naming another date than the newest archive is reported beneath the export row and counted in nothing. Exit **0** measured (RED rows included), **1** could not read (E: not mounted, restic or systemctl failed, unparseable output, or the sweep crashed), **2** not configured (restic, the key, or the repository with its parent present, missing). Setup and markers: `ops/wsl/README.md`.
+- **Estate map** (`scripts/estate_map.py check`) validates `estate-map.yaml` against itself and `registry.yaml`, checks that every claimed path exists (OverSteward at the checkout's `HEAD`, every sibling on `origin/<the branch it ships>` after a fetch, `unverified: true` locations counted and never read), and compares each measured coverage floor with the map in both directions — orphans or overlaps above the floor are a finding, and so is an improvement the floor has not recorded. Its exit codes are the lint shape: **0** clean, **1** findings, **2** could not look (an absent checkout, a failed fetch or ref, nothing claimed, or a crash), and 2 outranks 1. A null floor prints as `unmeasured` and is never compared. Each finding's verdict is recorded where the map lives: fixed in an `estate-map.yaml` PR, or filed as an issue (`agent-finding`).
 
 Adding a Railway project to the liveness sweep is one block in `registry.yaml`:
 

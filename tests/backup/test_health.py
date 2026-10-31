@@ -601,9 +601,9 @@ class FakeRunnerPassthrough:
 # --- the session-start doctrine ----------------------------------------------
 
 
-def test_claude_md_runs_backup_health_as_the_sixth_session_start_sweep() -> None:
+def test_claude_md_runs_backup_health_as_a_session_start_sweep() -> None:
     text = (REPO_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
-    assert "## Session start — the six sweeps" in text
+    assert "## Session start — the seven sweeps" in text
     section = text.split("## Session start", 1)[1].split("\n## ", 1)[0]
     block = section.split("```bash", 1)[1].split("```", 1)[0]
     lines = [line for line in block.splitlines() if "backup_health.py" in line]

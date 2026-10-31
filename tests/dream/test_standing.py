@@ -303,9 +303,9 @@ def test_render_keeps_every_fact_when_links_are_dropped() -> None:
     law = _mem("law_x", "a scoped law", provenance="nathan-stated", scope=["grantspider"])
     habit = _mem("h_x", "a habit", tier="standing")
     grave = _mem("gy_x", "a corpse", superseded_by="the live path")
-    pointer = _mem("p_x", "read architecture.md at scope time")
+    pointer = _mem("p_x", "read estate-map.yaml at scope time")
     out = render_standing_orders([law, habit, grave, pointer])
-    for text in ("a scoped law", "a habit", "a corpse", "read architecture.md at scope time"):
+    for text in ("a scoped law", "a habit", "a corpse", "read estate-map.yaml at scope time"):
         assert text in out
     assert "scope: grantspider" in out
     assert "→ the live path" in out

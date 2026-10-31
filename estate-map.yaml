@@ -1,0 +1,897 @@
+# ABOUTME: The estate capability map — what the estate builds, where each capability lives, its current and target shape.
+# ABOUTME: Also the single record of repos, cross-repo seams, load-bearing invariants and known liabilities.
+#
+# Maintenance protocol
+# - Read at scope/plan time: the digest (data/estate-map-digest.md, loaded by CLAUDE.md) for orientation,
+#   then grep `invariants:` and `liabilities:` here for the surface you are touching. Routine single-issue
+#   pickup does not require this file.
+# - Verify the propagation surface exists before scoping cross-repo or "propagate through Y" work: git grep
+#   for the managed-block markers or the seam named under `seams:`, and confirm the consumer reads it. If the
+#   surface is absent, building it is part of the work, not a follow-up (OS#129).
+# - Edit in the same PR as any direction decision, and in any session that learns a row is wrong, lands a
+#   seam- or invariant-surface PR, or discovers a new invariant or liability.
+# - Cite or omit: every seam, invariant and liability carries a source a reader can open.
+# - Verify against code, not against this file: read producer and consumer on origin
+#   (`git show origin/<branch>:<path>`); primary checkouts run stale.
+# - After an edit: `scripts/estate_map.py render --write`, then `scripts/estate_map.py check`
+#   (the seventh session-start sweep; 0 clean, 1 findings, 2 could not look).
+# - History: `git log -p -- estate-map.yaml`.
+#
+# Seams, invariants and liabilities migrated verbatim from the 2026-10-31 verification (OS#638), read at
+# AG origin/main f2a8d99, GS origin/main be9ed67, OverSteward origin/master 775accd.
+#
+# Schema
+# - capabilities[].id: `<product>.<kebab>`, unique and stable; the product is a `mission.products` id.
+# - kind: code | process | content. status: planned | building | live | retired.
+# - claims: {<repo>: [repo-relative paths]}; a path ending in `/` (or naming no file) claims its subtree.
+#   Under a `policy.explicit_only` root every claim names one file.
+# - locations: [{type, ref, unverified}]. path | report | workflow | timer refs are `<repo>:<path>` and are
+#   read from git unless `unverified: true`; vault | todoist | dashboard must be `unverified: true`.
+# - serves / depends_on / feeds name capability ids. invariants / liabilities name rows below, and each
+#   row's `capabilities` lists exactly the capabilities citing it.
+# - current_shape is measured, not flattering. target_shape is prose, or `hold` where no edit is planned.
+# - seams[].producer / consumer are repo ids, or `ext:<name>` for a party outside the estate.
+# - policy.coverage_floor: null is unmeasured (printed, never compared); a number is compared both ways.
+
+version: 1
+
+mission:
+  north_star: 'Provide A+ grant-writing tools to the servants of the poor: the food pantries, parishes
+    and small charities who work on shoestring budgets and are not grant experts. It is not about the
+    money; it is about the people.'
+  products:
+  - id: ag
+    serves: grant seekers at small nonprofits, the users of aigranthelper.com
+    repo: aigranthelper
+  - id: gs
+    serves: AI Grant Helper, as the producer of its funder and grant research
+    repo: grantspider
+  - id: wp
+    serves: Nathan's WordPress clients, and the estate as its external-connector library
+    repo: wphelper
+  - id: aa
+    serves: The Almoner's content authoring, CRM and WordPress work
+    repo: ai-assistants
+  - id: os
+    serves: Nathan and every estate session, as the control plane
+    repo: oversteward
+  - id: gaudi
+    serves: every gated estate repo as its architecture linter, and the public as open source
+    repo: gaudi
+  - id: fiscus
+    serves: 'the estate''s own learning: observation, reviews and kaizen'
+    repo: fiscus
+  - id: exchequer
+    serves: 'Nathan''s books: billing pulls, ledgers and the monthly close'
+    repo: exchequer
+
+policy:
+  digest_budget_bytes: 14000
+  explicit_only:
+    grantspider: [src/grantspider/services, src/grantspider/connectors]
+  coverage_floor:
+    aigranthelper: null
+    grantspider: null
+    oversteward:
+      orphans: 0
+      overlaps: 0
+
+# §1 of the former snapshot. Dispatch flags, branches and local paths live in registry.yaml only.
+# The registry also carries non-code contexts (Obsidian vaults, billions, AI Grants, MacGregor, Stocks,
+# OpportunityMiner) and David's Minecraft repo, which estate sweeps exclude. `thankathon` and
+# `wphelper-clients` exist on disk but are in neither the registry nor this map.
+repos:
+- id: aigranthelper
+  purpose: Grant-management SaaS — the paying-user surface (aigranthelper.com)
+  stack: Python 3.14, Django 6.0, HTMX + Tailwind v4 (no SPA); Railway (Railpack from `Procfile`, web
+    + cron services + internal Typesense); tenant DB = Railway Postgres 17 (`config/settings/base.py:217`),
+    research DB = GS's Neon via `RESEARCH_DATABASE_URL` (`base.py:246-266`)
+  surfaces: 'Scheduled work runs as Railway cron services (`render_sitemaps`, `submit_seo_urls`, `monitor_indexation`,
+    `backup_database`, digests/reminders, email outbox), listed in `docs/operations/production-deploy.md:168-242`.
+    GitHub Actions crons are `smoke.yml`, `divergence-watchdog.yml` and `prewarm.yml` (a daily Neon warm-up
+    request, #1341).'
+- id: grantspider
+  purpose: Grant/foundation data producer — ingestion, crawl, enrichment; sole owner and writer of the
+    research schema
+  stack: 'Python 3.14, SQLAlchemy + Alembic, pgvector, Neon; Dagster on Railway (`railway.toml`: dagster-webserver,
+    dagster-daemon, dagster-code, daemon-watchdog cron; assets in `src/grantspider/orchestration/definitions.py`)'
+- id: wphelper
+  purpose: WordPress client toolkit; canonical home for external connectors (WP REST, Kit, GA4, GSC, FTP,
+    IndexNow)
+  stack: Python ≥3.11
+- id: ai-assistants
+  purpose: '`almoner` package — content authoring, CRM, ingestion, WP integration. No CI'
+  stack: Python
+- id: oversteward
+  purpose: 'Estate control plane: `registry.yaml`, canonical `shared/` (souls, agents, skills, hooks,
+    dev scripts), session-start sweeps, dream cycle, review loop'
+  stack: Python, uv, YAML; CI `.github/workflows/ci.yml` (not a required check)
+- id: gaudi
+  purpose: Architecture linter, open source (PyPI `gaudi-linter`); gates AG and OverSteward
+  stack: Python AST
+- id: fiscus
+  purpose: 'Observation-and-kaizen platform: subject contracts, weekly/monthly reviews, lessons corpus'
+  stack: Python ≥3.12, pandas, polars, duckdb, pydantic, Quarto
+- id: exchequer
+  purpose: Private counting-house — `exchequer pull` billing connectors, CSV ledgers, monthly close; zero
+    LLM tokens
+  stack: Python ≥3.12, uv
+
+capabilities:
+- id: ag.research
+  kind: code
+  purpose: 'Research: Read-only GS mirror (`models/_generated.py`, `_views.py`); match scoring; keyword/semantic/hybrid
+    search; Typesense with fail-open Postgres fallback; public foundation/sector/city pages.'
+  status: live
+  claims: {}
+  invariants: [I-4, I-6]
+  liabilities: [G1]
+  current_shape: 'Unclaimed stub until the AG seed. Source: `apps/research/`, `apps/research/typesense_search.py`'
+  target_shape: hold
+- id: ag.pipeline
+  kind: code
+  purpose: 'Pipeline / reporting: Grant lifecycle (Program, FunderRelationship, Application, Award, FunderMilestone,
+    UserFunderSignal, SavedGrantor) and post-award compliance.'
+  status: live
+  claims: {}
+  invariants: [I-5]
+  liabilities: [G5]
+  current_shape: 'Unclaimed stub until the AG seed. Source: `apps/pipeline/models.py`, `apps/reporting/`'
+  target_shape: hold
+- id: ag.matchmaker
+  kind: code
+  purpose: 'Matchmaker: Match telemetry, golden-label evals, the `pipeline_history-YYYY-MM-DD.jsonl` writer.'
+  status: live
+  claims: {}
+  current_shape: 'Unclaimed stub until the AG seed. Source: `apps/matchmaker/`'
+  target_shape: hold
+- id: ag.studio
+  kind: code
+  purpose: 'Studio: AI-assisted grant drafting (versioned drafts in B2); Anthropic, Gemini, OpenAI via
+    one module.'
+  status: live
+  claims: {}
+  current_shape: 'Unclaimed stub until the AG seed. Source: `apps/studio/`, `apps/studio/llm.py`'
+  target_shape: hold
+- id: ag.accounts-billing
+  kind: code
+  purpose: 'Accounts / billing: Multi-tenant orgs + consultants, magic-link auth; Stripe via dj-stripe
+    2.11.'
+  status: live
+  claims: {}
+  invariants: [I-22]
+  current_shape: 'Unclaimed stub until the AG seed. Source: `apps/accounts/`, `apps/billing/`'
+  target_shape: hold
+- id: ag.seo-edge
+  kind: code
+  purpose: 'SEO / edge: IndexNow, GSC indexation monitor, Cloudflare cache rules + purge + warmer, lead
+    pages; home-page A/B Worker.'
+  status: live
+  claims: {}
+  current_shape: 'Unclaimed stub until the AG seed. Source: `apps/seo/`, `edge/home-arm/`, `apps/landing/`'
+  target_shape: hold
+- id: ag.ops-feedback
+  kind: code
+  purpose: 'Ops / feedback / telemetry: `/internal/ops/` reports + verdicts, visitor DataCorrection, EmailLead,
+    Fiscus telemetry endpoint.'
+  status: live
+  claims: {}
+  liabilities: [L-AG-2]
+  current_shape: 'Unclaimed stub until the AG seed. Source: `apps/ops/urls_internal.py`, `apps/feedback/`,
+    `apps/telemetry/`'
+  target_shape: hold
+- id: ag.docs-bot-worldmodel
+  kind: code
+  purpose: 'Docs / bot / worldmodel: DB-backed help centre; Web Bot Auth key directory; customer world
+    model (beliefs, goals, event spine).'
+  status: live
+  claims: {}
+  current_shape: 'Unclaimed stub until the AG seed. Source: `apps/docs/`, `apps/bot/`, `apps/worldmodel/models/`'
+  target_shape: hold
+- id: ag.dev-gates
+  kind: process
+  purpose: 'AG''s local gates and test settings: make verify, pytest configuration and the test database.'
+  status: live
+  claims: {}
+  liabilities: [L-AG-3]
+  current_shape: 'Unclaimed stub until the AG seed. Source: `config/settings/test.py`, `tests/conftest.py`'
+  target_shape: hold
+- id: gs.irs-ingestion
+  kind: code
+  purpose: 'IRS ingestion: 990-PF Part XV and Schedule I grants (TEOS bulk), BMF monthly sync, SOI annual
+    extract.'
+  status: live
+  serves: [ag.research]
+  claims: {}
+  invariants: [I-11]
+  current_shape: 'Unclaimed stub until the GS seed. Source: `services/irs_990_ingestion.py`, `services/irs_990_schedule_i*.py`,
+    `services/irs_bmf_sync.py`, `services/irs_annual_extract_ingest.py`'
+  target_shape: hold
+- id: gs.facsimiles
+  kind: code
+  purpose: '990-PF facsimiles: IRS XSL → PDF → B2.'
+  status: live
+  serves: [ag.research]
+  claims: {}
+  current_shape: 'Unclaimed stub until the GS seed. Source: `services/facsimile*.py`, `cli/facsimile.py`'
+  target_shape: hold
+- id: gs.other-sources
+  kind: code
+  purpose: 'Other sources: 360Giving; federal opportunities (Grants.gov, SAM, USAspending, agency hydration);
+    community, corporate and diocesan foundation discovery.'
+  status: live
+  serves: [ag.research]
+  claims: {}
+  invariants: [I-11]
+  current_shape: 'Unclaimed stub until the GS seed. Source: `connectors/threesixtygiving.py`, `services/gov_pipeline.py`,
+    `connectors/community_foundations/`, `services/corporate_grantmaker_discovery.py`'
+  target_shape: hold
+- id: gs.website-resolution
+  kind: code
+  purpose: 'Websites: Discovery (IRS, Wikidata, Brave, DDG, crt.sh providers) + Anthropic verification
+    judge.'
+  status: live
+  feeds: [gs.crawl]
+  claims: {}
+  current_shape: 'Unclaimed stub until the GS seed. Source: `services/website_resolver.py`, `services/llm_judge.py`,
+    `services/verification/`'
+  target_shape: hold
+- id: gs.crawl
+  kind: code
+  purpose: 'Crawl: Railway sitemap/crawlee crawler; laptop crawler with a local SQLite resume ledger;
+    Common Crawl + Wayback; URL-heuristic page classification (no LLM).'
+  status: live
+  feeds: [gs.enrichment]
+  claims: {}
+  invariants: [I-17]
+  current_shape: 'Unclaimed stub until the GS seed. Source: `services/sitemap_snapshot*.py`, `services/local_crawl.py`,
+    `connectors/crawl_ledger.py`, `services/page_classification.py`'
+  target_shape: hold
+- id: gs.enrichment
+  kind: code
+  purpose: 'Enrichment: SKIP LOCKED claim queue drained by in-session Sonnet workers (`.claude/workflows/enrich-drain.*`);
+    metered Anthropic key fail-closed; token-free funding profiles.'
+  status: live
+  serves: [ag.research]
+  claims: {}
+  liabilities: [G4]
+  current_shape: 'Unclaimed stub until the GS seed. Source: `services/enrichment_queue.py`, `config/metered_api.py:94`,
+    `services/funding_profile*.py`'
+  target_shape: hold
+- id: gs.embeddings-search
+  kind: code
+  purpose: 'Embeddings / search index: Local all-MiniLM-L6-v2 (384-d), source-hash staleness; GS owns
+    the Typesense indexing.'
+  status: live
+  serves: [ag.research]
+  claims: {}
+  current_shape: 'Unclaimed stub until the GS seed. Source: `services/embedding_generation.py`, `services/embedding_hash.py`,
+    `services/foundation_search_index.py`'
+  target_shape: hold
+- id: gs.data-quality
+  kind: code
+  purpose: 'Data quality: Stage-health ledger (`dq health`), freshness SLAs, canaries, Sentry run-failure
+    sensor, Neon consumption canary.'
+  status: live
+  feeds: [os.session-sweeps]
+  claims: {}
+  current_shape: 'Unclaimed stub until the GS seed. Source: `cli/dq_health.py`, `services/stage_health*.py`,
+    `services/freshness_sla.py`, `orchestration/run_failure_sensor.py`'
+  target_shape: hold
+- id: gs.safety
+  kind: code
+  purpose: 'Safety: Operator-armed prod migrations (`db migrate-prod arm|run|cleanup`), pre-migration
+    backup, weekly backups of research + Dagster + AG tenant DBs, monthly restore drill.'
+  status: live
+  claims: {}
+  invariants: [I-7, I-8]
+  current_shape: 'Unclaimed stub until the GS seed. Source: `_prod_migration_token.py`, `services/prod_migration.py`,
+    `services/db_backup_weekly.py`, `services/backup_drill.py`'
+  target_shape: hold
+- id: wp.connectors
+  kind: code
+  purpose: WordPress client toolkit; canonical home for external connectors (WP REST, Kit, GA4, GSC, FTP,
+    IndexNow).
+  status: live
+  claims: {}
+  invariants: [I-9, I-10]
+  current_shape: 'Unclaimed stub: wphelper is not seeded in this map. Stack: Python ≥3.11'
+  target_shape: hold
+- id: aa.almoner
+  kind: code
+  purpose: '`almoner` package — content authoring, CRM, ingestion, WP integration. No CI.'
+  status: live
+  claims: {}
+  invariants: [I-9]
+  liabilities: [L-AA-1]
+  current_shape: 'Unclaimed stub: ai-assistants is not seeded in this map. Stack: Python'
+  target_shape: hold
+- id: gaudi.linter
+  kind: code
+  purpose: Architecture linter, open source (PyPI `gaudi-linter`); gates AG and OverSteward.
+  status: live
+  claims: {}
+  current_shape: 'Unclaimed stub: gaudi is not seeded in this map. Stack: Python AST'
+  target_shape: hold
+- id: fiscus.kaizen-platform
+  kind: code
+  purpose: 'Observation-and-kaizen platform: subject contracts, weekly/monthly reviews, lessons corpus.'
+  status: live
+  claims: {}
+  liabilities: [L-FI-1]
+  current_shape: 'Unclaimed stub: fiscus is not seeded in this map. Stack: Python ≥3.12, pandas, polars,
+    duckdb, pydantic, Quarto'
+  target_shape: hold
+- id: exchequer.counting-house
+  kind: code
+  purpose: Private counting-house — `exchequer pull` billing connectors, CSV ledgers, monthly close; zero
+    LLM tokens.
+  status: live
+  claims: {}
+  liabilities: [L-DISP-1, L-EX-1]
+  current_shape: 'Unclaimed stub: exchequer is not seeded in this map. Stack: Python ≥3.12, uv'
+  target_shape: hold
+- id: os.registry
+  kind: code
+  purpose: The manifest of managed contexts, and the read-only gather and diff behind /sync-status.
+  status: live
+  claims:
+    oversteward: [registry.yaml, scripts/registry.py, scripts/gather.py, scripts/diff.py, scripts/coordinator.py,
+      scripts/sweep.py, src/oversteward/__init__.py, src/oversteward/gather.py, src/oversteward/diff.py,
+      .claude/skills/sync-status/]
+  entry_points: [scripts/registry.py, scripts/diff.py, /sync-status]
+  liabilities: [L-OD-1]
+  current_shape: registry.yaml holds 16 contexts and drives every sweep and dispatch. gather.py (140 lines)
+    and diff.py (189) back /sync-status. scripts/coordinator.py (18 lines) and scripts/sweep.py (12) are
+    comment-only Phase 2 stubs that nothing calls, deferred until a concrete task re-triggers them (`TODO_BACKLOG.md`,
+    H2-6).
+  target_shape: hold
+- id: os.dev-family-sow
+  kind: code
+  purpose: Canonical worktree/guard/env scripts and hooks, deployed to repos by sow; nightly `sync_repos`
+    timer.
+  status: live
+  claims:
+    oversteward: [src/oversteward/sow/, src/oversteward/dev_family.py, scripts/sow.py, shared/scripts/dev/,
+      tests/test_deployed_links.py]
+  entry_points:
+  - scripts/sow.py
+  - scripts/dev/new-session.sh
+  - scripts/dev/worktree_doctor.py
+  invariants: [I-21]
+  liabilities: [L-DEV-1]
+  current_shape: sow (6 modules, 1,186 lines) plus dev_family.py (245) deploy the shared/scripts/dev/
+    family as sync PRs. In OverSteward the deployed side is symlinks into shared/ (OS#576); every other
+    repo carries copies, and they have drifted (L-DEV-1).
+  target_shape: 'Every repo''s copies at canon: worktree_doctor.py deployed where it is absent or pre-#571
+    (OS#572) and new-session.sh redeployed, with /sync-status reporting zero drift.'
+- id: os.session-sweeps
+  kind: code
+  purpose: 'The session-start sweeps: Sentry triage, Railway liveness, AG ops triage, GS stage health,
+    and the operator-steps channel to Todoist.'
+  status: live
+  claims:
+    oversteward: [src/oversteward/sentry/, src/oversteward/liveness/, src/oversteward/ag_ops/, src/oversteward/stage_health/,
+      scripts/sentry_triage.py, scripts/service_liveness.py, scripts/ag_ops_triage.py, scripts/stage_health.py,
+      scripts/operator_steps.py, shared/scripts/sentry/]
+  entry_points:
+  - scripts/sentry_triage.py sweep
+  - scripts/service_liveness.py
+  - scripts/ag_ops_triage.py sweep
+  - scripts/stage_health.py sweep
+  - scripts/operator_steps.py list
+  current_shape: Four sweep packages (19 modules, 2,594 lines), each with its own connector, service and
+    renderer, plus operator_steps.py (270 lines). They share an exit-code convention written in CLAUDE.md,
+    not in code.
+  target_shape: One sweep runner that owns the exit-code contract and the recorded-verdict ledger, so
+    a new sweep is a source and a renderer.
+- id: os.backup
+  kind: code
+  purpose: 'The laptop backups: a readiness-gated monthly WSL export, a daily restic backup of /home/natha,
+    and the backup health sweep.'
+  status: live
+  claims:
+    oversteward: [src/oversteward/backup/, scripts/backup_health.py, scripts/backup_home.py, scripts/backup_ready.py,
+      ops/wsl/]
+  entry_points: [scripts/backup_health.py, scripts/backup_home.py, scripts/backup_ready.py]
+  liabilities: [L-WSL-1]
+  current_shape: backup/ (4 modules, 1,271 lines) shipped in OS#581-583. Docker Desktop volumes sit outside
+    both backups and nothing open tracks the gap (L-WSL-1).
+  target_shape: Docker Desktop volumes either covered by a backup or recorded as deliberately unbacked,
+    with an issue either way.
+- id: os.telegraph
+  kind: code
+  purpose: Membrane over the GitHub-issue bus (Epic Conductor + cross-repo issue filer); transport is
+    Happy.
+  status: live
+  claims:
+    oversteward:
+    - src/oversteward/telegraph/
+    - shared/scripts/telegraph/
+    - .claude/skills/telegraph-operator/
+  current_shape: The Epic Conductor (2 modules, 226 lines) and the cross-repo issue filer. Telegram was
+    removed and Happy is the transport (OS#180).
+  target_shape: hold
+- id: os.vintner
+  kind: code
+  purpose: '`/pipeline-status` GS→AG funnel; reads one read-only DSN (`VINTNER_RESEARCH_DATABASE_URL`,
+    GS Neon).'
+  status: live
+  claims:
+    oversteward:
+    - src/oversteward/vintner/
+    - scripts/pipeline_status.py
+    - .claude/skills/pipeline-status/
+  entry_points: [/pipeline-status]
+  current_shape: 6 modules, 463 lines; one read-only DSN to GS Neon (`src/oversteward/vintner/reader.py:21`).
+  target_shape: hold
+- id: os.dream-kaizen
+  kind: code
+  purpose: Transcript → memory consolidation (systemd timer); kaizen queue from Fiscus lesson clusters
+    + `kaizen` issues, plus the skill miner and trajectory-tag lint.
+  status: live
+  depends_on: [fiscus.kaizen-platform]
+  claims:
+    oversteward:
+    - src/oversteward/dream/
+    - src/oversteward/skills/
+    - src/oversteward/trajectory_tags.py
+    - scripts/dream.py
+    - scripts/dream/
+    - scripts/skill_miner.py
+    - scripts/lint/trajectory_tags.py
+    - shared/scripts/dream/
+    - .claude/skills/dream/
+    - .claude/skills/kaizen/
+    - .claude/skills/skill-miner/
+  entry_points: [scripts/dream.py, /kaizen, scripts/skill_miner.py]
+  current_shape: 'The largest package: dream/ is 12 modules and 3,758 lines; skills/ (621) and trajectory_tags.py
+    (327) sit beside it. Runs on a systemd timer (`shared/scripts/dream/dream-cycle.timer`).'
+  target_shape: hold
+- id: os.review-loop
+  kind: code
+  purpose: Assembled-input adversarial reviewer with a `.review-rounds` ledger; CI `reviewer-verdict`
+    gate.
+  status: live
+  claims:
+    oversteward:
+    - src/oversteward/review_input.py
+    - src/oversteward/review_collector.py
+    - src/oversteward/review_verdict.py
+    - src/oversteward/reviewer_eval.py
+    - src/oversteward/gaudi_binary.py
+    - scripts/review/
+    - scripts/lint/require_review_verdict.py
+    - scripts/lint/gaudi_check_files.py
+    - shared/agents/adversarial-reviewer.md
+  entry_points:
+  - scripts/review/assemble_review_input.py
+  - scripts/lint/require_review_verdict.py
+  current_shape: 5 modules, 1,371 lines; the assembler keeps a `.review-rounds` ledger and CI's reviewer-verdict
+    job reads the PR body. Which commits a verdict covers is doctrine, not tooling (OS#534, open).
+  target_shape: Tooling that checks the commits after the reviewed SHA, so a commit no verdict covers
+    cannot merge (OS#534).
+- id: os.memory-deploy
+  kind: code
+  purpose: steward-memory → `~/.claude/projects/*/memory/`.
+  status: live
+  claims:
+    oversteward:
+    - src/oversteward/memory_deploy.py
+    - scripts/deploy_memory.py
+  entry_points: [scripts/deploy_memory.py]
+  current_shape: memory_deploy.py (108 lines). Its source, steward-memory (`/home/natha/steward-memory`,
+    Markdown only), is the dream cycle's private store and is not in registry.yaml.
+  target_shape: hold
+- id: os.dispatch
+  kind: process
+  purpose: 'Issue intake and in-session pickup: the dispatch playbook, the architect card, the tribe-first
+    queue, /project-status and the abandoned-work sweep.'
+  status: live
+  claims:
+    oversteward:
+    - src/oversteward/intake/
+    - src/oversteward/shelve/
+    - scripts/intake.py
+    - scripts/shelve_sweep.py
+    - scripts/project_status.py
+    - scripts/dispatch/
+    - shared/skills/dispatch/
+    - shared/agents/architect.md
+    - .claude/skills/project-status/
+  entry_points: [/dispatch, /project-status, scripts/intake.py, scripts/shelve_sweep.py]
+  invariants: [I-1, I-2, I-3, I-12, I-13, I-15, I-16]
+  liabilities: [H1-2, L-DOC-1]
+  current_shape: intake/ (8 modules, 651 lines) ranks tribe work first (OS#613); shelve/ (5, 1,122) sweeps
+    idle PRs. The playbook and SKILL.md disagree on whether a docs/ PR blocks dispatch (L-DOC-1), and
+    /project-status lacks cycle time (H1-2).
+  target_shape: One statement of the in-flight rule (L-DOC-1), and in-flight work derived from GitHub
+    per capability (OS#640, PR 5).
+- id: os.estate-reports
+  kind: code
+  purpose: 'Nathan''s views of the estate: the nightly Estate Brief vault note and the Estate Board.'
+  status: live
+  claims:
+    oversteward: [src/oversteward/brief/, src/oversteward/board/, scripts/estate_brief.py, scripts/estate_board.py]
+  entry_points: [scripts/estate_brief.py, scripts/estate_board.py]
+  current_shape: brief/ (3 modules, 588 lines) and board/ (7, 1,141), each with its own GitHub client; the brief reads through the board's gh runner.
+  target_shape: hold
+- id: os.page-judging
+  kind: code
+  purpose: 'Seeing estate pages as a visitor and a rater would: the signed probe through Cloudflare, the
+    Gemini quality-rater pass, and the design bench.'
+  status: live
+  serves: [ag.seo-edge]
+  claims:
+    oversteward: [src/oversteward/judge/, src/oversteward/probe/, src/oversteward/bench/, scripts/page_judge.py,
+      scripts/design_bench.py]
+  entry_points: [scripts/page_judge.py, scripts/design_bench.py]
+  current_shape: judge/ (9 modules, 1,699 lines), probe/ (5, 406) and bench/ (6, 514).
+  target_shape: hold
+- id: os.railway-cron
+  kind: code
+  purpose: Provisions a Railway cron service cloned from a sibling service's config, plus its own variables.
+  status: live
+  claims:
+    oversteward: [src/oversteward/railway_cron/, scripts/railway_cron.py]
+  entry_points: [scripts/railway_cron.py]
+  current_shape: 5 modules, 421 lines.
+  target_shape: hold
+- id: os.janitor
+  kind: code
+  purpose: Reclaims disk that sessions leave behind once nothing is using it.
+  status: live
+  claims:
+    oversteward: [src/oversteward/janitor/, scripts/scratchpad_janitor.py]
+  entry_points: [scripts/scratchpad_janitor.py]
+  current_shape: 2 modules, 578 lines; prunes dead sessions' ~/.claude/tmp directories.
+  target_shape: hold
+- id: os.estate-map
+  kind: code
+  purpose: 'This map: what the estate builds, where each capability lives, and its current and target
+    shape; checked by the seventh session-start sweep.'
+  status: building
+  claims:
+    oversteward: [estate-map.yaml, src/oversteward/estate_map/, scripts/estate_map.py, data/estate-map-digest.md]
+  entry_points:
+  - scripts/estate_map.py check
+  - scripts/estate_map.py render --write
+  current_shape: OverSteward is seeded with directory claims and its coverage floor is measured. AG and
+    GS capabilities are unclaimed stubs, and their floors are null (unmeasured).
+  target_shape: AG (PR 2) and GS (PR 3) seeded with claims and measured floors, per-repo slices deployed
+    (PR 4), and in-flight work derived from GitHub (PR 5) — OS#640.
+
+seams:
+- id: S-1
+  label: grantspider → aigranthelper (data)
+  producer: [grantspider]
+  consumer: [aigranthelper]
+  flows: AG reads the research DB through **`ag_research.*` views and functions** (26 unmanaged `_v` models,
+    plus search/match SQL functions), connecting with the read-only `ag_research_reader` role. Nine documented
+    base-table reads remain, each tagged `READS-BASE-TABLE:`. `grantspider.ontology` supplies one type
+    (`NteeCode`) and is not the read path
+  cite: GS `src/grantspider/ag_research_views/__init__.py`; AG `apps/research/models/_views.py`, `apps/core/grantspider_reads.py`,
+    `docs/CROSS_REPO_SCHEMA.md` rule 1; OverSteward `documentation/data-contract-grantspider-aigranthelper.md`
+    v1.2
+  invariants: [I-4, I-6]
+- id: S-2
+  label: grantspider → aigranthelper (code)
+  producer: [grantspider]
+  consumer: [aigranthelper]
+  flows: 'AG pins GS by SHA (`requirements.txt:463`, matched by `research_schema.lock`) and imports `grantspider.models`,
+    `connectors.b2_storage` and `services.db_backup` at runtime. A push to GS main fires `repository_dispatch:
+    gs-master-bump`; AG''s bump workflow rejects non-`refs/heads/main` refs and force-updates one draft
+    PR onto AG `staging`'
+  cite: GS `.github/workflows/notify-ag-on-main.yml:25-49`; AG `.github/workflows/bump-gs-pin.yml:28,79,203,212`,
+    `apps/research/apps.py:26`, `apps/ops/management/commands/backup_database.py:52,93`
+  invariants: [I-18, I-19, I-20]
+- id: S-3
+  label: grantspider → aigranthelper (schema drift)
+  producer: [grantspider]
+  consumer: [aigranthelper]
+  flows: AG CI diffs `_generated.py` against GS `schema/research.sql` at the locked SHA. `_views.py` is
+    not checked (G1)
+  cite: AG `scripts/tools/check_research_drift.py`, `.github/workflows/ci.yml:744`
+  liabilities: [G1]
+- id: S-4
+  label: aigranthelper → grantspider
+  producer: [aigranthelper]
+  consumer: [grantspider]
+  flows: 'Visitor data corrections: AG serves export + ack at `/internal/corrections/`; GS pulls them
+    into pinned overrides'
+  cite: AG `apps/feedback/urls_internal.py:23`; GS `connectors/ag_corrections.py`, `orchestration/ag_corrections_assets.py`
+- id: S-5
+  label: wphelper → aigranthelper, ai-assistants
+  producer: [wphelper]
+  consumer: [aigranthelper, ai-assistants]
+  flows: 'Connector library: AG pins it by SHA (`requirements.txt:472`) for IndexNow + GSC; ai-assistants
+    depends on it but still duplicates WP REST/FTP (L-AA-1)'
+  cite: AG `apps/seo/management/commands/submit_seo_urls.py:7`; ai-assistants `pyproject.toml:63`, `src/almoner/wp/api.py`
+  invariants: [I-9]
+  liabilities: [L-AA-1]
+- id: S-6
+  label: oversteward → all repos
+  producer: [oversteward]
+  consumer: [aigranthelper, grantspider, wphelper, ai-assistants, gaudi, fiscus, exchequer]
+  flows: '`registry.yaml`; `shared/` deployed to both `~/.claude` homes; the dev family by sow PRs. In
+    OverSteward the deployed side is symlinks, elsewhere copies'
+  cite: '`registry.yaml`, `src/oversteward/sow/`, `tests/test_deployed_links.py`'
+  invariants: [I-21]
+  liabilities: [L-DEV-1]
+- id: S-7
+  label: aigranthelper → fiscus
+  producer: [aigranthelper]
+  consumer: [fiscus]
+  flows: Paginated NDJSON telemetry at `GET /internal/telemetry/`, RS256 JWT
+  cite: 'AG `apps/telemetry/urls_internal.py:11`, `apps/telemetry/auth.py`; Fiscus `subjects/ghp-*/contract.yaml`
+    (`status: stub`)'
+  liabilities: [L-FI-1]
+- id: S-8
+  label: oversteward → fiscus
+  producer: [oversteward]
+  consumer: [fiscus]
+  flows: '`data/pipeline_history.jsonl` read from disk (dispatch subject)'
+  cite: Fiscus `subjects/dispatch/contract.yaml`
+- id: S-9
+  label: pickup repos → fiscus
+  producer: [aigranthelper, grantspider, wphelper, ai-assistants, oversteward, exchequer]
+  consumer: [fiscus]
+  flows: '`andon`-labelled issues → `shared/andon.jsonl`. **The aggregator is a stub that only echoes**
+    (L-FI-1)'
+  cite: Fiscus `src/fiscus/andon.py:20-27`, `.github/workflows/weekly-review.yml`
+  liabilities: [L-FI-1]
+- id: S-10
+  label: fiscus → oversteward
+  producer: [fiscus]
+  consumer: [oversteward]
+  flows: '`fiscus review trajectories` JSON feeds the dream/kaizen worklist'
+  cite: '`scripts/dream.py:215`'
+- id: S-11
+  label: grantspider → oversteward
+  producer: [grantspider]
+  consumer: [oversteward]
+  flows: '`grantspider dq health --json` (stage health, locally or via `railway ssh`); Vintner reads `vintner.corpus_funnel_v`'
+  cite: '`src/oversteward/stage_health/sources.py:113,171`; `src/oversteward/vintner/reader.py`'
+- id: S-12
+  label: aigranthelper → oversteward
+  producer: [aigranthelper]
+  consumer: [oversteward]
+  flows: '`/internal/ops/reports/` read and `/internal/ops/verdicts/` write, bearer tokens'
+  cite: '`src/oversteward/ag_ops/client.py:71-73`; AG `apps/ops/urls_internal.py`'
+- id: S-13
+  label: Railway, Sentry → oversteward
+  producer: ['ext:Railway', 'ext:Sentry']
+  consumer: [oversteward]
+  flows: Liveness for contexts with a `railway:` block (AG, GS only); Sentry issues org-wide
+  cite: '`src/oversteward/liveness/config.py:34`, `registry.yaml:166,298`; `src/oversteward/sentry/`'
+- id: S-14
+  label: billing APIs, GA4 → exchequer
+  producer:
+  - ext:billing APIs
+  - ext:GA4
+  consumer: [exchequer]
+  flows: '`exchequer pull` → `ledgers/pulled_costs.csv` (Anthropic, Stripe, Neon consumption API, Railway);
+    GA4 funnel events emitted by AG (`sign_up`, `funder_saved`, `purchase`, `lead_captured`)'
+  cite: exchequer `src/exchequer/services/pull.py:59`, `src/exchequer/connectors/neon.py`; AG `apps/core/analytics.py:123-194`
+  liabilities: [L-EX-1]
+
+# IDs are stable and never renumbered; a retired invariant keeps its row with `status: retired`.
+invariants:
+- id: I-1
+  status: live
+  text: In-session pickup work never touches Nathan's live working tree (worktrees only)
+  cite: '`shared/skills/dispatch/playbook.md:25-28` (grantspider #426 postmortem)'
+  capabilities: [os.dispatch]
+- id: I-2
+  status: live
+  text: 'One in-flight **agent** PR per repo: dispatch refuses while an `<kind>/issue-` PR is open. The
+    two surfaces disagree on whether `docs/` counts (L-DOC-1). `session/<name>` PRs are not covered'
+  cite: '`shared/skills/dispatch/playbook.md:36` (includes `docs`), `SKILL.md:79` (omits it)'
+  capabilities: [os.dispatch]
+- id: I-3
+  status: live
+  text: Never bypass git hooks (`--no-verify`, `--admin`, hooksPath); never `git add -A`
+  cite: '`playbook.md:15,23`; `.claude/hooks/check_destructive_command.py`'
+  capabilities: [os.dispatch]
+- id: I-4
+  status: live
+  text: 'aigranthelper never writes the research DB: read-only Neon role, and the DB router''s `allow_migrate`
+    returns `False` for every research label unconditionally'
+  cite: AG `apps/core/db_router.py:34-46`, `config/settings/base.py:283`
+  capabilities: [ag.research]
+- id: I-5
+  status: live
+  text: 'AG copies of producer fields declare Snapshot or Cache at definition. Partly kept: `foundation_name`/`grantor_name`
+    copies are labelled; `FunderRelationship.accepts_unsolicited`, `typical_award_range_*`, `application_deadline`
+    are not'
+  cite: AG `apps/pipeline/models.py:136,154-157,545,696,749`; data contract §3
+  capabilities: [ag.pipeline]
+- id: I-6
+  status: live
+  text: Data-contract §7 fields are not removed/renamed/re-meant without the §8 dual-write procedure
+  cite: data contract §7-8
+  capabilities: [ag.research]
+- id: I-7
+  status: live
+  text: 'GS data migrations use the ORM (ADR-006). **App code is not ORM-only**: ~129 `text()` calls across
+    services/cli/orchestration/connectors, with no lint. Raw SQL must not bypass client-side defaults'
+  cite: GS `docs/adr/006-alembic-data-migrations-use-orm.md`; e.g. `services/address_backfill.py:164-228`
+  capabilities: [gs.safety]
+- id: I-8
+  status: live
+  text: Pre-migration UPDATEs collapsing many rows to one value audit every sibling UNIQUE (partial +
+    full) on touched columns
+  cite: memory `feedback_migration_sibling_unique_audit`
+  capabilities: [gs.safety]
+- id: I-9
+  status: live
+  text: wphelper is the canonical connector home; other repos import rather than duplicate. **Violated
+    by ai-assistants** (L-AA-1)
+  cite: wphelper `src/wphelper/`; memory `project_wphelper_is_connector_home`
+  capabilities: [wp.connectors, aa.almoner]
+- id: I-10
+  status: live
+  text: wphelper does not author content; orchestrating primitives is OK
+  cite: memory `project_wphelper_orchestration_ok`
+  capabilities: [wp.connectors]
+- id: I-11
+  status: live
+  text: GS is the **sole writer** of research `grants` rows (990-PF, Schedule I, 360Giving, CFCSRA); AG
+    never writes them. A writer census test pins the set
+  cite: GS `services/irs_990_ingestion.py:348`, `services/irs_persistence.py:732`, `services/three_sixty_giving_ingestion.py:230`,
+    `services/cfcsra_sync.py`, `tests/services/test_grant_source_backfill.py`
+  capabilities: [gs.irs-ingestion, gs.other-sources]
+- id: I-12
+  status: live
+  text: Architect decisions address every audit finding in a STOPPED_FOR_INPUT report, not just the headline
+  cite: memory `feedback_architect_decision_completeness`
+  capabilities: [os.dispatch]
+- id: I-13
+  status: live
+  text: Tests do not patch module globals when the fix is to expose the dependency as a parameter
+  cite: '`playbook.md:30`; `shared/references/architecture-principles.md` §Dependency Seams'
+  capabilities: [os.dispatch]
+- id: I-14
+  status: retired
+  text: AG working-hours boundary
+  cite: 'retired 2026-07-11 (Nathan): AG work is no longer clock-gated'
+  capabilities: []
+- id: I-15
+  status: live
+  text: Issues touching data-contract surface or the workflow name the test that would fail if the change
+    were wrong (norm; not mechanized)
+  cite: this document, 2026-04-25
+  capabilities: [os.dispatch]
+- id: I-16
+  status: live
+  text: 'Required CI checks are mostly off, by design: null on AG main/staging, GS main, OverSteward master,
+    fiscus main. **Exceptions:** GS `staging` requires `ci`; gaudi main requires lint/security/test'
+  cite: GitHub branch-protection API, 2026-10-31; `.github/workflows/ci.yml:10-12`
+  capabilities: [os.dispatch]
+- id: I-17
+  status: live
+  text: 'Long Neon writes reconnect and commit per batch: `with_reconnect()` invalidates a dropped pooler
+    connection and retries'
+  cite: GS `src/grantspider/connectors/neon.py:95-146` (also `services/sqlite_migrate.py:265` `_bulk_upsert`)
+  capabilities: [gs.crawl]
+- id: I-18
+  status: live
+  text: '`grantspider.ontology` must not import `services`, `connectors`, `cli`, `orchestration` — lint
+    + pre-commit'
+  cite: GS `scripts/lint/check_ontology_imports.py:41`, `.pre-commit-config.yaml:64-72`
+  capabilities: []
+- id: I-19
+  status: live
+  text: AG production pins only GS `main` SHAs, via the human-gated draft bump PR (§2)
+  cite: GS `notify-ag-on-main.yml`; AG `bump-gs-pin.yml:79,212`
+  capabilities: []
+- id: I-20
+  status: live
+  text: '`main ⊆ staging` in **both** GS and AG; back-merges are true merges, never squash. Each repo''s
+    `divergence-watchdog.yml` (push + daily 13:00 UTC) fails and files an issue on divergence'
+  cite: GS and AG `.github/workflows/divergence-watchdog.yml`
+  capabilities: []
+- id: I-21
+  status: live
+  text: One git worktree per session via `scripts/dev/new-session.sh` → `session/<name>`; `guard_main_worktree.py`
+    refuses checkout/switch in the primary tree. OverSteward links the kit from `shared/`; other repos
+    carry copies, currently drifted (L-DEV-1)
+  cite: '`shared/scripts/dev/new-session.sh:44`, `tests/test_deployed_links.py`'
+  capabilities: [os.dev-family-sow]
+- id: I-22
+  status: live
+  text: 'AG staging and production share **one** tenant Postgres, and with it production''s `DatabaseCache`
+    table: a write via staging is a production write. Rendered-output keys go through `env_scoped_cache_key`
+    (`CACHE_KEY_ENVIRONMENT`); some keys do not and are shared across environments (`magic_link_used:*`,
+    `notification:email:last_sent:*`)'
+  cite: AG `config/settings/base.py:317-324` (#1701), `config/settings/production.py:37-41`, `apps/accounts/magic_link.py:17`,
+    `apps/core/notifications.py:167`
+  capabilities: [ag.accounts-billing]
+
+liabilities:
+- id: G1
+  text: The drift check covers the `_generated.py` mirror, not `_views.py`, which is AG's real read surface.
+    The check also exits 0 when the GS schema snapshot 404s
+  owner: aigranthelper
+  tracking: '`scripts/tools/check_research_drift.py`; data contract §8.3'
+  capabilities: [ag.research]
+- id: G4
+  text: Expired profile enrichments are served on purpose with an "as of" stamp (GS#2459); refill runs
+    only from in-session drains (no scheduled refill)
+  owner: grantspider
+  tracking: '`ag_research_views/__init__.py:260-271`, `services/enrichment_reaper.py`'
+  capabilities: [gs.enrichment]
+- id: G5
+  text: User signals (UserFunderSignal saved/dismissed, match feedback) live in AG tables, but nothing
+    exports them to GS
+  owner: aigranthelper
+  tracking: '`apps/pipeline/models.py:610`; data contract §12'
+  capabilities: [ag.pipeline]
+- id: H1-2
+  text: '`/project-status` metrics partial: no issue→merged cycle time, no self-critique fire rate'
+  owner: oversteward
+  tracking: '`TODO_BACKLOG.md` H3-4, H3-6'
+  capabilities: [os.dispatch]
+- id: L-OD-1
+  text: Dormant OneDrive checkouts await triage-then-delete
+  owner: oversteward (ops)
+  tracking: OS#58 (open)
+  capabilities: [os.registry]
+- id: L-DISP-1
+  text: '**exchequer** `main` has no branch protection. Every other private dispatch repo has protection
+    with `enforce_admins`'
+  owner: exchequer
+  tracking: GitHub API, 2026-10-31
+  capabilities: [exchequer.counting-house]
+- id: L-AG-2
+  text: 'AG''s primary-checkout `.env` was found 2026-08-05 to hold a `DATABASE_URL` for a deleted Neon
+    project. **Unverified since**: the credential hook rightly blocks probing it. AG''s `backup_database`
+    ABOUTME and `docs/CROSS_REPO_SCHEMA.md` still describe a Neon tenant DB'
+  owner: aigranthelper
+  tracking: '`apps/ops/management/commands/backup_database.py`, `docs/CROSS_REPO_SCHEMA.md`'
+  capabilities: [ag.ops-feedback]
+- id: L-AG-3
+  text: AG test settings accept any DB host, and a failed connect can render the password into a pytest
+    traceback; no host guard, no redaction
+  owner: aigranthelper
+  tracking: '`config/settings/test.py:25-65`, `tests/conftest.py`'
+  capabilities: [ag.dev-gates]
+- id: L-AA-1
+  text: ai-assistants keeps its own WP REST client and FTP module beside the wphelper dependency (I-9)
+  owner: ai-assistants
+  tracking: '`src/almoner/wp/api.py` (363 lines), `src/almoner/wp/ftp.py`'
+  capabilities: [aa.almoner]
+- id: L-DEV-1
+  text: 'Dev-family copies drift: `new-session.sh` is one version behind in every repo; exchequer''s `guard_main_worktree.py`
+    differs; `worktree_doctor.py` is absent in wphelper, ai-assistants, exchequer, gaudi and pre-#571
+    in AG, GS, fiscus'
+  owner: oversteward
+  tracking: '`/sync-status`; OS#572'
+  capabilities: [os.dev-family-sow]
+- id: L-FI-1
+  text: 'Fiscus andon aggregation is a Phase-0 stub, and the AG/dispatch subject contracts are `status:
+    stub`; exchequer and gaudi lack the andon template'
+  owner: fiscus
+  tracking: Fiscus `src/fiscus/andon.py:20-27`, `subjects/*/contract.yaml`
+  capabilities: [fiscus.kaizen-platform]
+- id: L-EX-1
+  text: 'Exchequer: Railway connector live-unverified, cron unwired, `_ASSUMED_PRO_INFERENCE_COGS = 4.0`
+    hardcoded; `expenses.csv` partly hand-seeded'
+  owner: exchequer
+  tracking: exchequer `src/exchequer/connectors/railway.py:2`, `src/exchequer/services/pull.py:38`
+  capabilities: [exchequer.counting-house]
+- id: L-WSL-1
+  text: Docker Desktop volumes (compose databases) live in the `docker-desktop` distro, outside both the
+    monthly export and the daily restic of `/home/natha`. OS#581–583 shipped the backups and closed; **nothing
+    open tracks this gap**
+  owner: oversteward (ops)
+  tracking: '`documentation/runbooks/wsl-recovery.md:192`'
+  capabilities: [os.backup]
+- id: L-DOC-1
+  text: 'Dead pointers: `documentation/issue-to-pr-workflow.md` and `documentation/repos/` never existed
+    but are cited by `ROADMAP.md` and `DETERMINISTIC_AGENTS.md`; the dispatch skill''s description omits
+    oversteward as a target; `SKILL.md:79` and `playbook.md:36` disagree on whether an open `docs/issue-`
+    PR blocks dispatch'
+  owner: oversteward
+  tracking: '`documentation/ROADMAP.md:62,2282`, `shared/skills/dispatch/SKILL.md:3,79`'
+  capabilities: [os.dispatch]
