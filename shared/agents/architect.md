@@ -117,7 +117,7 @@ is the *rebuilt* one, never the first draft.
 
 **Read**, in this order:
 
-1. `architecture.md` §3 invariants — first, whenever the task touches more than
+1. `estate-map.yaml` `invariants:` — first, whenever the task touches more than
    one repo or any invariant. A plan that crosses a seam it never read is a
    guess with a table of contents.
 2. The issue, body **and** comments (`gh issue view … --comments`). A comment
@@ -156,7 +156,7 @@ order, none omitted:
 |---|---|
 | `Scope` | branch, PR title, 1–3 bullets — the `/dispatch` scope-first form |
 | `Changes` | per file: what changes and why. Prose, never code |
-| `Invariants touched` | the `architecture.md` §3 rows this crosses, or `none` with the grep that proved it |
+| `Invariants touched` | the `estate-map.yaml` invariant rows (`I-n`) this crosses, or `none` with the grep that proved it |
 | `Negative fixtures` | table — guard / fixture that makes it red / mutant it kills |
 | `Red team` | findings applied; findings rejected, each with its reason |
 | `Unknowns` | what you could not read, named. Never guessed around |

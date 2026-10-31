@@ -105,7 +105,7 @@ If all preflights pass: proceed.
 **Scope first, and on the right model.** The session runs on Opus, and so does
 every `<repo>-dev` agent it launches. Fable is reserved for planning, and it is
 reached **by name**: a scope that crosses more than one repo, that touches an
-`architecture.md` §3 invariant, or that is itself an architecture decision goes
+`estate-map.yaml` invariant, or that is itself an architecture decision goes
 to `architect` (fable, foreground — `shared/agents/architect.md`), and the
 session then dispatches from the `Dispatch brief` that card returns. **The
 session never switches itself to Fable in order to plan.** Switching the

@@ -343,9 +343,9 @@ capabilities:
   liabilities: [L-OD-1]
   current_shape: registry.yaml holds 16 contexts and drives every sweep and dispatch. gather.py (140 lines)
     and diff.py (189) back /sync-status. scripts/coordinator.py (18 lines) and scripts/sweep.py (12) are
-    comment-only Phase 2 stubs that nothing calls.
-  target_shape: 'Decide the two Phase 2 stubs: build them or delete them, so the tool registry stops listing
-    commands that do nothing.'
+    comment-only Phase 2 stubs that nothing calls, deferred until a concrete task re-triggers them (`TODO_BACKLOG.md`,
+    H2-6).
+  target_shape: hold
 - id: os.dev-family-sow
   kind: code
   purpose: Canonical worktree/guard/env scripts and hooks, deployed to repos by sow; nightly `sync_repos`

@@ -8,7 +8,7 @@ ABOUTME: Pulls from registry.yaml, OVERSTEWARD.md horizons, TODO_BACKLOG, open i
 Source files this roadmap consolidates:
 - `OVERSTEWARD.md` (vision, two pillars, phase plan)
 - Open issues (Horizon 1) + `TODO_BACKLOG.md` (Horizons 2-3)
-- `architecture.md` §5 recent moves
+- `git log -p -- estate-map.yaml` (recent architectural moves)
 - Open Oversteward issues (`gh issue list`)
 - Script stubs (`scripts/{coordinator,gather,diff,sow,sweep}.py`)
 - `IDEA_STORE.md` (parking lot — not a commitment)
@@ -72,7 +72,7 @@ Heavy delivery between 2026-04-15 and 2026-05-07. Center of gravity moved here.
 ### Cross-repo data contracts (oversteward-owned governance artifacts)
 
 - `documentation/data-contract-grantspider-aigranthelper.md` v1.2 (PRs #17, #20, #28, #30) — producer/consumer surface, snapshot/cache distinction, dual-write rules.
-- `architecture.md` (PRs #21, #22, #31, #35) — machine-readable cross-repo state snapshot (§3 invariants, §4 known liabilities, §5 recent moves). Scope/plan-time read.
+- `estate-map.yaml` (OS#640; succeeds the PRs #21, #22, #31, #35 snapshot) — the estate capability map: repos, capabilities, seams, invariants, known liabilities. Scope/plan-time read.
 
 ---
 
@@ -2290,7 +2290,7 @@ Pulled from the August 2026 `MASTER_TODO.md` Active list (retired 2026-10-21, OS
 ### H1 residue (cleanup)
 
 - **Finish H1-2.** Add full issue-creation→merge cycle time to `/project-status` (timeline-event fetch); decide what self-critique fire rate counts as a "fire" and add it. Blocking criterion for declaring Horizon 1 "shipped."
-- **Retire `/dispatch` skill on disk.** Remove `.claude/skills/dispatch/`, `.claude/skills/answer-flow/`, `.claude/skills/morning-digest/` (already retired in CLAUDE.md), and the four `.claude/agents/<repo>-dev.md` files. Update `registry.yaml` `agents_available` blocks. Companion to the in-session-default decision recorded in `architecture.md` §5 + memory `feedback_in_session_not_dispatch.md`.
+- **Retire `/dispatch` skill on disk.** Remove `.claude/skills/dispatch/`, `.claude/skills/answer-flow/`, `.claude/skills/morning-digest/` (already retired in CLAUDE.md), and the four `.claude/agents/<repo>-dev.md` files. Update `registry.yaml` `agents_available` blocks. Companion to the in-session-default decision recorded in the cross-repo snapshot's §5 (pre-OS#640) + memory `feedback_in_session_not_dispatch.md`.
 
 ### H2 — Regression catalog + scoped governance tooling
 
@@ -2323,7 +2323,7 @@ Listed in `TODO_BACKLOG.md`. Each is gated on a real-world trigger, not a date.
 
 ## §7 Known liabilities carried by OverSteward
 
-From `architecture.md` §4 — the rows OverSteward owns or shares ownership of.
+From `estate-map.yaml` `liabilities:` — the rows OverSteward owns or shares ownership of.
 
 | ID | Liability |
 |---|---|
@@ -2372,7 +2372,7 @@ Captured in `IDEA_STORE.md` from gstack research and conversational drift. None 
 
 - Update §3 / §4 every time a horizon item lands.
 - Update §5 when a new item promotes from backlog or an open issue gets a scope decision.
-- Update §7 when an architecture.md liability flips on or off.
+- Update §7 when an `estate-map.yaml` liability flips on or off.
 - If §2-§3 grow past readable length, extract to a `documentation/changelog.md` and keep this doc thin.
 - This doc is the single answer to "what are we trying to do, what's done, what's next?" If it can't answer that in under 60 seconds of reading, it's grown past its purpose — restructure rather than expand.
 
