@@ -115,3 +115,9 @@ def test_a_crash_mid_check_exits_2(cli, capsys):
     out = capsys.readouterr().out
     assert "COULD NOT LOOK - check crashed: RuntimeError: synthetic git crash" in out
     assert "Traceback" not in out
+
+
+def test_a_render_that_cannot_write_exits_2(cli, capsys, tmp_path):
+    assert cli.main(["--digest", str(tmp_path), "render", "--write"]) == 2
+    out = capsys.readouterr().out
+    assert "COULD NOT LOOK - render crashed: IsADirectoryError" in out

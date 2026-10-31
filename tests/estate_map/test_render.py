@@ -46,15 +46,16 @@ def test_budget_is_read_from_the_policy(raw):
 
 
 def test_budget_counts_bytes_not_characters(raw):
-    estate = parse(raw)
-    text = digest(estate)
-    raw["policy"]["digest_budget_bytes"] = len(text)
+    text = digest(parse(raw))
+    # Room for two more bytes. " →" is two characters but four bytes, so a
+    # character count fits the budget and a byte count does not.
+    raw["policy"]["digest_budget_bytes"] = len(text.encode("utf-8")) + 2
     raw["mission"]["north_star"] += " →"
     grown = parse(raw)
     grown_text = digest(grown)
-    # One arrow is three bytes but two characters with its space.
     assert len(grown_text) == len(text) + 2
-    assert budget_findings(grown, grown_text)
+    assert len(grown_text.encode("utf-8")) == len(text.encode("utf-8")) + 4
+    assert [f.check for f in budget_findings(grown, grown_text)] == ["digest-budget"]
 
 
 def test_repo_slice_holds_that_repos_capabilities_seams_and_invariants(raw):

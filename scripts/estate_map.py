@@ -67,10 +67,10 @@ def main(argv: list[str] | None = None, git=None) -> int:
         print(f"COULD NOT LOOK - {type(exc).__name__}: {exc}")
         return EXIT_COULD_NOT_LOOK
 
-    if args.command == "render":
-        return _render(args, estate, render)
-    reader = TreeReader(git or GitCommand(), checkouts(registry, home_repo=HOME_REPO, home_root=ROOT))
     try:
+        if args.command == "render":
+            return _render(args, estate, render)
+        reader = TreeReader(git or GitCommand(), checkouts(registry, home_repo=HOME_REPO, home_root=ROOT))
         outcome = checks.run(args.command, estate, registry, reader, repo=getattr(args, "repo", None))
     except Exception as exc:  # noqa: BLE001 — a crash mid-check is could-not-look, never clean
         print(f"COULD NOT LOOK - {args.command} crashed: {type(exc).__name__}: {exc}")

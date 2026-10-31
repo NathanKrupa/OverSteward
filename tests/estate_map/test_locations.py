@@ -132,6 +132,9 @@ def test_repo_location_is_checked_and_unverified_is_counted_not_read(raw, tmp_pa
     outcome = _run(raw, tmp_path, git)
     assert [f.subject for f in outcome.findings] == ["os.sow"]
     assert "oversteward:reports/gone.md" in outcome.findings[0].message
+    # Reading the unverified AG timer would send the check to AG's absent checkout.
+    assert outcome.could_not_look == ()
+    assert outcome.exit_code == EXIT_FINDINGS
     # The unverified AG timer must not send the check to AG's (absent) checkout.
     assert not [c for c in git.calls if c[0] == "/nowhere/ag"]
     assert any("2 unverified" in note for note in outcome.notes)
