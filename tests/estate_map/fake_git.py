@@ -1,0 +1,42 @@
+# ABOUTME: An in-memory stand-in for `git fetch` and `git ls-tree` over a fixed set of tracked files.
+# ABOUTME: Records every call so a test can prove which ref was read and that a fetch preceded it.
+
+from __future__ import annotations
+
+from collections.abc import Iterable
+from pathlib import Path
+
+from oversteward.sow.runners import CommandResult
+
+
+class FakeGit:
+    def __init__(self, trees: dict[str, Iterable[str]], *, fetch_ok: bool = True) -> None:
+        #: ref -> tracked file paths at that ref
+        self.trees = {ref: set(files) for ref, files in trees.items()}
+        self.fetch_ok = fetch_ok
+        self.calls: list[tuple[str, ...]] = []
+
+    def run(self, cwd: Path, *args: str) -> CommandResult:
+        self.calls.append((str(cwd), *args))
+        if args[0] == "fetch":
+            return CommandResult(self.fetch_ok, "", "" if self.fetch_ok else "fatal: no remote")
+        if args[0] == "ls-tree":
+            return self._ls_tree(list(args[1:]))
+        raise AssertionError(f"unexpected git call {args}")
+
+    def _ls_tree(self, args: list[str]) -> CommandResult:
+        recursive = "-r" in args
+        split = args.index("--")
+        ref = [a for a in args[:split] if not a.startswith("-")][0]
+        paths = args[split + 1 :]
+        if ref not in self.trees:
+            return CommandResult(False, "", f"fatal: Not a valid object name {ref}")
+        files = self.trees[ref]
+        out: set[str] = set()
+        for path in paths:
+            under = {f for f in files if f == path or f.startswith(path + "/")}
+            if recursive:
+                out |= under
+            elif under:
+                out.add(path)
+        return CommandResult(True, "".join(f"{p}\n" for p in sorted(out)), "")

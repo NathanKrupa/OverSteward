@@ -13,8 +13,8 @@ REGISTRY_PATH = Path(__file__).resolve().parent.parent / "registry.yaml"
 OWNER = "NathanKrupa"
 
 
-def load_registry() -> dict[str, Any]:
-    with REGISTRY_PATH.open(encoding="utf-8") as f:
+def load_registry(path: Path = REGISTRY_PATH) -> dict[str, Any]:
+    with path.open(encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
