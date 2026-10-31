@@ -39,6 +39,14 @@ def test_digest_over_budget_is_a_finding(raw):
     assert [(f.check, f.subject) for f in findings] == [("digest-budget", "digest")]
 
 
+def test_digest_exactly_at_the_budget_is_clean(raw):
+    text = digest(parse(raw))
+    raw["policy"]["digest_budget_bytes"] = len(text.encode("utf-8"))
+    estate = parse(raw)
+    assert digest(estate) == text
+    assert budget_findings(estate, text) == []
+
+
 def test_budget_is_read_from_the_policy(raw):
     raw["policy"]["digest_budget_bytes"] = 100
     estate = parse(raw)

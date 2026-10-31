@@ -26,6 +26,7 @@ _BASE: dict[str, Any] = {
         "coverage_floor": {
             "oversteward": {"orphans": 0, "overlaps": 0},
             "grantspider": None,
+            "aigranthelper": None,
         },
     },
     "repos": [
