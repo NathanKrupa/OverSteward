@@ -121,8 +121,10 @@ is the *rebuilt* one, never the first draft.
    one repo or any invariant. A plan that crosses a seam it never read is a
    guess with a table of contents. The full map is the record; a repo's
    dispatch agent reads only that repo's slice,
-   `~/.claude/shared/references/estate-map/<repo>.md`, and so does a repo session
-   whose `registry.yaml` entry lists it in `references_always_on`. Read the slice
+   `~/.claude/shared/references/estate-map/<repo>.md`. A repo session loads it
+   only once the `@` line is in its CLAUDE.md managed block, which
+   `references_always_on` declares and `/sync-status` checks but sow does not
+   write; read the drift report before assuming a session sees it. Read the slice
    of every repo the plan touches, because it is all the executor will see; what
    the plan needs from outside it goes in the brief.
 2. The issue, body **and** comments (`gh issue view … --comments`). A comment

@@ -128,6 +128,12 @@ def test_digest_budget_is_the_agreed_ceiling():
     assert load(MAP_PATH).policy.digest_budget_bytes == 20000
 
 
+def test_slice_budget_is_the_agreed_ceiling():
+    # Each slice is loaded into its repo's sessions at start, so it is held to the
+    # digest's ceiling (OS#640); the GS slice is the largest.
+    assert load(MAP_PATH).policy.slice_budget_bytes == 20000
+
+
 def test_every_slice_is_current_and_within_budget():
     estate = load(MAP_PATH)
     assert stale_slices(estate, SLICES_DIR) == [], (

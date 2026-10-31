@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import copy
 
-from oversteward.estate_map.model import parse
+import pytest
+
+from oversteward.estate_map.model import MapError, parse
 from oversteward.estate_map.render import (
     budget_findings,
     digest,
@@ -212,3 +214,10 @@ def test_slice_cuts_before_a_parenthesis_or_code_span_opening_a_sentence(raw):
     for second in ("(L-GS-3) has none.", "`x.py` has none."):
         raw["capabilities"][1]["current_shape"] = f"one module. {second}"
         assert "  - one module. → hold" in repo_slice(parse(raw), "grantspider")
+
+
+@pytest.mark.parametrize("key", ["digest_budget_bytes", "slice_budget_bytes"])
+def test_a_map_without_a_budget_is_malformed(raw, key):
+    del raw["policy"][key]
+    with pytest.raises(MapError, match=f"missing required field `{key}`"):
+        parse(raw)
