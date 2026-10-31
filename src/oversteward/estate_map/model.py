@@ -102,7 +102,7 @@ class Floor:
 @dataclass(frozen=True)
 class Policy:
     digest_budget_bytes: int
-    #: The byte ceiling every per-repo slice is held to; repo sessions load one at start.
+    #: The byte ceiling every per-repo slice is held to; a repo session may load its slice at start.
     slice_budget_bytes: int
     explicit_only: Mapping[str, tuple[str, ...]]
     #: None means the repo's coverage is unmeasured; it is printed, never compared.
