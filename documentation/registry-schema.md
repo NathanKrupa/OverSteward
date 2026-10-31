@@ -47,6 +47,7 @@ Each context is a YAML mapping. Fields grouped by purpose below.
 | `soul` | enum `chestertron` \| `macgregor` | yes | Primary identity. Sow deploys the soul via `@~/.claude/shared/souls/<soul>.md` import unless `soul_in_local: true`. |
 | `personas_always_on` | list<string> | yes | Persona names deployed as `@file` imports inside the managed block. Empty list allowed. |
 | `personas_available` | list<string> | yes | Persona names deployed as skill files named `persona-<name>.md`. Empty list allowed. |
+| `references_always_on` | list<string> | no | Paths under canonical `shared/references/`, each loaded as an `@~/.claude/shared/references/<path>` line of its own inside the managed block. `/sync-status` reports a declared line the block lacks as `reference` drift; sow does not write it yet, so the line is added by hand. `tests/test_registry_references.py` requires every path to name a file. AG and GS declare their estate-map slice (`estate-map/<id>.md`, rendered by `scripts/estate_map.py render --write`). |
 | `skills_always_on` | list<string> | yes | Shared skills auto-deployed to the context's `skills_path`. |
 | `skills_available` | list<string> | yes | Shared skills available but not auto-deployed. |
 | `agents_available` | list<string> | no | Dispatch subagent types this context may invoke. Orchestration metadata only; sow does not deploy agents. |

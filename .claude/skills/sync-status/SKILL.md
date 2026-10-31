@@ -39,8 +39,11 @@ Relay the DRIFT section grouped by surface, worst first:
 - **shared-deploy:wsl / shared-deploy:windows** — canonical `shared/` vs the two
   deployed `~/.claude/shared/` homes. These break `@~/.claude/shared/...`
   resolution silently; lead with them.
-- **managed-block / soul** — contexts whose CLAUDE.md lacks the
-  `[oversteward:managed]` block or references the wrong soul.
+- **managed-block / soul / reference** — contexts whose CLAUDE.md lacks the
+  `[oversteward:managed]` block, references the wrong soul, or lacks an
+  `@~/.claude/shared/references/<path>` line its registry
+  `references_always_on` declares (each estate-map slice reaches its repo's
+  sessions this way).
 - **canonical-family** — members of `shared/scripts/dev/` that are drifted, or
   absent while the repo's CLAUDE.md tells agents to use them; read from
   `origin/<branch>`, so the finding is about what the repo actually ships.

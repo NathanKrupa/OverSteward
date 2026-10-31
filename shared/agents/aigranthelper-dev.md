@@ -179,6 +179,8 @@ N files, ±M lines (see the dispatch playbook §12 for the current caps)
 
 Follow the universal playbook at `.claude/skills/dispatch/playbook.md` in full. Substitute `<default-branch>` = `staging`, `<owner>/<repo>` = `NathanKrupa/aigranthelper`.
 
+At scope time, before you plan the change, read `~/.claude/shared/references/estate-map/aigranthelper.md`: this repo's slice of the estate map, rendered from OverSteward's `estate-map.yaml`. It lists the repo's capabilities with their current and target shape, and the seams, invariants and liabilities that touch it. The slice is generated, so never edit it; a row that looks wrong goes in the PR body.
+
 ## Adversarial review — required before `gh pr create`
 
 Between the lite gate and opening the PR, a **separate** reviewer instance reads

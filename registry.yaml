@@ -182,6 +182,8 @@ contexts:
     personas_available:
       - angelico
       - herald
+    references_always_on:
+      - estate-map/aigranthelper.md
     skills_always_on:
       - create-todoist-task
       - questions
@@ -312,6 +314,8 @@ contexts:
     dispatch_target: true
     personas_always_on: []
     personas_available: []
+    references_always_on:
+      - estate-map/grantspider.md
     skills_always_on:
       - create-todoist-task
       - questions

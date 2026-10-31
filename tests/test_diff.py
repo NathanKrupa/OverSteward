@@ -87,6 +87,42 @@ class TestManagedBlock:
         ctx = _context(soul="david", soul_in_local=True)
         assert _by_surface(diff_state(_snapshot([ctx])), "soul") == []
 
+    def test_declared_reference_present_in_the_block_is_clean(self):
+        ctx = _context(references_always_on=["estate-map/demo.md"])
+        ctx["claude_md"]["managed"]["text"] += "@~/.claude/shared/references/estate-map/demo.md\n"
+        assert _by_surface(diff_state(_snapshot([ctx])), "reference") == []
+
+    def test_declared_reference_absent_from_the_block_is_drift_naming_the_import(self):
+        ctx = _context(references_always_on=["estate-map/demo.md", "pr-workflow.md"])
+        ctx["claude_md"]["managed"]["text"] += "@~/.claude/shared/references/pr-workflow.md\n"
+        findings = _by_surface(diff_state(_snapshot([ctx])), "reference")
+        assert [(f["severity"], f["context"]) for f in findings] == [("drift", "demo")]
+        assert "@~/.claude/shared/references/estate-map/demo.md" in findings[0]["message"]
+
+    def test_declared_reference_must_be_its_own_import_line(self):
+        # A longer path, or the path quoted in prose, does not load the reference.
+        ctx = _context(references_always_on=["estate-map/demo.md"])
+        ctx["claude_md"]["managed"]["text"] += (
+            "@~/.claude/shared/references/estate-map/demo.md.bak\n"
+            "See @~/.claude/shared/references/estate-map/demo.md for the map.\n"
+        )
+        assert len(_by_surface(diff_state(_snapshot([ctx])), "reference")) == 1
+
+    def test_declared_reference_outside_the_managed_block_is_drift(self):
+        ctx = _context(references_always_on=["estate-map/demo.md"])
+        assert len(_by_surface(diff_state(_snapshot([ctx])), "reference")) == 1
+
+    def test_missing_block_reports_the_block_not_each_reference(self):
+        ctx = _context(references_always_on=["estate-map/demo.md"])
+        ctx["claude_md"]["managed"] = {"present": False, "synced": None, "text": None}
+        findings = diff_state(_snapshot([ctx]))
+        assert _by_surface(findings, "reference") == []
+        assert [f["severity"] for f in _by_surface(findings, "managed-block")] == ["missing"]
+
+    def test_skip_sow_context_exempt_from_reference_check(self):
+        ctx = _context(skip_sow=True, references_always_on=["estate-map/demo.md"])
+        assert _by_surface(diff_state(_snapshot([ctx])), "reference") == []
+
     def test_unreachable_context_reported_as_info_only(self):
         ctx = {"id": "remote", "type": "obsidian", "reachable": False}
         findings = diff_state(_snapshot([ctx]))

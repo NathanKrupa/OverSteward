@@ -119,7 +119,12 @@ is the *rebuilt* one, never the first draft.
 
 1. `estate-map.yaml` `invariants:` — first, whenever the task touches more than
    one repo or any invariant. A plan that crosses a seam it never read is a
-   guess with a table of contents.
+   guess with a table of contents. The full map is the record; a repo's
+   dispatch agent reads only that repo's slice,
+   `~/.claude/shared/references/estate-map/<repo>.md`, and so does a repo session
+   whose `registry.yaml` entry lists it in `references_always_on`. Read the slice
+   of every repo the plan touches, because it is all the executor will see; what
+   the plan needs from outside it goes in the brief.
 2. The issue, body **and** comments (`gh issue view … --comments`). A comment
    routinely overrides the body; an owner comment is the scope.
 3. The code paths the task names, and the tests that already cover them. Read
