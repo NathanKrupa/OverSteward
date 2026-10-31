@@ -99,7 +99,8 @@ Run these checks. Any failure → refuse to dispatch, report the reason to the u
 - Exit 0 is a measured answer either way ("0 ready tribe issues displaced" included). Exit 1 means GitHub could not be read or `#<n>` is not open — report it; exit 2 is an unknown repo.
 
 **Capability line (a notice, never a refusal — OS#640):**
-- `gh issue view <n> --repo <owner>/<repo> --json body --jq .body | grep -Eiq '^[[:space:]>*-]*\**Capability\**[[:space:]]*:'`
+- `body=$(gh issue view <n> --repo <owner>/<repo> --json body --jq .body)` — a non-zero exit is a failed read: report it as one, never as a missing line.
+- `printf '%s\n' "$body" | grep -Eiq '^[[:space:]>*-]*\**Capability\**[[:blank:]]*:[^[:alnum:]]*[[:alnum:]]'`
 - No match: tell Nathan the issue names no `Capability: <id>` line and carry the note into the dispatch report. `scripts/estate_map.py status` derives each capability's in-flight work from that line first, then from the paths a PR changes or the body names, so a missing line only costs attribution. Do not add the line yourself, and do not stop the dispatch.
 
 If all preflights pass: proceed.

@@ -14,8 +14,9 @@ and the first that names a capability decides:
 3. ``paths`` — paths named in the title or body. A named path may be partial
    (``services/website_resolver.py``) or absolute, so it matches a claim whose
    trailing segments line up with its leading ones, or a claim it contains
-   whole; the claim aligning the most segments wins. A partial match must align
-   two segments, unless it is a bare filename only one capability claims.
+   whole; the claim aligning the most segments wins. A match on a claim's tail
+   must align two segments, unless it is a bare filename only one capability
+   claims; a claim the path contains whole always counts.
 4. ``unmapped`` — none of the above. Counted and listed, never hidden.
 
 An item may land on several capabilities; it is counted under each, and the
@@ -37,7 +38,7 @@ FILES = "files"
 PATHS = "paths"
 UNMAPPED = "unmapped"
 
-_EXPLICIT_LINE = re.compile(r"^[ \t>*-]*\**Capability\**\s*:\s*\**(?P<ids>.*?)\**\s*$", re.I | re.M)
+_EXPLICIT_LINE = re.compile(r"^[ \t>*-]*\**Capability\**[ \t]*:[ \t]*\**(?P<ids>.*?)\**[ \t]*$", re.I | re.M)
 _ID_SPLIT = re.compile(r"[,\s]+")
 _TOKEN = re.compile(r"[\w./-]+")
 #: A token names a path when it holds a slash or ends in a file extension.
@@ -79,7 +80,7 @@ def explicit_ids(body: str) -> tuple[str, ...]:
     for match in _EXPLICIT_LINE.finditer(body):
         for raw in _ID_SPLIT.split(match.group("ids")):
             ident = raw.strip("`*_")
-            if ident and ident not in found:
+            if any(ch.isalnum() for ch in ident) and ident not in found:
                 found.append(ident)
     return tuple(found)
 
@@ -93,8 +94,8 @@ def mentioned_paths(text: str) -> list[str]:
     return found
 
 
-def _aligned(claim: str, path: str, *, partial: bool) -> int:
-    """How many of the claim's segments line up with `path`; 0 when they do not.
+def _aligned(claim: str, path: str, *, partial: bool) -> tuple[int, bool]:
+    """How many of the claim's segments line up with `path` (0 when none), and whether all of them do.
 
     Full alignment means the claim is `path` or an ancestor of it. A named path
     may also be partial or absolute, so it aligns when some trailing run of the
@@ -104,13 +105,14 @@ def _aligned(claim: str, path: str, *, partial: bool) -> int:
     claim_parts = claim.strip("/").split("/")
     path_parts = path.strip("/").split("/")
     if not partial:
-        return len(claim_parts) if path_parts[: len(claim_parts)] == claim_parts else 0
+        whole = path_parts[: len(claim_parts)] == claim_parts
+        return (len(claim_parts), True) if whole else (0, False)
     for start in range(len(claim_parts)):
         tail = claim_parts[start:]
         offsets = range(len(path_parts) - len(tail) + 1) if start == 0 else range(1)
         if any(path_parts[k : k + len(tail)] == tail for k in offsets):
-            return len(tail)
-    return 0
+            return len(tail), start == 0
+    return 0, False
 
 
 def _claims(estate: EstateMap, repo: str) -> list[tuple[str, str]]:
@@ -120,16 +122,17 @@ def _claims(estate: EstateMap, repo: str) -> list[tuple[str, str]]:
 def _match(claims: Sequence[tuple[str, str]], paths: Iterable[str], *, partial: bool) -> list[str]:
     hits: list[str] = []
     for path in paths:
-        scored = [(_aligned(claim, path, partial=partial), cap) for cap, claim in claims]
-        best = max((score for score, _ in scored), default=0)
-        winners = {cap for score, cap in scored if score == best}
-        if best and (best > 1 or not partial or _unambiguous_basename(path, winners)):
+        scored = [(*_aligned(claim, path, partial=partial), cap) for cap, claim in claims]
+        best = max((score for score, _, _ in scored), default=0)
+        winners = {cap for score, _, cap in scored if score == best}
+        whole = any(w for score, w, _ in scored if score == best)
+        if best and (best > 1 or whole or _unambiguous_basename(path, winners)):
             hits.extend(cap for cap in sorted(winners) if cap not in hits)
     return hits
 
 
 def _unambiguous_basename(path: str, winners: set[str]) -> bool:
-    """A one-segment partial match counts only for a bare filename exactly one capability claims.
+    """A one-segment tail match counts only for a bare filename exactly one capability claims.
 
     One shared segment is otherwise noise: ``docs/x.md`` at a repo's top level is
     not ``apps/docs/``, and ``models.py`` names a file in every app.

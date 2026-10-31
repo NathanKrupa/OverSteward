@@ -286,3 +286,12 @@ def test_status_repo_flag_reads_only_that_repo(cli, capsys, tmp_path, local):
 def test_status_for_a_repo_not_in_the_map_exits_2(cli, capsys, tmp_path, local):
     assert cli.main([*_args(tmp_path, local), "status", "--repo", "nope"], fetch=_fetch_from({})) == 2
     assert "COULD NOT LOOK - nope: not a repo in the estate map" in capsys.readouterr().out
+
+
+def test_status_with_no_capability_claiming_a_path_exits_2(cli, capsys, tmp_path, local):
+    for cap in local["capabilities"]:
+        cap["claims"] = {}
+    assert cli.main([*_args(tmp_path, local), "status"], fetch=_fetch_from({})) == 2
+    out = capsys.readouterr().out
+    assert "COULD NOT LOOK - status: no repo has a capability claiming a path" in out
+    assert "unmapped" not in out

@@ -261,6 +261,10 @@ _BODIES = [
     "no line here",
     "the Capability: gs.crawl mid-sentence",
     "Capabilities: gs.crawl",
+    "Capability:\n\nThe os.dispatch playbook skips step 9",
+    "Capability\n: os.dispatch",
+    "Capability: **",
+    "Capability: --",
 ]
 
 
@@ -285,3 +289,34 @@ def test_the_architect_brief_template_carries_a_capability_line():
 
 def test_a_url_whose_domain_heads_a_partial_path_does_not_map(estate):
     assert attribute(_issue("https://example.org/services/website_resolver.py"), estate).via == UNMAPPED
+
+
+def test_an_empty_capability_line_does_not_read_the_next_paragraph():
+    assert explicit_ids("Capability:\n\nThe os.dispatch playbook skips step 9") == ()
+
+
+def test_the_dispatch_preflight_reads_the_body_before_grepping_it():
+    skill = (ROOT / "shared" / "skills" / "dispatch" / "SKILL.md").read_text(encoding="utf-8")
+    grep_line = next(line for line in skill.splitlines() if "grep -Eiq" in line)
+    assert "gh issue view" not in grep_line, "a failed gh read would read as a missing line"
+
+
+@pytest.mark.parametrize("body", ["Migration alembic/versions/0042_add_col.py", "/home/natha/grantspider/alembic/env.py"])
+def test_a_path_inside_a_one_segment_directory_claim_maps(raw, body):
+    raw["capabilities"][2]["claims"] = {"grantspider": ["alembic/"]}
+    assert attribute(_issue(body), model.parse(raw)).capabilities == ("os.sow",)
+
+
+def test_capabilities_are_reported_in_map_order_not_mention_order(estate):
+    got = attribute(_issue("services/crawl.py then services/website_resolver.py"), estate)
+    assert got.capabilities == ("gs.website-resolution", "gs.crawl")
+
+
+def test_unmapped_is_counted_per_repo(estate):
+    items = [_issue("nothing", repo="grantspider"), _issue("services/x", repo="oversteward", number=2)]
+    data = to_dict(build(estate, ["grantspider", "oversteward"], items))
+    assert data["repos"]["grantspider"]["unmapped"] == 1
+    assert data["repos"]["oversteward"]["unmapped"] == 1
+    items.append(_issue("src/grantspider/services/crawl.py", number=3))
+    data = to_dict(build(estate, ["grantspider", "oversteward"], items))
+    assert data["repos"]["oversteward"] == {"issues": 1, "prs": 0, "unmapped": 1}
