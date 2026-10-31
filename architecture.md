@@ -47,7 +47,7 @@ Source: `registry.yaml` `dispatch_target` flags. Registry also carries non-code 
 | Ops / feedback / telemetry | `/internal/ops/` reports + verdicts, visitor DataCorrection, EmailLead, Fiscus telemetry endpoint | `apps/ops/urls_internal.py`, `apps/feedback/`, `apps/telemetry/` |
 | Docs / bot / worldmodel | DB-backed help centre; Web Bot Auth key directory; customer world model (beliefs, goals, event spine) | `apps/docs/`, `apps/bot/`, `apps/worldmodel/models/` |
 
-Scheduled work runs as Railway cron services (`render_sitemaps`, `submit_seo_urls`, `monitor_indexation`, `backup_database`, digests/reminders, email outbox), listed in `docs/operations/production-deploy.md:168-242`. GitHub Actions crons are only `smoke.yml` and `divergence-watchdog.yml`.
+Scheduled work runs as Railway cron services (`render_sitemaps`, `submit_seo_urls`, `monitor_indexation`, `backup_database`, digests/reminders, email outbox), listed in `docs/operations/production-deploy.md:168-242`. GitHub Actions crons are `smoke.yml`, `divergence-watchdog.yml` and `prewarm.yml` (a daily Neon warm-up request, #1341).
 
 ### Inside grantspider (`src/grantspider/`)
 
@@ -105,7 +105,7 @@ Rules that, if violated, break something. IDs are stable and never renumbered; a
 | # | Invariant | Cite |
 |---|---|---|
 | I-1 | In-session pickup work never touches Nathan's live working tree (worktrees only) | `shared/skills/dispatch/playbook.md:25-28` (grantspider #426 postmortem) |
-| I-2 | One in-flight **agent** PR per repo: dispatch refuses while an `(fix\|feat\|ci\|refactor\|cleanup\|docs)/issue-` PR is open. `session/<name>` PRs are not covered | `shared/skills/dispatch/SKILL.md:78-80`, `playbook.md:36` |
+| I-2 | One in-flight **agent** PR per repo: dispatch refuses while an `<kind>/issue-` PR is open. The two surfaces disagree on whether `docs/` counts (L-DOC-1). `session/<name>` PRs are not covered | `shared/skills/dispatch/playbook.md:36` (includes `docs`), `SKILL.md:79` (omits it) |
 | I-3 | Never bypass git hooks (`--no-verify`, `--admin`, hooksPath); never `git add -A` | `playbook.md:15,23`; `.claude/hooks/check_destructive_command.py` |
 | I-4 | aigranthelper never writes the research DB: read-only Neon role, and the DB router's `allow_migrate` returns `False` for every research label unconditionally | AG `apps/core/db_router.py:34-46`, `config/settings/base.py:283` |
 | I-5 | AG copies of producer fields declare Snapshot or Cache at definition. Partly kept: `foundation_name`/`grantor_name` copies are labelled; `FunderRelationship.accepts_unsolicited`, `typical_award_range_*`, `application_deadline` are not | AG `apps/pipeline/models.py:136,154-157,545,696,749`; data contract §3 |
@@ -124,7 +124,7 @@ Rules that, if violated, break something. IDs are stable and never renumbered; a
 | I-19 | AG production pins only GS `main` SHAs, via the human-gated draft bump PR (§2) | GS `notify-ag-on-main.yml`; AG `bump-gs-pin.yml:79,212` |
 | I-20 | `main ⊆ staging` in **both** GS and AG; back-merges are true merges, never squash. Each repo's `divergence-watchdog.yml` (push + daily 13:00 UTC) fails and files an issue on divergence | GS and AG `.github/workflows/divergence-watchdog.yml` |
 | I-21 | One git worktree per session via `scripts/dev/new-session.sh` → `session/<name>`; `guard_main_worktree.py` refuses checkout/switch in the primary tree. OverSteward links the kit from `shared/`; other repos carry copies, currently drifted (L-DEV-1) | `shared/scripts/dev/new-session.sh:44`, `tests/test_deployed_links.py` |
-| I-22 | AG staging and production share **one** tenant Postgres: a write via staging is a production write, and every server-side cache key carries `CACHE_KEY_ENVIRONMENT` | AG `config/settings/base.py:317-324` (#1701) |
+| I-22 | AG staging and production share **one** tenant Postgres, and with it production's `DatabaseCache` table: a write via staging is a production write. Rendered-output keys go through `env_scoped_cache_key` (`CACHE_KEY_ENVIRONMENT`); some keys do not and are shared across environments (`magic_link_used:*`, `notification:email:last_sent:*`) | AG `config/settings/base.py:317-324` (#1701), `config/settings/production.py:37-41`, `apps/accounts/magic_link.py:17`, `apps/core/notifications.py:167` |
 
 I-14 (AG working-hours boundary) was retired 2026-07-11.
 
@@ -147,7 +147,7 @@ I-14 (AG working-hours boundary) was retired 2026-07-11.
 | L-FI-1 | Fiscus andon aggregation is a Phase-0 stub, and the AG/dispatch subject contracts are `status: stub`; exchequer and gaudi lack the andon template | fiscus | Fiscus `src/fiscus/andon.py:20-27`, `subjects/*/contract.yaml` |
 | L-EX-1 | Exchequer: Railway connector live-unverified, cron unwired, `_ASSUMED_PRO_INFERENCE_COGS = 4.0` hardcoded; `expenses.csv` partly hand-seeded | exchequer | exchequer `src/exchequer/connectors/railway.py:2`, `src/exchequer/services/pull.py:38` |
 | L-WSL-1 | Docker Desktop volumes (compose databases) live in the `docker-desktop` distro, outside both the monthly export and the daily restic of `/home/natha`. OS#581–583 shipped the backups and closed; **nothing open tracks this gap** | oversteward (ops) | `documentation/runbooks/wsl-recovery.md:192` |
-| L-DOC-1 | Dead pointers: `documentation/issue-to-pr-workflow.md` and `documentation/repos/` never existed but are cited by `ROADMAP.md` and `DETERMINISTIC_AGENTS.md`; the dispatch skill's description omits oversteward as a target | oversteward | `documentation/ROADMAP.md:62,2282`, `shared/skills/dispatch/SKILL.md:3` |
+| L-DOC-1 | Dead pointers: `documentation/issue-to-pr-workflow.md` and `documentation/repos/` never existed but are cited by `ROADMAP.md` and `DETERMINISTIC_AGENTS.md`; the dispatch skill's description omits oversteward as a target; `SKILL.md:79` and `playbook.md:36` disagree on whether an open `docs/issue-` PR blocks dispatch | oversteward | `documentation/ROADMAP.md:62,2282`, `shared/skills/dispatch/SKILL.md:3,79` |
 
 ---
 
