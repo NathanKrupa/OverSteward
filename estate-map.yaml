@@ -70,7 +70,9 @@ policy:
   explicit_only:
     grantspider: [src/grantspider/services, src/grantspider/connectors]
   coverage_floor:
-    aigranthelper: null
+    aigranthelper:
+      orphans: 0
+      overlaps: 0
     grantspider: null
     oversteward:
       orphans: 0
@@ -120,82 +122,608 @@ repos:
 capabilities:
 - id: ag.research
   kind: code
-  purpose: 'Research: Read-only GS mirror (`models/_generated.py`, `_views.py`); match scoring; keyword/semantic/hybrid
-    search; Typesense with fail-open Postgres fallback; public foundation/sector/city pages.'
+  purpose: 'Research reads: the read-only mirror of GS''s research schema and the plumbing every research
+    read goes through.'
   status: live
-  claims: {}
+  claims:
+    aigranthelper:
+    - apps/research/__init__.py
+    - apps/research/apps.py
+    - apps/research/models/
+    - apps/research/codegen.py
+    - apps/research/constants.py
+    - apps/research/degradation.py
+    - apps/research/offline_reads.py
+    - apps/research/read_budget.py
+    - apps/research/embedding_contract.py
+    - apps/research/services/__init__.py
+    - apps/research/services/reads.py
+    - apps/research/services/cross_app.py
+    - apps/research/services/schema_drift.py
+    - apps/research/services/quartiles.py
+    - apps/research/services/funding_history.py
+    - apps/research/services/opportunities.py
+    - apps/research/services/landing_stats.py
+    - apps/research/management/__init__.py
+    - apps/research/management/commands/__init__.py
+    - apps/research/management/commands/regenerate_from_lockfile.py
+    - apps/research/management/commands/regenerate_research_models.py
+    - apps/core/db_router.py
+    - apps/core/db_signals.py
+    - apps/core/neon_backend/
+    - apps/core/grantspider_reads.py
+    - scripts/tools/check_research_drift.py
+    - research_schema.lock
   invariants: [I-4, I-6]
   liabilities: [G1]
-  current_shape: 'Unclaimed stub until the AG seed. Source: `apps/research/`, `apps/research/typesense_search.py`'
+  current_shape: '40 modules, 8,457 lines; 72 feature PRs touched them in 90 days. Two modules hold logic that
+    belongs to sibling capabilities: `services/__init__.py` (1,854 lines, 714 code lines, 27 PRs) holds
+    FoundationSearchService, mixing search, indexability, hub member lists and landings; `constants.py` (837
+    lines, 28 PRs) mixes scoring thresholds, page layout and schema-lock constants.'
+  target_shape: '`services/__init__.py` and `constants.py` split along capability lines: search into
+    ag.funder-search, indexability and hub lists into ag.search-indexing, page constants into ag.funder-pages.
+    This capability keeps the mirror, the router and the read primitives.'
+- id: ag.funder-search
+  kind: code
+  purpose: 'Funder search and match scoring: keyword, semantic and hybrid search, Typesense with a Postgres
+    fallback, and funding-fit scoring.'
+  status: live
+  depends_on: [ag.research]
+  claims:
+    aigranthelper:
+    - apps/research/hybrid_search.py
+    - apps/research/keyword_search.py
+    - apps/research/semantic_search.py
+    - apps/research/typesense_search.py
+    - apps/research/gov_typesense_search.py
+    - apps/research/scoring/
+    - apps/research/match_service.py
+    - apps/research/match_pool.py
+    - apps/research/semantic_matching.py
+    - apps/research/embedding_service.py
+    - apps/research/services/peer_donors.py
+    - apps/research/services/match_explanation.py
+    - apps/pipeline/match_engine.py
+    - apps/pipeline/match_analysis.py
+    - apps/pipeline/match_analysis_urls.py
+    - apps/pipeline/match_triage.py
+    - apps/pipeline/management/commands/score_grants.py
+    - apps/pipeline/management/commands/explain_grant.py
+  current_shape: '24 modules, 3,993 lines; 10 feature PRs in 90 days. Split across two apps: research holds
+    search and heuristic + semantic scoring (`match_service.py`, 641 lines); pipeline holds the alignment
+    engine that persists ProgramGrantAlignment rows (`match_engine.py`, 344).'
+  target_shape: hold
+- id: ag.funder-pages
+  kind: code
+  purpose: 'Funder pages: foundation and federal-grant profiles, the search pages, and state, sector and
+    city hubs.'
+  status: live
+  depends_on: [ag.research, ag.funder-search]
+  claims:
+    aigranthelper:
+    - apps/research/views.py
+    - apps/research/city_views.py
+    - apps/research/sector_views.py
+    - apps/research/urls.py
+    - apps/research/decorators.py
+    - apps/research/observability.py
+    - apps/research/data/
+    - apps/research/templatetags/
+    - apps/research/services/area_funders.py
+    - apps/research/services/breadcrumbs.py
+    - apps/research/services/cause_funders.py
+    - apps/research/services/deadlines.py
+    - apps/research/services/distribution_plots.py
+    - apps/research/services/filing_downloads.py
+    - apps/research/services/filings_snapshot.py
+    - apps/research/services/focus_areas.py
+    - apps/research/services/freshness.py
+    - apps/research/services/funder_type.py
+    - apps/research/services/giving_radius.py
+    - apps/research/services/giving_sector.py
+    - apps/research/services/giving_trend.py
+    - apps/research/services/gov_detail_display.py
+    - apps/research/services/gov_documents.py
+    - apps/research/services/gov_obligations.py
+    - apps/research/services/gov_opportunities.py
+    - apps/research/services/key_figures.py
+    - apps/research/services/open_funders.py
+    - apps/research/services/person_names.py
+    - apps/research/services/profile_sections.py
+    - apps/research/services/recipient_placeholder.py
+    - apps/research/services/recipient_revocation.py
+    - apps/research/services/sector_funders.py
+    - apps/research/services/sector_taxonomy.py
+    - apps/research/services/sector_treemap.py
+    - apps/research/services/shared_recipients.py
+    - apps/research/services/unsolicited_access.py
+  liabilities: [L-AG-5]
+  current_shape: '41 modules, 10,799 lines; 63 feature PRs in 90 days. `views.py` is 2,156 lines (1,128 code
+    lines) and was touched by 36 feature PRs, 56 counting promotions to main. It assembles the profile context
+    itself (`_build_foundation_detail_context`, `_load_*`, `_stash_*`) and holds four `_apply_*_cache_control`
+    helpers whose body `city_views.py`, `sector_views.py` and `seo/lead_views.py` each copy (L-AG-5).'
+  target_shape: 'Thin views over research services: views parse the request, call one service per page, and
+    render. Profile and gov-detail context assembly moves into services; the copied cache-control helpers give
+    way to one in `apps/core/cache_headers.py`.'
+- id: ag.search-indexing
+  kind: code
+  purpose: 'What Google may index and how it learns of it: sitemaps, the indexability tier, IndexNow,
+    URL Inspection sweeps and the indexation experiments.'
+  status: live
+  depends_on: [ag.research, wp.connectors]
+  claims:
+    aigranthelper:
+    - apps/research/sitemaps.py
+    - apps/research/sitemap_views.py
+    - apps/research/template_version.py
+    - apps/research/services/sitemap_render.py
+    - apps/research/services/quality_bar.py
+    - apps/research/services/experiment_cohort.py
+    - apps/research/services/title_canary.py
+    - apps/research/services/seo_metadata.py
+    - apps/research/services/member_links.py
+    - apps/research/management/commands/render_sitemaps.py
+    - apps/research/management/commands/export_title_canary.py
+    - apps/research/management/commands/indexability_cohort.py
+    - apps/research/management/commands/indexation_data_coverage.py
+    - apps/research/management/commands/load_indexation_cohort.py
+    - apps/seo/__init__.py
+    - apps/seo/apps.py
+    - apps/seo/admin.py
+    - apps/seo/models.py
+    - apps/seo/services.py
+    - apps/seo/gsc_inspection.py
+    - apps/seo/indexation_service.py
+    - apps/seo/cohort_indexation_service.py
+    - apps/seo/cohort_models.py
+    - apps/seo/management/__init__.py
+    - apps/seo/management/commands/__init__.py
+    - apps/seo/management/commands/submit_seo_urls.py
+    - apps/seo/management/commands/monitor_indexation.py
+    - apps/seo/templatetags/__init__.py
+    - apps/seo/templatetags/seo_tags.py
+  invariants: [I-9]
+  liabilities: [L-AG-4]
+  current_shape: '29 modules, 5,726 lines; 30 feature PRs in 90 days. Railway crons: `render_sitemaps` every 6
+    hours, `submit_seo_urls` daily, `monitor_indexation` (with `--cohort`) weekly on Monday
+    (`docs/operations/production-deploy.md`). Its stored data sits in other capabilities'' files:
+    SitemapSnapshot and StateHubMemberList in `apps/core/models.py`, the cohort and hub logic in
+    `apps/research/services/__init__.py`.'
+  target_shape: hold
+- id: ag.edge
+  kind: code
+  purpose: 'The Cloudflare edge: Cache-Control headers and cache rules, purges, the warmer, the origin
+    lock and the Web Bot Auth key directory.'
+  status: live
+  claims:
+    aigranthelper:
+    - apps/seo/cloudflare.py
+    - apps/seo/cloudflare_rules.py
+    - apps/seo/edge_cache_rules.py
+    - apps/seo/edge_http.py
+    - apps/seo/edge_warmer.py
+    - apps/seo/purge_service.py
+    - apps/seo/management/commands/gov_edge_cache_rule.py
+    - apps/seo/management/commands/purge_edge_hosts.py
+    - apps/seo/management/commands/warm_edge_cache.py
+    - apps/core/cache_headers.py
+    - apps/core/cache_safe.py
+    - apps/core/origin_lock.py
+    - apps/core/static_fallback.py
+    - apps/landing/cache_policy.py
+    - apps/bot/
+  liabilities: [L-AG-5]
+  current_shape: '18 modules, 2,196 lines; 14 feature PRs in 90 days. `cache_headers.py` holds the shared
+    anon/authed primitives, but the funder and lead page views each wrap them in their own copy (L-AG-5).'
+  target_shape: 'One anon/authed Cache-Control helper in `cache_headers.py` that every public view calls
+    (L-AG-5).'
+- id: ag.landing-pages
+  kind: code
+  purpose: 'Conversion pages: the CMS-edited home page, its try-it widget and walkthrough recorder, and
+    the /grants-for/ lead pages.'
+  status: live
+  depends_on: [ag.research]
+  claims:
+    aigranthelper:
+    - apps/landing/__init__.py
+    - apps/landing/admin.py
+    - apps/landing/apps.py
+    - apps/landing/block_registry.py
+    - apps/landing/block_service.py
+    - apps/landing/models.py
+    - apps/landing/price_pitch.py
+    - apps/landing/sector_lookup.py
+    - apps/landing/views.py
+    - apps/landing/walkthrough_service.py
+    - apps/landing/walkthrough_session.py
+    - apps/landing/management/__init__.py
+    - apps/landing/management/commands/__init__.py
+    - apps/landing/management/commands/seed_landing_blocks.py
+    - apps/core/views.py
+    - apps/core/urls.py
+    - apps/seo/lead_causes.py
+    - apps/seo/lead_page_service.py
+    - apps/seo/lead_views.py
+    - apps/seo/urls.py
+    - apps/seo/templatetags/lead_links.py
+  liabilities: [L-AG-5]
+  current_shape: '21 modules, 5,506 lines; 18 feature PRs in 90 days. Home-page copy is LandingBlock rows
+    edited in the CMS, not in a PR. `walkthrough_service.py` (1,283 lines) is the largest module and was
+    touched by one PR.'
+  target_shape: hold
+- id: ag.home-ab-testing
+  kind: process
+  purpose: 'A/B testing on the home page, the estate''s experiment surface: hashed arms at the edge, GA4
+    reads, a per-arm report.'
+  status: live
+  depends_on: [ag.landing-pages, ag.edge]
+  claims:
+    aigranthelper:
+    - apps/landing/experiment_service.py
+    - apps/landing/experiment_report.py
+    - apps/landing/ga4_reader.py
+    - apps/landing/management/commands/landing_experiment_report.py
+    - edge/home-arm/
+    - .github/workflows/deploy-edge-worker.yml
+  invariants: [I-9]
+  current_shape: '4 modules, 1,281 lines, plus the `edge/home-arm/` Worker; 3 feature PRs in 90 days. The arm
+    hash is written three times on purpose: `experiment_service.py`, `seo/lead_page_service.py` and the
+    Worker''s JS. `ga4_reader.py` is a documented narrow exception to I-9: its own GA4 Data API connector
+    beside wphelper''s. Which experiments run is LandingExperiment rows in production, not read here.'
   target_shape: hold
 - id: ag.pipeline
   kind: code
-  purpose: 'Pipeline / reporting: Grant lifecycle (Program, FunderRelationship, Application, Award, FunderMilestone,
-    UserFunderSignal, SavedGrantor) and post-award compliance.'
+  purpose: 'The grant pipeline: programs, saved funders, contacts, applications, awards and deadlines,
+    and the dashboard over them.'
   status: live
-  claims: {}
+  depends_on: [ag.research, ag.funder-search, ag.studio, ag.reporting]
+  claims:
+    aigranthelper:
+    - apps/pipeline/__init__.py
+    - apps/pipeline/admin.py
+    - apps/pipeline/apps.py
+    - apps/pipeline/constants.py
+    - apps/pipeline/forms.py
+    - apps/pipeline/forms_deadlines.py
+    - apps/pipeline/managers.py
+    - apps/pipeline/models.py
+    - apps/pipeline/urls.py
+    - apps/pipeline/views.py
+    - apps/pipeline/views_calendar.py
+    - apps/pipeline/views_consultant_reports.py
+    - apps/pipeline/views_contacts.py
+    - apps/pipeline/views_context.py
+    - apps/pipeline/views_deadlines.py
+    - apps/pipeline/views_reapply.py
+    - apps/pipeline/services/
+    - apps/pipeline/management/__init__.py
+    - apps/pipeline/management/commands/__init__.py
+    - apps/pipeline/management/commands/promote_saved_grantors.py
+    - apps/pipeline/management/commands/refresh_foundation_names.py
+    - apps/pipeline/management/commands/repair_funder_names.py
   invariants: [I-5]
   liabilities: [G5]
-  current_shape: 'Unclaimed stub until the AG seed. Source: `apps/pipeline/models.py`, `apps/reporting/`'
+  current_shape: '44 modules, 10,420 lines; 54 feature PRs in 90 days. `views.py` is 2,475 lines (1,565 code
+    lines) and was touched by 37 feature PRs, 48 counting promotions to main. It makes 25 `.objects.` ORM
+    queries itself: business logic in views, against the thin-views rule. `views_context.py` (485 lines, 18
+    PRs) and `services/pipeline.py` (944 lines, 18 PRs) sit beside it.'
+  target_shape: 'Thin views over pipeline services: the ORM reads and the dashboard and funder-card assembly
+    move into `services/` (where `dashboard.py` and `pipeline.py` already live); views parse, call, render.'
+- id: ag.reporting
+  kind: code
+  purpose: 'Post-award compliance: reporting requirements, deadlines and reminders, iCal export, and the
+    weekly org digest.'
+  status: live
+  claims:
+    aigranthelper: [apps/reporting/]
+  liabilities: [L-AG-4]
+  current_shape: '33 modules, 3,170 lines; 13 feature PRs in 90 days.'
   target_shape: hold
 - id: ag.matchmaker
   kind: code
-  purpose: 'Matchmaker: Match telemetry, golden-label evals, the `pipeline_history-YYYY-MM-DD.jsonl` writer.'
+  purpose: 'Match quality measurement: impression and interaction telemetry, self-reports, golden labels
+    and offline evals.'
   status: live
-  claims: {}
-  current_shape: 'Unclaimed stub until the AG seed. Source: `apps/matchmaker/`'
+  depends_on: [ag.funder-search, ag.telemetry]
+  claims:
+    aigranthelper: [apps/matchmaker/, apps/core/matchmaker_seam.py]
+  liabilities: [G5]
+  current_shape: '33 modules, 5,175 lines; 6 feature PRs in 90 days. It writes `gold_signal_unresolved.jsonl`;
+    the pipeline-history JSONL writer is ag.telemetry''s `storage.py`.'
   target_shape: hold
 - id: ag.studio
   kind: code
-  purpose: 'Studio: AI-assisted grant drafting (versioned drafts in B2); Anthropic, Gemini, OpenAI via
-    one module.'
+  purpose: 'Grant Studio: AI-assisted drafting with versioned drafts in B2, question workshops and QA checks;
+    Anthropic, Gemini, OpenAI via one module.'
   status: live
-  claims: {}
-  current_shape: 'Unclaimed stub until the AG seed. Source: `apps/studio/`, `apps/studio/llm.py`'
+  depends_on: [ag.research, ag.pipeline]
+  claims:
+    aigranthelper: [apps/studio/]
+  liabilities: [L-AG-4]
+  current_shape: '52 modules, 8,067 lines; 21 feature PRs in 90 days. `views.py` is 1,090 lines (620 code
+    lines, 9 PRs). Studio and pipeline import each other: 15 `from apps.pipeline` lines one way, 23 `from
+    apps.studio` lines back.'
   target_shape: hold
-- id: ag.accounts-billing
+- id: ag.accounts
   kind: code
-  purpose: 'Accounts / billing: Multi-tenant orgs + consultants, magic-link auth; Stripe via dj-stripe
-    2.11.'
+  purpose: 'Accounts: multi-tenant organizations, consultants, magic-link sign-in, onboarding and account
+    deletion.'
   status: live
-  claims: {}
+  depends_on: [ag.billing]
+  claims:
+    aigranthelper: [apps/accounts/]
   invariants: [I-22]
-  current_shape: 'Unclaimed stub until the AG seed. Source: `apps/accounts/`, `apps/billing/`'
+  liabilities: [L-AG-4]
+  current_shape: '57 modules, 10,871 lines; 56 feature PRs in 90 days. `views.py` is 1,391 lines (856 code
+    lines, 12 PRs); `models.py` (14 PRs) and `services/organization.py` (13) are the hot files. Accounts and
+    billing import each other: 18 `from apps.billing` lines one way, 26 `from apps.accounts` lines back.'
   target_shape: hold
-- id: ag.seo-edge
+- id: ag.billing
   kind: code
-  purpose: 'SEO / edge: IndexNow, GSC indexation monitor, Cloudflare cache rules + purge + warmer, lead
-    pages; home-page A/B Worker.'
+  purpose: 'Billing: Stripe via dj-stripe, plans and plan switches, passes, gifts and trials, renewal
+    and beta notices.'
   status: live
-  claims: {}
-  current_shape: 'Unclaimed stub until the AG seed. Source: `apps/seo/`, `edge/home-arm/`, `apps/landing/`'
+  depends_on: [ag.accounts]
+  claims:
+    aigranthelper: [apps/billing/]
+  current_shape: '33 modules, 8,353 lines; 50 feature PRs in 90 days. `services.py` is 1,551 lines (720 code
+    lines) and was touched by 25 of them.'
   target_shape: hold
-- id: ag.ops-feedback
+- id: ag.platform
   kind: code
-  purpose: 'Ops / feedback / telemetry: `/internal/ops/` reports + verdicts, visitor DataCorrection, EmailLead,
-    Fiscus telemetry endpoint.'
+  purpose: 'Request plumbing every app shares: tenancy middleware, role and lapsed-access enforcement,
+    internal auth, abuse guards, storage.'
   status: live
-  claims: {}
-  liabilities: [L-AG-2]
-  current_shape: 'Unclaimed stub until the AG seed. Source: `apps/ops/urls_internal.py`, `apps/feedback/`,
-    `apps/telemetry/`'
+  claims:
+    aigranthelper:
+    - apps/__init__.py
+    - apps/core/__init__.py
+    - apps/core/admin.py
+    - apps/core/apps.py
+    - apps/core/constants.py
+    - apps/core/context_processors.py
+    - apps/core/decorators.py
+    - apps/core/http.py
+    - apps/core/internal_auth.py
+    - apps/core/lapsed_access.py
+    - apps/core/viewer_access.py
+    - apps/core/middleware.py
+    - apps/core/models.py
+    - apps/core/outbound.py
+    - apps/core/ratelimit.py
+    - apps/core/honeypot.py
+    - apps/core/views_honeypot.py
+    - apps/core/turnstile.py
+    - apps/core/uploads.py
+    - apps/core/storage.py
+    - apps/core/views_documents.py
+    - apps/core/markdown_io.py
+    - apps/core/cache_keys.py
+    - apps/core/services/__init__.py
+    - apps/core/services/activity.py
+    - apps/core/templatetags/
+    - apps/core/management/__init__.py
+    - apps/core/management/commands/__init__.py
+    - apps/core/management/commands/honeypot_unblock.py
+  invariants: [I-22]
+  liabilities: [L-AG-4]
+  current_shape: '30 modules, 3,048 lines; 29 feature PRs in 90 days. `models.py` holds other capabilities''
+    tables (SitemapSnapshot, StateHubMemberList, OutboundEmail, BlockedIP beside Activity and OrgDocument).
+    The `_sentry_check_in_start/_finish` pair has no shared home here, so 11 management commands carry their
+    own copy (L-AG-4).'
+  target_shape: 'One cron check-in helper here that the 11 commands call (L-AG-4); the tables in `models.py`
+    move to the apps whose capabilities own them.'
+- id: ag.notifications
+  kind: code
+  purpose: 'Notifications and mail: routed notification channels, the staging allowlist, and the mail
+    outbox with its drain.'
+  status: live
+  claims:
+    aigranthelper:
+    - apps/core/notifications.py
+    - apps/core/email_backends.py
+    - apps/core/outbox_drain.py
+    - apps/core/management/commands/drain_email_outbox.py
+  invariants: [I-22]
+  current_shape: '4 modules, 811 lines; 1 feature PR in 90 days.'
   target_shape: hold
-- id: ag.docs-bot-worldmodel
+- id: ag.ops
   kind: code
-  purpose: 'Docs / bot / worldmodel: DB-backed help centre; Web Bot Auth key directory; customer world
-    model (beliefs, goals, event spine).'
+  purpose: 'Operator surface: the ops dashboard and experiment tracker, `/internal/ops/` reports and verdicts,
+    the load test, DB backup and scratch.'
   status: live
-  claims: {}
-  current_shape: 'Unclaimed stub until the AG seed. Source: `apps/docs/`, `apps/bot/`, `apps/worldmodel/models/`'
+  feeds: [os.session-sweeps]
+  claims:
+    aigranthelper:
+    - apps/ops/__init__.py
+    - apps/ops/admin.py
+    - apps/ops/apps.py
+    - apps/ops/constants.py
+    - apps/ops/loadtest.py
+    - apps/ops/metric_queries.py
+    - apps/ops/models.py
+    - apps/ops/reports.py
+    - apps/ops/services.py
+    - apps/ops/templatetags/
+    - apps/ops/urls.py
+    - apps/ops/urls_internal.py
+    - apps/ops/urls_loadtest.py
+    - apps/ops/verdicts.py
+    - apps/ops/views.py
+    - apps/ops/views_internal.py
+    - apps/ops/views_loadtest.py
+    - apps/ops/management/__init__.py
+    - apps/ops/management/commands/__init__.py
+    - apps/ops/management/commands/backup_database.py
+    - apps/ops/management/commands/db_scratch.py
+    - apps/ops/management/commands/loadtest_cohort.py
+    - apps/ops/management/commands/refresh_platform_stats.py
+  liabilities: [L-AG-2, L-AG-4]
+  current_shape: '24 modules, 2,523 lines; 10 feature PRs in 90 days. `backup_database.py`''s ABOUTME still
+    names a Neon tenant DB (L-AG-2); production''s tenant DB is Railway Postgres.'
+  target_shape: hold
+- id: ag.acquisition-analytics
+  kind: code
+  purpose: 'Acquisition measurement: GA4 server-side events, first-touch attribution, the signups-from-funder-pages
+    KPI, the GEO probe.'
+  status: live
+  claims:
+    aigranthelper:
+    - apps/core/analytics.py
+    - apps/core/attribution_middleware.py
+    - apps/core/services/attribution.py
+    - apps/core/services/attribution_report.py
+    - apps/ops/geo_monitoring.py
+    - apps/ops/management/commands/check_geo_visibility.py
+    - apps/ops/management/commands/signup_attribution.py
+  liabilities: [L-AG-4]
+  current_shape: '7 modules, 1,045 lines; 6 feature PRs in 90 days. Funnel events (`sign_up`, `funder_saved`,
+    `purchase`, `lead_captured`) go to GA4 from `analytics.py`; exchequer reads them back from GA4 (S-14).'
+  target_shape: hold
+- id: ag.feedback
+  kind: code
+  purpose: 'Feedback: in-app bug reports, visitor data corrections exported to GS, and captured email leads.'
+  status: live
+  claims:
+    aigranthelper: [apps/feedback/]
+  current_shape: '13 modules, 1,510 lines; 12 feature PRs in 90 days. GS pulls the triaged corrections into
+    pinned overrides over `/internal/corrections/` (S-4).'
+  target_shape: hold
+- id: ag.telemetry
+  kind: code
+  purpose: 'Telemetry: one emit() for page, auth and billing events, the pipeline-history JSONL, its B2
+    archive, and the JWT pull Fiscus reads.'
+  status: live
+  feeds: [fiscus.kaizen-platform]
+  claims:
+    aigranthelper: [apps/telemetry/]
+  current_shape: '19 modules, 1,659 lines; 5 feature PRs in 90 days. Fiscus''s subject contracts for it are
+    still `status: stub` (S-7, L-FI-1).'
+  target_shape: hold
+- id: ag.worldmodel
+  kind: code
+  purpose: 'Customer world model: belief-shaped state, goals and context assembled on demand, over an append-only
+    event spine.'
+  status: live
+  claims:
+    aigranthelper: [apps/worldmodel/]
+  current_shape: '14 modules, 786 lines; 3 feature PRs in 90 days.'
+  target_shape: hold
+- id: ag.help-centre
+  kind: content
+  purpose: 'The help centre: DB-backed articles written as PR-gated drafts by the docs-author agent, with
+    captured screenshots and drift checks.'
+  status: live
+  claims:
+    aigranthelper:
+    - apps/docs/
+    - apps/core/management/commands/prune_help_screenshots_from_org_docs.py
+    - documentation/help-drafts/
+    - docs/help/
+    - docs/resources/
+    - .github/workflows/docs-apply-drafts.yml
+    - .github/workflows/docs-refresh.yml
+    oversteward: [shared/agents/docs-author.md]
+  current_shape: '33 modules, 5,112 lines; 30 feature PRs in 90 days. Nine article drafts in
+    `documentation/help-drafts/`; Docs Apply Drafts publishes them on the push to main that is the Tuesday
+    promotion. `services/capture.py` (755 lines, 12 PRs) drives Playwright screenshot capture.'
   target_shape: hold
 - id: ag.dev-gates
   kind: process
-  purpose: 'AG''s local gates and test settings: make verify, pytest configuration and the test database.'
+  purpose: 'AG''s gates and release tooling: make verify, test settings, CI ratchet counters, the promotion
+    check, the GS pin bump.'
   status: live
-  claims: {}
+  claims:
+    aigranthelper:
+    - apps/core/gaudi.py
+    - apps/core/type_coverage.py
+    - apps/core/requirements_export.py
+    - apps/core/promotion_safety.py
+    - apps/core/changelog.py
+    - apps/core/github_cli.py
+    - apps/core/llm_smoke.py
+    - Makefile
+    - config/settings/test.py
+    - tests/conftest.py
+    - .github/workflows/ci.yml
+    - .github/workflows/divergence-watchdog.yml
+    - .github/workflows/bump-gs-pin.yml
+  invariants: [I-19, I-20]
   liabilities: [L-AG-3]
-  current_shape: 'Unclaimed stub until the AG seed. Source: `config/settings/test.py`, `tests/conftest.py`'
+  current_shape: '7 modules, 1,251 lines, living in `apps/core/` beside product code; 4 feature PRs in 90
+    days. `make verify` is the local gate; `divergence-watchdog.yml` runs on push and daily at 13:00 UTC (I-20).'
   target_shape: hold
+- id: ag.search-acquisition
+  kind: content
+  purpose: 'Google Search as AG''s first customer: the indexable funder-page corpus, offered by sitemap
+    and judged by Search Console.'
+  status: live
+  depends_on: [ag.funder-pages, ag.search-indexing, ag.edge, gs.enrichment]
+  locations:
+  - {type: path, ref: 'aigranthelper:apps/research/sitemaps.py'}
+  - {type: path, ref: 'aigranthelper:apps/research/services/quality_bar.py'}
+  - {type: path, ref: 'aigranthelper:apps/research/services/experiment_cohort.py'}
+  - {type: report, ref: 'oversteward:reports/2026-07-23-ag-foundation-seo-findings.md'}
+  - {type: dashboard, ref: 'Google Search Console, aigranthelper.com: Page indexing report', unverified: true}
+  current_shape: 'Last measured for epic OS#421 (2026-08-31): indexed pages fell from 66,010 (Jun 11)
+    to 1,605 (Aug 20), and 30 of 40 sampled pages among the 7,108 enriched pages then in the sitemap were
+    unknown to Google. The three-arm retention experiment (AG#1853, #1855-#1857) shipped 2026-09-01. Not
+    re-measured for this map.'
+  target_shape: 'Every enriched funder page fetched by Google and its indexation read weekly; the indexable
+    set grows by fixing the crawl, never by shrinking it (Nathan, 2026-10-30).'
+- id: ag.search-measurement
+  kind: process
+  purpose: 'Judging shipped pages by Search Console and GA4 through the CLIs: indexation sweeps, per-arm
+    reads, funnel events.'
+  status: live
+  serves: [ag.search-acquisition, ag.home-ab-testing]
+  depends_on: [ag.search-indexing, ag.acquisition-analytics, wp.connectors]
+  locations:
+  - {type: path, ref: 'oversteward:shared/references/cli-connection-standard.md'}
+  - {type: path, ref: 'wphelper:src/wphelper/search_console.py'}
+  - {type: path, ref: 'wphelper:src/wphelper/analytics.py'}
+  - {type: path, ref: 'aigranthelper:apps/seo/management/commands/monitor_indexation.py'}
+  - {type: path, ref: 'aigranthelper:apps/landing/ga4_reader.py'}
+  - {type: dashboard, ref: 'Google Search Console, aigranthelper.com property', unverified: true}
+  - {type: dashboard, ref: 'Google Analytics 4, aigranthelper.com property', unverified: true}
+  current_shape: 'Sessions read GSC and GA4 through `wphelper gsc` and `wphelper analytics`, never an
+    MCP server (cli-connection-standard.md). AG reads them in production through `monitor_indexation`
+    (weekly) and `landing_experiment_report`. Search Console wins a disagreement with Gemini (Nathan,
+    2026-09-01).'
+  target_shape: hold
+- id: ag.page-red-teaming
+  kind: process
+  purpose: 'Gemini red-teams a page shape before it is built, on static design-bench renders judged under
+    the rater and seeker rubrics.'
+  status: building
+  serves: [ag.search-acquisition]
+  depends_on: [os.page-judging]
+  locations:
+  - {type: path, ref: 'oversteward:scripts/page_judge.py'}
+  - {type: path, ref: 'oversteward:scripts/design_bench.py'}
+  - {type: report, ref: 'oversteward:reports/judge/'}
+  current_shape: 'OverSteward''s half shipped (#422, #423, #427). AG''s half, seam fixtures and `render_design_bench`
+    publishing per PR (AG#1858), is open, so no AG template renders onto the bench in CI.'
+  target_shape: 'AG#1858 closed, so every page-shape PR publishes a bench render and carries a judge verdict
+    before it ships.'
+- id: ag.resource-outreach
+  kind: process
+  purpose: 'Resource-page outreach: monthly Brave discovery of grant-resource sites, reviewed drafts,
+    and weekday listing-request emails.'
+  status: live
+  locations:
+  - {type: report, ref: 'oversteward:reports/2026-10-29-resource-page-outreach/', unverified: true}
+  - {type: timer, ref: 'oversteward:reports/2026-10-29-resource-page-outreach/ag-outreach.timer', unverified: true}
+  - {type: timer, ref: 'oversteward:reports/2026-10-29-resource-page-outreach/ag-outreach-discover.timer',
+    unverified: true}
+  - {type: todoist, ref: 'Operator Steps: the monthly outreach draft review', unverified: true}
+  liabilities: [L-MKT-1]
+  current_shape: 'Scripts and ledgers sit untracked in the primary checkout (L-MKT-1). `ag-outreach.timer`
+    sends up to 20 approved drafts each weekday at 10:00 from nathan@aigranthelper.com through Resend;
+    `ag-outreach-discover.timer` runs `monthly_discover.sh` on the 2nd at 09:00, drafting only and pushing
+    one Todoist review step. As of 2026-10-31: 218 drafts, 90 approved, 61 sent.'
+  target_shape: 'The pipeline in a tracked, tested home with its ledgers outside git, so a send is reviewed
+    code (L-MKT-1).'
 - id: gs.irs-ingestion
   kind: code
   purpose: 'IRS ingestion: 990-PF Part XV and Schedule I grants (TEOS bulk), BMF monthly sync, SOI annual
@@ -211,7 +739,7 @@ capabilities:
   kind: code
   purpose: '990-PF facsimiles: IRS XSL → PDF → B2.'
   status: live
-  serves: [ag.research]
+  serves: [ag.funder-pages]
   claims: {}
   current_shape: 'Unclaimed stub until the GS seed. Source: `services/facsimile*.py`, `cli/facsimile.py`'
   target_shape: hold
@@ -263,7 +791,7 @@ capabilities:
   purpose: 'Embeddings / search index: Local all-MiniLM-L6-v2 (384-d), source-hash staleness; GS owns
     the Typesense indexing.'
   status: live
-  serves: [ag.research]
+  serves: [ag.funder-search]
   claims: {}
   current_shape: 'Unclaimed stub until the GS seed. Source: `services/embedding_generation.py`, `services/embedding_hash.py`,
     `services/foundation_search_index.py`'
@@ -297,6 +825,19 @@ capabilities:
   invariants: [I-9, I-10]
   current_shape: 'Unclaimed stub: wphelper is not seeded in this map. Stack: Python ≥3.11'
   target_shape: hold
+- id: wp.nathankrupa-hub
+  kind: content
+  purpose: 'nathankrupa.com as a hub for all of Nathan''s work: the Substack, The Almoner, the AG community
+    and Golden Harvest.'
+  status: planned
+  depends_on: [wp.connectors]
+  locations:
+  - {type: dashboard, ref: 'nathankrupa.com WordPress admin (BuzzBlogPro theme)', unverified: true}
+  current_shape: No build is scoped and nothing is in git. Surveyed 2026-09-24, the site's home page is
+    a blog feed with no links to the Substack, The Almoner, AG or Golden Harvest. Nathan chose the "Rule
+    of Life" model with live Substack and Almoner feed strips (2026-09-28); its mockup is a claude.ai artifact.
+  target_shape: The Rule of Life front page built on the existing theme, the blog moved to /journal, and
+    each calling linking to its work.
 - id: aa.almoner
   kind: code
   purpose: '`almoner` package — content authoring, CRM, ingestion, WP integration. No CI.'
@@ -521,7 +1062,7 @@ capabilities:
   purpose: 'Seeing estate pages as a visitor and a rater would: the signed probe through Cloudflare, the
     Gemini quality-rater pass, and the design bench.'
   status: live
-  serves: [ag.seo-edge]
+  serves: [ag.page-red-teaming]
   claims:
     oversteward: [src/oversteward/judge/, src/oversteward/probe/, src/oversteward/bench/, scripts/page_judge.py,
       scripts/design_bench.py]
@@ -556,10 +1097,10 @@ capabilities:
   entry_points:
   - scripts/estate_map.py check
   - scripts/estate_map.py render --write
-  current_shape: OverSteward is seeded with directory claims and its coverage floor is measured. AG and
-    GS capabilities are unclaimed stubs, and their floors are null (unmeasured).
-  target_shape: AG (PR 2) and GS (PR 3) seeded with claims and measured floors, per-repo slices deployed
-    (PR 4), and in-flight work derived from GitHub (PR 5) — OS#640.
+  current_shape: OverSteward and AG are seeded and their coverage floors measured (AG at 580 modules,
+    0 orphans, 0 overlaps). GS capabilities are unclaimed stubs, and its floor is null (unmeasured).
+  target_shape: GS (PR 3) seeded with claims and a measured floor, per-repo slices deployed (PR 4), and
+    in-flight work derived from GitHub (PR 5) — OS#640.
 
 seams:
 - id: S-1
@@ -728,7 +1269,7 @@ invariants:
   text: wphelper is the canonical connector home; other repos import rather than duplicate. **Violated
     by ai-assistants** (L-AA-1)
   cite: wphelper `src/wphelper/`; memory `project_wphelper_is_connector_home`
-  capabilities: [wp.connectors, aa.almoner]
+  capabilities: [wp.connectors, aa.almoner, ag.search-indexing, ag.home-ab-testing]
 - id: I-10
   status: live
   text: wphelper does not author content; orchestrating primitives is OK
@@ -784,13 +1325,13 @@ invariants:
   status: live
   text: AG production pins only GS `main` SHAs, via the human-gated draft bump PR (§2)
   cite: GS `notify-ag-on-main.yml`; AG `bump-gs-pin.yml:79,212`
-  capabilities: []
+  capabilities: [ag.dev-gates]
 - id: I-20
   status: live
   text: '`main ⊆ staging` in **both** GS and AG; back-merges are true merges, never squash. Each repo''s
     `divergence-watchdog.yml` (push + daily 13:00 UTC) fails and files an issue on divergence'
   cite: GS and AG `.github/workflows/divergence-watchdog.yml`
-  capabilities: []
+  capabilities: [ag.dev-gates]
 - id: I-21
   status: live
   text: One git worktree per session via `scripts/dev/new-session.sh` → `session/<name>`; `guard_main_worktree.py`
@@ -806,7 +1347,7 @@ invariants:
     `notification:email:last_sent:*`)'
   cite: AG `config/settings/base.py:317-324` (#1701), `config/settings/production.py:37-41`, `apps/accounts/magic_link.py:17`,
     `apps/core/notifications.py:167`
-  capabilities: [ag.accounts-billing]
+  capabilities: [ag.accounts, ag.platform, ag.notifications]
 
 liabilities:
 - id: G1
@@ -826,7 +1367,7 @@ liabilities:
     exports them to GS
   owner: aigranthelper
   tracking: '`apps/pipeline/models.py:610`; data contract §12'
-  capabilities: [ag.pipeline]
+  capabilities: [ag.pipeline, ag.matchmaker]
 - id: H1-2
   text: '`/project-status` metrics partial: no issue→merged cycle time, no self-critique fire rate'
   owner: oversteward
@@ -849,13 +1390,37 @@ liabilities:
     ABOUTME and `docs/CROSS_REPO_SCHEMA.md` still describe a Neon tenant DB'
   owner: aigranthelper
   tracking: '`apps/ops/management/commands/backup_database.py`, `docs/CROSS_REPO_SCHEMA.md`'
-  capabilities: [ag.ops-feedback]
+  capabilities: [ag.ops]
 - id: L-AG-3
   text: AG test settings accept any DB host, and a failed connect can render the password into a pytest
     traceback; no host guard, no redaction
   owner: aigranthelper
   tracking: '`config/settings/test.py:25-65`, `tests/conftest.py`'
   capabilities: [ag.dev-gates]
+- id: L-AG-4
+  text: 'The `_sentry_check_in_start/_finish` pair is copied into 11 management commands across accounts,
+    ops, reporting, research, seo and studio; with docstrings and comments stripped the copies fall into
+    three variants. No shared helper exists'
+  owner: aigranthelper
+  tracking: '`git grep -l "def _sentry_check_in_start" origin/main -- apps/` (AG f2a8d99); OS#640 comment
+    (SMELL-002 ratchet)'
+  capabilities: [ag.accounts, ag.ops, ag.acquisition-analytics, ag.reporting, ag.search-indexing, ag.studio,
+    ag.platform]
+- id: L-AG-5
+  text: '`city_views.py`, `sector_views.py` and `seo/lead_views.py` each copy the anon-public /
+    authed-no-store branch that `research/views.py`''s `_apply_detail_cache_control` reaches through
+    `_apply_read_cache_control`, instead of calling one shared helper'
+  owner: aigranthelper
+  tracking: '`git grep -n "def _apply_[a-z_]*cache_control" origin/main -- apps/` (AG f2a8d99)'
+  capabilities: [ag.funder-pages, ag.landing-pages, ag.edge]
+- id: L-MKT-1
+  text: 'The resource-page outreach pipeline, which sends live email on a weekday timer, is untracked
+    files in the primary OverSteward checkout: no review, no tests, no history. Its user systemd units
+    point at that path, and the laptop backups (restic and the WSL export) are its only copies'
+  owner: oversteward (ops)
+  tracking: 'OS#644 (open); `reports/2026-10-29-resource-page-outreach/` (untracked); `systemctl --user
+    list-timers ag-outreach*`'
+  capabilities: [ag.resource-outreach]
 - id: L-AA-1
   text: ai-assistants keeps its own WP REST client and FTP module beside the wphelper dependency (I-9)
   owner: ai-assistants
