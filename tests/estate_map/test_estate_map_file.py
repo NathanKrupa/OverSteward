@@ -97,6 +97,17 @@ def test_claude_md_loads_the_digest():
     assert "@data/estate-map-digest.md" in (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
 
 
+def test_claude_md_runs_the_estate_map_check_as_a_session_start_sweep():
+    text = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+    assert "## Session start — the seven sweeps" in text
+    section = text.split("## Session start", 1)[1].split("\n## ", 1)[0]
+    block = section.split("```bash", 1)[1].split("```", 1)[0]
+    lines = [line for line in block.splitlines() if "estate_map.py" in line]
+    assert lines == [
+        ".venv/bin/python scripts/estate_map.py check        # whether the map still matches the code"
+    ]
+
+
 def test_oversteward_coverage_meets_its_floor_on_this_checkout():
     estate = load(MAP_PATH)
     found = checkouts(_registry(), home_repo="oversteward", home_root=ROOT)

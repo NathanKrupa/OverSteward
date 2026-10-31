@@ -601,7 +601,7 @@ class FakeRunnerPassthrough:
 # --- the session-start doctrine ----------------------------------------------
 
 
-def test_claude_md_runs_backup_health_as_the_sixth_session_start_sweep() -> None:
+def test_claude_md_runs_backup_health_as_a_session_start_sweep() -> None:
     text = (REPO_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
     assert "## Session start — the seven sweeps" in text
     section = text.split("## Session start", 1)[1].split("\n## ", 1)[0]

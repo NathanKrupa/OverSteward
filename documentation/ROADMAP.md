@@ -26,7 +26,7 @@ Both pillars share the same posture: **propose, don't impose**. Nathan is the pr
 
 **Strategic frame.** OverSteward is the supporting infrastructure for a broader workflow-as-IP thesis: the model is the chip, the workflow is the firmware, the product is the appliance. Customer-facing IP lives in Grant Helper Pro (Sphere I, with Matchmaker as the design lead). OverSteward owns Sphere II (Internal/DevOps — pickup playbook, drift checks, ontology surface, governance sync) and provides the cross-repo plumbing that Sphere I depends on. Full strategic blueprint in [DETERMINISTIC_AGENTS.md](DETERMINISTIC_AGENTS.md).
 
-**Sibling project landed.** [Fiscus](file:///c:/Users/natha/OneDrive/Tech/Python/Fiscus/) (Latin: *imperial treasury* — "our learning is our treasure") was scaffolded 2026-05-14 as the dedicated observation-and-kaizen platform — separate repo, peer to OverSteward and aigranthelper, multi-subject scope, six subjects registered (ghp-matchmaker, ghp-general, dispatch, grantspider-crawler, research-drift, fiscus-meta). All five open questions from [captures/kaizen-architecture.md](captures/kaizen-architecture.md) §9 resolved. Two AG issues filed for the producer side ([aigranthelper#514](https://github.com/NathanKrupa/aigranthelper/issues/514) feedback button, [aigranthelper#515](https://github.com/NathanKrupa/aigranthelper/issues/515) general telemetry endpoint). Now registered in `registry.yaml` and `architecture.md` §1.
+**Sibling project landed.** [Fiscus](file:///c:/Users/natha/OneDrive/Tech/Python/Fiscus/) (Latin: *imperial treasury* — "our learning is our treasure") was scaffolded 2026-05-14 as the dedicated observation-and-kaizen platform — separate repo, peer to OverSteward and aigranthelper, multi-subject scope, six subjects registered (ghp-matchmaker, ghp-general, dispatch, grantspider-crawler, research-drift, fiscus-meta). All five open questions from [captures/kaizen-architecture.md](captures/kaizen-architecture.md) §9 resolved. Two AG issues filed for the producer side ([aigranthelper#514](https://github.com/NathanKrupa/aigranthelper/issues/514) feedback button, [aigranthelper#515](https://github.com/NathanKrupa/aigranthelper/issues/515) general telemetry endpoint). Now registered in `registry.yaml` and `estate-map.yaml` (`repos:`).
 
 ---
 
@@ -59,7 +59,7 @@ Heavy delivery between 2026-04-15 and 2026-05-07. Center of gravity moved here.
 - Self-critique gate (PR #4) — pre-PR coherence audit against past failure modes.
 - `dispatch-paused` kill-switch (PR #15) — repo-level abort if a paused issue is open.
 - Worktree non-negotiables hardened (PRs #18, #19, #24, #25) after grantspider #426 / #538 / #543 postmortems.
-- **In-session pickup the default since 2026-05-06.** `/dispatch` retired in `architecture.md` §5; workflow content survives as `documentation/issue-to-pr-workflow.md` and `documentation/repos/*.md`. Driven by Anthropic Claude Code harness silent-termination bug (#47931 / #47936) and the April 2026 metered-Managed-Agents launch — in-session work on the existing Max subscription is the cheapest reliable path. The skill files are still on disk pending a deliberate retirement PR.
+- **In-session pickup the default since 2026-05-06.** `/dispatch` retired in the former `architecture.md` §5 (deleted by OS#640; `git log -p -- architecture.md`); workflow content survives as `documentation/issue-to-pr-workflow.md` and `documentation/repos/*.md`. Driven by Anthropic Claude Code harness silent-termination bug (#47931 / #47936) and the April 2026 metered-Managed-Agents launch — in-session work on the existing Max subscription is the cheapest reliable path. The skill files are still on disk pending a deliberate retirement PR.
 
 ### Visibility surface
 
@@ -2279,7 +2279,7 @@ Active or partially-shipped items as of 2026-05-07.
 |---|---|---|---|
 | H1-2 | Pipeline metrics on `/project-status` (cycle time, needs-input age, PR success rate, self-critique fire rate) | PR #13 base merged; full issue-creation→merge cycle time excluding `needs-input` stalls (needs timeline-event fetch) and self-critique fire rate (definition undecided) still open | partial |
 | Drift check on AG | `research-drift-check` required status check on `main` for aigranthelper | Closed via AG #455 / #275 on 2026-05-07; first-ever green non-skipped run. Required gate now blocks divergent `_generated.py` PRs. | done |
-| Dispatch retirement PR | `/dispatch` skill files + four `<repo>-dev` agent definitions still on disk despite in-session being default | Workflow content already migrated to `documentation/issue-to-pr-workflow.md` + `documentation/repos/*.md` (per architecture.md §5, 2026-05-02). Cleanup PR pending. | in flight |
+| Dispatch retirement PR | `/dispatch` skill files + four `<repo>-dev` agent definitions still on disk despite in-session being default | Workflow content already migrated to `documentation/issue-to-pr-workflow.md` + `documentation/repos/*.md` (per the former architecture.md §5, 2026-05-02; deleted by OS#640). Cleanup PR pending. | in flight |
 
 ---
 
