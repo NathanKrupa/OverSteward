@@ -106,7 +106,7 @@ _SUPERSEDED_BY = "superseded_by"
 # Living-doc subjects → a pointer. These are the canonical docs a session should
 # reach for directly, not carry as a fact. Matched over description + body.
 _POINTER_RE = re.compile(
-    r"(architecture\.md|oversteward\.md|inbox|data/\w+_registry\.md"
+    r"(architecture\.md|estate-map\.yaml|oversteward\.md|inbox|data/\w+_registry\.md"
     r"|tool_registry|workflow_registry)",
     re.IGNORECASE,
 )
