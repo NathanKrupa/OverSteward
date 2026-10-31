@@ -102,6 +102,8 @@ class Floor:
 @dataclass(frozen=True)
 class Policy:
     digest_budget_bytes: int
+    #: The byte ceiling every per-repo slice is held to; a repo session may load its slice at start.
+    slice_budget_bytes: int
     explicit_only: Mapping[str, tuple[str, ...]]
     #: None means the repo's coverage is unmeasured; it is printed, never compared.
     coverage_floor: Mapping[str, Floor | None]
@@ -190,6 +192,7 @@ def _policy(entry: Mapping[str, Any]) -> Policy:
         raise MapError("policy: `explicit_only` and `coverage_floor` must be mappings")
     return Policy(
         digest_budget_bytes=int(_require(entry, "digest_budget_bytes", "policy")),
+        slice_budget_bytes=int(_require(entry, "slice_budget_bytes", "policy")),
         explicit_only={repo: _strings(explicit, repo, "policy.explicit_only") for repo in explicit},
         coverage_floor={repo: _floor(repo, floors[repo]) for repo in floors},
     )

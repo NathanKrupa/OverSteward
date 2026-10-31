@@ -22,6 +22,7 @@ _BASE: dict[str, Any] = {
     },
     "policy": {
         "digest_budget_bytes": 14000,
+        "slice_budget_bytes": 8000,
         "explicit_only": {"grantspider": ["src/grantspider/services"]},
         "coverage_floor": {
             "oversteward": {"orphans": 0, "overlaps": 0},

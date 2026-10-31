@@ -73,6 +73,7 @@ def gather_context(ctx: dict[str, Any]) -> dict[str, Any]:
         "skip_sow": ctx.get("skip_sow", False),
         "soul": ctx.get("soul"),
         "soul_in_local": ctx.get("soul_in_local", False),
+        "references_always_on": list(ctx.get("references_always_on") or []),
     }
     local_path = ctx.get("local_path")
     if local_path is None or not Path(local_path).is_dir():

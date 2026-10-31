@@ -13,7 +13,8 @@
 # - Cite or omit: every seam, invariant and liability carries a source a reader can open.
 # - Verify against code, not against this file: read producer and consumer on origin
 #   (`git show origin/<branch>:<path>`); primary checkouts run stale.
-# - After an edit: `scripts/estate_map.py render --write`, then `scripts/estate_map.py check`
+# - After an edit: `scripts/estate_map.py render --write` (the digest and every repo slice under
+#   shared/references/estate-map/), then `scripts/estate_map.py check`
 #   (the seventh session-start sweep; 0 clean, 1 findings, 2 could not look).
 # - History: `git log -p -- estate-map.yaml`.
 #
@@ -66,7 +67,8 @@ mission:
     repo: exchequer
 
 policy:
-  digest_budget_bytes: 14000
+  digest_budget_bytes: 20000
+  slice_budget_bytes: 20000
   explicit_only:
     grantspider: [src/grantspider/services, src/grantspider/connectors]
   coverage_floor:

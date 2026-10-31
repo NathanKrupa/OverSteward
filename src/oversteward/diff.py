@@ -15,6 +15,9 @@ from oversteward.dev_family import (
 
 Finding = dict[str, Any]
 
+#: How a managed block loads a file under canonical `shared/references/`.
+REFERENCE_IMPORT = "@~/.claude/shared/references/{path}"
+
 # How each canonical-family status reads in the drift report. `present-identical`
 # is absent from the map: parity is not a finding.
 FAMILY_MESSAGES = {
@@ -52,7 +55,23 @@ def _diff_managed_block(ctx: dict[str, Any]) -> list[Finding]:
                     cid,
                 )
             )
+    if managed["present"]:
+        findings.extend(_diff_references(cid, ctx.get("references_always_on") or [], managed["text"]))
     return findings
+
+
+def _diff_references(cid: str, declared: list[str], block: str | None) -> list[Finding]:
+    """Each declared reference must be an import line of its own inside the managed block.
+
+    Leading indentation is not stripped: indented four spaces, the line is a
+    Markdown code block, which Claude Code does not import.
+    """
+    lines = {line.rstrip() for line in (block or "").splitlines()}
+    return [
+        _finding("drift", "reference", f"managed block lacks the line `{expected}`", cid)
+        for expected in (REFERENCE_IMPORT.format(path=path) for path in declared)
+        if expected not in lines
+    ]
 
 
 def _diff_security_gate(ctx: dict[str, Any]) -> list[Finding]:

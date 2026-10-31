@@ -63,6 +63,8 @@ def _args(tmp_path: Path, data: dict[str, Any], *, gs_path: Path | None = None) 
         str(_write(tmp_path, registry, "registry.yaml")),
         "--digest",
         str(tmp_path / "digest.md"),
+        "--slices",
+        str(tmp_path / "slices"),
     ]
 
 
@@ -157,6 +159,55 @@ def test_render_over_budget_exits_1(cli, capsys, tmp_path, local):
     local["policy"]["digest_budget_bytes"] = 100
     assert cli.main([*_args(tmp_path, local), "render"]) == 1
     assert "digest-budget" in capsys.readouterr().err
+
+
+def test_render_write_writes_one_slice_per_repo_with_capabilities(cli, capsys, tmp_path, local):
+    from oversteward.estate_map.model import parse
+    from oversteward.estate_map.render import repo_slice
+
+    assert cli.main([*_args(tmp_path, local), "render", "--write"]) == 0
+    slices = tmp_path / "slices"
+    names = sorted(p.name for p in slices.iterdir())
+    assert names == ["aigranthelper.md", "grantspider.md", "oversteward.md"]
+    estate = parse(local)
+    for name in names:
+        repo = name.removesuffix(".md")
+        assert (slices / name).read_text(encoding="utf-8") == repo_slice(estate, repo)
+    assert "grantspider.md" in capsys.readouterr().out
+
+
+def test_render_without_write_writes_no_slices(cli, capsys, tmp_path, local):
+    assert cli.main([*_args(tmp_path, local), "render"]) == 0
+    assert not (tmp_path / "slices").exists()
+
+
+def test_render_write_removes_a_slice_for_a_repo_that_lost_its_capabilities(
+    cli, capsys, tmp_path, local
+):
+    slices = tmp_path / "slices"
+    slices.mkdir()
+    (slices / "wphelper.md").write_text("stale", encoding="utf-8")
+    assert cli.main([*_args(tmp_path, local), "render", "--write"]) == 0
+    assert not (slices / "wphelper.md").exists()
+    assert "removed" in capsys.readouterr().out
+
+
+def test_render_write_leaves_files_that_are_not_slices(cli, capsys, tmp_path, local):
+    slices = tmp_path / "slices"
+    (slices / "notes").mkdir(parents=True)
+    (slices / "archive.md").mkdir()
+    keep = [slices / "README.txt", slices / "notes" / "wphelper.md", slices / "archive.md" / "x"]
+    for path in keep:
+        path.write_text("kept", encoding="utf-8")
+    assert cli.main([*_args(tmp_path, local), "render", "--write"]) == 0
+    assert all(path.read_text(encoding="utf-8") == "kept" for path in keep)
+
+
+def test_render_over_the_slice_budget_exits_1_naming_the_repo(cli, capsys, tmp_path, local):
+    local["policy"]["slice_budget_bytes"] = 100
+    assert cli.main([*_args(tmp_path, local), "render"]) == 1
+    err = capsys.readouterr().err
+    assert "slice-budget" in err and "grantspider" in err
 
 
 class _CrashingGit:

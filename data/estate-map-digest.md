@@ -88,4 +88,4 @@
 - `os.janitor` · live · Reclaims disk that sessions leave behind once nothing is using it.
 - `os.estate-map` · building · This map: what the estate builds, where each capability lives, and its current and target shape; checked by the seventh session-start sweep.
 
-Claims, current and target shape, seams (S-1..S-14), invariants (I-1..I-22) and liabilities live in `estate-map.yaml`. Read it at scope time; `scripts/estate_map.py check` is the seventh session-start sweep.
+Claims, current and target shape, seams (S-1..S-14), invariants (I-1..I-22) and liabilities live in `estate-map.yaml`. Read it at scope time; `scripts/estate_map.py check` is the seventh session-start sweep. Each repo's own slice is `shared/references/estate-map/<repo>.md`.

@@ -23,6 +23,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 MAP_PATH = ROOT / "estate-map.yaml"
 DIGEST_PATH = ROOT / "data" / "estate-map-digest.md"
+SLICES_DIR = ROOT / "shared" / "references" / "estate-map"
 HOME_REPO = "oversteward"
 EXIT_COULD_NOT_LOOK = 2
 EXIT_FINDINGS = 1
@@ -33,6 +34,7 @@ def _parse(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--map", type=Path, default=MAP_PATH)
     parser.add_argument("--registry", type=Path, default=None)
     parser.add_argument("--digest", type=Path, default=DIGEST_PATH)
+    parser.add_argument("--slices", type=Path, default=SLICES_DIR)
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("validate")
     sub.add_parser("locations")
@@ -80,15 +82,31 @@ def main(argv: list[str] | None = None, git=None) -> int:
 
 def _render(args: argparse.Namespace, estate, render) -> int:
     text = render.digest(estate)
-    findings = render.budget_findings(estate, text)
+    slices = {repo: render.repo_slice(estate, repo) for repo in render.slice_repos(estate)}
+    findings = render.budget_findings(estate, text) + [
+        finding
+        for repo, body in slices.items()
+        for finding in render.slice_budget_findings(estate, repo, body)
+    ]
     if args.write:
-        args.digest.write_text(text, encoding="utf-8")
-        print(f"wrote {args.digest} ({len(text.encode('utf-8'))} bytes)")
+        _write(args.digest, text)
+        args.slices.mkdir(parents=True, exist_ok=True)
+        for repo, body in slices.items():
+            _write(args.slices / render.slice_name(repo), body)
+        present = [p.name for p in args.slices.iterdir() if p.is_file()]
+        for name in render.stale_slices(present, estate):
+            (args.slices / name).unlink()
+            print(f"removed {args.slices / name} (no capability belongs to that repo)")
     else:
         print(text, end="")
     for finding in findings:
         print(f"FINDING - {finding}", file=sys.stderr)
     return EXIT_FINDINGS if findings else 0
+
+
+def _write(path: Path, text: str) -> None:
+    path.write_text(text, encoding="utf-8")
+    print(f"wrote {path} ({len(text.encode('utf-8'))} bytes)")
 
 
 def _print(outcome) -> None:

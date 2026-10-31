@@ -1,5 +1,5 @@
 # ABOUTME: Tests on the committed estate-map.yaml itself — it validates, the migrated rows are all present,
-# ABOUTME: the digest matches a fresh render within budget, and OverSteward's coverage meets its floor.
+# ABOUTME: the digest and every repo slice match a fresh render within budget, and OS coverage meets its floor.
 
 from __future__ import annotations
 
@@ -10,15 +10,23 @@ import yaml
 from oversteward.estate_map.checkouts import TreeReader, checkouts
 from oversteward.estate_map.checks import registry_ids
 from oversteward.estate_map.coverage import coverage_outcome
-from oversteward.estate_map.model import load
+from oversteward.estate_map.model import EstateMap, load, parse
 from oversteward.estate_map.outcome import EXIT_CLEAN
-from oversteward.estate_map.render import budget_findings, digest
+from oversteward.estate_map.render import (
+    budget_findings,
+    digest,
+    repo_slice,
+    slice_budget_findings,
+    slice_name,
+    slice_repos,
+)
 from oversteward.estate_map.validate import validate
 from oversteward.sow.runners import GitCommand
 
 ROOT = Path(__file__).resolve().parents[2]
 MAP_PATH = ROOT / "estate-map.yaml"
 DIGEST_PATH = ROOT / "data" / "estate-map-digest.md"
+SLICES_DIR = ROOT / "shared" / "references" / "estate-map"
 REGISTRY_PATH = ROOT / "registry.yaml"
 
 #: Every ID the 2026-10-31 snapshot (OS#638) carried. IDs are never renumbered,
@@ -56,6 +64,27 @@ def digest_is_current(map_path: Path, digest_path: Path) -> bool:
     return digest(load(map_path)) == digest_path.read_text(encoding="utf-8")
 
 
+def stale_slices(estate: EstateMap, slices_dir: Path) -> list[str]:
+    """Each slice file that differs from a fresh render, is missing, or renders from nothing."""
+    expected = {slice_name(repo): repo_slice(estate, repo) for repo in slice_repos(estate)}
+    present = {p.name for p in slices_dir.iterdir() if p.is_file()} if slices_dir.is_dir() else set()
+    stale = sorted(present - set(expected)) + sorted(set(expected) - present)
+    stale += [
+        name
+        for name in sorted(present & set(expected))
+        if (slices_dir / name).read_text(encoding="utf-8") != expected[name]
+    ]
+    return stale
+
+
+def _copy_slices(tmp_path: Path) -> Path:
+    copied = tmp_path / "slices"
+    copied.mkdir()
+    for path in SLICES_DIR.iterdir():
+        (copied / path.name).write_bytes(path.read_bytes())
+    return copied
+
+
 def test_committed_map_validates_against_the_registry():
     findings = validate(load(MAP_PATH), registry_ids(_registry()))
     assert findings == []
@@ -91,6 +120,54 @@ def test_a_hand_edited_digest_is_not_current(tmp_path):
     line = next(x for x in text.splitlines() if x.startswith("- `os.janitor`"))
     edited.write_text(text.replace(line, line + " (tidied by hand)"), encoding="utf-8")
     assert not digest_is_current(MAP_PATH, edited)
+
+
+def test_digest_budget_is_the_agreed_ceiling():
+    # Nathan's agreed range for an always-loaded digest is about 3-5k tokens; the GS
+    # seed left 462 bytes under the 14,000-byte budget (OS#640).
+    assert load(MAP_PATH).policy.digest_budget_bytes == 20000
+
+
+def test_slice_budget_is_the_agreed_ceiling():
+    # Each slice is loaded into its repo's sessions at start, so it is held to the
+    # digest's ceiling (OS#640); the GS slice is the largest.
+    assert load(MAP_PATH).policy.slice_budget_bytes == 20000
+
+
+def test_every_slice_is_current_and_within_budget():
+    estate = load(MAP_PATH)
+    assert stale_slices(estate, SLICES_DIR) == [], (
+        "shared/references/estate-map/ is stale: run `scripts/estate_map.py render --write`"
+    )
+    for repo in slice_repos(estate):
+        text = (SLICES_DIR / slice_name(repo)).read_text(encoding="utf-8")
+        assert slice_budget_findings(estate, repo, text) == []
+
+
+def test_the_dispatch_repos_have_slices():
+    # A slice set that silently lost AG or GS would leave every agent reading nothing.
+    assert {"aigranthelper", "grantspider", "oversteward"} <= set(slice_repos(load(MAP_PATH)))
+
+
+def test_a_hand_edited_slice_is_stale(tmp_path):
+    copied = _copy_slices(tmp_path)
+    path = copied / "grantspider.md"
+    path.write_text(path.read_text(encoding="utf-8") + "- tidied by hand\n", encoding="utf-8")
+    assert stale_slices(load(MAP_PATH), copied) == ["grantspider.md"]
+
+
+def test_a_map_edit_without_render_leaves_the_slices_stale(tmp_path):
+    raw = yaml.safe_load(MAP_PATH.read_text(encoding="utf-8"))
+    cap = next(c for c in raw["capabilities"] if c["id"].startswith("gs."))
+    cap["purpose"] += " (edited)"
+    assert stale_slices(parse(raw), _copy_slices(tmp_path)) == ["grantspider.md"]
+
+
+def test_a_missing_or_orphaned_slice_is_stale(tmp_path):
+    copied = _copy_slices(tmp_path)
+    (copied / "fiscus.md").unlink()
+    (copied / "nobody.md").write_text("x", encoding="utf-8")
+    assert stale_slices(load(MAP_PATH), copied) == ["nobody.md", "fiscus.md"]
 
 
 def test_claude_md_loads_the_digest():

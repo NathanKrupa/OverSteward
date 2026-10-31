@@ -114,6 +114,14 @@ class TestGatherContext:
         assert result["skip_sow"] is True
         assert result["soul_in_local"] is True
 
+    def test_declared_references_carried_into_snapshot(self, tmp_path):
+        (tmp_path / "CLAUDE.md").write_text(UNMANAGED_CLAUDE_MD, encoding="utf-8")
+        declared = ["estate-map/demo.md"]
+        assert gather_context(self._ctx(tmp_path, references_always_on=declared))[
+            "references_always_on"
+        ] == declared
+        assert gather_context(self._ctx(tmp_path))["references_always_on"] == []
+
 
 class TestGatherSharedTree:
     def test_hashes_files_recursively_with_relative_paths(self, tmp_path):

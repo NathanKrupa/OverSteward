@@ -898,3 +898,79 @@ def test_enrich_worker_body_stays_short() -> None:
         f"enrich-worker body has {len(lines)} non-blank lines, over the "
         f"{ENRICH_WORKER_MAX_BODY_LINES} it is allowed."
     )
+
+
+# The estate map renders one slice per repo into `shared/references/estate-map/`,
+# deployed to both Claude homes. A dev card whose repo has a slice must send the
+# agent to it at scope time, or the agent plans against a map it never saw
+# (OS#640). The repo set is read from the map, so a repo that gains its first
+# capability makes its card red until the card reads the slice.
+SLICE_PATH = "~/.claude/shared/references/estate-map/{repo}.md"
+
+
+def _slice_repos() -> frozenset[str]:
+    from oversteward.estate_map.model import load
+    from oversteward.estate_map.render import slice_repos
+
+    return frozenset(slice_repos(load(REPO_ROOT / "estate-map.yaml")))
+
+
+def _slice_findings(card_name: str, text: str, repos: frozenset[str]) -> list[str]:
+    """What a card fails to say about its repo's slice: empty when it reads it at scope time."""
+    repo = card_name.removesuffix(".md").removesuffix(DEV_CARD_SUFFIX)
+    if repo not in repos:
+        return []
+    path = SLICE_PATH.format(repo=repo)
+    naming = [unit.text for unit in _paragraphs(text) if path in unit.text]
+    if not naming:
+        return [f"does not name `{path}`"]
+    if not any("scope time" in unit for unit in naming):
+        return ["does not say to read it at scope time"]
+    return []
+
+
+def test_some_dev_card_has_a_slice_to_read() -> None:
+    """The slice guard below is vacuous if no dev card's repo has a slice."""
+    repos = _slice_repos()
+    assert any(card.stem.removesuffix(DEV_CARD_SUFFIX) in repos for card in _dev_cards())
+
+
+def test_a_card_that_never_names_its_slice_is_flagged() -> None:
+    repos = frozenset({"grantspider"})
+    text = "Read the playbook at scope time. See `~/.claude/shared/references/estate-map/x.md`."
+    assert _slice_findings("grantspider-dev.md", text, repos) == [
+        "does not name `~/.claude/shared/references/estate-map/grantspider.md`"
+    ]
+    assert _slice_findings("wphelper-dev.md", text, repos) == []
+
+
+def test_a_card_that_names_its_slice_without_a_time_is_flagged() -> None:
+    # "scope time" in another paragraph does not attach to the slice.
+    text = (
+        "Read the issue at scope time.\n\n"
+        "See `~/.claude/shared/references/estate-map/grantspider.md` when convenient."
+    )
+    assert _slice_findings("grantspider-dev.md", text, frozenset({"grantspider"})) == [
+        "does not say to read it at scope time"
+    ]
+
+
+def test_a_card_that_reads_its_slice_at_scope_time_is_clean() -> None:
+    text = (
+        "At scope time, read\n`~/.claude/shared/references/estate-map/grantspider.md`, "
+        "this repo's slice."
+    )
+    assert _slice_findings("grantspider-dev.md", text, frozenset({"grantspider"})) == []
+
+
+@pytest.mark.parametrize("card", _dev_cards(), ids=lambda p: f"{p.parent.name}/{p.name}")
+def test_every_dev_card_reads_its_repos_estate_map_slice_at_scope_time(card: Path) -> None:
+    findings = _slice_findings(card.name, card.read_text(encoding="utf-8"), _slice_repos())
+    assert not findings, f"{card.parent.name}/{card.name}: " + "; ".join(findings)
+
+
+@pytest.mark.parametrize("card", _card_pair("architect.md"), ids=lambda p: p.parent.name)
+def test_the_architect_reads_the_full_map_and_the_slices(card: Path) -> None:
+    prose = _unwrapped(card.read_text(encoding="utf-8"))
+    assert "`estate-map.yaml`" in prose
+    assert "~/.claude/shared/references/estate-map/<repo>.md" in prose

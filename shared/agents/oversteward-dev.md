@@ -121,6 +121,15 @@ N files, ±M lines (see the dispatch playbook §12 for the current caps)
 Follow the universal playbook at `.claude/skills/dispatch/playbook.md` in full.
 Substitute `<default-branch>` = `master`, `<owner>/<repo>` = `NathanKrupa/OverSteward`.
 
+At scope time, before you plan the change, read
+`~/.claude/shared/references/estate-map/oversteward.md`: this repo's slice of the
+estate map, with its capabilities' current and target shape and the seams,
+invariants and liabilities that touch it. Here the source is in your worktree:
+`estate-map.yaml`, rendered to `shared/references/estate-map/` and
+`data/estate-map-digest.md` by `scripts/estate_map.py render --write`. Edit the
+map, never a render, and re-render in the same PR; a test compares each render
+with the map.
+
 ## Adversarial review — required before `gh pr create`
 
 Between "tests green" and opening the PR, a **separate** reviewer instance reads
