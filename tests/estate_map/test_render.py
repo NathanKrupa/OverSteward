@@ -1,4 +1,4 @@
-# ABOUTME: Tests for the rendered digest and per-repo slice, and the digest's byte budget.
+# ABOUTME: Tests for the rendered digest and its byte budget.
 # ABOUTME: The budget is read from the map's policy, so a test oversizes the map rather than trusting a constant.
 
 from __future__ import annotations
@@ -6,7 +6,7 @@ from __future__ import annotations
 import copy
 
 from oversteward.estate_map.model import parse
-from oversteward.estate_map.render import budget_findings, digest, repo_slice
+from oversteward.estate_map.render import budget_findings, digest
 
 
 def test_digest_carries_the_north_star_and_one_line_per_capability(raw):
@@ -56,18 +56,3 @@ def test_budget_counts_bytes_not_characters(raw):
     assert len(grown_text) == len(text) + 2
     assert len(grown_text.encode("utf-8")) == len(text.encode("utf-8")) + 4
     assert [f.check for f in budget_findings(grown, grown_text)] == ["digest-budget"]
-
-
-def test_repo_slice_holds_that_repos_capabilities_seams_and_invariants(raw):
-    text = repo_slice(parse(raw), "grantspider")
-    assert "gs.website-resolution" in text
-    assert "src/grantspider/services/website_resolver.py" in text
-    assert "S-1" in text
-    assert "G1" in text
-    assert "os.sow" not in text
-
-
-def test_repo_slice_includes_seam_invariants(raw):
-    text = repo_slice(parse(raw), "aigranthelper")
-    assert "ag.research" in text and "I-1" in text
-    assert "I-2" in text  # cited by S-1, which AG consumes

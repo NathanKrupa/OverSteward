@@ -4,8 +4,8 @@
 
 """Check and render `estate-map.yaml`, the estate's capability map.
 
-`check` runs validate, locations and coverage, and is the seventh session-start
-sweep. Exit codes carry meaning and must not be collapsed:
+`check` runs validate, locations and coverage in one pass. Exit codes carry
+meaning and must not be collapsed:
 
 * **0** — clean: every check looked and found nothing.
 * **1** — findings: the map disagrees with itself, the registry, or a tree.
@@ -40,7 +40,6 @@ def _parse(argv: list[str]) -> argparse.Namespace:
     coverage.add_argument("--repo", default=None)
     render = sub.add_parser("render")
     render.add_argument("--write", action="store_true")
-    render.add_argument("--repo", default=None)
     sub.add_parser("check")
     return parser.parse_args(argv)
 
@@ -80,9 +79,6 @@ def main(argv: list[str] | None = None, git=None) -> int:
 
 
 def _render(args: argparse.Namespace, estate, render) -> int:
-    if args.repo is not None:
-        print(render.repo_slice(estate, args.repo), end="")
-        return 0
     text = render.digest(estate)
     findings = render.budget_findings(estate, text)
     if args.write:
