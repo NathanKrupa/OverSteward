@@ -69,10 +69,18 @@ class TreeReader:
         self._fetched: set[str] = set()
 
     def existing(self, repo: str, paths: Iterable[str]) -> set[str]:
-        """The subset of `paths` (trailing `/` ignored) present on the repo's ref."""
+        """The subset of `paths` (trailing `/` ignored) present on the repo's ref.
+
+        A path is present when it, or a file under it, is tracked. Directories are read
+        from the files beneath them because `git ls-tree` without `-r` descends into a
+        directory that holds a deeper pathspec and then never prints the directory itself.
+        """
         wanted = sorted({p.rstrip("/") for p in paths})
-        out = self._ls_tree(repo, wanted, recursive=False)
-        return {line for line in out if line in wanted}
+        present: set[str] = set()
+        for tracked in self._ls_tree(repo, wanted, recursive=True):
+            parts = tracked.split("/")
+            present.update("/".join(parts[:i]) for i in range(1, len(parts) + 1))
+        return present.intersection(wanted)
 
     def files(self, repo: str, roots: Iterable[str]) -> list[str]:
         """Every tracked file under `roots` on the repo's ref."""

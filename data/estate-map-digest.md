@@ -34,15 +34,38 @@
 - `ag.search-measurement` · live · Judging shipped pages by Search Console and GA4 through the CLIs: indexation sweeps, per-arm reads, funnel events.
 - `ag.page-red-teaming` · building · Gemini red-teams a page shape before it is built, on static design-bench renders judged under the rater and seeker rubrics.
 - `ag.resource-outreach` · live · Resource-page outreach: monthly Brave discovery of grant-resource sites, reviewed drafts, and weekday listing-request emails.
-- `gs.irs-ingestion` · live · IRS ingestion: 990-PF Part XV and Schedule I grants (TEOS bulk), BMF monthly sync, SOI annual extract.
-- `gs.facsimiles` · live · 990-PF facsimiles: IRS XSL → PDF → B2.
-- `gs.other-sources` · live · Other sources: 360Giving; federal opportunities (Grants.gov, SAM, USAspending, agency hydration); community, corporate and diocesan foundation discovery.
-- `gs.website-resolution` · live · Websites: Discovery (IRS, Wikidata, Brave, DDG, crt.sh providers) + Anthropic verification judge.
-- `gs.crawl` · live · Crawl: Railway sitemap/crawlee crawler; laptop crawler with a local SQLite resume ledger; Common Crawl + Wayback; URL-heuristic page classification (no LLM).
-- `gs.enrichment` · live · Enrichment: SKIP LOCKED claim queue drained by in-session Sonnet workers (`.claude/workflows/enrich-drain.*`); metered Anthropic key fail-closed; token-free funding profiles.
-- `gs.embeddings-search` · live · Embeddings / search index: Local all-MiniLM-L6-v2 (384-d), source-hash staleness; GS owns the Typesense indexing.
-- `gs.data-quality` · live · Data quality: Stage-health ledger (`dq health`), freshness SLAs, canaries, Sentry run-failure sensor, Neon consumption canary.
-- `gs.safety` · live · Safety: Operator-armed prod migrations (`db migrate-prod arm|run|cleanup`), pre-migration backup, weekly backups of research + Dagster + AG tenant DBs, monthly restore drill.
+- `gs.research-schema` · live · Research schema: the ORM models and Alembic history GS alone writes, and the `ag_research` view manifest that is AG's read surface.
+- `gs.ontology` · live · Ontology: typed entities (Foundation, Grant, NteeCode), semantic types and property lineage; the one GS package AG imports for types.
+- `gs.runtime` · live · Runtime: settings (the one env reader), Neon sessions with reconnect, B2 storage, logging, Sentry, the operations ledger and the CLI root.
+- `gs.outbound-http` · live · Outbound HTTP: one client factory composing bot identity, Web Bot Auth, robots, per-host limits and breaker; SSRF guard; the request audit log.
+- `gs.llm-access` · live · Model access: the Anthropic connector and the provider-neutral LlmClient, each Anthropic client built only behind the metered-key arm.
+- `gs.irs-ingestion` · live · IRS filings: TEOS cache, BMF monthly sync, SOI extract, 990-PF and 990 XML extraction, Part XV and Schedule I grant lines, officers.
+- `gs.grant-records` · live · Grant rows after landing: 360Giving ingest, recipient EIN and NTEE, PCS coding, source precedence, reconciliation and amount repairs.
+- `gs.facsimiles` · live · 990-PF facsimiles: the filing printed onto the IRS's own blank with Schedule B and statements, rendered with Neon idle, stored in B2.
+- `gs.fiscal-synopsis` · live · Fiscal synopsis: a two-page funder PDF (giving line, sector box plot) rendered by WeasyPrint and stored in B2.
+- `gs.federal-opportunities` · live · Federal openings: Grants.gov with detail hydration, SAM listings and contracts, USASpending, agency page hydration, NOFO PDFs.
+- `gs.state-opportunities` · live · State and local openings: state portals, municipal leagues, vendor tenants (Submittable, AmpliFund, WebGrants) and RSS feeds.
+- `gs.funder-discovery` · live · Grantmaker discovery beyond the BMF: candidate queue, corporate sweeps and giving-platform probes, corporate-direct programmes, diocesan foundations.
+- `gs.community-foundations` · live · Community foundations: the COF locator and directory, ACF affiliates, site-platform detection, CFCSRA funds and scholarships.
+- `gs.funder-records` · live · Funder record fields: display names from filer names, acronym casing, slugs, addresses, source labels, Haiku-beautified IRS text.
+- `gs.entity-resolution` · live · Entity resolution: Splink, Jaro-Winkler/TF-IDF and name-cluster resolvers over an organization spine with exact-EIN edges.
+- `gs.grantmaker-status` · live · Grantmaker status: one versioned derivation over override, disposition, behaviour and classifier signals, kept fresh by a dirty-flag drain.
+- `gs.corrections` · live · Corrections: AG visitor corrections pulled and promoted by a human into pinned overrides; operator one-field edits with lineage.
+- `gs.website-resolution` · live · Websites: finding each funder's site (IRS, Wikidata, Wikipedia, GiveFreely, Brave, DDG, agent proposals), verifying identity, clearing wrong ones.
+- `gs.crawl-frontier` · live · Crawl frontier: the crawl graph (`mine_urls` + links), tiered cadence, and URL sources (sitemaps, homepage links, Common Crawl, on demand).
+- `gs.crawl` · live · Capture: the Railway snapshot drain and the laptop crawler with its SQLite resume ledger; Wayback; markdown snapshots to B2.
+- `gs.page-triage` · live · Page triage: URL-and-content heuristic page labels (no LLM), and the safety pass over untrusted crawl text before prompts and embeddings.
+- `gs.enrichment` · live · Funder profiles: the enrich-drain pull and apply, the two-pass research bench, section and about passes, gates, generations and TTL.
+- `gs.metered-enrichment` · live · Metered-key enrichment: the `enrich` CLI, the on-demand SKIP LOCKED queue and worker, and LLM snapshot extraction.
+- `gs.funding-profile` · live · Funding profiles: token-free facets and prose derived from a funder's grant set, refreshed only for funders whose grants moved.
+- `gs.giving-stats` · live · Giving statistics: per-funder fingerprints and distributions, top funders by state, city and sector, and the one sector taxonomy.
+- `gs.deadlines` · live · Deadlines: deterministic extraction from crawled pages and the 990-PF, rolling-cue classification, and the one open-to-applications predicate.
+- `gs.embeddings-search` · live · Embeddings and search: local all-MiniLM-L6-v2 (384-d) for funders, open opportunities and page chunks; Typesense reindexes.
+- `gs.authority-map` · building · Funding-authority map: who passes public money down, from FAC audits and USASpending subawards, with county closure and attribution.
+- `gs.data-quality` · live · Data quality: the write gate, nightly snapshots and drift scans, freshness SLAs, the stage-health ledger, canaries, the Vintner funnel, operator stats.
+- `gs.safety` · live · Database safety: operator-armed prod migrations, pre-migration and weekly B2 backups, the restore drill, wipe canaries, the Neon budget canary.
+- `gs.dagster-runtime` · live · Dagster runtime: definitions, schedules, sensors and run guards; zombie and orphan reapers; the out-of-band daemon watchdog; cron check-ins.
+- `gs.dev-gates` · live · Dev gates: the gaudi boy-scout ratchet, migration and reader-privilege drift, Dagster lints, the pin-bump notice to AG, the divergence watchdog.
 - `wp.connectors` · live · WordPress client toolkit; canonical home for external connectors (WP REST, Kit, GA4, GSC, FTP, IndexNow).
 - `wp.nathankrupa-hub` · planned · nathankrupa.com as a hub for all of Nathan's work: the Substack, The Almoner, the AG community and Golden Harvest.
 - `aa.almoner` · live · `almoner` package — content authoring, CRM, ingestion, WP integration. No CI.
