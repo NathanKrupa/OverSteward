@@ -40,7 +40,6 @@ def _parse(argv: list[str]) -> argparse.Namespace:
     coverage.add_argument("--repo", default=None)
     render = sub.add_parser("render")
     render.add_argument("--write", action="store_true")
-    render.add_argument("--repo", default=None)
     sub.add_parser("check")
     return parser.parse_args(argv)
 
@@ -80,9 +79,6 @@ def main(argv: list[str] | None = None, git=None) -> int:
 
 
 def _render(args: argparse.Namespace, estate, render) -> int:
-    if args.repo is not None:
-        print(render.repo_slice(estate, args.repo), end="")
-        return 0
     text = render.digest(estate)
     findings = render.budget_findings(estate, text)
     if args.write:
