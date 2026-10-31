@@ -11,8 +11,11 @@ resident checkouts run dozens to hundreds of commits stale, and a claim must
 name what production runs (GS and AG ship `main` while defaulting to
 `staging`).
 
-Every way of failing to read a tree raises CouldNotLook, which the checks turn
-into exit 2. None of them may read as "nothing missing".
+Each failure this module recognises (no registry entry, no local_path, no
+branch, an absent checkout, a failed fetch, a failed ls-tree) raises
+CouldNotLook, which the checks turn into exit 2. Anything else is a crash, which
+`scripts/estate_map.py` also exits 2 on. None of them may read as "nothing
+missing".
 """
 
 from __future__ import annotations
