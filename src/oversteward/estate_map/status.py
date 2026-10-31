@@ -39,9 +39,6 @@ UNMAPPED = "unmapped"
 
 _EXPLICIT_LINE = re.compile(r"^[ \t>*-]*\**Capability\**\s*:\s*\**(?P<ids>.*?)\**\s*$", re.I | re.M)
 _ID_SPLIT = re.compile(r"[,\s]+")
-#: A GitHub blob or tree link's prefix; what follows it is a repo-relative path.
-_GITHUB_LINK = re.compile(r"https?://github\.com/[^/\s]+/[^/\s]+/(?:blob|tree)/[^/\s]+/")
-_URL = re.compile(r"\w+://\S+")
 _TOKEN = re.compile(r"[\w./-]+")
 #: A token names a path when it holds a slash or ends in a file extension.
 _FILE_EXT = re.compile(r"\.[A-Za-z][A-Za-z0-9]{0,7}$")
@@ -88,7 +85,6 @@ def explicit_ids(body: str) -> tuple[str, ...]:
 
 
 def mentioned_paths(text: str) -> list[str]:
-    text = _URL.sub(" ", _GITHUB_LINK.sub(" ", text))
     found: list[str] = []
     for token in _TOKEN.findall(text):
         path = token.rstrip(".").removeprefix("./").strip("/")

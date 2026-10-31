@@ -281,3 +281,7 @@ def test_the_architect_brief_template_carries_a_capability_line():
     card = (ROOT / "shared" / "agents" / "architect.md").read_text(encoding="utf-8")
     brief = card[card.rindex("Dispatch brief\n") :]
     assert explicit_ids(brief) == ("os.dispatch",)
+
+
+def test_a_url_whose_domain_heads_a_partial_path_does_not_map(estate):
+    assert attribute(_issue("https://example.org/services/website_resolver.py"), estate).via == UNMAPPED
