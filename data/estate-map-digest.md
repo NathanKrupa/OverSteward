@@ -8,15 +8,32 @@
 
 ## Capabilities (`id` · status · purpose)
 
-- `ag.research` · live · Research: Read-only GS mirror (`models/_generated.py`, `_views.py`); match scoring; keyword/semantic/hybrid search; Typesense with fail-open Postgres fallback; public foundation/sector/city pages.
-- `ag.pipeline` · live · Pipeline / reporting: Grant lifecycle (Program, FunderRelationship, Application, Award, FunderMilestone, UserFunderSignal, SavedGrantor) and post-award compliance.
-- `ag.matchmaker` · live · Matchmaker: Match telemetry, golden-label evals, the `pipeline_history-YYYY-MM-DD.jsonl` writer.
-- `ag.studio` · live · Studio: AI-assisted grant drafting (versioned drafts in B2); Anthropic, Gemini, OpenAI via one module.
-- `ag.accounts-billing` · live · Accounts / billing: Multi-tenant orgs + consultants, magic-link auth; Stripe via dj-stripe 2.11.
-- `ag.seo-edge` · live · SEO / edge: IndexNow, GSC indexation monitor, Cloudflare cache rules + purge + warmer, lead pages; home-page A/B Worker.
-- `ag.ops-feedback` · live · Ops / feedback / telemetry: `/internal/ops/` reports + verdicts, visitor DataCorrection, EmailLead, Fiscus telemetry endpoint.
-- `ag.docs-bot-worldmodel` · live · Docs / bot / worldmodel: DB-backed help centre; Web Bot Auth key directory; customer world model (beliefs, goals, event spine).
-- `ag.dev-gates` · live · AG's local gates and test settings: make verify, pytest configuration and the test database.
+- `ag.research` · live · Research reads: the read-only mirror of GS's research schema and the plumbing every research read goes through.
+- `ag.funder-search` · live · Funder search and match scoring: keyword, semantic and hybrid search, Typesense with a Postgres fallback, and funding-fit scoring.
+- `ag.funder-pages` · live · Funder pages: foundation and federal-grant profiles, the search pages, and state, sector and city hubs.
+- `ag.search-indexing` · live · What Google may index and how it learns of it: sitemaps, the indexability tier, IndexNow, URL Inspection sweeps and the indexation experiments.
+- `ag.edge` · live · The Cloudflare edge: Cache-Control headers and cache rules, purges, the warmer, the origin lock and the Web Bot Auth key directory.
+- `ag.landing-pages` · live · Conversion pages: the CMS-edited home page, its try-it widget and walkthrough recorder, and the /grants-for/ lead pages.
+- `ag.home-ab-testing` · live · A/B testing on the home page, the estate's experiment surface: hashed arms at the edge, GA4 reads, a per-arm report.
+- `ag.pipeline` · live · The grant pipeline: programs, saved funders, contacts, applications, awards and deadlines, and the dashboard over them.
+- `ag.reporting` · live · Post-award compliance: reporting requirements, deadlines and reminders, iCal export, and the weekly org digest.
+- `ag.matchmaker` · live · Match quality measurement: impression and interaction telemetry, self-reports, golden labels and offline evals.
+- `ag.studio` · live · Grant Studio: AI-assisted drafting with versioned drafts in B2, question workshops and QA checks; Anthropic, Gemini, OpenAI via one module.
+- `ag.accounts` · live · Accounts: multi-tenant organizations, consultants, magic-link sign-in, onboarding and account deletion.
+- `ag.billing` · live · Billing: Stripe via dj-stripe, plans and plan switches, passes, gifts and trials, renewal and beta notices.
+- `ag.platform` · live · Request plumbing every app shares: tenancy middleware, role and lapsed-access enforcement, internal auth, abuse guards, storage.
+- `ag.notifications` · live · Notifications and mail: routed notification channels, the staging allowlist, and the mail outbox with its drain.
+- `ag.ops` · live · Operator surface: the ops dashboard and experiment tracker, `/internal/ops/` reports and verdicts, the load test, DB backup and scratch.
+- `ag.acquisition-analytics` · live · Acquisition measurement: GA4 server-side events, first-touch attribution, the signups-from-funder-pages KPI, the GEO probe.
+- `ag.feedback` · live · Feedback: in-app bug reports, visitor data corrections exported to GS, and captured email leads.
+- `ag.telemetry` · live · Telemetry: one emit() for page, auth and billing events, the pipeline-history JSONL, its B2 archive, and the JWT pull Fiscus reads.
+- `ag.worldmodel` · live · Customer world model: belief-shaped state, goals and context assembled on demand, over an append-only event spine.
+- `ag.help-centre` · live · The help centre: DB-backed articles written as PR-gated drafts by the docs-author agent, with captured screenshots and drift checks.
+- `ag.dev-gates` · live · AG's gates and release tooling: make verify, test settings, CI ratchet counters, the promotion check, the GS pin bump.
+- `ag.search-acquisition` · live · Google Search as AG's first customer: the indexable funder-page corpus, offered by sitemap and judged by Search Console.
+- `ag.search-measurement` · live · Judging shipped pages by Search Console and GA4 through the CLIs: indexation sweeps, per-arm reads, funnel events.
+- `ag.page-red-teaming` · building · Gemini red-teams a page shape before it is built, on static design-bench renders judged under the rater and seeker rubrics.
+- `ag.resource-outreach` · live · Resource-page outreach: monthly Brave discovery of grant-resource sites, reviewed drafts, and weekday listing-request emails.
 - `gs.irs-ingestion` · live · IRS ingestion: 990-PF Part XV and Schedule I grants (TEOS bulk), BMF monthly sync, SOI annual extract.
 - `gs.facsimiles` · live · 990-PF facsimiles: IRS XSL → PDF → B2.
 - `gs.other-sources` · live · Other sources: 360Giving; federal opportunities (Grants.gov, SAM, USAspending, agency hydration); community, corporate and diocesan foundation discovery.
@@ -27,6 +44,7 @@
 - `gs.data-quality` · live · Data quality: Stage-health ledger (`dq health`), freshness SLAs, canaries, Sentry run-failure sensor, Neon consumption canary.
 - `gs.safety` · live · Safety: Operator-armed prod migrations (`db migrate-prod arm|run|cleanup`), pre-migration backup, weekly backups of research + Dagster + AG tenant DBs, monthly restore drill.
 - `wp.connectors` · live · WordPress client toolkit; canonical home for external connectors (WP REST, Kit, GA4, GSC, FTP, IndexNow).
+- `wp.nathankrupa-hub` · planned · nathankrupa.com as a hub for all of Nathan's work: the Substack, The Almoner, the AG community and Golden Harvest.
 - `aa.almoner` · live · `almoner` package — content authoring, CRM, ingestion, WP integration. No CI.
 - `gaudi.linter` · live · Architecture linter, open source (PyPI `gaudi-linter`); gates AG and OverSteward.
 - `fiscus.kaizen-platform` · live · Observation-and-kaizen platform: subject contracts, weekly/monthly reviews, lessons corpus.

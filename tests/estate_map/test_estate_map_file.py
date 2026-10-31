@@ -108,6 +108,15 @@ def test_claude_md_runs_the_estate_map_check_as_a_session_start_sweep():
     ]
 
 
+def test_aigranthelper_floor_is_measured_so_the_sweep_reads_it():
+    # `check` measures only repos whose floor is not null, so a null floor would
+    # silently drop AG from the seventh sweep. The AG tree is not in CI, so the
+    # sweep, not this test, compares the floor with the code.
+    floor = load(MAP_PATH).policy.coverage_floor["aigranthelper"]
+    assert floor is not None
+    assert (floor.orphans, floor.overlaps) == (0, 0)
+
+
 def test_oversteward_coverage_meets_its_floor_on_this_checkout():
     estate = load(MAP_PATH)
     found = checkouts(_registry(), home_repo="oversteward", home_root=ROOT)
