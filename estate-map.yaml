@@ -1332,8 +1332,11 @@ capabilities:
     - src/grantspider/services/website_irs_provider.py
     - src/grantspider/services/website_wikidata_provider.py
     - src/grantspider/services/website_wikipedia_provider.py
-    - src/grantspider/services/website_identity.py
     - src/grantspider/services/website_identity_rules.py
+    - src/grantspider/services/website_vocabulary.py
+    - src/grantspider/services/website_liveness.py
+    - src/grantspider/services/website_candidate_cohort.py
+    - src/grantspider/services/funder_cohorts.py
     - src/grantspider/services/website_verification.py
     - src/grantspider/services/website_verification_evidence.py
     - src/grantspider/services/verification/__init__.py
@@ -1341,7 +1344,6 @@ capabilities:
     - src/grantspider/services/verification/evidence.py
     - src/grantspider/services/verification/records.py
     - src/grantspider/services/verification/vocabulary.py
-    - src/grantspider/services/llm_judge.py
     - src/grantspider/services/gf_csv_etl.py
     - src/grantspider/services/brave_requeue.py
     - src/grantspider/services/mis_resolved_websites.py
@@ -1362,20 +1364,21 @@ capabilities:
     - src/grantspider/cli/dq_verify_precision.py
     - src/grantspider/cli/foundations.py
     - src/grantspider/orchestration/website_resolution_assets.py
-    - src/grantspider/orchestration/website_resolution_wiring.py
     - src/grantspider/orchestration/ddg_website_resolution_assets.py
     - src/grantspider/orchestration/ddg_990pf_website_resolution_assets.py
   locations:
   - {type: workflow, ref: 'grantspider:.claude/workflows/find-websites.js'}
   liabilities: [L-GS-1, L-GS-2]
-  current_shape: '46 modules, 17,784 lines; 64 feature PRs in 90 days (95 counting promotions). Three write
-    paths: the provider finder (`website_finder.py`, 2,053 lines), fed six providers by `website_resolver.py`
-    and wrapped again for the entity path (`cli/website.py`, `orchestration/website_resolution_wiring.py`);
-    agent find-and-confirm (`website_find.py`, 1,746 lines, #2928); and the GiveFreely CSV ETL. Identity is
-    judged by a pure EIN-in-URL predicate, a rule table, a Brave-result LLM judge inside the finder, and the
-    Haiku drain `website_verification.py` (2,427 lines, 22 feature PRs). Three repairs clear wrong websites
-    behind two CLIs. `website_find.py` and `website_verification.py` import the enrichment cohort from
-    `enrichment_apply.py`.'
+  current_shape: '47 modules, 18,120 lines (GS main 7af44c0e, 2026-11-03). One confirm step (`website_find.py`,
+    1,869 lines) writes every provider''s candidate and the agent''s proposal: the finder (`website_finder.py`,
+    1,708 lines) turns IRS, Wikidata, Wikipedia, GiveFreely, Brave and DDG hits into candidates, so DDG top-1
+    is a candidate only, and a candidate that fails identity is recorded, not written. Its old write helpers
+    are unreachable until GS#3481 deletes them. Three source writers still bypass the confirm step: the
+    GiveFreely CSV import, the community-foundation directory import and the corporate-direct ingest
+    (GS#3482, GS#3493, GS#3494). The Haiku drain (`website_verification.py`, 2,627 lines) also judges
+    unconfirmed candidates (`website_candidate_cohort.py`); `llm_judge.py` and the entity website path are
+    retired. Three repairs still clear wrong websites behind two CLIs. Cohort helpers live in
+    `funder_cohorts.py`.'
   target_shape: 'One resolver: the providers and the agent''s proposal become candidate sources into one
     confirm step (fetch, identity rules, verdict), retiring the finder, find-and-confirm and CSV write paths.
     One verifier: the rule table and the Haiku judge as one ordered stage on the verification spine, retiring
@@ -2491,8 +2494,7 @@ liabilities:
     `enrichment_ttl.py` and `opportunity_reaper.py`; `_base_url_for` in `homepage_fallback.py`, `sitemap_discovery.py`
     and `sitemap_enumeration.py`; `_parse_us_date` in the US Chamber spider and `ga_gma.py`; `_db_url` in six
     `scripts/audits/` scripts. Five models render a `column IN (...)` CHECK body with `_in_list` (2) or `_check_in`
-    (3), which differ only in quoting. `read_foundation_ids` lives in `cli/cleanup_websites.py`, and five other
-    CLIs import it from there'
+    (3), which differ only in quoting.'
   owner: grantspider
   tracking: '`git grep -n "def \(_coerce_positive_int\|_base_url_for\|_parse_us_date\|_in_list\|_check_in\|_db_url\)\b"
     origin/main -- src/ scripts/audits/` (GS be9ed67)'
