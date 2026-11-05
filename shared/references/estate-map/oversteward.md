@@ -61,7 +61,7 @@ Each current shape is its first sentence; the full measurement is in the map.
 - I-12: Architect decisions address every audit finding in a STOPPED_FOR_INPUT report, not just the headline (memory `feedback_architect_decision_completeness`)
 - I-13: Tests do not patch module globals when the fix is to expose the dependency as a parameter (`playbook.md:30`; `shared/references/architecture-principles.md` §Dependency Seams)
 - I-15: Issues touching data-contract surface or the workflow name the test that would fail if the change were wrong (norm; not mechanized) (this document, 2026-04-25)
-- I-16: Required CI checks are mostly off, by design: null on AG main/staging, GS main, OverSteward master, fiscus main. **Exceptions:** GS `staging` requires `ci`; gaudi main requires lint/security/test (GitHub branch-protection API, 2026-10-31; `.github/workflows/ci.yml:10-12`)
+- I-16: Required CI checks are mostly off, by design: null on AG main/staging, GS main/staging, OverSteward master, fiscus main. **Exception:** gaudi main requires lint/security/test. GS `ci` is a post-merge watchdog (pinned head and base SHAs; a red run files a `ci-red` issue), not a gate (GitHub branch-protection API, 2026-10-31; GS main/staging re-read 2026-11-05 after the staging requirement was removed (GS#3525))
 - I-21: One git worktree per session via `scripts/dev/new-session.sh` → `session/<name>`; `guard_main_worktree.py` refuses checkout/switch in the primary tree. OverSteward links the kit from `shared/`; other repos carry copies, currently drifted (L-DEV-1) (`shared/scripts/dev/new-session.sh:44`, `tests/test_deployed_links.py`)
 
 ## Liabilities

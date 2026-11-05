@@ -2381,9 +2381,10 @@ invariants:
   capabilities: [os.dispatch]
 - id: I-16
   status: live
-  text: 'Required CI checks are mostly off, by design: null on AG main/staging, GS main, OverSteward master,
-    fiscus main. **Exceptions:** GS `staging` requires `ci`; gaudi main requires lint/security/test'
-  cite: GitHub branch-protection API, 2026-10-31; `.github/workflows/ci.yml:10-12`
+  text: 'Required CI checks are mostly off, by design: null on AG main/staging, GS main/staging, OverSteward
+    master, fiscus main. **Exception:** gaudi main requires lint/security/test. GS `ci` is a post-merge watchdog
+    (pinned head and base SHAs; a red run files a `ci-red` issue), not a gate'
+  cite: GitHub branch-protection API, 2026-10-31; GS main/staging re-read 2026-11-05 after the staging requirement was removed (GS#3525)
   capabilities: [os.dispatch, gs.dev-gates]
 - id: I-17
   status: live
