@@ -74,7 +74,7 @@ Run these checks. Any failure → refuse to dispatch, report the reason to the u
 - Label `needs-scoping` → refuse
 - Label `agent-in-progress` → refuse (concurrency guard)
 - Label `needs-input` → refuse (has an open question)
-- Body (or latest comment) must contain either `## Acceptance` or a checkbox list `- [ ]`
+- Body (or latest comment) must contain either `## Acceptance` or a checkbox list `- [ ]`. A `ci-red` issue is not exempt: until grantspider's alert writes an acceptance block (OS#657 PR F) its body fails this check, so dispatch the fix as an issue that declares `Closes #<m>` and carries its own acceptance, which the line allows.
 - Body must not contain unpicked multi-option blocks (e.g. `Options:` followed by numbered list with no comment resolving the choice)
 
 **Concurrency:**

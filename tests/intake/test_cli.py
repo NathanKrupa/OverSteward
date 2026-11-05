@@ -255,6 +255,16 @@ def test_queue_prints_the_line_stopped_header_and_the_ci_red_issue_first(capsys)
     assert out.index("[ci-red] #9") < out.index("#4 ")
 
 
+def test_queue_header_names_an_in_flight_ci_red_issue_the_queue_omits(capsys):
+    in_flight = gh_row(9, title="ci is red on PR #120", labels=("ci-red", "agent-in-progress"))
+    fake = FakeGitHub({GS.full_name: [PLAIN_ROW, in_flight]})
+    assert cli.main(["queue", "grantspider"], deps=_deps(fake, repos=(GS,))) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("LINE STOPPED")
+    assert "#9 ci is red on PR #120" in out
+    assert "[ci-red] #9" not in out
+
+
 # --- backfill --------------------------------------------------------------
 
 

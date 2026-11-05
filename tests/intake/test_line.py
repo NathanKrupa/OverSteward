@@ -63,3 +63,7 @@ def test_dispatch_paused_stops_a_declared_fix():
 def test_declared_fixes_reads_each_keyword_case_blind_and_ignores_cross_repo_refs():
     text = "CLOSES #1, fixes #2 and Resolves #3; closes NathanKrupa/grantspider#4; see #5"
     assert declared_fixes([text]) == frozenset({1, 2, 3})
+
+
+def test_a_keyword_inside_another_word_is_not_a_fix():
+    assert declared_fixes(["this prefixes #9 and encloses #9"]) == frozenset()

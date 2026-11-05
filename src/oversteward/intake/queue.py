@@ -13,8 +13,11 @@ seen rather than made by default.
 
 A ``ci-red`` issue outranks even ``tribe`` (OS#657): while one is open the line
 is stopped (``intake.line``), so fixing it is the only work that can move. It
-is dispatchable without ``ready-for-agent`` — the watchdog files it fully
-specified — and the usual blockers still take it out of the queue.
+is queued without ``ready-for-agent`` — the watchdog files it, nobody scopes
+it — and the usual blockers still take it out of the queue. Queued is not
+preflighted: until grantspider's alert writes a ``## Acceptance`` block
+(OS#657 PR F), /dispatch's readiness check refuses its body, and the fix goes
+through an issue declaring ``Closes #<m>``.
 """
 
 from __future__ import annotations
