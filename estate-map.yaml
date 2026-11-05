@@ -2117,10 +2117,11 @@ capabilities:
     - shared/agents/architect.md
     - .claude/skills/project-status/
   entry_points: [/dispatch, /project-status, scripts/intake.py, scripts/shelve_sweep.py]
-  invariants: [I-1, I-2, I-3, I-12, I-13, I-15, I-16]
+  invariants: [I-1, I-2, I-3, I-12, I-13, I-15, I-16, I-23]
   liabilities: [H1-2, L-DOC-1]
-  current_shape: intake/ (8 modules, 651 lines) ranks tribe work first (OS#613); shelve/ (5, 1,122) sweeps
-    idle PRs. The playbook and SKILL.md disagree on whether a docs/ PR blocks dispatch (L-DOC-1), and
+  current_shape: intake/ (9 modules, 781 lines) ranks ci-red, then tribe work first (OS#613), and its
+    line.py refuses dispatch while a ci-red or dispatch-paused issue is open (OS#658); shelve/ (5, 1,122)
+    sweeps idle PRs. The playbook and SKILL.md disagree on whether a docs/ PR blocks dispatch (L-DOC-1), and
     /project-status lacks cycle time (H1-2).
   target_shape: One statement of the in-flight rule (L-DOC-1), and in-flight work derived from GitHub
     per capability (OS#640, PR 5).
@@ -2425,6 +2426,15 @@ invariants:
   cite: AG `config/settings/base.py:317-324` (#1701), `config/settings/production.py:37-41`, `apps/accounts/magic_link.py:17`,
     `apps/core/notifications.py:167`
   capabilities: [ag.accounts, ag.platform, ag.notifications]
+- id: I-23
+  status: live
+  text: 'An open `ci-red` issue stops the line on its repo: dispatch refuses every issue but that `ci-red`
+    issue and one declaring `Closes #<m>` for it, and an open `dispatch-paused` issue refuses everything.
+    A dispatch past `ci-red` needs `--override`, recorded as a comment on each open `ci-red` issue.
+    The promote guard is not built yet (OS#657 PR C), so today the line stops dispatch only'
+  cite: '`src/oversteward/intake/line.py` (`stop_line`), `scripts/intake.py line`; `shared/skills/dispatch/SKILL.md`
+    §2, `playbook.md` step 8'
+  capabilities: [os.dispatch]
 
 liabilities:
 - id: G1

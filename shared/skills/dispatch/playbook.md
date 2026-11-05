@@ -127,6 +127,7 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
    - Body contains "Options:" or "Approaches:" with no picked choice in comments
    - No "Acceptance" or checkbox list exists in body or comments
    - Label `needs-scoping` or `reject-close` is present
+   - **The line is stopped.** List the repo's open `ci-red` issues (`gh issue list --repo <owner>/<repo> --label ci-red --state open --json number`). If any is open and your issue is neither one of them nor declares `Closes #<m>` for one of them → `REFUSED_PREFLIGHT`, naming each open `ci-red` issue. (`/dispatch` checks this first with `scripts/intake.py line`; this is the agent's own check.)
    - "Already done" case: verify each acceptance item against current code. If all satisfied, STOP and comment: "Acceptance already satisfied on main — see <file:line> evidence. Closing unnecessary."
    - **Settled-decision check.** If the issue's scope, an auto-loaded memory, or a `decision`-labeled issue records a *durable* decision (architecture, scope boundary, tool/vendor pick, branch-model rule, or a settled Nathan-law) that your work would reverse, do NOT silently implement the opposite. Treat it as a prior settled call: STOP and surface the reversal as a decision brief, naming the decision and *why* it should be overturned. Respecting settled calls here is what stops the same decision being re-litigated session to session. Full rule: `~/.claude/shared/references/decision-provenance.md`.
 
