@@ -1,4 +1,4 @@
-# ABOUTME: Tribe-first ranking of a repository's issues and the displaced-tribe dispatch notice.
+# ABOUTME: ci-red-then-tribe ranking of a repository's issues and the displaced-tribe dispatch notice.
 # ABOUTME: Pure: takes IntakeIssues, returns ordered tuples and printable text.
 
 """Rank work so ``tribe`` comes first (OS#613).
@@ -10,6 +10,14 @@ client's ask included. Within each class the oldest issue goes first.
 Dispatching a non-``tribe`` issue while a ``tribe`` issue is ready in the same
 repository is allowed; it prints the items it passes over, so the choice is
 seen rather than made by default.
+
+A ``ci-red`` issue outranks even ``tribe`` (OS#657): while one is open the line
+is stopped (``intake.line``), so fixing it is the only work that can move. It
+is queued without ``ready-for-agent`` — the watchdog files it, nobody scopes
+it — and the usual blockers still take it out of the queue. Queued is not
+preflighted: until grantspider's alert writes a ``## Acceptance`` block
+(OS#657 PR F), /dispatch's readiness check refuses its body, and the fix goes
+through an issue declaring ``Closes #<m>``.
 """
 
 from __future__ import annotations
@@ -18,6 +26,7 @@ from collections.abc import Iterable
 
 from oversteward.intake.labels import (
     AGENT_IN_PROGRESS,
+    CI_RED,
     NEEDS_INPUT,
     NEEDS_SCOPING,
     READY_FOR_AGENT,
@@ -35,13 +44,20 @@ def is_tribe(issue: IntakeIssue) -> bool:
     return TRIBE in issue.labels
 
 
+def is_ci_red(issue: IntakeIssue) -> bool:
+    return CI_RED in issue.labels
+
+
 def rank(issues: Iterable[IntakeIssue]) -> tuple[IntakeIssue, ...]:
-    """``tribe`` first; oldest first within each class; issue number breaks a tie."""
-    return tuple(sorted(issues, key=lambda i: (not is_tribe(i), i.created_at, i.number)))
+    """``ci-red``, then ``tribe``; oldest first within each class; issue number breaks a tie."""
+    return tuple(
+        sorted(issues, key=lambda i: (not is_ci_red(i), not is_tribe(i), i.created_at, i.number))
+    )
 
 
 def is_dispatchable(issue: IntakeIssue) -> bool:
-    return READY_FOR_AGENT in issue.labels and not issue.labels & DISPATCH_BLOCKERS
+    ready = READY_FOR_AGENT in issue.labels or is_ci_red(issue)
+    return ready and not issue.labels & DISPATCH_BLOCKERS
 
 
 def dispatch_queue(issues: Iterable[IntakeIssue]) -> tuple[IntakeIssue, ...]:
@@ -73,9 +89,28 @@ def render_displacement(
     return "\n".join(lines) + "\n"
 
 
-def render_queue(repo: str, queue: tuple[IntakeIssue, ...]) -> str:
-    lines = [f"{repo}: {len(queue)} ready-for-agent issue(s), tribe first"]
-    lines += [
-        f"  {'[tribe] ' if is_tribe(i) else ''}#{i.number} {i.title}  {i.url}" for i in queue
-    ]
+def _tag(issue: IntakeIssue) -> str:
+    if is_ci_red(issue):
+        return "[ci-red] "
+    return "[tribe] " if is_tribe(issue) else ""
+
+
+def render_queue(
+    repo: str, queue: tuple[IntakeIssue, ...], ci_red: Iterable[IntakeIssue] = ()
+) -> str:
+    """The queue, under a ``LINE STOPPED`` header naming every open ``ci-red`` issue.
+
+    ``ci_red`` is every open ``ci-red`` issue in the repository, not only the
+    queued ones: one already in flight still stops the line.
+    """
+    lines = []
+    red = rank(ci_red)
+    if red:
+        lines.append(
+            f"LINE STOPPED: {repo} has {len(red)} open ci-red issue(s); only they and an issue "
+            "declaring `Closes #<m>` for one of them may dispatch:"
+        )
+        lines += [f"  - #{i.number} {i.title}  {i.url}" for i in red]
+    lines.append(f"{repo}: {len(queue)} ready-for-agent issue(s), ci-red then tribe first")
+    lines += [f"  {_tag(i)}#{i.number} {i.title}  {i.url}" for i in queue]
     return "\n".join(lines) + "\n"

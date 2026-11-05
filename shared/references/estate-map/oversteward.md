@@ -31,7 +31,7 @@ Each current shape is its first sentence; the full measurement is in the map.
 - `os.memory-deploy` · live · steward-memory → `~/.claude/projects/*/memory/`.
   - memory_deploy.py (108 lines). → hold
 - `os.dispatch` · live · Issue intake and in-session pickup: the dispatch playbook, the architect card, the tribe-first queue, /project-status and the abandoned-work sweep.
-  - intake/ (8 modules, 651 lines) ranks tribe work first (OS#613); shelve/ (5, 1,122) sweeps idle PRs. → One statement of the in-flight rule (L-DOC-1), and in-flight work derived from GitHub per capability (OS#640, PR 5).
+  - intake/ (9 modules, 781 lines) ranks ci-red, then tribe work first (OS#613), and its line.py refuses dispatch while a ci-red or dispatch-paused issue is open (OS#658); shelve/ (5, 1,122) sweeps idle PRs. → One statement of the in-flight rule (L-DOC-1), and in-flight work derived from GitHub per capability (OS#640, PR 5).
 - `os.estate-reports` · live · Nathan's views of the estate: the nightly Estate Brief vault note and the Estate Board.
   - brief/ (3 modules, 588 lines) and board/ (7, 1,141), each with its own GitHub client; the brief reads through the board's gh runner. → hold
 - `os.page-judging` · live · Seeing estate pages as a visitor and a rater would: the signed probe through Cloudflare, the Gemini quality-rater pass, and the design bench.
@@ -63,6 +63,7 @@ Each current shape is its first sentence; the full measurement is in the map.
 - I-15: Issues touching data-contract surface or the workflow name the test that would fail if the change were wrong (norm; not mechanized) (this document, 2026-04-25)
 - I-16: Required CI checks are mostly off, by design: null on AG main/staging, GS main/staging, OverSteward master, fiscus main. **Exception:** gaudi main requires lint/security/test. GS `ci` is a post-merge watchdog (pinned head and base SHAs; a red run files a `ci-red` issue), not a gate (GitHub branch-protection API, 2026-10-31; GS main/staging re-read 2026-11-05 after the staging requirement was removed (GS#3525))
 - I-21: One git worktree per session via `scripts/dev/new-session.sh` → `session/<name>`; `guard_main_worktree.py` refuses checkout/switch in the primary tree. OverSteward links the kit from `shared/`; other repos carry copies, currently drifted (L-DEV-1) (`shared/scripts/dev/new-session.sh:44`, `tests/test_deployed_links.py`)
+- I-23: An open `ci-red` issue stops the line on its repo: dispatch refuses every issue but that `ci-red` issue and one declaring `Closes #<m>` for it, and an open `dispatch-paused` issue refuses everything. A dispatch past `ci-red` needs `--override`, recorded as a comment on each open `ci-red` issue. The promote guard is not built yet (OS#657 PR C), so today the line stops dispatch only (`src/oversteward/intake/line.py` (`stop_line`), `scripts/intake.py line`; `shared/skills/dispatch/SKILL.md` §2, `playbook.md` step 8)
 
 ## Liabilities
 

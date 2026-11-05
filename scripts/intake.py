@@ -1,12 +1,19 @@
 #!/usr/bin/env python
-# ABOUTME: OUTER entrypoint for issue intake (OS#613) — tribe-first queue, displaced notice, backfill, labels.
+# ABOUTME: OUTER entrypoint for issue intake (OS#613) — queue, line, displaced notice, backfill, labels.
 # ABOUTME: Thin: parse args, read GitHub through the connector, call the intake services, print.
 
 """Issue intake: the tribe / agent-finding split.
 
 Verbs:
 
-* ``queue <repo>`` — the repository's ready-for-agent issues, ``tribe`` first.
+* ``queue <repo>`` — the repository's ready-for-agent issues, ``ci-red`` then
+  ``tribe`` first, under a ``LINE STOPPED`` header while a ``ci-red`` issue is open.
+* ``line <repo> <n> [--override '<reason>']`` — whether the line lets ``#n``
+  dispatch (OS#657). Its own exit codes, all but 0 a refusal: **0** allowed,
+  **1** GitHub could not be read (or ``#n`` is not open), **2** stopped, an
+  unknown repository, or a refused override. ``--override`` lifts a ci-red stop
+  (never ``dispatch-paused``) only after a ``LINE OVERRIDE:`` comment has landed
+  on every open ci-red issue; one failed comment, or a blank reason, refuses.
 * ``displaced <repo> <n>`` — the ready ``tribe`` issues a dispatch of ``#n``
   passes over. A notice, never a refusal: it exits 0 either way.
 * ``backfill [--only <label>]... [--apply]`` — classify every open issue in
@@ -35,9 +42,11 @@ from oversteward.board.config import RepoRef
 from oversteward.intake import github
 from oversteward.intake.backfill import LABELS, apply_plan, classify_all, plan, render_report
 from oversteward.intake.labels import DISPATCH_LABELS, LabelSpec, ensure_labels
+from oversteward.intake.line import Allowed, stop_line
 from oversteward.intake.queue import (
     dispatch_queue,
     displaced_by,
+    is_ci_red,
     render_displacement,
     render_queue,
 )
@@ -57,6 +66,8 @@ class Deps:
     list_issues: Callable[[str], list[dict]]
     add_labels: Callable[[str, int, tuple[str, ...]], object]
     upsert_label: Callable[[str, LabelSpec], object]
+    issue_comments: Callable[[str, int], list[str]]
+    comment_issue: Callable[[str, int, str], object]
 
 
 def registry_repos() -> list[RepoRef]:
@@ -70,6 +81,8 @@ def _live_deps() -> Deps:
         list_issues=github.list_open_issues,
         add_labels=github.add_labels,
         upsert_label=github.upsert_label,
+        issue_comments=github.issue_comments,
+        comment_issue=github.comment_issue,
     )
 
 
@@ -85,8 +98,52 @@ def _cmd_queue(args: argparse.Namespace, deps: Deps) -> int:
     repo = _find(deps, args.repo)
     if repo is None:
         return EXIT_NOTHING_TO_LOOK_AT
-    print(render_queue(repo.id, dispatch_queue(read_repo(repo, deps.list_issues))), end="")
+    issues = read_repo(repo, deps.list_issues)
+    red = [i for i in issues if is_ci_red(i)]
+    print(render_queue(repo.id, dispatch_queue(issues), ci_red=red), end="")
     return EXIT_OK
+
+
+def _override(
+    repo: RepoRef, target: int, reason: str, deps: Deps, red_numbers: tuple[int, ...]
+) -> int:
+    """Record ``LINE OVERRIDE:`` on every open ci-red issue; any failed write refuses."""
+    body = f"LINE OVERRIDE: dispatching {repo.id}#{target} \u2014 {reason.strip()}"
+    for number in red_numbers:
+        try:
+            deps.comment_issue(repo.full_name, number, body)
+        except github.GhError as exc:
+            print(f"OVERRIDE REFUSED: the record on {repo.id}#{number} failed: {exc}")
+            return EXIT_NOTHING_TO_LOOK_AT
+        print(f"recorded on {repo.id}#{number}: {body}")
+    print(f"allowed by override: {repo.id}#{target}")
+    return EXIT_OK
+
+
+def _cmd_line(args: argparse.Namespace, deps: Deps) -> int:
+    if args.override is not None and not args.override.strip():
+        print("OVERRIDE REFUSED: --override needs a reason", file=sys.stderr)
+        return EXIT_NOTHING_TO_LOOK_AT
+    repo = _find(deps, args.repo)
+    if repo is None:
+        return EXIT_NOTHING_TO_LOOK_AT
+    issues = read_repo(repo, deps.list_issues)
+    target = next((i for i in issues if i.number == args.number), None)
+    if target is None:
+        print(f"ERROR: {repo.id}#{args.number} is not an open issue", file=sys.stderr)
+        return EXIT_COULD_NOT_LOOK
+    verdict = stop_line(target, issues, deps.issue_comments(repo.full_name, target.number))
+    if isinstance(verdict, Allowed):
+        print(f"line allowed: {verdict.reason}")
+        return EXIT_OK
+    for reason in verdict.reasons:
+        print(f"Line stopped: {reason}")
+    if args.override is None:
+        return EXIT_NOTHING_TO_LOOK_AT
+    if not verdict.overridable:
+        print("OVERRIDE REFUSED: dispatch-paused is lifted only by removing its label")
+        return EXIT_NOTHING_TO_LOOK_AT
+    return _override(repo, target.number, args.override, deps, verdict.ci_red)
 
 
 def _cmd_displaced(args: argparse.Namespace, deps: Deps) -> int:
@@ -147,6 +204,11 @@ def _parser() -> argparse.ArgumentParser:
     queue = verbs.add_parser("queue", help="ready-for-agent issues, tribe first")
     queue.add_argument("repo")
     queue.set_defaults(handler=_cmd_queue)
+    line = verbs.add_parser("line", help="whether an open ci-red issue stops a dispatch")
+    line.add_argument("repo")
+    line.add_argument("number", type=int)
+    line.add_argument("--override", help="dispatch past ci-red anyway, recorded on each issue")
+    line.set_defaults(handler=_cmd_line)
     displaced = verbs.add_parser("displaced", help="ready tribe issues a dispatch passes over")
     displaced.add_argument("repo")
     displaced.add_argument("number", type=int)

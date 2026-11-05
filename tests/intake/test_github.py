@@ -82,3 +82,25 @@ def test_gh_json_parses_stdout():
 
 def test_gh_json_reads_empty_output_as_no_rows():
     assert github.gh_json(["issue", "list"], run=lambda *a, **k: _Proc(0, stdout="  ")) == []
+
+
+def test_issue_comments_returns_each_comment_body():
+    seen = []
+
+    def run(args):
+        seen.append(args)
+        return {"comments": [{"body": "Closes #9"}, {"body": None}]}
+
+    assert github.issue_comments("o/r", 4, run=run) == ["Closes #9", ""]
+    assert seen == [["issue", "view", "4", "--repo", "o/r", "--json", "comments"]]
+
+
+def test_issue_comments_refuses_a_reply_that_is_not_an_issue():
+    with pytest.raises(github.GhError):
+        github.issue_comments("o/r", 4, run=lambda args: [])
+
+
+def test_comment_issue_posts_the_body():
+    seen = []
+    github.comment_issue("o/r", 9, "LINE OVERRIDE: x", run=seen.append)
+    assert seen == [["issue", "comment", "9", "--repo", "o/r", "--body", "LINE OVERRIDE: x"]]

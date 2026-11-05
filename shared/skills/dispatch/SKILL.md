@@ -61,9 +61,11 @@ Unknown repo arg (helper exits non-zero) → abort with "Unknown repo" refusal.
 
 Run these checks. Any failure → refuse to dispatch, report the reason to the user.
 
-**Repo kill-switch (check first — whole-repo abort):**
-- `gh issue list --repo <owner>/<repo> --label dispatch-paused --state open --limit 1 --json number,title,url`
-- If any result: refuse. The repo is paused. Remove the `dispatch-paused` label from the referenced issue(s) to resume.
+**Stop the line (check first — OS#657):**
+- `.venv/bin/python scripts/intake.py line <repo> <n>` (from the OverSteward checkout)
+- An open `dispatch-paused` issue stops every dispatch on the repo. An open `ci-red` issue — the post-merge `ci` watchdog was red — stops every dispatch except that `ci-red` issue itself and an issue whose body or comments declare `Closes #<m>` (or `Fixes`/`Resolves`) for an open `ci-red` issue `#<m>`.
+- Exit **0**: allowed — proceed. Exit **1**: GitHub could not be read, or `#<n>` is not open — refuse and report it. Exit **2**: the line is stopped (or the repo is unknown) — refuse with the "Line stopped" message below, quoting each `Line stopped: <repo>#<m> …` line it printed. Only 0 lets the dispatch go.
+- Nathan alone may dispatch past a `ci-red` stop: `scripts/intake.py line <repo> <n> --override '<reason>'` records `LINE OVERRIDE: dispatching <repo>#<n> — <reason>` on every open `ci-red` issue and exits 0 only once every comment landed. A blank reason or a failed comment exits 2. It never lifts `dispatch-paused`: removing that label is the only resume.
 
 **Issue readiness:**
 - `gh issue view <n> --repo <owner>/<repo> --json state,labels,body,comments`
@@ -72,7 +74,7 @@ Run these checks. Any failure → refuse to dispatch, report the reason to the u
 - Label `needs-scoping` → refuse
 - Label `agent-in-progress` → refuse (concurrency guard)
 - Label `needs-input` → refuse (has an open question)
-- Body (or latest comment) must contain either `## Acceptance` or a checkbox list `- [ ]`
+- Body (or latest comment) must contain either `## Acceptance` or a checkbox list `- [ ]`. A `ci-red` issue is not exempt: until grantspider's alert writes an acceptance block (OS#657 PR F) its body fails this check, so dispatch the fix as an issue that declares `Closes #<m>` and carries its own acceptance, which the line allows.
 - Body must not contain unpicked multi-option blocks (e.g. `Options:` followed by numbered list with no comment resolving the choice)
 
 **Concurrency:**
@@ -279,7 +281,7 @@ from the child alone is OS#573.)
 ## Refusal messages (what to tell the user on preflight failure)
 
 - **Unknown repo:** "Unknown repo `<arg>`. Run `uv run python scripts/registry.py dispatch-targets` to see current dispatch targets."
-- **Repo paused:** "Repo `<repo>` is paused — issue #<paused-issue> has `dispatch-paused`. Remove that label to resume dispatching."
+- **Line stopped:** "Line stopped: <repo>#<m> has `ci-red` (or `dispatch-paused`) — <title>. Dispatch the `ci-red` issue or an issue declaring `Closes #<m>`; remove `dispatch-paused` to resume; or override with `scripts/intake.py line <repo> <n> --override '<reason>'`."
 - **Issue closed:** "Issue #<n> is closed. Nothing to dispatch."
 - **Label reject-close:** "Issue #<n> is labeled reject-close. Reopen-and-relabel or pick a different issue."
 - **Label needs-scoping:** "Issue #<n> needs scoping first. Either scope it (pick option, add acceptance criteria) and remove the label, or pick a different issue."
@@ -300,9 +302,11 @@ head of the ranked queue:
 .venv/bin/python scripts/intake.py queue <repo>
 ```
 
-It lists the repo's `ready-for-agent` issues that nothing blocks, `tribe` first
-and oldest first within each class. `/project-status` prints the head of every
-repo's queue in the same order.
+It lists the repo's `ready-for-agent` issues that nothing blocks, `ci-red`
+first (dispatchable without `ready-for-agent`), then `tribe`, oldest first
+within each class. While a `ci-red` issue is open it prints a `LINE STOPPED`
+header naming it. `/project-status` prints the head of every repo's queue in
+the same order.
 
 ## Issue intake — who files what (OS#613)
 

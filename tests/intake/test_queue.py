@@ -8,6 +8,7 @@ from oversteward.intake.queue import (
     displaced_by,
     rank,
     render_displacement,
+    render_queue,
 )
 
 from .conftest import issue
@@ -95,3 +96,43 @@ def test_no_displacement_renders_a_measured_line_not_silence():
     target = issue(1, labels=("ready-for-agent",))
     notice = render_displacement("aigranthelper", target, ())
     assert "0 ready tribe issues displaced" in notice
+
+
+# --- ci-red stops the line (OS#658) -----------------------------------------
+
+
+def test_rank_puts_a_younger_ci_red_issue_ahead_of_tribe_and_plain():
+    plain = issue(1, created="2026-01-01T00:00:00Z")
+    tribe = issue(2, labels=("tribe",), created="2026-02-01T00:00:00Z")
+    red = issue(3, labels=("ci-red",), created="2026-11-01T00:00:00Z")
+    assert [i.number for i in rank([plain, tribe, red])] == [3, 2, 1]
+
+
+def test_a_ci_red_issue_is_dispatchable_without_ready_for_agent():
+    red = issue(3, labels=("ci-red", "agent-finding"))
+    assert [i.number for i in dispatch_queue([red])] == [3]
+
+
+def test_a_ci_red_issue_in_flight_or_awaiting_input_is_not_dispatchable():
+    in_flight = issue(3, labels=("ci-red", "agent-in-progress"))
+    waiting = issue(4, labels=("ci-red", "needs-input"))
+    assert dispatch_queue([in_flight, waiting]) == ()
+
+
+def test_the_queue_render_stops_the_line_and_tags_the_ci_red_issue():
+    red = issue(3, title="ci is red on PR #120", labels=("ci-red",))
+    plain = issue(1, labels=("ready-for-agent",))
+    out = render_queue("grantspider", dispatch_queue([plain, red]), ci_red=(red,))
+    assert out.startswith("LINE STOPPED")
+    assert "[ci-red] #3" in out
+
+
+def test_the_queue_render_names_an_in_flight_ci_red_issue_that_still_stops_the_line():
+    red = issue(3, labels=("ci-red", "agent-in-progress"))
+    out = render_queue("grantspider", dispatch_queue([red]), ci_red=(red,))
+    assert out.startswith("LINE STOPPED") and "#3" in out
+
+
+def test_a_clear_line_renders_no_stop_header():
+    plain = issue(1, labels=("ready-for-agent",))
+    assert "LINE STOPPED" not in render_queue("grantspider", dispatch_queue([plain]))

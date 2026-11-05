@@ -18,6 +18,14 @@ Intake labels (OS#613, Nathan 2026-10-21):
   the abandoned-work sweep closed, or an issue holding one of Nathan's ideas.
   The verb is "shelve", never "kill". An idea that lives only in the Estate
   Idea Incubator note is shelved in the note, not by this label.
+
+Stop-the-line label (OS#657):
+
+* ``ci-red`` — the post-merge ``ci`` watchdog was red on a merged PR. Filed by
+  grantspider's ``scripts/ci/ci_red_alert.py``, which upserts the label with
+  ``gh label create --force``; the colour and description here are byte-equal
+  to that script's, so neither upsert rewrites the other. While one is open,
+  ``intake.line`` refuses every dispatch on the repository but the fix.
 """
 
 from __future__ import annotations
@@ -35,6 +43,7 @@ NEEDS_INPUT = "needs-input"
 AGENT_IN_PROGRESS = "agent-in-progress"
 REJECT_CLOSE = "reject-close"
 DISPATCH_PAUSED = "dispatch-paused"
+CI_RED = "ci-red"
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +63,11 @@ DISPATCH_LABELS: tuple[LabelSpec, ...] = (
         DISPATCH_PAUSED,
         "B60205",
         "Kill-switch — /dispatch refuses the repo while any open issue has this label",
+    ),
+    LabelSpec(
+        CI_RED,
+        "B60205",
+        "The watchdog ci job was red on this PR (opened by ci_red_alert.py)",
     ),
     LabelSpec(TRIBE, "0052CC", "A food-pantry user of AI Grant Helper would notice it — ranks first"),
     LabelSpec(AGENT_FINDING, "BFD4F2", "Filed by an agent, not asked for by Nathan"),
