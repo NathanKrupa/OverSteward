@@ -62,3 +62,11 @@ def test_ensure_labels_keeps_going_past_a_failure_and_reports_it():
     failures = ensure_labels(["o/a", "o/b"], upsert)
     assert failures == [("o/a", "tribe", "HTTP 403")]
     assert ("o/b", "tribe") in calls
+
+
+def test_the_ci_red_label_matches_the_grantspider_alert_byte_for_byte():
+    # grantspider scripts/ci/ci_red_alert.py (origin/staging) upserts the same label with
+    # `gh label create --force`; any difference here and the two rewrite each other.
+    (red,) = [spec for spec in DISPATCH_LABELS if spec.name == "ci-red"]
+    assert red.color == "B60205"
+    assert red.description == "The watchdog ci job was red on this PR (opened by ci_red_alert.py)"

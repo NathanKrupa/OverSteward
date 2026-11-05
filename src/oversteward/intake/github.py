@@ -1,4 +1,4 @@
-# ABOUTME: INNER connector for intake — reads open issues and writes labels through the gh CLI.
+# ABOUTME: INNER connector for intake — reads issues and comments, writes labels and comments via gh.
 # ABOUTME: Refuses a page that fills its limit; a truncated backlog must never read as a small one.
 
 from __future__ import annotations
@@ -58,6 +58,18 @@ def add_labels(
     for label in labels:
         args += ["--add-label", label]
     run(args)
+
+
+def issue_comments(full_name: str, number: int, *, run: Runner = gh_json) -> list[str]:
+    """The body of every comment on one issue; a reply that is not an issue is a failed read."""
+    raw = run(["issue", "view", str(number), "--repo", full_name, "--json", "comments"])
+    if not isinstance(raw, dict):
+        raise GhError(f"{full_name}#{number}: gh returned no issue to read comments from")
+    return [comment.get("body") or "" for comment in raw.get("comments") or ()]
+
+
+def comment_issue(full_name: str, number: int, body: str, *, run: Runner = gh) -> None:
+    run(["issue", "comment", str(number), "--repo", full_name, "--body", body])
 
 
 def upsert_label(full_name: str, spec: LabelSpec, *, run: Runner = gh) -> None:

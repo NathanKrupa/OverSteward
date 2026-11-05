@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import importlib.util
 import os
 import stat
@@ -37,11 +38,21 @@ OS = RepoRef("oversteward", "NathanKrupa/OverSteward")
 
 
 class FakeGitHub:
-    def __init__(self, issues: dict[str, list[dict]], *, broken: frozenset[str] = frozenset()):
+    def __init__(
+        self,
+        issues: dict[str, list[dict]],
+        *,
+        broken: frozenset[str] = frozenset(),
+        comments: dict[int, list[str]] | None = None,
+        failing_comment: int | None = None,
+    ):
         self.issues = issues
         self.broken = broken
+        self.comments = comments or {}
+        self.failing_comment = failing_comment
         self.added: list[tuple] = []
         self.upserted: list[tuple] = []
+        self.posted: list[tuple] = []
 
     def list_issues(self, full_name):
         if full_name in self.broken:
@@ -54,6 +65,16 @@ class FakeGitHub:
     def upsert_label(self, full_name, spec):
         self.upserted.append((full_name, spec.name))
 
+    def issue_comments(self, full_name, number):
+        if full_name in self.broken:
+            raise GhError(f"gh failed for {full_name}")
+        return self.comments.get(number, [])
+
+    def comment_issue(self, full_name, number, body):
+        if number == self.failing_comment:
+            raise GhError("HTTP 403")
+        self.posted.append((full_name, number, body))
+
 
 def _deps(fake, repos=(AG, OS)):
     return cli.Deps(
@@ -61,6 +82,8 @@ def _deps(fake, repos=(AG, OS)):
         list_issues=fake.list_issues,
         add_labels=fake.add_labels,
         upsert_label=fake.upsert_label,
+        issue_comments=fake.issue_comments,
+        comment_issue=fake.comment_issue,
     )
 
 
@@ -119,6 +142,117 @@ def test_an_empty_queue_says_so_with_a_count(capsys):
     fake = FakeGitHub({AG.full_name: []})
     assert cli.main(["queue", "aigranthelper"], deps=_deps(fake)) == 0
     assert "0" in capsys.readouterr().out
+
+
+# --- line ------------------------------------------------------------------
+
+GS = RepoRef("grantspider", "NathanKrupa/grantspider")
+RED_ROW = gh_row(9, title="ci is red on PR #120", labels=("ci-red", "agent-finding"))
+PLAIN_ROW = gh_row(4, title="Tidy settings", labels=("ready-for-agent",))
+
+
+def _line(argv, fake, capsys):
+    code = cli.main(["line", *argv], deps=_deps(fake, repos=(GS,)))
+    captured = capsys.readouterr()
+    return code, captured.out + captured.err
+
+
+def test_line_allows_a_plain_issue_on_a_clear_line(capsys):
+    code, out = _line(["grantspider", "4"], FakeGitHub({GS.full_name: [PLAIN_ROW]}), capsys)
+    assert code == 0
+    assert "allowed" in out
+
+
+def test_line_refuses_another_issue_while_ci_red_is_open_and_names_it(capsys):
+    fake = FakeGitHub({GS.full_name: [PLAIN_ROW, RED_ROW]})
+    code, out = _line(["grantspider", "4"], fake, capsys)
+    assert code == 2
+    assert "Line stopped: grantspider#9" in out
+    assert "allowed" not in out
+
+
+def test_line_allows_the_ci_red_issue_itself(capsys):
+    fake = FakeGitHub({GS.full_name: [PLAIN_ROW, RED_ROW]})
+    assert _line(["grantspider", "9"], fake, capsys)[0] == 0
+
+
+def test_line_allows_an_issue_whose_comment_declares_the_fix(capsys):
+    fake = FakeGitHub({GS.full_name: [PLAIN_ROW, RED_ROW]}, comments={4: ["Closes #9"]})
+    assert _line(["grantspider", "4"], fake, capsys)[0] == 0
+
+
+def test_line_refuses_a_false_fix(capsys):
+    other = gh_row(5, title="not red")
+    false_fix = gh_row(4, labels=("ready-for-agent",), body="Closes #5")
+    fake = FakeGitHub({GS.full_name: [false_fix, other, RED_ROW]})
+    code, out = _line(["grantspider", "4"], fake, capsys)
+    assert code == 2 and "allowed" not in out
+
+
+def test_line_exits_one_and_never_says_allowed_when_github_cannot_be_read(capsys):
+    fake = FakeGitHub({}, broken=frozenset({GS.full_name}))
+    code, out = _line(["grantspider", "4"], fake, capsys)
+    assert code == 1
+    assert "allowed" not in out
+
+
+def test_line_exits_one_when_the_target_is_not_open(capsys):
+    code, out = _line(["grantspider", "77"], FakeGitHub({GS.full_name: [RED_ROW]}), capsys)
+    assert code == 1
+    assert "#77" in out and "allowed" not in out
+
+
+def test_line_exits_two_for_an_unknown_repo(capsys):
+    code, out = _line(["nope", "4"], FakeGitHub({}), capsys)
+    assert code == 2 and "allowed" not in out
+
+
+def test_line_refuses_while_dispatch_paused_even_for_the_ci_red_issue(capsys):
+    paused = gh_row(2, title="hold", labels=("dispatch-paused",))
+    fake = FakeGitHub({GS.full_name: [RED_ROW, paused]})
+    code, out = _line(["grantspider", "9"], fake, capsys)
+    assert code == 2
+    assert "grantspider#2" in out and "allowed" not in out
+
+
+def test_line_override_records_a_comment_on_every_open_ci_red_issue_then_allows(capsys):
+    red2 = gh_row(10, title="ci is red on PR #121", labels=("ci-red",))
+    fake = FakeGitHub({GS.full_name: [PLAIN_ROW, RED_ROW, red2]})
+    code, out = _line(["grantspider", "4", "--override", "flake on the runner"], fake, capsys)
+    assert code == 0
+    body = "LINE OVERRIDE: dispatching grantspider#4 \u2014 flake on the runner"
+    assert fake.posted == [(GS.full_name, 9, body), (GS.full_name, 10, body)]
+
+
+def test_line_override_refuses_when_its_comment_fails(capsys):
+    fake = FakeGitHub({GS.full_name: [PLAIN_ROW, RED_ROW]}, failing_comment=9)
+    code, out = _line(["grantspider", "4", "--override", "flake"], fake, capsys)
+    assert code == 2
+    assert "allowed" not in out
+    assert "HTTP 403" in out
+
+
+def test_line_override_refuses_a_blank_reason_and_posts_nothing(capsys):
+    fake = FakeGitHub({GS.full_name: [PLAIN_ROW, RED_ROW]})
+    code, out = _line(["grantspider", "4", "--override", "   "], fake, capsys)
+    assert code == 2
+    assert fake.posted == [] and "allowed" not in out
+
+
+def test_line_override_does_not_lift_dispatch_paused(capsys):
+    paused = gh_row(2, labels=("dispatch-paused",))
+    fake = FakeGitHub({GS.full_name: [PLAIN_ROW, RED_ROW, paused]})
+    code, out = _line(["grantspider", "4", "--override", "flake"], fake, capsys)
+    assert code == 2
+    assert fake.posted == [] and "allowed" not in out
+
+
+def test_queue_prints_the_line_stopped_header_and_the_ci_red_issue_first(capsys):
+    fake = FakeGitHub({GS.full_name: [PLAIN_ROW, RED_ROW]})
+    assert cli.main(["queue", "grantspider"], deps=_deps(fake, repos=(GS,))) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("LINE STOPPED")
+    assert out.index("[ci-red] #9") < out.index("#4 ")
 
 
 # --- backfill --------------------------------------------------------------
@@ -182,7 +316,7 @@ def test_backfill_apply_exits_one_when_a_label_addition_fails(tmp_path, capsys):
             raise GhError("HTTP 422")
 
     deps = _deps(fake)
-    deps = cli.Deps(deps.repos, deps.list_issues, add_labels, deps.upsert_label)
+    deps = dataclasses.replace(deps, add_labels=add_labels)
     code = cli.main(["backfill", "--apply", "--out", str(tmp_path / "r.md")], deps=deps)
     assert code == 1
     assert "FAILED aigranthelper#12: HTTP 422" in capsys.readouterr().err
@@ -219,7 +353,7 @@ def test_labels_exits_one_when_an_upsert_fails(capsys):
         raise GhError("HTTP 403")
 
     deps = _deps(fake)
-    deps = cli.Deps(deps.repos, deps.list_issues, deps.add_labels, fail)
+    deps = dataclasses.replace(deps, upsert_label=fail)
     assert cli.main(["labels"], deps=deps) == 1
     assert "HTTP 403" in capsys.readouterr().err
 
