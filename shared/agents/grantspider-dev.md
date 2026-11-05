@@ -37,13 +37,21 @@ bandit -r src/
 
 ### CI check names — read them live
 
-Historically: **`ci`** is the single gate job and the only required check on
-`staging`; **`neon-integration`** is a second, non-required job in the same
-workflow. Issue #161 ("split CI into lint + test + security") was closed without
-that split, so there are no `lint` / `test` / `security` jobs to wait for.
+**Nothing gates a merge on `staging` or `main`: neither branch requires a status
+check** (Nathan's 2026-11-05 ruling — local gates primary, CI is the watchdog).
+Your local gates, which the pre-push marker hook enforces, are the gate, so
+`gh pr merge --auto --merge` lands your PR as soon as it opens. **`ci`** is the
+single job that runs the suite. It runs on every PR, usually after the merge,
+against the PR's head SHA and the merge-base of its base SHA. A red `ci` on a
+`staging` PR makes the **`ci-red-alert`** job open or refresh an issue titled
+"ci is red on PR #<n>" (labels `ci-red`, `agent-finding`). Report that issue in
+your YAML when it appears. Do not report CI_FAILED for a PR that has already
+merged. **`neon-integration`** runs only on schedule or dispatch. Issue #161
+("split CI into lint + test + security") was closed without that split, so there
+are no `lint` / `test` / `security` jobs.
 
-A check list typed into a card rots. Confirm what actually gates your PR before
-you wait on anything:
+A check list typed into a card rots. Re-verify the protection before you rely on
+it (`null` means no required checks):
 
 ```bash
 gh pr checks <PR#> --repo NathanKrupa/grantspider
