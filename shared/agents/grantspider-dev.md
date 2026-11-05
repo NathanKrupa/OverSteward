@@ -39,7 +39,7 @@ bandit -r src/
 
 **Nothing gates a merge on `staging` or `main`: neither branch requires a status
 check** (Nathan's 2026-11-05 ruling — local gates primary, CI is the watchdog).
-`make verify`, enforced by the pre-push marker hook, is the gate, so
+Your local gates, which the pre-push marker hook enforces, are the gate, so
 `gh pr merge --auto --merge` lands your PR as soon as it opens. **`ci`** is the
 single job that runs the suite. It runs on every PR, usually after the merge,
 against the PR's head SHA and the merge-base of its base SHA. A red `ci` on a
