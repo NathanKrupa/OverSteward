@@ -2269,6 +2269,137 @@ Every §3.14 watch-list row, in order:
   runs in a row);
 - every §3.19 unfiled item (carried).
 
+## §3.21 Early November 2026 — AG goes after its crawl collapse, GS consolidates website resolution, and the estate map replaces architecture.md (reconciled 2026-11-05)
+
+> Fifteenth dream-produced pass. It covers 44 transcripts: thirty-two were
+> adversarial-reviewer verdicts, four were dream runs (one of them stopped at
+> the weekly usage limit), and eight were working sessions. Three
+> through-lines. **AG went after its Google crawl collapse.** The diagnosis
+> found a second cause beside the May thin-content verdict: on 08-11 Google
+> treated the host as unreachable, very likely because `/robots.txt` was served
+> uncached from a stalling origin. Promote #2656 (11-03) caches robots.txt at
+> the edge, answers degraded renders with 503 + Retry-After instead of a
+> public 200, and splits the foundation sitemap by indexability tier. The
+> checkpoint is 2026-11-30: 300 or more crawl requests a day means the halt was
+> the main brake; under 100 means the quality verdict still governs. **GS
+> consolidated website resolution.** Every provider now resolves through one
+> confirm step, the finder's own write path and `llm_judge` are deleted, and a
+> census test pins every writer of `foundations.website`. The re-verify of the
+> `ok` cohort then hit the classifier denying production writes inside a
+> Workflow, and was rebuilt to judge only, with the session applying (GS#3511).
+> **OverSteward replaced `architecture.md` with `estate-map.yaml`** (OS#640),
+> on 10-31, the same day it re-verified every row of the old document (OS#638). Nathan
+> also ruled on 11-04 that a GS staging→main promote happens only on his
+> express word or in the Tuesday promotion sequence. That retires the
+> 2026-09-17 standing authorization for live-session promotes.
+
+### Shipped (2026-10-29 → 11-05)
+
+- **OverSteward.**
+  - `architecture.md` re-verified against code (#639, OS#638), then replaced:
+    the estate-map engine (#641) and the capability-keyed map (#642), AG's
+    capabilities (#646, #647), GS's capabilities (#648), per-repo slices
+    (#649), derived in-flight status per capability (#650), and
+    `gs.website-resolution` after the 11-03 GS promote (#653). OS#640 stays
+    open. AG (#2613, #2617), GS (#3457, #3461) and Fiscus (#134) repointed
+    their `architecture.md` references and load their slice through the
+    CLAUDE.md managed block.
+- **AG — promote #2656 (11-03).**
+  - Crawl and indexation: robots.txt edge caching and its 4xx/5xx refusal
+    (#2640, #2643), robots.txt disallowing `/search/` and the `/gov/` query
+    listing (#2644), 503 + Retry-After for degraded detail renders and hub
+    outages (#2638, #2653), one sitemap section per indexability tier
+    (#2649), a footer linking every served state hub (#2650), shared-recipient
+    links only to indexable pages (#2648), `/gov-programs/` noindex,follow
+    until enriched (#2646), Search Console 5xx retries in
+    `monitor_indexation` (#2642), and the indexability cohort stored offline
+    (#2632, #2654).
+  - The beta comp retired in seven parts (#2601, #2604–#2607, #2610, #2618,
+    #2621, #2622). AG#2577 stays open.
+  - Programs: search and sort (#2590), and Archive in place of Delete (#2592).
+    Also the contact card's IRS fields (#2598, AG#1846), concurrent research
+    reads on the foundation page (#2612), the warmer's Sentry cron check-in
+    (#2603), ruff B/BLE/ERA/T20 with a frozen baseline (#2616), and two
+    layout fixes (#2594, #2596).
+  - The GS pin did not move: the bump's regenerated mirror declares a foreign
+    key to a view AG does not mirror (AG#2655, open).
+- **AG (staging only, after #2656).** Hub rankings nofollow non-indexable
+  funders (#2663). Deadline reminders and the digest read the Grant Deadlines
+  board (#2668, AG#1386). Lifecycle email gains open and click tracking via
+  Resend webhooks (#2670), a signed unsubscribe with a CAN-SPAM footer
+  (#2673), and T-7/T-1/T-0 plain-trial countdown emails (#2675). The other
+  email follow-ons are deferred to epic AG#2669.
+- **GS — promote #3427 (10-29).** Website accuracy PRs 1–3 (#3414, #3415,
+  #3417, #3419, #3420; GS#3413, GS#3416 and GS#3418 closed), the opportunity
+  tracker's schema (#3421, #3422) and the pass-through schema (#3423–#3426).
+- **GS — promotes #3495 (11-03) and #3520 (11-05).** Between them they carry
+  everything merged to staging through 11-05. #3520 went out on Nathan's
+  express word for the judge-only re-verify.
+  - Funding authorities: the bids-page poller, extractor and recall gate
+    (#3430–#3433, #3441, #3442; GS#3303 closed), multi-program sightings
+    (#3435, #3436; GS#3323 closed), seeded websites (#3437), resolve and
+    coverage fixes (#3445, #3447, #3449), and the `ag_research` views (#3448;
+    GS#3305 closed). The research@ email intake (#3450–#3453) and its
+    subscribe drain (#3455) are in, while GS#3304 and GS#3306 stay open.
+  - Website consolidation: #3467, #3472, #3473, #3476, #3477, #3484, #3485,
+    #3488, #3490, #3491, #3498 and #3500.
+  - Website re-verify of the `ok` cohort (#3504–#3506) and its judge-only
+    form (#3518, #3519; GS#3511 closed).
+  - The gaudi floor goes to 0.4.1 (#3471), plus a ruff baseline (#3459) and
+    small cleanups (#3513, #3514).
+- **gaudi.** DOM-002 and SMELL-002 recalibrated (#278); SMELL-026 and ERR-007
+  added (#279); 0.4.0 dated (#280); 0.4.1 released with SMELL-007's private
+  call edges (#282, #283).
+
+### Corrections to the §3.20 watch-list
+
+| §3.20 row | Correction as of 2026-11-05 |
+|---|---|
+| Website accuracy, GS#3407; GS#3375 | GS#3407 open; GS#3375 closed. PRs 1–3, the consolidation and the re-verify are all on main |
+| Deep-pass source quality, GS#3337 | open |
+| Dagster outage, GS#3390 | still open |
+| AG consultant follow-through, AG#2338, AG#2553 | both open. #1386, first in Nathan's 10-27 order, is on staging (#2668) |
+| AG staging ahead of main (#2571–#2590, PR #2592) | promoted in #2656 |
+| Secrets reconciliation sweep, OS#629 | open |
+| OS#631, OS#632 | both open |
+| `ag_ops` www→apex 405 — OS#633, #562, #497, #481 | **still four open issues for one bug**, none collapsed or fixed |
+| Funding-authority map, GS#3295; GS#3303–#3306, #3323 | GS#3295 open. GS#3303, #3305 and #3323 closed. GS#3304 and #3306 open with their code on main |
+| Operator steps | TD77 closed since 10-29. Still open: TD3, TD11, TD20, TD46, TD56, TD61–TD64, TD67–TD70, TD74, TD76, TD80, TD89–TD96, TD98 and TD101. Added and open: TD107, TD110, TD111, TD113, TD114, TD118 and TD120 |
+| Every other §3.20 carried row | not re-checked this pass except: AG#2467, #2457, #2473, #2486, #2356, #2475, #2481, #2424, #2324, #2353 and #2228 are open; GS#2452, #2464, #2466, #3296, #3116 and #3069 are open; OS#525, #526, #534, #572, #573, #574, #602, #605 and #609 are open |
+
+### Started, not yet landed (November 5 watch-list)
+
+| Item | Where | State |
+|---|---|---|
+| Crawl recovery checkpoint | AG#2625 and the 2026-11-30 decision | open; read the crawl-requests-per-day number from Search Console on 11-30 |
+| GS pin bump blocked | AG#2655 | open; AG prod still pins the older GS main |
+| AG region move to us-east4 | AG#2611 | open; a rehearsal ran this week |
+| Beta comp retirement | AG#2577 | open with all seven parts on main |
+| Email follow-ons | AG#2669 | deferred until after the SEO bugs and the mobile work |
+| Estate map | OS#640 | open; the map, slices and status command are merged |
+| Review and dispatch tooling found this week | OS#645, #651, #652 | open: bare `ruff` not on PATH in a GS worktree, the GS lite gate skipping the boy-scout ratchet, and the review assembler running an installed gaudi when reviewing gaudi |
+| Outreach and secrets | OS#644 (live outreach email sent from untracked files), OS#637 (SMOKE_PROBE_TOKEN registration) | open |
+| Flaky backup test | OS#643 | open |
+
+**Unfiled intent seen in this pass's transcripts (flagged, not filed):**
+
+- the dream cycle's `/tmp/dream` paths are fixed and never cleared. This run
+  found 42 numbered extract files left by the 11-01 and 11-02 runs under the
+  same names, pointing at other sessions, and moved them aside before
+  extraction;
+- `finalize` commits only the files it writes. The live-session residue it
+  leaves is nonetheless indexed by the `MEMORY.md` it commits, so the store's
+  HEAD named files it did not contain until this run committed them by hand
+  (nineteen runs in a row);
+- `finalize` never pushes `steward-memory`; it is four commits ahead of
+  origin;
+- `dream.py supersede` stamps `superseded_by` before rendering the index, so
+  an over-budget layer leaves the marker written and `MEMORY.md` stale. This
+  run trimmed Graveyard digests to 24,982 of 25,000 bytes (OS#501);
+- AG's weekday outreach-email timer died on a DNS failure after a WSL sleep and
+  sent nothing, with no retry and no alert;
+- every §3.20 unfiled item (carried).
+
 ---
 
 ## §4 In flight
@@ -2376,4 +2507,4 @@ Captured in `IDEA_STORE.md` from gstack research and conversational drift. None 
 - If §2-§3 grow past readable length, extract to a `documentation/changelog.md` and keep this doc thin.
 - This doc is the single answer to "what are we trying to do, what's done, what's next?" If it can't answer that in under 60 seconds of reading, it's grown past its purpose — restructure rather than expand.
 
-*Last updated: 2026-10-29 (late-October reconciliation — §3.20 added: AG's promotes #2535 and #2566 for the Pro trial, passes and consultants, GS's held-funder crawl and website-accuracy epic GS#3407, and OverSteward's GS promote-cadence guard). Previously 2026-10-22 (late-October reconciliation — §3.18 added: AG's signup-surge build and promote #2477, GS's claim-queue enrich drain and segment drains, the IRS keep-current fixes, and OverSteward's backup sweep going live; §3.19 added: the Railway breach, GS's funding-authority map, and the Estate Brief and intake split).*
+*Last updated: 2026-11-05 (early-November reconciliation — §3.21 added: AG's crawl-recovery promote #2656, GS's website consolidation and judge-only re-verify through promotes #3427, #3495 and #3520, the estate map replacing architecture.md, and Nathan's 11-04 express-word rule for GS promotes). Previously 2026-10-29 (late-October reconciliation — §3.20 added: AG's promotes #2535 and #2566 for the Pro trial, passes and consultants, GS's held-funder crawl and website-accuracy epic GS#3407, and OverSteward's GS promote-cadence guard). Previously 2026-10-22 (late-October reconciliation — §3.18 added: AG's signup-surge build and promote #2477, GS's claim-queue enrich drain and segment drains, the IRS keep-current fixes, and OverSteward's backup sweep going live; §3.19 added: the Railway breach, GS's funding-authority map, and the Estate Brief and intake split).*
