@@ -1890,7 +1890,7 @@ capabilities:
   - {type: workflow, ref: 'grantspider:.github/workflows/lock-drift.yml'}
   invariants: [I-16, I-19, I-20]
   current_shape: '15 modules, 3,439 lines; 15 feature PRs in 90 days, 13 of them on `dev/boy_scout.py`. GS
-    `staging` requires the `ci` check (I-16). `notify-ag-on-main.yml` fires AG''s pin bump (I-19).'
+    `ci` is a post-merge watchdog, not a required check (I-16). `notify-ag-on-main.yml` fires AG''s pin bump (I-19).'
   target_shape: hold
 - id: wp.connectors
   kind: code
