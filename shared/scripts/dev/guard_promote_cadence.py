@@ -40,8 +40,8 @@ waved through — an unexpanded ``cd "$GS"``, a directory with no readable
 refuses only inside the window. Everything it *could* read and found to be
 some other repo, base or head passes untouched, and never reaches GitHub.
 
-**Rule.** Ask GitHub for the most recent merged PR into ``main`` from
-``staging``. Under :data:`CADENCE` ago, refuse, naming its date and the next
+**Rule.** Ask GitHub for the most recent merged PR into ``main`` whose head
+carries staging (``staging`` or a promote branch). Under :data:`CADENCE` ago, refuse, naming its date and the next
 allowed moment. If GitHub cannot be asked, refuse with a different message:
 "could not look" never reads as "too soon", and never as an allow.
 
@@ -84,12 +84,14 @@ CADENCE = timedelta(days=6)
 OVERRIDE_VAR = "GS_PROMOTE_HOTFIX"
 GH_REPO_VAR = "GH_REPO"
 
-# Its merge updated the newest merged staging→main PR, so only closed
-# staging→main PRs touched since then can rank above it. Unverified assumption:
+# Every closed PR into main, newest update first: a promote may come from
+# ``staging`` or from a promote branch, so the head is filtered in
+# ``latest_merge``, not here. The newest promote's merge updated it, so only
+# closed main PRs touched since then can rank above it. Unverified assumption:
 # fewer than 100 of those exist; were there more, an older merge would be read.
 _LOOKUP_ENDPOINT = (
     "repos/NathanKrupa/grantspider/pulls?state=closed&base=main"
-    "&head=NathanKrupa:staging&sort=updated&direction=desc&per_page=100"
+    "&sort=updated&direction=desc&per_page=100"
 )
 
 # ---------------------------------------------------------------------------
@@ -240,10 +242,11 @@ def read_git_checkout(path: str) -> Checkout:
 
 
 def latest_merge(payload: str) -> LastPromote | None:
-    """The newest merged staging→main PR in a ``gh api`` pulls listing, or None.
+    """The newest merged promote into main in a ``gh api`` pulls listing, or None.
 
-    The base and head are checked here as well as in the query, so a filter
-    GitHub ignored can never count an unrelated merge as a promote.
+    The base is checked here as well as in the query, so a filter GitHub
+    ignored can never count an unrelated merge; the head, which may be
+    ``staging`` or a promote branch, is checked only here.
     """
     try:
         pulls = json.loads(payload)
@@ -254,7 +257,7 @@ def latest_merge(payload: str) -> LastPromote | None:
             for pull in pulls
             if pull["merged_at"]
             and pull["base"]["ref"] == TRUNK
-            and pull["head"]["ref"] == SOURCE
+            and _carries_staging(pull["head"]["ref"])
         ]
     except (ValueError, TypeError, KeyError, AttributeError) as exc:
         raise LookupFailed(f"unreadable gh api answer: {exc!r}") from exc
