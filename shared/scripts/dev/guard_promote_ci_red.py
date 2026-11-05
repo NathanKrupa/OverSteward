@@ -11,8 +11,10 @@ promote instead (OS#657, OS#660).
 
 **Trigger.** The same promote :mod:`guard_promote_cadence` reads — ``gh pr
 create``/``gh pr new`` or a ``gh api`` POST to ``repos/<owner>/<repo>/pulls``
-opening a pull request with base ``main`` and head ``staging`` — on any repo
-in :data:`PROMOTE_REPOS`, with the same wrappers, the same ``cd`` and
+opening a pull request with base ``main`` and a head carrying staging:
+``staging`` itself or a promote branch such as ``chore/promote-staging-<date>``,
+the shape both repos' ``STAGING_WORKFLOW.md`` prescribe — on any repo in
+:data:`PROMOTE_REPOS`, with the same wrappers, the same ``cd`` and
 ``GH_REPO`` resolution, and the same fail-closed reading: a repo, base or head
 this guard could not read counts as a promote. The parser is a byte-identical
 copy of the cadence guard's; ``tests/dev/test_hook_lexer_drift.py`` pins it.
@@ -38,6 +40,12 @@ an override that could not be recorded is refused. An empty or blank reason
 does not count, and neither does the variable in the session environment or on
 another command. With no open ci-red issue the override records nothing and
 the promote is simply allowed.
+
+**Not covered.** Merging is not checked, only opening: ``gh pr merge`` on a
+promote opened while nothing was red passes, though a ci-red issue may have
+opened since. And aigranthelper has no ``ci_red_alert.py`` and no ``ci-red``
+label until OS#657 PR E lands, so until then its lookup is always empty and
+every AG promote is allowed: "nothing is red" there means "nothing can be".
 
 **Unlexable text** (an unbalanced quote) is allowed: no shell would run it
 either, and it never reaches ``gh``.
@@ -461,9 +469,21 @@ def _shell_script(argv: list[str]) -> str | None:
     return args[0] if reads_script and args else None
 
 
+# A branch cut from staging to carry a promote, as both repos' STAGING_WORKFLOW.md
+# prescribe: ``chore/promote-staging-<date>``. Its head is not ``staging``, but
+# what it carries into main is.
+_PROMOTE_BRANCH = re.compile(r"(?:^|/)promote-staging(?:[-/]|$)")
+
+
+def _carries_staging(head: str | None) -> bool:
+    """True for head ``staging`` or a promote branch. None — could not read — counts."""
+    branch = _branch(head)
+    return branch is None or branch == SOURCE or _PROMOTE_BRANCH.search(branch) is not None
+
+
 def _is_promote(base: str | None, head: str | None) -> bool:
-    """True for base main and head staging. None — could not read — counts as either."""
-    return _branch(base) in (TRUNK, None) and _branch(head) in (SOURCE, None)
+    """True for base main and a head carrying staging. None — could not read — counts as either."""
+    return _branch(base) in (TRUNK, None) and _carries_staging(head)
 
 
 def _defaults_to_trunk(slug: str | None) -> bool:
@@ -522,7 +542,7 @@ def _pr_create_promote(args: list[str], ctx: _Context) -> Promote | None:
     head = _last(pairs, "-H", "--head")
     if head is None:
         head = (checkout or ctx.checkout()).branch
-    if _branch(head) not in (SOURCE, None):
+    if not _carries_staging(head):
         return None
     return ctx.promote(slug)
 

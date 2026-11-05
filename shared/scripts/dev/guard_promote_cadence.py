@@ -11,7 +11,8 @@ as the watchdog, and sessions promoted per fix anyway. A memory note is an
 inert control, so this refuses instead (OS#634).
 
 **Trigger.** Opening a pull request on NathanKrupa/grantspider with base
-``main`` and head ``staging``, in either form:
+``main`` and a head carrying staging — ``staging`` itself or a promote branch
+such as ``chore/promote-staging-<date>`` — in either form:
 
 * ``gh pr create`` (or its alias ``gh pr new``). The repo is ``--repo``/``-R``,
   else ``GH_REPO`` (the command's own prefix, then the session environment),
@@ -444,9 +445,21 @@ def _shell_script(argv: list[str]) -> str | None:
     return args[0] if reads_script and args else None
 
 
+# A branch cut from staging to carry a promote, as both repos' STAGING_WORKFLOW.md
+# prescribe: ``chore/promote-staging-<date>``. Its head is not ``staging``, but
+# what it carries into main is.
+_PROMOTE_BRANCH = re.compile(r"(?:^|/)promote-staging(?:[-/]|$)")
+
+
+def _carries_staging(head: str | None) -> bool:
+    """True for head ``staging`` or a promote branch. None — could not read — counts."""
+    branch = _branch(head)
+    return branch is None or branch == SOURCE or _PROMOTE_BRANCH.search(branch) is not None
+
+
 def _is_promote(base: str | None, head: str | None) -> bool:
-    """True for base main and head staging. None — could not read — counts as either."""
-    return _branch(base) in (TRUNK, None) and _branch(head) in (SOURCE, None)
+    """True for base main and a head carrying staging. None — could not read — counts as either."""
+    return _branch(base) in (TRUNK, None) and _carries_staging(head)
 
 
 def _defaults_to_trunk(slug: str | None) -> bool:
@@ -505,7 +518,7 @@ def _pr_create_promote(args: list[str], ctx: _Context) -> Promote | None:
     head = _last(pairs, "-H", "--head")
     if head is None:
         head = (checkout or ctx.checkout()).branch
-    if _branch(head) not in (SOURCE, None):
+    if not _carries_staging(head):
         return None
     return ctx.promote(slug)
 

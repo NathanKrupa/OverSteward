@@ -59,6 +59,8 @@ _PARSER_MEMBERS = (
     "_after_env",
     "_unwrap",
     "_shell_script",
+    "_PROMOTE_BRANCH",
+    "_carries_staging",
     "_is_promote",
     "_defaults_to_trunk",
     "Promote",

@@ -228,6 +228,50 @@ def test_the_rest_form_on_aigranthelper_is_refused():
     assert_red(*run(command, issues=issues))
 
 
+# --- a promote branch cut from staging is a promote ---------------------------------------
+
+PROMOTE_BRANCH = "chore/promote-staging-2026-11-05"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        f"gh pr create --repo NathanKrupa/grantspider --base main --head {PROMOTE_BRANCH} --title t",
+        f"gh pr create --repo NathanKrupa/grantspider --base main --head NathanKrupa:{PROMOTE_BRANCH}",
+        f"gh api repos/NathanKrupa/grantspider/pulls -f base=main -f head={PROMOTE_BRANCH}",
+    ],
+)
+def test_a_promote_branch_into_main_is_refused(command):
+    """Both repos promote from chore/promote-staging-<date>, not from staging itself."""
+    assert_red(*run(command))
+
+
+def test_the_documented_gs_promote_from_a_promote_branch_checkout_is_refused():
+    """STAGING_WORKFLOW.md: cut the branch from origin/staging, then gh pr create --base main."""
+    checkouts = FakeCheckouts({"/home/natha/grantspider": g.Checkout(GS_ORIGIN, PROMOTE_BRANCH)})
+    command = "cd /home/natha/grantspider && gh pr create --base main --title 'Promote staging'"
+    assert_red(*run(command, checkouts=checkouts))
+
+
+def test_the_documented_ag_promote_from_a_promote_branch_checkout_is_refused():
+    checkouts = FakeCheckouts({"/home/natha/aigranthelper": g.Checkout(AG_ORIGIN, PROMOTE_BRANCH)})
+    issues = FakeRedIssues({AG: [red(AG, 2600)]})
+    command = "cd /home/natha/aigranthelper && gh pr create --base main --title 'Promote staging'"
+    assert_red(*run(command, issues=issues, checkouts=checkouts))
+
+
+@pytest.mark.parametrize(
+    "head",
+    ["hotfix/pricing-builder-no-app-allowance", "fix/issue-3390-sqlalchemy-hold", "chore/promote-docs"],
+)
+def test_a_branch_that_does_not_carry_staging_into_main_is_allowed(head):
+    """The other side of the boundary: a hotfix into main never reaches the lookup."""
+    issues = FakeRedIssues({GS: [red(GS, 1)]})
+    command = f"gh pr create --repo NathanKrupa/grantspider --base main --head {head}"
+    assert_allowed(*run(command, issues=issues))
+    assert issues.asked == []
+
+
 # --- a repo the guard could not read asks both --------------------------------------------
 
 

@@ -2431,8 +2431,9 @@ invariants:
   text: 'An open `ci-red` issue stops the line on its repo: dispatch refuses every issue but that `ci-red`
     issue and one declaring `Closes #<m>` for it, and an open `dispatch-paused` issue refuses everything.
     A dispatch past `ci-red` needs `--override`, recorded as a comment on each open `ci-red` issue.
-    The promote guard refuses a GS or AG staging→main promote while one is open, but is registered
-    only in OverSteward until OS#657 PR D deploys it to GS and AG, so their own sessions are unguarded'
+    The promote guard refuses opening a GS or AG staging→main promote while one is open, but not
+    merging one; it is registered only in OverSteward until OS#657 PR D deploys it to GS and AG, and
+    AG files no `ci-red` issue until PR E, so AG promotes pass it unchecked until then'
   cite: '`src/oversteward/intake/line.py` (`stop_line`), `scripts/intake.py line`; `shared/skills/dispatch/SKILL.md`
     §2, `playbook.md` step 8; `shared/scripts/dev/guard_promote_ci_red.py`'
   capabilities: [os.dispatch]
