@@ -152,10 +152,10 @@ def test_an_issue_on_the_other_repo_does_not_refuse():
 
 
 def test_a_failed_lookup_refuses_with_could_not_look_text():
-    code, message = run(GS_PROMOTE, issues=FakeRedIssues(fails="gh issue list exited 1: HTTP 502"))
+    code, message = run(GS_PROMOTE, issues=FakeRedIssues(fails="gh api exited 1: HTTP 502"))
     assert code == 2
     assert COULD_NOT_LOOK in message
-    assert "gh issue list exited 1: HTTP 502" in message
+    assert "gh api exited 1: HTTP 502" in message
     assert RED not in message
     assert "Traceback" not in message
 
@@ -354,6 +354,24 @@ def test_parse_red_issues_reads_number_and_title():
     assert g.parse_red_issues(GS, payload) == [red(GS, 3530, "ci is red on PR #3529")]
 
 
+def test_parse_red_issues_skips_pull_requests():
+    """The REST issues listing carries pull requests too; only issues are ci-red issues."""
+    payload = json.dumps(
+        [
+            {"number": 3530, "title": "ci is red on PR #3529"},
+            {"number": 3529, "title": "feat: x", "pull_request": {"url": "u"}},
+        ]
+    )
+    assert g.parse_red_issues(GS, payload) == [red(GS, 3530, "ci is red on PR #3529")]
+
+
+def test_the_lookup_reads_rest_not_the_search_index():
+    """The REST listing, filtered to the label and to open issues, one page at the limit."""
+    assert g.red_issues_endpoint(GS) == (
+        f"repos/{GS}/issues?labels=ci-red&state=open&per_page={g.ISSUE_LIMIT}"
+    )
+
+
 @pytest.mark.parametrize("payload", ["not json", "{}", '{"message": "Bad credentials"}', '[{"title": "x"}]', "[1]"])
 def test_an_unreadable_answer_is_a_lookup_failure(payload):
     with pytest.raises(g.LookupFailed):
@@ -381,9 +399,9 @@ def _hook(tmp_path, command, *, listing="[]", list_exit=0, comment_exit=0):
     gh.write_text(
         "#!/bin/sh\n"
         f'printf "%s\\n" "$*" >> "{log}"\n'
-        'case "$2" in\n'
-        f'  list) cat "{tmp_path / "list.out"}"; exit {list_exit} ;;\n'
-        f"  comment) exit {comment_exit} ;;\n"
+        'case "$1 $2" in\n'
+        f'  "api repos/"*) cat "{tmp_path / "list.out"}"; exit {list_exit} ;;\n'
+        f'  "issue comment") exit {comment_exit} ;;\n'
         "esac\n"
         "exit 99\n",
         encoding="utf-8",
@@ -414,10 +432,7 @@ def test_the_hook_refuses_while_ci_red_is_open_end_to_end(tmp_path):
     assert RED in result.stderr
     assert "nathankrupa/grantspider#3530" in result.stderr
     assert "Traceback" not in result.stderr
-    assert calls == [
-        "issue list --repo nathankrupa/grantspider --label ci-red --state open "
-        f"--json number,title --limit {g.ISSUE_LIMIT}"
-    ]
+    assert calls == [f"api {g.red_issues_endpoint(GS)}"]
 
 
 def test_the_hook_allows_once_nothing_is_red_end_to_end(tmp_path):
@@ -431,7 +446,7 @@ def test_the_hook_refuses_when_gh_fails_end_to_end(tmp_path):
     result, _ = _hook(tmp_path, AG_PROMOTE, listing="[]", list_exit=1)
     assert result.returncode == 2
     assert COULD_NOT_LOOK in result.stderr
-    assert "gh issue list exited 1" in result.stderr
+    assert "gh api exited 1" in result.stderr
     assert RED not in result.stderr
     assert "Traceback" not in result.stderr
 

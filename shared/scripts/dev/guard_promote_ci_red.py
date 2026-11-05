@@ -240,35 +240,48 @@ def _last_line(stderr: str) -> str:
     return (stderr.strip().splitlines() or ["no output"])[-1]
 
 
+def red_issues_endpoint(repo: str) -> str:
+    """The REST listing of ``repo``'s open ci-red issues.
+
+    REST rather than ``gh issue list --label``, which goes through GitHub's
+    search API and its separate rate limit. Neither is read-your-writes: on
+    2026-11-05 both listings trailed an issue opened, reopened or closed by
+    roughly 2 to 8 seconds, so an issue opened that close to a promote is not
+    seen. That window is unguarded.
+    """
+    return f"repos/{repo}/issues?labels={CI_RED}&state=open&per_page={ISSUE_LIMIT}"
+
+
 def parse_red_issues(repo: str, payload: str) -> list[RedIssue]:
-    """The issues in a ``gh issue list --json number,title`` answer.
+    """The issues in a REST issues listing; pull requests in it are skipped.
 
     A listing that fills :data:`ISSUE_LIMIT` may have been cut short, and the
     override must comment on every open issue, so it is a failed lookup.
     """
     try:
-        issues = json.loads(payload)
-        if not isinstance(issues, list):
-            raise TypeError(f"expected a list of issues, got {type(issues).__name__}")
-        found = [RedIssue(repo, int(issue["number"]), str(issue["title"])) for issue in issues]
+        entries = json.loads(payload)
+        if not isinstance(entries, list):
+            raise TypeError(f"expected a list of issues, got {type(entries).__name__}")
+        found = [
+            RedIssue(repo, int(entry["number"]), str(entry["title"]))
+            for entry in entries
+            if "pull_request" not in entry
+        ]
     except (ValueError, TypeError, KeyError) as exc:
-        raise LookupFailed(f"unreadable gh issue list answer for {repo}: {exc!r}") from exc
-    if len(found) >= ISSUE_LIMIT:
-        raise LookupFailed(f"{repo} listed {len(found)} ci-red issues, the limit; more may exist")
+        raise LookupFailed(f"unreadable gh api answer for {repo}: {exc!r}") from exc
+    if len(entries) >= ISSUE_LIMIT:
+        raise LookupFailed(f"{repo} listed {len(entries)} ci-red entries, the limit; more may exist")
     return found
 
 
 def list_github_red_issues(repo: str) -> list[RedIssue]:
-    """The real :data:`ListRedIssues`: ``gh issue list`` of ``repo``'s open ci-red issues."""
+    """The real :data:`ListRedIssues`: ``gh api`` for ``repo``'s open ci-red issues."""
     try:
-        result = _gh(
-            "issue", "list", "--repo", repo, "--label", CI_RED, "--state", "open",
-            "--json", "number,title", "--limit", str(ISSUE_LIMIT),
-        )
+        result = _gh("api", red_issues_endpoint(repo))
     except (OSError, subprocess.SubprocessError) as exc:
-        raise LookupFailed(f"gh issue list did not run: {exc!r}") from exc
+        raise LookupFailed(f"gh api did not run: {exc!r}") from exc
     if result.returncode != 0:
-        raise LookupFailed(f"gh issue list exited {result.returncode}: {_last_line(result.stderr)}")
+        raise LookupFailed(f"gh api exited {result.returncode}: {_last_line(result.stderr)}")
     return parse_red_issues(repo, result.stdout)
 
 
@@ -611,7 +624,7 @@ _COULD_NOT_LOOK = (
     "staging→main promote is refused rather than allowed blind. This is not a\n"
     "red verdict: the ci-red issues were never read.\n\n"
     "The lookup failed: {reason}\n\n"
-    "Retry once `gh issue list` works.\n"
+    "Retry once `gh api` works.\n"
 )
 
 _UNRECORDED = (
