@@ -653,10 +653,15 @@ capabilities:
     - .github/workflows/ci.yml
     - .github/workflows/divergence-watchdog.yml
     - .github/workflows/bump-gs-pin.yml
-  invariants: [I-19, I-20]
+  invariants: [I-19, I-20, I-23]
   liabilities: [L-AG-3]
   current_shape: '7 modules, 1,251 lines, living in `apps/core/` beside product code; 4 feature PRs in 90
-    days. `make verify` is the local gate; `divergence-watchdog.yml` runs on push and daily at 13:00 UTC (I-20).'
+    days. `make verify` is the local gate; `divergence-watchdog.yml` runs on push and daily at 13:00 UTC (I-20).
+    `ci.yml` is a watchdog, not a required check: every job checks out the PR head SHA, the ratchets
+    compare against its merge-base, and a red or timed-out job on a PR into `staging` or `main` files a
+    `ci-red` issue through the `ci-red-alert` job (`scripts/ci/ci_red_alert.py`, a byte-copy of GS''s).
+    The promote guard `.claude/hooks/guard_promote_ci_red.py` is deployed and registered (I-23). All of this
+    is on `staging` (AG#2701, AG#2705) and reaches `main` at the next promote.'
   target_shape: hold
 - id: ag.search-acquisition
   kind: content
@@ -1888,9 +1893,14 @@ capabilities:
   - {type: workflow, ref: 'grantspider:.github/workflows/divergence-watchdog.yml'}
   - {type: workflow, ref: 'grantspider:.github/workflows/notify-ag-on-main.yml'}
   - {type: workflow, ref: 'grantspider:.github/workflows/lock-drift.yml'}
-  invariants: [I-16, I-19, I-20]
+  invariants: [I-16, I-19, I-20, I-23]
   current_shape: '15 modules, 3,439 lines; 15 feature PRs in 90 days, 13 of them on `dev/boy_scout.py`. GS
-    `ci` is a post-merge watchdog, not a required check (I-16). `notify-ag-on-main.yml` fires AG''s pin bump (I-19).'
+    `ci` is a post-merge watchdog, not a required check (I-16): it checks out the PR head SHA, diffs from
+    its merge-base, and a red run on a PR into `staging` files a `ci-red` issue through the `ci-red-alert`
+    job (`scripts/ci/ci_red_alert.py`, canonical here; AG''s is its byte-copy). The promote guard
+    `.claude/hooks/guard_promote_ci_red.py` is deployed and registered on `staging` (GS#3543), not yet on
+    `main` (I-23). `notify-ag-on-main.yml`
+    fires AG''s pin bump (I-19).'
   target_shape: hold
 - id: wp.connectors
   kind: code
@@ -2433,11 +2443,12 @@ invariants:
     issue and one declaring `Closes #<m>` for it, and an open `dispatch-paused` issue refuses everything.
     A dispatch past `ci-red` needs `--override`, recorded as a comment on each open `ci-red` issue.
     The promote guard refuses opening a GS or AG staging→main promote while one is open, but not
-    merging one; it is registered only in OverSteward until OS#657 PR D deploys it to GS and AG, and
-    AG files no `ci-red` issue until PR E, so AG promotes pass it unchecked until then'
-  cite: '`src/oversteward/intake/line.py` (`stop_line`), `scripts/intake.py line`; `shared/skills/dispatch/SKILL.md`
-    §2, `playbook.md` step 8; `shared/scripts/dev/guard_promote_ci_red.py`'
-  capabilities: [os.dispatch]
+    merging one; it is registered in OverSteward, GS and AG. GS files `ci-red` issues for PRs into
+    `staging`, AG for PRs into `staging` and `main`'
+  cite: '`src/oversteward/intake/line.py` (`stop_line`), `scripts/intake.py line`; `scripts/ci_red.py`
+    (the `ci-red` sweep); `shared/skills/dispatch/SKILL.md` §2, `playbook.md` step 8;
+    `shared/scripts/dev/guard_promote_ci_red.py`, deployed as `.claude/hooks/guard_promote_ci_red.py`'
+  capabilities: [os.dispatch, ag.dev-gates, gs.dev-gates]
 
 liabilities:
 - id: G1
