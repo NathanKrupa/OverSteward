@@ -535,6 +535,19 @@ def test_fixed_measures_from_the_latest_repeat_red(store):
     assert _record(store, source, "fixed", "grantspider#13").ref == "grantspider#13"
 
 
+def test_fixed_merged_between_two_repeat_reds_is_refused(store):
+    _pending(store)
+    reds = (details(OTHER_SHA, 950), details(SHA, 960))
+    issue = red_issue(5, comments=reds)
+    issue = RawIssue(**{**issue.__dict__,
+                        "comment_times": ("2026-11-05T13:00:00Z", "2026-11-05T15:00:00Z")})
+    source = FakeSource({GS.full_name: [issue]},
+                        prs={(GS.full_name, 13): PrInfo("MERGED", "2026-11-05T14:00:00Z")})
+    with pytest.raises(VerdictError, match="not after the red reported at 2026-11-05T15:00:00"):
+        _record(store, source, "fixed", "grantspider#13")
+    assert source.closed == []
+
+
 def test_fixed_refuses_when_the_red_time_cannot_be_read(store):
     _pending(store)
     source = FakeSource({GS.full_name: [red_issue(5, created_at="")]},
@@ -566,10 +579,13 @@ def test_green_refuses_an_issue_missing_its_commit_or_run(store, body):
 
 def test_github_connector_reads_timestamps_and_merge_time():
     def run_json(args):
+        fields = set(args[args.index("--json") + 1].split(","))
         if args[0] == "pr":
-            return {"state": "MERGED", "mergedAt": MERGED_AFTER}
-        return {"number": 5, "title": "t", "state": "OPEN", "createdAt": RED_AT,
-                "comments": [{"body": "b", "createdAt": MERGED_AFTER}]}
+            return {k: v for k, v in {"state": "MERGED", "mergedAt": MERGED_AFTER}.items()
+                    if k in fields}
+        row = {"number": 5, "title": "t", "state": "OPEN", "createdAt": RED_AT,
+               "comments": [{"body": "b", "createdAt": MERGED_AFTER}]}
+        return {k: v for k, v in row.items() if k in fields}
 
     gh = GithubCiRed(run_json=run_json)
     raw = gh.issue("o/r", 5)
