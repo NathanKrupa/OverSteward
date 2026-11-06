@@ -123,8 +123,8 @@ degrade the whole instrument silently, so the input is assembled by code.
 **Before round 1: the lite gate, then the diff ceiling** (the pre-round-1
 sequence in `~/.claude/shared/references/pr-workflow.md`). Commit first, because
 both read the committed diff, which is what the reviewer reads. The lite gate is
-ruff, the gaudi error gate on the changed Python files, and `pytest` on the test
-files the diff touches. It checks what you changed; it does not certify the
+ruff, the gaudi error gate on the changed Python files, the boy-scout ratchet,
+and `pytest` on the test files the diff touches. It checks what you changed; it does not certify the
 tree. Playbook step 10's full suite does not run here. It is the one full run,
 after the findings, below.
 
@@ -139,6 +139,10 @@ changed=$(git diff --name-only --diff-filter=d origin/staging...HEAD)
 py=$(printf '%s\n' $changed | grep '\.py$' || true)
 # The wrapper calls a bare `gaudi`, so the worktree venv goes on PATH.
 PATH="$PWD/.venv/bin:$PATH" .venv/bin/python scripts/lint/gaudi_check_files.py $py || rc=1
+# The per-file ratchet against origin/staging. A touched file whose staging
+# copy already carries debt fails here, and finding that after review forces a
+# restructure the rounds then have to re-read. It needs no database.
+GRANTSPIDER_CI_LOCAL_SKIP_DB_READY=1 make ci-boy-scout || rc=1
 tests=$(printf '%s\n' $changed | grep -E '(^|/)test_[^/]*\.py$' || true)
 if [ -n "$tests" ]; then
     .venv/bin/python -m pytest $tests || rc=1

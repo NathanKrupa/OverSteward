@@ -413,6 +413,7 @@ PRE_ROUND_SEQUENCE_CARDS = {
             RUFF_CHECK,
             RUFF_FORMAT,
             ("lite-gate gaudi", "scripts/lint/gaudi_check_files.py"),
+            ("lite-gate boy-scout", "make ci-boy-scout"),
             TOUCHED_TESTS,
         ),
         *MAKE_VERIFY_SEQUENCE,
