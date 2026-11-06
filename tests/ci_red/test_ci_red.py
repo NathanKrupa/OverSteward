@@ -458,3 +458,15 @@ def test_promote_hook_writes_the_prefix_the_sweep_counts():
     sys.modules[spec.name] = hook
     spec.loader.exec_module(hook)
     assert hook.OVERRIDE_COMMENT.startswith(PROMOTE_OVERRIDE_PREFIX + " ")
+
+
+def test_claude_md_runs_the_ci_red_sweep_at_session_start():
+    text = (REPO_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+    assert "## Session start — the eight sweeps" in text
+    section = text.split("## Session start", 1)[1].split("\n## ", 1)[0]
+    block = section.split("```bash", 1)[1].split("```", 1)[0]
+    assert [line for line in block.splitlines() if "ci_red.py" in line] == [
+        ".venv/bin/python scripts/ci_red.py sweep            "
+        "# what CI turned red, and whether it was resolved"
+    ]
+    assert len([line for line in block.splitlines() if line.strip()]) == 9
