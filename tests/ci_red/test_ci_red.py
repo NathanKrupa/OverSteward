@@ -470,3 +470,19 @@ def test_claude_md_runs_the_ci_red_sweep_at_session_start():
         "# what CI turned red, and whether it was resolved"
     ]
     assert len([line for line in block.splitlines() if line.strip()]) == 9
+
+
+def test_record_refuses_an_open_issue_without_the_ci_red_label(store):
+    _pending(store)
+    unlabelled = red_issue(5, labels=frozenset({"agent-finding"}))
+    source = FakeSource({GS.full_name: [unlabelled]}, prs={(GS.full_name, 13): "MERGED"})
+    with pytest.raises(VerdictError, match="grantspider#5 is not an open ci-red issue"):
+        _record(store, source, "fixed", "grantspider#13")
+    assert source.closed == []
+
+
+def test_record_before_any_sweep_refuses(store):
+    source = FakeSource({GS.full_name: [red_issue(5)]}, prs={(GS.full_name, 13): "MERGED"})
+    with pytest.raises(VerdictError, match="no measured sweep on record"):
+        _record(store, source, "fixed", "grantspider#13")
+    assert source.closed == []
