@@ -11,7 +11,8 @@ as the watchdog, and sessions promoted per fix anyway. A memory note is an
 inert control, so this refuses instead (OS#634).
 
 **Trigger.** Opening a pull request on NathanKrupa/grantspider with base
-``main`` and head ``staging``, in either form:
+``main`` and a head carrying staging — ``staging`` itself or a promote branch
+such as ``chore/promote-staging-<date>`` — in either form:
 
 * ``gh pr create`` (or its alias ``gh pr new``). The repo is ``--repo``/``-R``,
   else ``GH_REPO`` (the command's own prefix, then the session environment),
@@ -39,8 +40,8 @@ waved through — an unexpanded ``cd "$GS"``, a directory with no readable
 refuses only inside the window. Everything it *could* read and found to be
 some other repo, base or head passes untouched, and never reaches GitHub.
 
-**Rule.** Ask GitHub for the most recent merged PR into ``main`` from
-``staging``. Under :data:`CADENCE` ago, refuse, naming its date and the next
+**Rule.** Ask GitHub for the most recent merged PR into ``main`` whose head
+carries staging (``staging`` or a promote branch). Under :data:`CADENCE` ago, refuse, naming its date and the next
 allowed moment. If GitHub cannot be asked, refuse with a different message:
 "could not look" never reads as "too soon", and never as an allow.
 
@@ -74,19 +75,23 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-GS_REPO = "nathankrupa/grantspider"
+# The repos this guard holds to a cadence, each with its default branch — the
+# base an omitted ``--base`` resolves to. Lower-case, as ``_slug`` returns them.
+PROMOTE_REPOS = {"nathankrupa/grantspider": "staging"}
 TRUNK = "main"
 SOURCE = "staging"
 CADENCE = timedelta(days=6)
 OVERRIDE_VAR = "GS_PROMOTE_HOTFIX"
 GH_REPO_VAR = "GH_REPO"
 
-# Its merge updated the newest merged staging→main PR, so only closed
-# staging→main PRs touched since then can rank above it. Unverified assumption:
+# Every closed PR into main, newest update first: a promote may come from
+# ``staging`` or from a promote branch, so the head is filtered in
+# ``latest_merge``, not here. The newest promote's merge updated it, so only
+# closed main PRs touched since then can rank above it. Unverified assumption:
 # fewer than 100 of those exist; were there more, an older merge would be read.
 _LOOKUP_ENDPOINT = (
     "repos/NathanKrupa/grantspider/pulls?state=closed&base=main"
-    "&head=NathanKrupa:staging&sort=updated&direction=desc&per_page=100"
+    "&sort=updated&direction=desc&per_page=100"
 )
 
 # ---------------------------------------------------------------------------
@@ -237,10 +242,11 @@ def read_git_checkout(path: str) -> Checkout:
 
 
 def latest_merge(payload: str) -> LastPromote | None:
-    """The newest merged staging→main PR in a ``gh api`` pulls listing, or None.
+    """The newest merged promote into main in a ``gh api`` pulls listing, or None.
 
-    The base and head are checked here as well as in the query, so a filter
-    GitHub ignored can never count an unrelated merge as a promote.
+    The base is checked here as well as in the query, so a filter GitHub
+    ignored can never count an unrelated merge; the head, which may be
+    ``staging`` or a promote branch, is checked only here.
     """
     try:
         pulls = json.loads(payload)
@@ -251,7 +257,7 @@ def latest_merge(payload: str) -> LastPromote | None:
             for pull in pulls
             if pull["merged_at"]
             and pull["base"]["ref"] == TRUNK
-            and pull["head"]["ref"] == SOURCE
+            and _carries_staging(pull["head"]["ref"])
         ]
     except (ValueError, TypeError, KeyError, AttributeError) as exc:
         raise LookupFailed(f"unreadable gh api answer: {exc!r}") from exc
@@ -278,6 +284,13 @@ def read_github_last_promote() -> LastPromote | None:
 
 # ---------------------------------------------------------------------------
 # Reading a gh command line.
+#
+# DUPLICATE — ``guard_promote_cadence.py`` and ``guard_promote_ci_red.py``
+# carry byte-identical copies of this parser, from ``_PR_CREATE_VALUE_FLAGS``
+# to ``find_promote``. What differs lies outside it: each guard's own
+# ``PROMOTE_REPOS`` (repo slug -> its default branch) and ``OVERRIDE_VAR``.
+# Not shared, for the lexer's reason; ``tests/dev/test_hook_lexer_drift.py``
+# notices when one copy drifts.
 # ---------------------------------------------------------------------------
 
 # Flags that take a value, so the word after them is that value, never a flag
@@ -435,9 +448,39 @@ def _shell_script(argv: list[str]) -> str | None:
     return args[0] if reads_script and args else None
 
 
+# A branch cut from staging to carry a promote, as both repos' STAGING_WORKFLOW.md
+# prescribe: ``chore/promote-staging-<date>``. Its head is not ``staging``, but
+# what it carries into main is.
+_PROMOTE_BRANCH = re.compile(r"(?:^|/)promote-staging(?:[-/]|$)")
+
+
+def _carries_staging(head: str | None) -> bool:
+    """True for head ``staging`` or a promote branch. None — could not read — counts."""
+    branch = _branch(head)
+    return branch is None or branch == SOURCE or _PROMOTE_BRANCH.search(branch) is not None
+
+
 def _is_promote(base: str | None, head: str | None) -> bool:
-    """True for base main and head staging. None — could not read — counts as either."""
-    return _branch(base) in (TRUNK, None) and _branch(head) in (SOURCE, None)
+    """True for base main and a head carrying staging. None — could not read — counts as either."""
+    return _branch(base) in (TRUNK, None) and _carries_staging(head)
+
+
+def _defaults_to_trunk(slug: str | None) -> bool:
+    """True when an omitted ``--base`` means main, the repo's default branch.
+
+    An unread repo (None) could be any repo in ``PROMOTE_REPOS``, so it counts
+    as defaulting to main when any of them does.
+    """
+    defaults = [PROMOTE_REPOS[slug]] if slug is not None else list(PROMOTE_REPOS.values())
+    return TRUNK in defaults
+
+
+@dataclass(frozen=True)
+class Promote:
+    """A promote found in a command: its repo (None if unread) and its own override."""
+
+    repo: str | None
+    override: str | None
 
 
 @dataclass
@@ -455,23 +498,32 @@ class _Context:
     def checkout(self) -> Checkout:
         return self.read_checkout(self.cwd)
 
+    def promote(self, repo: str | None) -> Promote:
+        """A promote on ``repo``, carrying this invocation's own ``OVERRIDE_VAR``."""
+        return Promote(repo=repo, override=_assigned(self.assignments, OVERRIDE_VAR))
 
-def _pr_create_is_promote(args: list[str], ctx: _Context) -> bool:
+
+def _pr_create_promote(args: list[str], ctx: _Context) -> Promote | None:
     pairs, _ = _options(args, _PR_CREATE_VALUE_FLAGS)
     base = _last(pairs, "-B", "--base")
-    if _branch(base) != TRUNK:
-        return False  # omitted: gh uses the default branch, staging for grantspider
+    if base is not None and _branch(base) != TRUNK:
+        return None
     repo = _last(pairs, "-R", "--repo") or ctx.gh_repo()
     checkout = None
     if repo is None:
         checkout = ctx.checkout()
         repo = checkout.origin
-    if _slug(repo) not in (GS_REPO, None):
-        return False  # None — could not read the repo — fails closed
+    slug = _slug(repo)
+    if slug is not None and slug not in PROMOTE_REPOS:
+        return None  # None — could not read the repo — fails closed
+    if base is None and not _defaults_to_trunk(slug):
+        return None  # omitted: gh uses the repo's default branch, which is not main
     head = _last(pairs, "-H", "--head")
     if head is None:
         head = (checkout or ctx.checkout()).branch
-    return _is_promote(base, head)
+    if not _carries_staging(head):
+        return None
+    return ctx.promote(slug)
 
 
 def _api_repo(owner: str, name: str, ctx: _Context) -> str | None:
@@ -481,37 +533,33 @@ def _api_repo(owner: str, name: str, ctx: _Context) -> str | None:
     return _slug(ctx.gh_repo() or ctx.checkout().origin)
 
 
-def _api_is_promote(args: list[str], ctx: _Context) -> bool:
+def _api_promote(args: list[str], ctx: _Context) -> Promote | None:
     pairs, positionals = _options(args, _API_VALUE_FLAGS)
     match = _PULLS_ENDPOINT.match(positionals[0].split("?")[0]) if positionals else None
-    if match is None or _api_repo(*match.groups(), ctx) not in (GS_REPO, None):
-        return False  # None — could not resolve {owner}/{repo} — fails closed
+    if match is None:
+        return None
+    slug = _api_repo(*match.groups(), ctx)
+    if slug is not None and slug not in PROMOTE_REPOS:
+        return None  # None — could not resolve {owner}/{repo} — fails closed
     fields = dict(value.partition("=")[::2] for name, value in pairs if name in _API_FIELD_FLAGS)
     has_body = bool(fields) or _last(pairs, "--input") is not None
     method = _last(pairs, "-X", "--method") or ("POST" if has_body else "GET")
     if method.upper() != "POST":
-        return False
+        return None
     if _last(pairs, "--input") is not None:
-        return True  # the body is in a file this guard does not read
-    return _is_promote(fields.get("base"), fields.get("head"))
+        return ctx.promote(slug)  # the body is in a file this guard does not read
+    return ctx.promote(slug) if _is_promote(fields.get("base"), fields.get("head")) else None
 
 
-def _gh_promote(argv: list[str], ctx: _Context) -> bool:
-    """True when ``argv`` opens a staging→main pull request on grantspider."""
+def _gh_promote(argv: list[str], ctx: _Context) -> Promote | None:
+    """The staging→main pull request ``argv`` opens on a ``PROMOTE_REPOS`` repo, or None."""
     if os.path.basename(argv[0]) != "gh":
-        return False
+        return None
     if argv[1:3] in (["pr", "create"], ["pr", "new"]):
-        return _pr_create_is_promote(argv[3:], ctx)
+        return _pr_create_promote(argv[3:], ctx)
     if argv[1:2] == ["api"]:
-        return _api_is_promote(argv[2:], ctx)
-    return False
-
-
-@dataclass(frozen=True)
-class Promote:
-    """A promote found in a command, with its own ``GS_PROMOTE_HOTFIX`` (None if absent)."""
-
-    override: str | None
+        return _api_promote(argv[2:], ctx)
+    return None
 
 
 def _promote_in(argv: list[str], ctx: _Context) -> Promote | None:
@@ -525,9 +573,7 @@ def _promote_in(argv: list[str], ctx: _Context) -> Promote | None:
             read_checkout=ctx.read_checkout,
             inherited=ctx.assignments,
         )
-    if _gh_promote(argv, ctx):
-        return Promote(override=_assigned(ctx.assignments, OVERRIDE_VAR))
-    return None
+    return _gh_promote(argv, ctx)
 
 
 def find_promote(
@@ -538,10 +584,10 @@ def find_promote(
     read_checkout: ReadCheckout,
     inherited: list[str] | None = None,
 ) -> Promote | None:
-    """The first grantspider staging→main promote ``command`` would run, or None.
+    """The first staging→main promote on a ``PROMOTE_REPOS`` repo ``command`` would run.
 
-    ``inherited`` is the environment prefix of the shell running ``command``,
-    which every command inside it receives.
+    None when it runs none. ``inherited`` is the environment prefix of the
+    shell running ``command``, which every command inside it receives.
     """
     for assignments, argv in _invocations(command) or []:
         argv, run_assignments, run_cwd = _unwrap(argv, [*(inherited or []), *assignments], cwd)

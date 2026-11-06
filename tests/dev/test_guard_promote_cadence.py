@@ -474,6 +474,37 @@ def test_latest_merge_takes_the_newest_merged_promote():
     assert last == g.LastPromote(number=3, merged_at=datetime(2026, 10, 26, 2, 34, 39, tzinfo=UTC))
 
 
+def test_latest_merge_counts_a_promote_branch_merge():
+    """GS promotes from chore/promote-staging-<date>; a hotfix into main is not a promote."""
+    payload = json.dumps(
+        [
+            _pull(3427, "2026-10-29T00:00:00Z"),
+            _pull(3532, "2026-11-05T10:00:00Z", head="chore/promote-staging-2026-11-05"),
+            _pull(3533, "2026-11-05T11:00:00Z", head="hotfix/x"),
+        ]
+    )
+    last = g.latest_merge(payload)
+    assert last == g.LastPromote(number=3532, merged_at=datetime(2026, 11, 5, 10, 0, tzinfo=UTC))
+
+
+def test_the_lookup_does_not_filter_the_head_to_staging():
+    """Filtering the query to head=staging would hide every promote-branch merge."""
+    assert "head=" not in g._LOOKUP_ENDPOINT
+    assert "base=main" in g._LOOKUP_ENDPOINT
+
+
+def test_a_promote_branch_merge_hours_ago_refuses_end_to_end(tmp_path):
+    merged_at = (datetime.now(UTC) - timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    stale = (datetime.now(UTC) - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    listing = json.dumps(
+        [_pull(3427, stale), _pull(3532, merged_at, head="chore/promote-staging-2026-11-05")]
+    )
+    result = _hook(tmp_path, GS_PROMOTE, gh_stdout=listing)
+    assert result.returncode == 2
+    assert TOO_SOON in result.stderr
+    assert "(PR #3532)" in result.stderr
+
+
 def test_latest_merge_with_no_merged_promote_is_none():
     assert g.latest_merge(json.dumps([_pull(2, None)])) is None
 
