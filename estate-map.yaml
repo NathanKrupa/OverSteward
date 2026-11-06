@@ -2443,7 +2443,8 @@ invariants:
     issue and one declaring `Closes #<m>` for it, and an open `dispatch-paused` issue refuses everything.
     A dispatch past `ci-red` needs `--override`, recorded as a comment on each open `ci-red` issue.
     The promote guard refuses opening a GS or AG staging→main promote while one is open, but not
-    merging one; it is registered in OverSteward, GS and AG. GS files `ci-red` issues for PRs into
+    merging one; it is registered in OverSteward, and in GS and AG on `staging`; sessions in a GS or
+    AG primary checkout on `main` lack it until the next promote. GS files `ci-red` issues for PRs into
     `staging`, AG for PRs into `staging` and `main`'
   cite: '`src/oversteward/intake/line.py` (`stop_line`), `scripts/intake.py line`; `scripts/ci_red.py`
     (the `ci-red` sweep); `shared/skills/dispatch/SKILL.md` §2, `playbook.md` step 8;
