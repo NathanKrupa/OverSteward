@@ -16,8 +16,8 @@ Each current shape is its first sentence; the full measurement is in the map.
   - registry.yaml holds 16 contexts and drives every sweep and dispatch. gather.py (140 lines) and diff.py (189) back /sync-status. scripts/coordinator.py (18 lines) and scripts/sweep.py (12) are comment-only Phase 2 stubs that nothing calls, deferred until a concrete task re-triggers them (`TODO_BACKLOG.md`, H2-6). → hold
 - `os.dev-family-sow` · live · Canonical worktree/guard/env scripts and hooks, deployed to repos by sow; nightly `sync_repos` timer.
   - sow (6 modules, 1,186 lines) plus dev_family.py (245) deploy the shared/scripts/dev/ family as sync PRs. → Every repo's copies at canon: worktree_doctor.py deployed where it is absent or pre-#571 (OS#572) and new-session.sh redeployed, with /sync-status reporting zero drift.
-- `os.session-sweeps` · live · The session-start sweeps: Sentry triage, Railway liveness, AG ops triage, GS stage health, and the operator-steps channel to Todoist.
-  - Four sweep packages (19 modules, 2,594 lines), each with its own connector, service and renderer, plus operator_steps.py (270 lines). → One sweep runner that owns the exit-code contract and the recorded-verdict ledger, so a new sweep is a source and a renderer.
+- `os.session-sweeps` · live · The session-start sweeps: Sentry triage, Railway liveness, AG ops triage, GS stage health, CI red, and the operator-steps channel to Todoist.
+  - Five sweep packages (23 modules, 3,280 lines), each with its own connector, service and renderer, plus operator_steps.py (270 lines). → One sweep runner that owns the exit-code contract and the recorded-verdict ledger, so a new sweep is a source and a renderer.
 - `os.backup` · live · The laptop backups: a readiness-gated monthly WSL export, a daily restic backup of /home/natha, and the backup health sweep.
   - backup/ (4 modules, 1,271 lines) shipped in OS#581-583. → Docker Desktop volumes either covered by a backup or recorded as deliberately unbacked, with an issue either way.
 - `os.telegraph` · live · Membrane over the GitHub-issue bus (Epic Conductor + cross-repo issue filer); transport is Happy.

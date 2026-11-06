@@ -42,7 +42,7 @@ from oversteward.board.config import RepoRef
 from oversteward.intake import github
 from oversteward.intake.backfill import LABELS, apply_plan, classify_all, plan, render_report
 from oversteward.intake.labels import DISPATCH_LABELS, LabelSpec, ensure_labels
-from oversteward.intake.line import Allowed, stop_line
+from oversteward.intake.line import LINE_OVERRIDE_PREFIX, Allowed, stop_line
 from oversteward.intake.queue import (
     dispatch_queue,
     displaced_by,
@@ -108,7 +108,7 @@ def _override(
     repo: RepoRef, target: int, reason: str, deps: Deps, red_numbers: tuple[int, ...]
 ) -> int:
     """Record ``LINE OVERRIDE:`` on every open ci-red issue; any failed write refuses."""
-    body = f"LINE OVERRIDE: dispatching {repo.id}#{target} \u2014 {reason.strip()}"
+    body = f"{LINE_OVERRIDE_PREFIX} dispatching {repo.id}#{target} \u2014 {reason.strip()}"
     for number in red_numbers:
         try:
             deps.comment_issue(repo.full_name, number, body)

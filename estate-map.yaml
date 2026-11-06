@@ -1985,21 +1985,22 @@ capabilities:
 - id: os.session-sweeps
   kind: code
   purpose: 'The session-start sweeps: Sentry triage, Railway liveness, AG ops triage, GS stage health,
-    and the operator-steps channel to Todoist.'
+    CI red, and the operator-steps channel to Todoist.'
   status: live
   claims:
     oversteward: [src/oversteward/sentry/, src/oversteward/liveness/, src/oversteward/ag_ops/, src/oversteward/stage_health/,
-      scripts/sentry_triage.py, scripts/service_liveness.py, scripts/ag_ops_triage.py, scripts/stage_health.py,
-      scripts/operator_steps.py, shared/scripts/sentry/]
+      src/oversteward/ci_red/, scripts/sentry_triage.py, scripts/service_liveness.py, scripts/ag_ops_triage.py,
+      scripts/stage_health.py, scripts/ci_red.py, scripts/operator_steps.py, shared/scripts/sentry/]
   entry_points:
   - scripts/sentry_triage.py sweep
   - scripts/service_liveness.py
   - scripts/ag_ops_triage.py sweep
   - scripts/stage_health.py sweep
+  - scripts/ci_red.py sweep
   - scripts/operator_steps.py list
-  current_shape: Four sweep packages (19 modules, 2,594 lines), each with its own connector, service and
+  current_shape: Five sweep packages (23 modules, 3,280 lines), each with its own connector, service and
     renderer, plus operator_steps.py (270 lines). They share an exit-code convention written in CLAUDE.md,
-    not in code.
+    not in code. Two keep a verdict ledger of the same shape (stage_health, ci_red), copied, not shared.
   target_shape: One sweep runner that owns the exit-code contract and the recorded-verdict ledger, so
     a new sweep is a source and a renderer.
 - id: os.backup
