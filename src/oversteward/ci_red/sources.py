@@ -74,6 +74,17 @@ class RawIssue:
     comments: tuple[str, ...]
     state: str
     labels: frozenset[str]
+    #: When the issue was opened, and when each comment was posted (parallel to ``comments``),
+    #: as GitHub's ISO-8601 strings.
+    created_at: str = ""
+    comment_times: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class PrInfo:
+    #: ``OPEN``, ``CLOSED`` or ``MERGED``, as GitHub spells it.
+    state: str
+    merged_at: str | None
 
 
 @dataclass(frozen=True)
@@ -86,20 +97,23 @@ class RunInfo:
 def _raw_issue(row: Any, where: str) -> RawIssue:
     if not isinstance(row, dict) or not isinstance(row.get("number"), int):
         raise SourceUnavailableError(f"{where}: gh returned no issue object")
+    comments = tuple(row.get("comments") or ())
     return RawIssue(
         number=row["number"],
         title=row.get("title") or "",
         body=row.get("body") or "",
-        comments=tuple(c.get("body") or "" for c in row.get("comments") or ()),
+        comments=tuple(c.get("body") or "" for c in comments),
         state=str(row.get("state") or "").lower(),
         labels=frozenset(label.get("name", "") for label in row.get("labels") or ()),
+        created_at=str(row.get("createdAt") or ""),
+        comment_times=tuple(str(c.get("createdAt") or "") for c in comments),
     )
 
 
 class GithubCiRed:
     """The ci-red sweep's GitHub reads, and its one write: closing an issue with a comment."""
 
-    _FIELDS = "number,title,body,comments,state,labels"
+    _FIELDS = "number,title,body,comments,state,labels,createdAt"
 
     def __init__(self, *, run_json: Runner = gh_json, run: Runner = gh) -> None:
         self._json = run_json
@@ -139,13 +153,14 @@ class GithubCiRed:
             raise SourceUnavailableError(f"{full_name}#{number}: unexpected state {state!r}")
         return state
 
-    def pr_state(self, full_name: str, number: int) -> str:
-        """``OPEN``, ``CLOSED`` or ``MERGED``, as GitHub spells it."""
-        row = self._read(["pr", "view", str(number), "--repo", full_name, "--json", "state"])
+    def pr_info(self, full_name: str, number: int) -> PrInfo:
+        row = self._read(
+            ["pr", "view", str(number), "--repo", full_name, "--json", "state,mergedAt"]
+        )
         state = row.get("state") if isinstance(row, dict) else None
         if state not in ("OPEN", "CLOSED", "MERGED"):
             raise SourceUnavailableError(f"{full_name} PR #{number}: unexpected state {state!r}")
-        return state
+        return PrInfo(state, row.get("mergedAt") or None)
 
     def run_info(self, full_name: str, run_id: int) -> RunInfo:
         row = self._read(

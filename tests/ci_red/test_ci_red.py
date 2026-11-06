@@ -13,6 +13,7 @@ import pytest
 
 from oversteward.ci_red.sources import (
     GithubCiRed,
+    PrInfo,
     RawIssue,
     RunInfo,
     SourceUnavailableError,
@@ -38,6 +39,8 @@ WHEN = datetime(2026, 11, 5, 12, 0, tzinfo=UTC)
 SHA = "a" * 40
 OTHER_SHA = "b" * 40
 CI_WORKFLOW_ID = 77
+RED_AT = "2026-11-05T10:00:00Z"
+MERGED_AFTER = "2026-11-05T12:00:00Z"
 
 GS = Target("grantspider", "NathanKrupa/grantspider", Path("/gs"), "staging")
 FISCUS = Target("fiscus", "NathanKrupa/fiscus", Path("/fiscus"), "main")
@@ -76,6 +79,8 @@ def red_issue(number: int = 5, comments: tuple[str, ...] = (), **kw) -> RawIssue
         "comments": comments,
         "state": "open",
         "labels": frozenset({"ci-red", "agent-finding"}),
+        "created_at": RED_AT,
+        "comment_times": tuple(RED_AT for _ in comments),
     }
     fields.update(kw)
     return RawIssue(**fields)
@@ -111,12 +116,17 @@ class FakeSource:
         self._check(("state", full_name, number))
         return self.issue_states[(full_name, number)]
 
-    def pr_state(self, full_name, number):
+    def pr_info(self, full_name, number):
         self._check(("pr", full_name, number))
-        return self.prs[(full_name, number)]
+        state = self.prs[(full_name, number)]
+        if isinstance(state, PrInfo):
+            return state
+        return PrInfo(state, MERGED_AFTER if state == "MERGED" else None)
 
     def run_info(self, full_name, run_id):
         self._check(("run", full_name, run_id))
+        if (full_name, run_id) not in self.runs:
+            raise SourceUnavailableError(f"run {run_id} not found")  # as gh answers
         return self.runs[(full_name, run_id)]
 
     def close(self, full_name, number, comment):
@@ -410,9 +420,10 @@ def test_targets_from_registry_reads_checkout_and_branch():
         {"id": "other", "repo": "https://github.com/NathanKrupa/other.git"},
     ]}
     assert targets_from_registry(registry) == [GS]
-    del registry["contexts"][0]["branch"]
-    with pytest.raises(ValueError, match="names no local_path or branch"):
-        targets_from_registry(registry)
+    for key in ("branch", "local_path"):
+        broken = {"contexts": [{**registry["contexts"][0], key: None}]}
+        with pytest.raises(ValueError, match="names no local_path or branch"):
+            targets_from_registry(broken)
 
 
 def test_watched_reads_the_alert_job_from_the_ref():
@@ -440,7 +451,7 @@ def test_github_connector_turns_gh_failure_into_unavailable():
         raise GhError("exit 1")
 
     with pytest.raises(SourceUnavailableError, match="exit 1"):
-        GithubCiRed(run_json=boom).pr_state("o/r", 1)
+        GithubCiRed(run_json=boom).pr_info("o/r", 1)
     with pytest.raises(SourceUnavailableError, match="exit 1"):
         GithubCiRed(run=boom).close("o/r", 1, "c")
 
@@ -486,3 +497,81 @@ def test_record_before_any_sweep_refuses(store):
     with pytest.raises(VerdictError, match="no measured sweep on record"):
         _record(store, source, "fixed", "grantspider#13")
     assert source.closed == []
+
+
+# --- record fixed: the ref must be a later, different PR in the same repo ----------
+
+
+@pytest.mark.parametrize(
+    ("ref", "prs", "message"),
+    [
+        ("grantspider#12", {12: "MERGED"}, "is the PR that went red"),
+        ("fiscus#13", {13: "MERGED"}, "is not <repo>#<n> for a dispatch target \\(grantspider\\)"),
+        ("grantspider#13", {13: PrInfo("MERGED", "2026-11-05T09:59:59Z")}, "not after the red"),
+        ("grantspider#13", {13: PrInfo("MERGED", RED_AT)}, "not after the red"),
+        ("grantspider#13", {13: PrInfo("MERGED", None)}, "not after the red"),
+    ],
+    ids=["red-pr-itself", "other-repo", "merged-before", "merged-at-the-red", "no-merge-time"],
+)
+def test_fixed_refuses_a_ref_that_cannot_be_the_fix(store, ref, prs, message):
+    _pending(store)
+    source = FakeSource({GS.full_name: [red_issue(5)]},
+                        prs={(GS.full_name, n): s for n, s in prs.items()} | {
+                            (FISCUS.full_name, 13): "MERGED"})
+    with pytest.raises(VerdictError, match=message):
+        _record(store, source, "fixed", ref)
+    assert source.closed == []
+
+
+def test_fixed_measures_from_the_latest_repeat_red(store):
+    _pending(store)
+    repeat = red_issue(5, comments=(details(OTHER_SHA, 950), "a plain comment"))
+    repeat = RawIssue(**{**repeat.__dict__,
+                         "comment_times": ("2026-11-05T13:00:00Z", "2026-11-05T14:00:00Z")})
+    source = FakeSource({GS.full_name: [repeat]}, prs={(GS.full_name, 13): "MERGED"})
+    with pytest.raises(VerdictError, match="not after the red reported at 2026-11-05T13:00:00"):
+        _record(store, source, "fixed", "grantspider#13")
+    source.prs[(GS.full_name, 13)] = PrInfo("MERGED", "2026-11-05T13:30:00Z")
+    assert _record(store, source, "fixed", "grantspider#13").ref == "grantspider#13"
+
+
+def test_fixed_refuses_when_the_red_time_cannot_be_read(store):
+    _pending(store)
+    source = FakeSource({GS.full_name: [red_issue(5, created_at="")]},
+                        prs={(GS.full_name, 13): "MERGED"})
+    with pytest.raises(VerdictError, match="when the red was reported could not be read"):
+        _record(store, source, "fixed", "grantspider#13")
+    assert source.closed == []
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        details().replace("- Commit tested:", "- Commit:"),
+        details().replace("- Run:", "- Log:"),
+    ],
+    ids=["no-commit-line", "no-run-line"],
+)
+def test_green_refuses_an_issue_missing_its_commit_or_run(store, body):
+    _pending(store)
+    source = FakeSource(
+        {GS.full_name: [red_issue(5, body=body)]},
+        runs={(GS.full_name, 901): RunInfo("success", SHA, CI_WORKFLOW_ID),
+              (GS.full_name, 900): RunInfo("failure", SHA, CI_WORKFLOW_ID)},
+    )
+    with pytest.raises(VerdictError, match="reports no tested commit and run"):
+        _record(store, source, "green", "901")
+    assert source.closed == []
+
+
+def test_github_connector_reads_timestamps_and_merge_time():
+    def run_json(args):
+        if args[0] == "pr":
+            return {"state": "MERGED", "mergedAt": MERGED_AFTER}
+        return {"number": 5, "title": "t", "state": "OPEN", "createdAt": RED_AT,
+                "comments": [{"body": "b", "createdAt": MERGED_AFTER}]}
+
+    gh = GithubCiRed(run_json=run_json)
+    raw = gh.issue("o/r", 5)
+    assert (raw.created_at, raw.comment_times) == (RED_AT, (MERGED_AFTER,))
+    assert gh.pr_info("o/r", 13) == PrInfo("MERGED", MERGED_AFTER)

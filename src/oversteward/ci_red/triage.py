@@ -6,13 +6,16 @@
 An open ``ci-red`` issue stops the line (``intake/line.py``) and the promote
 (``guard_promote_ci_red.py``). The alert that files it never closes it, so
 something must, or the line stays stopped after the fix. This module is that
-something, and it closes nothing it has not verified.
+something, and it closes nothing whose ref has not verified as described below.
 
 **Verdicts.** Each open ci-red issue is keyed ``<repo>#<n>`` (the registry id)
 and takes one of five:
 
-- ``fixed --ref <repo>#<pr>`` — that PR is MERGED. The issue is closed with a
-  comment naming it.
+- ``fixed --ref <repo>#<pr>`` — that PR, in the issue's own repository, is not
+  the PR that went red, and MERGED after the latest red was reported (the issue
+  opened, or a repeat-red comment posted). The issue is closed with a comment
+  naming it. This verifies that a later change landed, not that it cured the
+  red: a fix that did not shows up as the next red, which files a new issue.
 - ``unmerged --ref <pr>`` — the PR that went red (the one the issue's title
   names) closed without merging, so no red code landed. The issue is closed.
 - ``green --ref <run id>`` — that run of the same workflow concluded
@@ -48,6 +51,7 @@ from oversteward.intake.line import LINE_OVERRIDE_PREFIX, PROMOTE_OVERRIDE_PREFI
 
 from .sources import (
     STATE_OPEN,
+    PrInfo,
     RawIssue,
     RunInfo,
     SourceUnavailableError,
@@ -93,7 +97,7 @@ class CiRedSource(Protocol):
 
     def issue_state(self, full_name: str, number: int) -> str: ...
 
-    def pr_state(self, full_name: str, number: int) -> str: ...
+    def pr_info(self, full_name: str, number: int) -> PrInfo: ...
 
     def run_info(self, full_name: str, run_id: int) -> RunInfo: ...
 
@@ -113,6 +117,8 @@ class CiRedIssue:
     #: The commit the latest red reports testing, and that red's run.
     tested_sha: str | None
     red_run: int | None
+    #: When the latest red was reported; ``None`` when a timestamp could not be read.
+    red_at: datetime | None
     overrides: int
 
     @property
@@ -123,6 +129,25 @@ class CiRedIssue:
 def _last(pattern: re.Pattern[str], texts: Sequence[str]) -> str | None:
     found = [m.group(1) for text in texts for m in pattern.finditer(text)]
     return found[-1] if found else None
+
+
+def _timestamp(text: str) -> datetime | None:
+    try:
+        stamp = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    return stamp if stamp.tzinfo is not None else None
+
+
+def _red_at(raw: RawIssue) -> datetime | None:
+    """The issue's opening, or the last comment carrying a details block, whichever is later."""
+    if len(raw.comment_times) != len(raw.comments):
+        return None
+    latest = raw.created_at
+    for body, posted in zip(raw.comments, raw.comment_times, strict=True):
+        if _TESTED.search(body):
+            latest = posted
+    return _timestamp(latest)
 
 
 def ci_red_issue(repo: str, raw: RawIssue) -> CiRedIssue:
@@ -137,6 +162,7 @@ def ci_red_issue(repo: str, raw: RawIssue) -> CiRedIssue:
         red_pr=int(pr.group(1)) if pr else None,
         tested_sha=_last(_TESTED, texts),
         red_run=int(run) if run else None,
+        red_at=_red_at(raw),
         overrides=sum(1 for c in raw.comments if c.lstrip().startswith(OVERRIDE_PREFIXES)),
     )
 
@@ -263,7 +289,7 @@ def _repo_ref(text: str, targets: dict[str, Target]) -> tuple[Target, int]:
     return targets[match["repo"]], int(match["number"])
 
 
-def _read(call: Callable[[], object]) -> object:
+def _read[T](call: Callable[[], T]) -> T:
     try:
         return call()
     except SourceUnavailableError as exc:
@@ -340,11 +366,21 @@ def sweep(
 # --- record -------------------------------------------------------------------------
 
 
-def _verify_fixed(ref: str, source: CiRedSource, targets: dict[str, Target]) -> str:
-    target, number = _repo_ref(ref, targets)
-    state = _read(lambda: source.pr_state(target.full_name, number))
-    if state != "MERGED":
-        raise VerdictError(f"{ref} is {state}, not MERGED — an unlanded fix fixes nothing")
+def _verify_fixed(ref: str, issue: CiRedIssue, target: Target, source: CiRedSource) -> str:
+    _, number = _repo_ref(ref, {target.id: target})
+    if number == issue.red_pr:
+        raise VerdictError(f"{ref} is the PR that went red, not a fix of it")
+    if issue.red_at is None:
+        raise VerdictError(f"{issue.key}: when the red was reported could not be read")
+    pr = _read(lambda: source.pr_info(target.full_name, number))
+    if pr.state != "MERGED":
+        raise VerdictError(f"{ref} is {pr.state}, not MERGED — an unlanded fix fixes nothing")
+    merged_at = _timestamp(pr.merged_at or "")
+    if merged_at is None or merged_at <= issue.red_at:
+        raise VerdictError(
+            f"{ref} merged at {pr.merged_at}, not after the red reported at "
+            f"{issue.red_at.isoformat()}"
+        )
     return f"{target.id}#{number}"
 
 
@@ -355,7 +391,7 @@ def _verify_unmerged(ref: str, issue: CiRedIssue, target: Target, source: CiRedS
     number = int(match["number"])
     if issue.red_pr != number:
         raise VerdictError(f"{issue.key} names PR #{issue.red_pr}, not #{number}")
-    state = _read(lambda: source.pr_state(target.full_name, number))
+    state = _read(lambda: source.pr_info(target.full_name, number)).state
     if state != "CLOSED":
         raise VerdictError(f"{target.id} PR #{number} is {state}, not CLOSED without merging")
     return f"{target.id}#{number}"
@@ -427,7 +463,7 @@ def record(
     by_id = _by_id(targets)
     target, issue = _open_issue(key, by_id, source)
     if verdict == VERDICT_FIXED:
-        verified = _verify_fixed(ref, source, by_id)
+        verified = _verify_fixed(ref, issue, target, source)
     elif verdict == VERDICT_UNMERGED:
         verified = _verify_unmerged(ref, issue, target, source)
     elif verdict == VERDICT_GREEN:
