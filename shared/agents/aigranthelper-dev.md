@@ -60,7 +60,22 @@ PR reported is the signal worth acting on.
 **`ci.yml`** (workflow `CI`) — the real gates:
 
 - **`ci-light`** — ruff, the untyped-function ratchet, gaudi (ERROR-only gate) plus its SMELL-003/ARCH-013 ratchets, the boy-scout per-file ratchet, bandit, pip-audit. No database.
-- **`ci-heavy`** — pytest and research-drift against a real `pgvector/pgvector:pg17` service container.
+- **`smoke-guards`** and **`mobile-matrix`** — the browser-driven guards, on every PR to `staging` and `main`.
+- **`ci-heavy`** — pytest and research-drift against a real `pgvector/pgvector:pg17` service container. PRs to `main` only; it skips staging PRs.
+- **`ci-red-alert`** — runs only when one of the four above ends `failure` or `cancelled` on a PR into `staging` **or** `main`, and opens (or comments on) a `ci-red` issue for that PR through `scripts/ci/ci_red_alert.py`. That script is a byte-copy of grantspider's, which is canonical; OverSteward's `tests/test_ci_red_alert_copies.py` compares the two.
+
+Every job checks out the **PR head SHA** (`github.event.pull_request.head.sha`),
+not the merge ref, and the ratchets in `ci-light` compare against the
+**merge-base** of the event's recorded base SHA and that head — never
+`origin/$BASE_REF`, which auto-merge has usually already advanced past the PR.
+
+No check is required, so a PR usually merges before CI reports; a red run is
+not lost, because it lands as an open `ci-red` issue, and an open `ci-red`
+issue stops dispatch on this repo until it closes. **The promote guard
+`.claude/hooks/guard_promote_ci_red.py` is deployed** on `staging` (registered
+in `.claude/settings.json`; `main` gets it at the next promote): it refuses
+opening a `staging` → `main` promote PR while any `ci-red` issue is open, and
+refuses with a different message when it could not ask GitHub.
 
 **`ci-passthrough.yml`** (workflow `CI Passthrough (docs-only)`) — reports
 **`Lint`, `Types`, `Gaudi-ratchet`, `Security`, `Test`, `research-drift-check`**
@@ -78,8 +93,15 @@ for the real verdict.
 `Lint` in 3s, `Types` in 2s, while `ci-light` was still running. A `Test` that
 passes in five seconds did not run a test suite.
 
-`ci-passthrough.yml` requires job-count and name parity with `ci.yml`. If you
-add or rename a job in one, mirror it in the other.
+`ci.yml` and the passthrough do **not** share job names, and nothing needs them
+to: no protection rule reads either set. The passthrough's own header still
+asks for parity; the header is stale. Compare the two lists rather than trusting either:
+
+```bash
+for f in ci ci-passthrough; do
+  git show origin/staging:.github/workflows/$f.yml | grep -E '^    name:'
+done
+```
 
 **There are no required status checks on `main` or `staging`** — last verified
 against the branch-protection API, `required_status_checks.contexts` was `[]` on
