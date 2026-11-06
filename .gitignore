@@ -72,6 +72,11 @@ data/sentry/pending.json
 .claude/skills/stage-health/ledger.jsonl
 .claude/skills/stage-health/pending.json
 
+# Per-machine ci-red verdict ledger and last-sweep snapshot (OS#664) — runtime state;
+# the durable record of a closing verdict is the comment it closed the issue with.
+data/ci_red/ledger.jsonl
+data/ci_red/pending.json
+
 # Dispatch agent worktrees (registered git worktrees, ephemeral per-machine)
 .claude/worktrees/
 

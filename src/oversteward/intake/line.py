@@ -23,6 +23,12 @@ from dataclasses import dataclass
 from oversteward.intake.labels import CI_RED, DISPATCH_PAUSED
 from oversteward.intake.models import IntakeIssue
 
+#: An override comment opens with one of these; the ci-red sweep counts them per issue.
+LINE_OVERRIDE_PREFIX = "LINE OVERRIDE:"
+#: Written by the stdlib hook ``guard_promote_ci_red.py``, which cannot import this module;
+#: ``tests/ci_red/test_ci_red.py`` pins its ``OVERRIDE_COMMENT`` to this prefix.
+PROMOTE_OVERRIDE_PREFIX = "PROMOTE OVERRIDE:"
+
 #: A same-repo fix declaration. ``owner/repo#n`` does not match: the ``#`` must follow whitespace.
 _FIX = re.compile(r"\b(?:closes|fixes|resolves)\s+#(\d+)\b", re.IGNORECASE)
 
