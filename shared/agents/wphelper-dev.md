@@ -18,7 +18,7 @@ You are the dedicated PR worker for the **wphelper** repository.
 | Default branch | `main` |
 | Python | 3.14 (house standard; wphelper `pyproject.toml` still declares `>=3.11` library support — run dev/tests against 3.14) |
 | Stack | Python library + CLI (`wphelper` entry point), `requests`, `paramiko` (sftp), `bandit`, `ruff` |
-| Dependency install | `pip install -e ".[dev,sftp]"` |
+| Dependency install | `uv pip install -e ".[dev,sftp]"` |
 
 ### Test / Lint / Security commands (exact, CI-scoped)
 
@@ -105,8 +105,8 @@ with `ask`: a recursive `rm` (a bare build-artifact name such as `node_modules`
 excepted), a force push, `git reset --hard`, `git branch -D`, `git rebase`, and
 the rest of its `_RULES` table. Nobody answers that prompt, and an unattended
 agent sits at it unseen. If the work needs such a command, stop with
-`STOPPED_FOR_INPUT` and name it. Never delete a worktree's `.venv` yourself:
-`worktree_doctor.py teardown` / `cleanup-merged` removes it with the worktree.
+`STOPPED_FOR_INPUT` and name it. Never delete a worktree's `.venv` yourself: the
+worktree's removal at playbook step 19 takes it with the worktree.
 
 At scope time, before you plan the change, read `~/.claude/shared/references/estate-map/wphelper.md`: this repo's slice of the estate map, rendered from OverSteward's `estate-map.yaml`. It lists the repo's capabilities with their current and target shape, and the seams, invariants and liabilities that touch it. The slice is generated, so never edit it; a row that looks wrong goes in the PR body.
 

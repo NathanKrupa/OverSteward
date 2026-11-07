@@ -97,8 +97,8 @@ with `ask`: a recursive `rm` (a bare build-artifact name such as `node_modules`
 excepted), a force push, `git reset --hard`, `git branch -D`, `git rebase`, and
 the rest of its `_RULES` table. Nobody answers that prompt, and an unattended
 agent sits at it unseen. If the work needs such a command, stop with
-`STOPPED_FOR_INPUT` and name it. Never delete a worktree's `.venv` yourself:
-`worktree_doctor.py teardown` / `cleanup-merged` removes it with the worktree.
+`STOPPED_FOR_INPUT` and name it. Never delete a worktree's `.venv` yourself: the
+worktree's removal at playbook step 19 takes it with the worktree.
 
 At scope time, before you plan the change, read `~/.claude/shared/references/estate-map/exchequer.md`: this repo's slice of the estate map, rendered from OverSteward's `estate-map.yaml`. It lists the repo's capabilities with their current and target shape, and the seams, invariants and liabilities that touch it. The slice is generated, so never edit it; a row that looks wrong goes in the PR body.
 
