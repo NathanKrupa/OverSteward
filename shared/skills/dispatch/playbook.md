@@ -34,6 +34,7 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
 
 ### Pre-flight
 
+0. **Stamp the start.** Your first command is `date -u +%Y-%m-%dT%H:%M:%SZ`. Its output is the report's `started_at`. Run it again just before step 20 for `ended_at`.
 1. **Concurrency check.** Scan repo for open PRs with branch pattern `^(fix|feat|docs|ci|refactor|cleanup)/issue-<n>-`. If a PR matching THIS issue number exists as a draft (STOPPED_FOR_INPUT re-dispatch case), remember its branch name for step 6. If any OTHER agent PR is open on the repo with ANY issue number, STOP — "another agent in flight, refusing to race."
 2. **Branch collision recovery.** Compute the target branch name `<type>/issue-<n>-<slug>`. Check if it exists on origin:
    - **Not present** → proceed.
@@ -301,7 +302,7 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
 
 ### Final
 
-20. **Emit structured report** (see format below). This is your final message and IS the result returned to the session — make it the last thing you output.
+20. **Emit structured report** (see format below). Take the `ended_at` stamp first (step 0). This is your final message and IS the result returned to the session — make it the last thing you output.
 
 ## Reconciliation with the global PR workflow
 
@@ -456,13 +457,17 @@ lines_changed: +N / -M
 tests: "X/Y passed" | "failed: <summary>"
 lint: clean | "N findings fixed" | failing
 large_pr: true | false
-duration_seconds: <int>
+started_at: <step 0's `date -u +%Y-%m-%dT%H:%M:%SZ` output>
+ended_at: <the same command, run just before this report>
+duration_seconds: <int: ended_at - started_at, computed from the two stamps>
 worktree_cleaned: true | false
 continued_existing_branch: true | false
 orphan_branch_deleted: "<name>" | null
 question: "<text>" | null
 notes: "anything unexpected"
 ```
+
+`duration_seconds` is a measurement, never an estimate. The orchestrator checks it with `scripts/dispatch/dispatch_run.py report`. That check fails a report whose duration differs from `ended_at - started_at` by more than a second, or from the transcript's own span by more than 300 seconds. (OS#674: the AG#2736 agent reported 9000 for a run whose transcript spans 27,059 seconds.)
 
 ## Failure Cleanup (always release resources)
 

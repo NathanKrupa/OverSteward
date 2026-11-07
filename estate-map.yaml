@@ -2119,6 +2119,7 @@ capabilities:
   claims:
     oversteward:
     - src/oversteward/intake/
+    - src/oversteward/dispatch_run.py
     - src/oversteward/shelve/
     - scripts/intake.py
     - scripts/shelve_sweep.py
