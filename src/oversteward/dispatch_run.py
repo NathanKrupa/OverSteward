@@ -9,7 +9,9 @@ Two questions, both raised by OS#674 (AG#2736, 2026-11-07):
   subagent then waits for a human who is not watching, and nothing reaches the
   orchestrator. The transcript records it: a ``PreToolUse`` hook attachment
   carrying the ``ask`` for a ``tool_use`` id, and no ``tool_result`` for that id
-  after it. AG#2736 sat that way from 03:52 to 10:36 UTC.
+  after it. AG#2736 sat that way from 03:52 to 10:36 UTC. A prompt the harness
+  raises by its own permission rules, with no hook involved, leaves no such
+  attachment, and this does not see it.
 * **Was ``duration_seconds`` measured?** That agent reported 9000 for a run of
   about 27,060 seconds. A duration is measured when it equals the difference of
   the ``started_at`` and ``ended_at`` stamps the report carries, and, given the
@@ -65,7 +67,7 @@ def read_entries(path: Path) -> list[dict]:
     """Every JSON entry of a transcript, in order.
 
     A transcript is appended while the agent runs, so a final line that does not
-    parse is a write still in progress and is dropped. A bad line anywhere else
+    parse is read as a write still in progress and dropped. A bad line anywhere else
     means the file is not a transcript, and raises.
     """
     try:
@@ -143,8 +145,15 @@ def recent_transcripts(root: Path, now: datetime, window_hours: float) -> list[P
     longest hold worth reporting; it bounds the sweep, not the detection.
     """
     cutoff = now.timestamp() - window_hours * 3600
-    found = root.glob("*/*/subagents/agent-*.jsonl")
-    return sorted(path for path in found if path.stat().st_mtime >= cutoff)
+    recent = []
+    for path in root.glob("*/*/subagents/agent-*.jsonl"):
+        try:
+            written = path.stat().st_mtime
+        except FileNotFoundError:
+            continue  # removed between the listing and the stat: nothing to read
+        if written >= cutoff:
+            recent.append(path)
+    return sorted(recent)
 
 
 def transcript_span_s(entries: Iterable[Mapping]) -> float | None:
