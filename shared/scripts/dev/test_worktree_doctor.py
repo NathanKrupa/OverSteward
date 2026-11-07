@@ -765,6 +765,68 @@ def test_a_real_venv_directory_is_never_deleted_as_scaffolding(doctor, tmp_path)
     assert (worktree / ".venv" / "bin").is_dir()
 
 
+def _dedicated_venv(worktree: Path, *, ignored: bool) -> Path:
+    """A private venv built inside ``worktree`` in place of the launcher's symlink.
+
+    Its console script's shebang names the worktree, the way ``uv venv`` writes
+    one. ``ignored`` commits a ``.venv`` ignore line first, as every estate repo
+    carries; without it git sees the venv as untracked work.
+    """
+    if ignored:
+        (worktree / ".gitignore").write_text(".venv\n", encoding="utf-8")
+        _git(worktree, "add", ".gitignore")
+        _git(worktree, "commit", "-qm", "ignore the venv")
+    (worktree / ".venv").unlink()
+    venv_bin = worktree / ".venv" / "bin"
+    venv_bin.mkdir(parents=True)
+    (venv_bin / "pytest").write_text(f"#!{venv_bin / 'python'}\n", encoding="utf-8")
+    return worktree / ".venv"
+
+
+def test_an_ignored_dedicated_venv_goes_with_the_worktree(doctor, tmp_path):
+    """OS#674: the removal takes a private venv itself, so no agent needs ``rm -rf``.
+
+    The AG#2736 agent deleted its own venv before the doctor ran, and the
+    confirmation prompt that ``rm -rf`` raises held it for 6h44m. An ignored
+    directory never refuses ``git worktree remove``; this pins that it is gone
+    afterwards, through the full verb.
+    """
+    repo, worktree = _make_git_repo(tmp_path)
+    venv = _dedicated_venv(worktree, ignored=True)
+    docker = _bench_docker("repo_test_demo")
+
+    rc = doctor.teardown(
+        worktree,
+        doctor.default_venvs(worktree),
+        docker=docker,
+        remove=doctor.remove_worktree,
+        name="repo_test_demo",
+    )
+
+    assert rc == 0
+    assert not venv.exists()
+    assert not worktree.exists()
+
+
+def test_an_unignored_dedicated_venv_refuses_and_is_kept(doctor, tmp_path):
+    """A venv git cannot see as ignored is untracked work: refuse, delete nothing."""
+    repo, worktree = _make_git_repo(tmp_path)
+    venv = _dedicated_venv(worktree, ignored=False)
+    docker = _bench_docker("repo_test_demo")
+
+    rc = doctor.teardown(
+        worktree,
+        doctor.default_venvs(worktree),
+        docker=docker,
+        remove=doctor.remove_worktree,
+        name="repo_test_demo",
+    )
+
+    assert rc == 1
+    assert (venv / "bin" / "pytest").is_file()
+    assert not any("dropdb" in call for call in docker.calls)
+
+
 def test_a_tracked_envrc_is_never_deleted_as_scaffolding(doctor, tmp_path):
     """OS#308: grantspider commits its ``.envrc``, so the name alone proves nothing.
 
