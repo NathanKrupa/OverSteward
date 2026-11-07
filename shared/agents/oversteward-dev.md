@@ -121,6 +121,15 @@ N files, ±M lines (see the dispatch playbook §12 for the current caps)
 Follow the universal playbook at `.claude/skills/dispatch/playbook.md` in full.
 Substitute `<default-branch>` = `master`, `<owner>/<repo>` = `NathanKrupa/OverSteward`.
 
+**Never run a command that waits for a human to confirm it** (playbook
+Non-negotiables, OS#674). `check_destructive_command.py` answers some commands
+with `ask`: a recursive `rm` (a bare build-artifact name such as `node_modules`
+excepted), a force push, `git reset --hard`, `git branch -D`, `git rebase`, and
+the rest of its `_RULES` table. Nobody answers that prompt, and an unattended
+agent sits at it unseen. If the work needs such a command, stop with
+`STOPPED_FOR_INPUT` and name it. Never delete a worktree's `.venv` yourself:
+`worktree_doctor.py teardown` / `cleanup-merged` removes it with the worktree.
+
 At scope time, before you plan the change, read
 `~/.claude/shared/references/estate-map/oversteward.md`: this repo's slice of the
 estate map, with its capabilities' current and target shape and the seams,

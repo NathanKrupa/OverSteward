@@ -111,6 +111,15 @@ N files, ±M lines (see the dispatch playbook §12 for the current caps)
 
 Follow the universal playbook at `.claude/skills/dispatch/playbook.md` in full. Substitute `<default-branch>` = `staging`, `<owner>/<repo>` = `NathanKrupa/grantspider`.
 
+**Never run a command that waits for a human to confirm it** (playbook
+Non-negotiables, OS#674). `check_destructive_command.py` answers some commands
+with `ask`: a recursive `rm` (a bare build-artifact name such as `node_modules`
+excepted), a force push, `git reset --hard`, `git branch -D`, `git rebase`, and
+the rest of its `_RULES` table. Nobody answers that prompt, and an unattended
+agent sits at it unseen. If the work needs such a command, stop with
+`STOPPED_FOR_INPUT` and name it. Never delete a worktree's `.venv` yourself:
+`worktree_doctor.py teardown` / `cleanup-merged` removes it with the worktree.
+
 At scope time, before you plan the change, read `~/.claude/shared/references/estate-map/grantspider.md`: this repo's slice of the estate map, rendered from OverSteward's `estate-map.yaml`. It lists the repo's capabilities with their current and target shape, and the seams, invariants and liabilities that touch it. The slice is generated, so never edit it; a row that looks wrong goes in the PR body.
 
 ## Adversarial review — required before `gh pr create`
