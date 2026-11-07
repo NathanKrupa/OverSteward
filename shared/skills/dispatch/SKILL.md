@@ -153,10 +153,10 @@ It polls for the agent's `issue-<n>-…` branch and exits `0` (progressing) once
 Arm the prompt watch beside it, in the same way. An agent held on a confirmation prompt pushes nothing and writes nothing, and that can happen at any stage, after merge included: AG#2736 sat at one for 6h44m after its PR merged (OS#674).
 
 ```bash
-uv run python scripts/dispatch/dispatch_run.py prompts --watch --for-min 480
+uv run python scripts/dispatch/dispatch_run.py prompts --watch --for-min 480 --session <session-id>
 ```
 
-Once a minute it reads every subagent transcript under `~/.claude/projects/` written to in the last 24 hours. It exits `3`, naming the transcript and the tool call, once any call has waited `--warn-min` (default 10) minutes on a `PreToolUse` `ask` with no result after it. It exits `0` after `--for-min` with none held, `1` if a transcript cannot be read, and `2` if there was nothing to read. The session cannot see or answer the prompt. On an alert, `TaskStop` the agent and finish what it had left, since §5 cleanup is standing-authorized.
+`<session-id>` is this session's own id: the directory just above `scratchpad` in the session's scratchpad path. With it, the watch reads only the subagents this session launched. Without it, a held agent in another session would end the watch and name an agent this session does not own. Once a minute it reads every subagent transcript of the session under `~/.claude/projects/` written to in the last 24 hours. It exits `3`, naming the transcript and the tool call, once any call has waited `--warn-min` (default 10) minutes on a `PreToolUse` `ask` with no result after it. It exits `0` after `--for-min` with none held, `1` if a transcript cannot be read, and `2` if there was nothing to read. The session cannot see or answer the prompt. On an alert, `TaskStop` the agent and finish what it had left, since §5 cleanup is standing-authorized. An agent stopped while it was held may leave its `ask` unanswered in the transcript (unmeasured). If an alert names an agent that has already returned, it is that stale entry, not a new hold.
 
 **The session never arms `Monitor`, `ScheduleWakeup` or a polling Bash loop
 directly; it launches `watch` (sonnet, foreground) and reads one report.**

@@ -138,15 +138,21 @@ def blocked_prompts(
     return [p for p in pending_prompts(entries, transcript) if p.age_min(now) >= warn_min]
 
 
-def recent_transcripts(root: Path, now: datetime, window_hours: float) -> list[Path]:
+def recent_transcripts(
+    root: Path, now: datetime, window_hours: float, session: str | None = None
+) -> list[Path]:
     """Subagent transcripts under ``root`` written to within ``window_hours``.
 
-    A held agent writes nothing while it waits, so the window must outlast the
-    longest hold worth reporting; it bounds the sweep, not the detection.
+    ``session`` limits the sweep to one session's subagents, so an orchestrator
+    watches the agents it launched and not another session's. A held agent
+    writes nothing while it waits, so the window must outlast the longest hold
+    worth reporting; it bounds the sweep, not the detection.
     """
+    if session is not None and (session in {"", ".", ".."} or set(session) & set("/\\*?[]")):
+        raise ValueError(f"session {session!r} is not a session id")
     cutoff = now.timestamp() - window_hours * 3600
     recent = []
-    for path in root.glob("*/*/subagents/agent-*.jsonl"):
+    for path in root.glob(f"*/{session or '*'}/subagents/agent-*.jsonl"):
         try:
             written = path.stat().st_mtime
         except FileNotFoundError:

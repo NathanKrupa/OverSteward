@@ -33,7 +33,7 @@ def _prompts(args: argparse.Namespace) -> int:
     def find(now: datetime) -> list[Path]:
         if args.transcript:
             return [Path(p) for p in args.transcript]
-        return dispatch_run.recent_transcripts(args.root, now, args.window_hours)
+        return dispatch_run.recent_transcripts(args.root, now, args.window_hours, args.session)
 
     try:
         if args.watch:
@@ -44,6 +44,9 @@ def _prompts(args: argparse.Namespace) -> int:
     except dispatch_run.TranscriptUnreadable as error:
         print(f"could not read a transcript: {error}")
         return 1
+    except ValueError as error:
+        print(f"could not look: {error}")
+        return 2
     if result.checked == 0:
         print(f"nothing to look at: no subagent transcript under {args.root}")
         return 2
@@ -81,6 +84,7 @@ def build_parser() -> argparse.ArgumentParser:
     prompts = sub.add_parser("prompts", help="find a subagent held on a confirmation prompt")
     prompts.add_argument("--root", type=Path, default=DEFAULT_ROOT)
     prompts.add_argument("--transcript", action="append", help="check only this transcript")
+    prompts.add_argument("--session", help="check only this session's subagents (its id)")
     prompts.add_argument("--warn-min", type=float, default=10.0)
     prompts.add_argument("--window-hours", type=float, default=24.0)
     prompts.add_argument("--watch", action="store_true", help="poll until held or --for-min")

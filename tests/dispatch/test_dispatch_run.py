@@ -177,6 +177,33 @@ def test_the_cli_alerts_with_exit_3_and_names_the_transcript(tmp_path, capsys):
     assert "1 held prompt(s) across 1 transcript(s) checked" in out
 
 
+def test_a_session_watch_ignores_another_sessions_held_agent(tmp_path, capsys):
+    """Only the other session's subagent is held; this session's is clear."""
+    other = _held_tree(tmp_path)
+    _write(tmp_path / "-home-natha-OverSteward" / "mine" / "subagents" / "agent-b.jsonl", _entries())
+
+    scoped = cli.main(["prompts", "--root", str(tmp_path), "--session", "mine"])
+    scoped_out = capsys.readouterr().out
+    unscoped = cli.main(["prompts", "--root", str(tmp_path)])
+
+    assert scoped == 0
+    assert "0 held prompt(s) across 1 transcript(s) checked" in scoped_out
+    assert str(other) not in scoped_out
+    assert unscoped == 3
+
+
+@pytest.mark.parametrize("session", ["..", "a/b", "*", ""])
+def test_a_session_that_is_not_an_id_could_not_look(tmp_path, capsys, session):
+    _held_tree(tmp_path)
+
+    rc = cli.main(["prompts", "--root", str(tmp_path), "--session", session])
+
+    out = capsys.readouterr().out
+    assert rc == 2
+    assert "is not a session id" in out
+    assert "Traceback" not in out
+
+
 def test_the_cli_is_clear_with_exit_0_and_counts_what_it_read(tmp_path, capsys):
     _write(tmp_path / "p" / "s" / "subagents" / "agent-b.jsonl", _entries())
 
@@ -355,6 +382,21 @@ def test_the_cli_fails_the_ag2736_report_with_exit_1(tmp_path, capsys):
     out = capsys.readouterr().out
     assert rc == 1
     assert "NOT MEASURED: started_at is missing" in out
+
+
+def test_the_cli_checks_fitted_stamps_against_the_transcript(tmp_path, capsys):
+    """The stamps agree with 9000; only the transcript's span shows the estimate."""
+    report = tmp_path / "report.md"
+    report.write_text(
+        "```yaml\nduration_seconds: 9000\nstarted_at: 2026-11-07T08:06:40Z\n"
+        "ended_at: 2026-11-07T10:36:40Z\n```\n",
+        encoding="utf-8",
+    )
+
+    rc = cli.main(["report", str(report), "--transcript", str(FIXTURE)])
+
+    assert rc == 1
+    assert "disagrees with the transcript's span of 27059s" in capsys.readouterr().out
 
 
 def test_the_cli_passes_a_measured_report_with_exit_0(tmp_path, capsys):
