@@ -29,19 +29,28 @@ Wire each per-repo doc in `documentation/repos/*.md` to reference its pitfalls f
 
 Note: renamed from "agent-playbooks" to "pickup-playbooks" since `/dispatch` retirement (2026-05-01).
 
-### H2-3 — `scripts/gather.py`
+### H2-3 — `scripts/gather.py` — **SHIPPED**
+
+Built; `oversteward.gather` (CLI `scripts/gather.py`) is the state extraction `scripts/diff.py` runs for `/sync-status`.
+
 
 Read-only state extraction. For each context in registry, read the CLAUDE.md file, extract the managed block, compute hashes, emit JSON state snapshot. No writes.
 
-### H2-4 — `scripts/diff.py`
+### H2-4 — `scripts/diff.py` — **SHIPPED**
+
+Built; `scripts/diff.py` backs `/sync-status`.
+
 
 Pure comparison. Takes gather state + registry expectations, emits structured change list. No writes.
 
-### H2-5 — `/sync-status` skill
+### H2-5 — `/sync-status` skill — **SHIPPED**
+
+Built; `.claude/skills/sync-status/`.
+
 
 Runs gather + diff; presents drift across contexts in human-readable form. No writes. Governance's equivalent of `/project-status`.
 
-### H2-6 — DEFER `sow.py` — **TRIGGER FIRED 2026-08-28 (OS#408)**
+### H2-6 — `sow.py` — **BUILT 2026-08-28 (OS#408)**
 
 Hold until a concrete sync task lands that manual sync can't absorb. Forcing-function gate on build effort. H2-1 (cross-repo settings parity) is the most likely trigger.
 

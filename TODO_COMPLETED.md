@@ -2,6 +2,8 @@
 
 Tasks move here when finished. Newest at top.
 
+**Frozen after 2026-06-11.** Completed work since then is recorded in the dated reconciliation sections of `documentation/ROADMAP.md` (§3.5 onward) and in merged PRs. The rows below are the record before that.
+
 ---
 
 ## 2026-06-11 — GS CI/boy-scout transfer + first /sync-status remediation (OS PRs #63, #66; 11 sibling PRs)

@@ -2402,6 +2402,60 @@ Every §3.14 watch-list row, in order:
 
 ---
 
+## §3.22 Second week of November 2026 — the line stops on a red CI, and the Tuesday promotion returns (reconciled 2026-11-10)
+
+> A short pass, hand-run at Nathan's word after the 11-10 Tuesday promotion,
+> five days after §3.21. Two through-lines. **A red CI now stops the line.**
+> An open `ci-red` issue blocks dispatch on its repo, and the opening of a GS or
+> AG staging→main promote (OS#657, I-23). `ci_red.py` became the eighth
+> session-start sweep. **The weekend delegation gave way to the Tuesday
+> sequence.** Under Nathan's 11-07 weekend delegation, GS promoted five times
+> between 11-06 and 11-08 (the funding-authority ladder, national directories
+> and workforce boards). The 11-10 Tuesday sequence then promoted both repos in
+> lockstep: GS first, with its two additive migrations applied about 90 s
+> after the merge, then AG on the bumped GS pin.
+
+### Shipped (2026-11-05 → 11-10)
+
+- **OverSteward.**
+  - The ci-red line: GS staging's `ci` documented as a post-merge watchdog
+    (#656), intake stopping on an open `ci-red` issue (#659), the hook
+    refusing a staging→main promote while one is open (#663), the `ci_red`
+    sweep and its `record` verdicts (#666), and the close-out across the AG
+    card, the copy-drift test and the estate map (#670).
+  - Dispatch agents: a subagent never runs a confirmation-gated command (#675),
+    and a held confirmation prompt is detected, with each report's duration
+    checked against its stamps (#676). Doctrine promotion from the dream
+    cycle (#667).
+- **GS — promotes #3554 (11-06), #3570 and #3575 (11-07), #3599 and #3611
+  (11-08), #3672 (11-10).**
+  - #3672 carried 164 commits: `funding_authority_subrecipients_v` and
+    `funding_authority_listings_v` (`d036206ba84b`, `7114dc2a72fb`; 20,219
+    and 1,877 rows at apply), Dagster storages pinned to the psycopg2
+    scheme ahead of SQLAlchemy 2.1, and crawl and discovery fixes
+    (403-wall and challenge halts, sitemap candidate caps, subpath website
+    selection). The back-merge was #3674. The detached crawl checkout was
+    re-pinned to `cfd7bb25`.
+- **AG — promotes #2732 (11-06) and #2825 (11-10).**
+  - #2732: multi-seat Builder, the lifecycle notification registry and
+    unsubscribe, trial-expiry and upcoming-grants emails.
+  - #2825 (266 commits, GS pin bumped to `cfd7bb25` by #2824): Consultant
+    Builder (#2799, shipped dark until `STRIPE_PRICE_CONSULTANT_BUILDER` is
+    set), Consultant Pro naming, client switch and Monday roll-up (#2553),
+    service counties and viewer service area, the trial seat cap, merge
+    organization, the gov-agency ladder and money-trail modal (#2490), and
+    stepped and finish-setup emails. The back-merge was #2826. The help-centre
+    reconcile was #2828.
+
+### Started, not landed
+
+| Item | Where | State |
+|---|---|---|
+| Production `daily_lifecycle` chain omits three commands | AG#2829 | `send_trial_notifications`, `send_upcoming_grants` and `recount_consultant_agencies` never run in production; dry-run first, then add |
+| GS Dependabot red | GS#3668 → #3670 | waits on TD129 (`DEPENDABOT_EXPORT_PUSH_TOKEN`); PR #3667 carries a major pypdf bump to check against GS#2602 |
+| Find past grants spinner | AG#2830 | Nathan's 11-10 ask; dispatched |
+| Help articles over 1,400 words | AG help drafts | the coherent split was approved 11-10; dispatched |
+
 ## §4 In flight
 
 Active or partially-shipped items as of 2026-05-07.
@@ -2507,4 +2561,4 @@ Captured in `IDEA_STORE.md` from gstack research and conversational drift. None 
 - If §2-§3 grow past readable length, extract to a `documentation/changelog.md` and keep this doc thin.
 - This doc is the single answer to "what are we trying to do, what's done, what's next?" If it can't answer that in under 60 seconds of reading, it's grown past its purpose — restructure rather than expand.
 
-*Last updated: 2026-11-05 (early-November reconciliation — §3.21 added: AG's crawl-recovery promote #2656, GS's website consolidation and judge-only re-verify through promotes #3427, #3495 and #3520, the estate map replacing architecture.md, and Nathan's 11-04 express-word rule for GS promotes). Previously 2026-10-29 (late-October reconciliation — §3.20 added: AG's promotes #2535 and #2566 for the Pro trial, passes and consultants, GS's held-funder crawl and website-accuracy epic GS#3407, and OverSteward's GS promote-cadence guard). Previously 2026-10-22 (late-October reconciliation — §3.18 added: AG's signup-surge build and promote #2477, GS's claim-queue enrich drain and segment drains, the IRS keep-current fixes, and OverSteward's backup sweep going live; §3.19 added: the Railway breach, GS's funding-authority map, and the Estate Brief and intake split).*
+*Last updated: 2026-11-10 (Tuesday promotion reconciliation — §3.22 added: the ci-red line (OS#657), GS promotes #3554–#3672 with the funding-authority views, AG promotes #2732 and #2825 with Consultant Builder shipped dark). Previously 2026-11-05 (early-November reconciliation — §3.21 added: AG's crawl-recovery promote #2656, GS's website consolidation and judge-only re-verify through promotes #3427, #3495 and #3520, the estate map replacing architecture.md, and Nathan's 11-04 express-word rule for GS promotes). Previously 2026-10-29 (late-October reconciliation — §3.20 added: AG's promotes #2535 and #2566 for the Pro trial, passes and consultants, GS's held-funder crawl and website-accuracy epic GS#3407, and OverSteward's GS promote-cadence guard). Previously 2026-10-22 (late-October reconciliation — §3.18 added: AG's signup-surge build and promote #2477, GS's claim-queue enrich drain and segment drains, the IRS keep-current fixes, and OverSteward's backup sweep going live; §3.19 added: the Railway breach, GS's funding-authority map, and the Estate Brief and intake split).*
