@@ -122,8 +122,8 @@ sequence in `~/.claude/shared/references/pr-workflow.md`). Commit first, because
 both read the committed diff, which is what the reviewer reads. The lite gate is
 ruff and its format check, the gaudi error gate over `src/` (`gaudi_gate.py`,
 the invocation CI's `lint` job makes: DEP-001 reports no cycle from a single
-file), and `pytest` on the test files the diff touches. Bandit is left to the
-full gate. It checks what you changed; it does not certify the tree.
+file), bandit as CI's `security` job runs it, and `pytest` on the test files
+the diff touches. It checks what you changed; it does not certify the tree.
 Playbook step 10's full suite does not run here. It is the one full run, after
 the findings, below.
 
@@ -136,6 +136,9 @@ rc=0
 .venv/bin/ruff check src/ tests/ || rc=1
 .venv/bin/ruff format --check src/ tests/ || rc=1
 .venv/bin/python scripts/lint/gaudi_gate.py || rc=1
+# Bandit as CI runs it: its scope, its pyproject.toml config and skips. A
+# finding first seen in the full gate is seen after review.
+.venv/bin/bandit -r src/ -c pyproject.toml || rc=1
 changed=$(git diff --name-only --diff-filter=d origin/main...HEAD)
 tests=$(printf '%s\n' $changed | grep -E '(^|/)test_[^/]*\.py$' || true)
 if [ -n "$tests" ]; then

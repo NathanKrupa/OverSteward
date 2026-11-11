@@ -350,6 +350,15 @@ RUFF_CHECK = ("lite-gate ruff check", "ruff check")
 RUFF_FORMAT = ("lite-gate ruff format", "ruff format --check")
 TOUCHED_TESTS = ("lite-gate pytest on the touched tests", "-m pytest $tests")
 
+#: Bandit as each repo's full gate runs it, with its scope and its
+#: `pyproject.toml` config (OS#677). A lite gate without it passes a test that
+#: uses `subprocess`, and the full gate first fails it after review. fiscus and
+#: ai-assistants carry no bandit in any gate, so their cards carry no step.
+AG_BANDIT = ("lite-gate bandit", "bandit -r apps/ config/ scripts/ -c pyproject.toml")
+GS_BANDIT = ("lite-gate bandit", ".venv/bin/bandit -r src/ tests/ -c pyproject.toml")
+WPHELPER_BANDIT = ("lite-gate bandit", ".venv/bin/bandit -r src/ -c pyproject.toml")
+EXCHEQUER_BANDIT = ("lite-gate bandit", ".venv/bin/bandit -q -r src/ -c pyproject.toml")
+
 #: A line that runs `make verify`, bare or through the sanctioned `.env` runner.
 MAKE_VERIFY_RUN = re.compile(
     r"^[ \t]*(?:\S*with_test_env\.py(?:[ \t]+--env-file[ \t]+\S+)?[ \t]+)?make verify[ \t]*$",
@@ -406,6 +415,7 @@ PRE_ROUND_SEQUENCE_CARDS = {
             # The full gate's whole gaudi job, ratchets included (OS#678): a
             # ratchet first seen in `make verify` is seen after review.
             ("lite-gate gaudi with its ratchets", "make ci-gaudi"),
+            AG_BANDIT,
             # The touched tests run on this worktree's bench databases, which
             # only bench.py names; without it they reach no database (OS#678).
             (
@@ -421,6 +431,7 @@ PRE_ROUND_SEQUENCE_CARDS = {
             RUFF_FORMAT,
             ("lite-gate gaudi", "scripts/lint/gaudi_check_files.py"),
             ("lite-gate boy-scout", "make ci-boy-scout"),
+            GS_BANDIT,
             TOUCHED_TESTS,
         ),
         *MAKE_VERIFY_SEQUENCE,
@@ -430,6 +441,7 @@ PRE_ROUND_SEQUENCE_CARDS = {
             RUFF_CHECK,
             RUFF_FORMAT,
             ("lite-gate gaudi", "scripts/lint/gaudi_gate.py"),
+            WPHELPER_BANDIT,
             TOUCHED_TESTS,
         ),
         (WPHELPER_FULL_PYTEST,),
@@ -456,6 +468,7 @@ PRE_ROUND_SEQUENCE_CARDS = {
             RUFF_CHECK,
             RUFF_FORMAT,
             ("lite-gate gaudi", "gaudi check src/ --severity error --exit-code"),
+            EXCHEQUER_BANDIT,
             TOUCHED_TESTS,
         ),
         *MAKE_VERIFY_SEQUENCE,
@@ -650,6 +663,30 @@ def test_the_card_ceiling_is_the_one_the_doctrine_states(card: Path) -> None:
     assert int(in_card[0]) == int(stated[0].replace(",", "")), (
         f"{_card_id(card)} compares against {in_card[0]}, but pr-workflow.md "
         f"states the {repo} ceiling as {stated[0]}."
+    )
+
+
+#: The doctrine's list of the repos whose lite gate runs bandit (OS#677).
+DOCTRINE_BANDIT = re.compile(
+    r"bandit with the full gate's own scope and `pyproject\.toml` config where the "
+    r"full gate runs it \(([^)]*)\)"
+)
+
+
+def test_the_doctrine_names_the_lite_gates_that_run_bandit() -> None:
+    """The bandit list in pr-workflow.md and the cards' bandit steps stay one set."""
+    stated = DOCTRINE_BANDIT.findall(PR_WORKFLOW.read_text(encoding="utf-8"))
+    assert len(stated) == 1, f"pr-workflow.md states the lite-gate bandit list {len(stated)} times"
+    named = {repo.strip() for repo in stated[0].split(",")}
+    carried = {
+        name.removesuffix(f"{DEV_CARD_SUFFIX}.md")
+        for name, spec in PRE_ROUND_SEQUENCE_CARDS.items()
+        if any(step == "lite-gate bandit" for step, _ in spec.lite_gate)
+    }
+    assert carried, "no card carries a lite-gate bandit step; the comparison would be vacuous"
+    assert named == carried, (
+        f"pr-workflow.md says the lite gate runs bandit in {sorted(named)}, but the cards "
+        f"that carry the step are {sorted(carried)}."
     )
 
 
