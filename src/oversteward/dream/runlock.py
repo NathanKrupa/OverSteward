@@ -106,7 +106,7 @@ def proc_start_time(pid: int, proc_root: Path = PROC_ROOT) -> int | None:
 def discover_holder(pid: int | None = None, proc_root: Path = PROC_ROOT) -> Holder:
     """The nearest ancestor of ``pid`` whose comm is ``claude``, else its direct parent.
 
-    Raises :class:`LockUnreadable` when neither ``pid`` nor its parent can be read.
+    Raises :class:`LockUnreadable` when ``pid`` or its parent cannot be read.
     """
     own = read_stat(os.getpid() if pid is None else pid, proc_root)
     parent = read_stat(own.ppid, proc_root) if own is not None else None
