@@ -44,11 +44,14 @@ Every store writer below (`apply`, `finalize`, `drain`, `supersede`) checks the 
 $DREAM unprocessed > /tmp/dream/unprocessed.json
 ```
 
-Each entry is a transcript whose content hash is **not** in the processed ledger. **If the list is empty, stop here** — release the lock and close the run, then report "ledger current, nothing to consolidate" and exit clean:
+Each entry is a transcript whose content hash is **not** in the processed ledger. **If the list is empty, stop here** — measure the store, release the lock and close the run, then report "ledger current, nothing to consolidate" followed by the store-health closing line, and exit clean:
 
 ```bash
+$DREAM store-health > /tmp/dream/dangling.json   # read-only; prints the closing line in its JSON
 $DREAM end --reason "ledger current"
 ```
+
+Report the `closing_line` from `dangling.json` even on this path ("N dangling (ruled: unmeasured); store X notes / Y KB of Z KB ceiling"): a no-op run is never silent about the store. `store-health` exits **0** under every ceiling, **1** over one (a finding to report, not a stop), and **2** when the store could not be read — report that loudly ("store unreadable"), never as a quiet ledger.
 
 This is what makes the cron backstop a safe no-op when a sign-off already drained the queue. **Any abort after Step 0** closes the same way, with the reason: `$DREAM end --reason "<why>"`.
 
@@ -86,6 +89,22 @@ $DREAM apply --worksheet /tmp/dream/worksheet_<i>.json --verdicts /tmp/dream/ver
 
 `apply` routes each verdict through the existing `consolidate(...)` write ops — auto-merge ≥0.85, then **auto-append everything below** (Nathan's OS#134 ruling: the ambiguous 0.55–0.85 band is auto-approved as a new file, not held) — and reports `flagged` + `written_paths`. The **only** thing still `flagged` is a candidate that contradicts a `nathan-stated` memory (held, never auto-written). **Never** re-implement the band logic here.
 
+## Step 3b — rule on the dangling-link queue
+
+After every transcript is applied, measure the store and work the oldest dangling links:
+
+```bash
+$DREAM store-health > /tmp/dream/dangling.json
+```
+
+`queue` lists the oldest 10 `[[targets]]` that resolve to no note (neither a filename stem nor a `name:`), each with the notes citing it and its age. For each queued target, make exactly one ruling, in the store:
+
+- **write the note** — `<target>.md`, whose frontmatter `name:` is the target, built from what the citers and this run's transcripts say. Never set `tier: standing` on it; the strict classifier derives its tier;
+- **retarget the link** — when an existing note already covers it, rewrite `[[target]]` to that note's name in every citer;
+- **drop the link** — remove the brackets, keeping the words, when nothing is worth writing.
+
+Add every path you created or edited to the run's `written_paths`, so finalize commits it. Exit **1** is a size finding to carry into the report; exit **2** (store unreadable) is a loud stop: close the run with `$DREAM end --reason "store unreadable"` and report it.
+
 ## Step 4 — finalize once per run (batched)
 
 Merge every `apply_<i>.json`'s `flagged` and `written_paths` with step 1's transcript list into one results file:
@@ -95,8 +114,11 @@ Merge every `apply_<i>.json`'s `flagged` and `written_paths` with step 1's trans
 ```
 
 ```bash
-$DREAM finalize --results /tmp/dream/results.json > /tmp/dream/finalize.json
+$DREAM finalize --results /tmp/dream/results.json --dangling-before /tmp/dream/dangling.json \
+    > /tmp/dream/finalize.json
 ```
+
+`--dangling-before` is the Step 3b snapshot: finalize re-measures the store and counts how many of those targets no longer dangle, which is the "M ruled this run" in its `store_health.closing_line`. Without it the line says "ruled: unmeasured". Finalize exits **2** when the store could not be measured, before any commit or ledger row; over a ceiling it still exits 0, because its exit code speaks for the commit and the ledger — the overage is in `store_health.over` and the closing line.
 
 This regenerates `MEMORY.md`, **merges this run's holds into the durable open set** (`data/dream/flagged.jsonl`, de-duped by key) and rebuilds `MEMORY_REVIEW.md` from the **full** open set — a barren run never wipes prior holds (OS#134 Bug 1). It then **commits the store as a doc-only `[skip ci]` change** (HARD CONSTRAINT #2 / acceptance #5 — memory commits never burn a CI run), records every processed transcript in the ledger (even barren ones, so they are not re-processed), and drains the Stop-hook queue. On success it **releases the run lock** and closes the run with a `completed` row carrying the transcript count; a finalize that fails keeps the lock, so its retry is still this run's.
 
@@ -217,7 +239,7 @@ One named memory, one operator-supplied replacement, `MEMORY.md` rebuilt. Never 
 
 ## Report
 
-One short summary: sessions processed, facts appended/merged, holds surfaced for review (point Nathan at `MEMORY_REVIEW.md`, drained via `cycle drain`), the roadmap verdict ("roadmap current" or the reconciliation PR number + any unfiled-intent flags), the promotion verdict ("promotion current", the worklist size + PR number, or **a loud stop if the packet exited 2 — a broken detector, not a quiet estate**), and whether the commit landed. On a no-op run, just "ledger current."
+One short summary: sessions processed, facts appended/merged, holds surfaced for review (point Nathan at `MEMORY_REVIEW.md`, drained via `cycle drain`), the roadmap verdict ("roadmap current" or the reconciliation PR number + any unfiled-intent flags), the promotion verdict ("promotion current", the worklist size + PR number, or **a loud stop if the packet exited 2 — a broken detector, not a quiet estate**), and whether the commit landed. **End with the store-health closing line** — finalize's `store_health.closing_line` ("N dangling (M ruled this run); store X notes / Y KB of Z KB ceiling", plus "OVER CEILING: …" when a measure is over). On a no-op run, "ledger current" followed by the closing line from Step 1. A store-health exit 2 is a loud stop, never a quiet report.
 
 ## Invariants (do not violate)
 
