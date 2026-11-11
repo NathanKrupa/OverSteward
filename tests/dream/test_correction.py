@@ -172,9 +172,12 @@ def test_dates_normalise_across_yaml_forms_and_undated_ranks_first(tmp_path: Pat
 def test_created_stands_in_when_last_reinforced_is_absent(tmp_path: Path) -> None:
     store = tmp_path / "memory"
     _note(store, "a_reinforced.md", last_reinforced="'2026-05-01'", created="'2025-01-01'")
-    _note(store, "b_created_only.md", created="'2026-04-01'")
+    _note(store, "b_created_only.md", created="'2026-06-01'")
 
-    assert _names(_worklist(store)) == ["b_created_only.md", "a_reinforced.md"]
+    result = _worklist(store)
+
+    assert _names(result) == ["a_reinforced.md", "b_created_only.md"]
+    assert [row["effective_date"] for row in result["worklist"]] == ["2026-05-01", "2026-06-01"]
 
 
 def test_population_is_laws_and_habits_only(tmp_path: Path) -> None:
