@@ -610,7 +610,10 @@ def test_a_worksheet_row_missing_one_field_exits_2(paths, capsys, field) -> None
         paths["tmp"] / "bad.json", {"worklist": [_row_without(field)]}
     )
 
-    code = _dream_cli().main(argv)
+    try:
+        code = _dream_cli().main(argv)
+    except (KeyError, AttributeError, TypeError) as exc:
+        pytest.fail(f"a worksheet row without {field} crashed instead of exiting 2: {exc!r}")
 
     out, err = capsys.readouterr()
     assert code == 2
