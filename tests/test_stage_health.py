@@ -451,6 +451,29 @@ def test_an_unreadable_ref_fails_the_sweep_rather_than_reading_as_tracked(
     assert "could not read" in capsys.readouterr().err
 
 
+def test_a_missing_gh_fails_the_sweep_without_a_traceback(cli, store, capsys, monkeypatch) -> None:
+    """The real issue-state reader with `gh` absent from PATH exits 1 through the sweep's handler."""
+    from oversteward.board import client
+
+    def no_gh(*_args, **_kwargs):
+        raise FileNotFoundError(2, "No such file or directory", "gh")
+
+    doc = parse_document(json.dumps(_doc("measured")), 0)
+    store.save_pending(doc)
+    record(store, ATTEMPTS_KEY, "known", "GS#2805", WHEN)
+    monkeypatch.setattr(client.subprocess, "run", no_gh)
+
+    try:
+        code = _sweep_cli(cli, store, _run(_doc("measured")), GithubIssueStates())
+    except OSError as exc:
+        pytest.fail(f"a missing gh crashed the sweep: {exc!r}")
+
+    err = capsys.readouterr().err
+    assert code == 1
+    assert "gh could not be run" in err
+    assert "Traceback" not in err
+
+
 def test_the_last_ruling_for_a_row_wins(store) -> None:
     doc = parse_document(json.dumps(_doc("measured")), 0)
     store.save_pending(doc)

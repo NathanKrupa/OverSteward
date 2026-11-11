@@ -20,6 +20,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 TODAY = date(2026, 11, 11)
 OS_REPO = "NathanKrupa/OverSteward"
 GS_REPO = "NathanKrupa/grantspider"
+AG_REPO = "NathanKrupa/aigranthelper"
 
 
 # ---- helpers ----------------------------------------------------------------
@@ -180,6 +181,20 @@ def test_created_stands_in_when_last_reinforced_is_absent(tmp_path: Path) -> Non
     assert [row["effective_date"] for row in result["worklist"]] == ["2026-05-01", "2026-06-01"]
 
 
+def test_modified_stands_in_when_neither_earlier_date_is_present(tmp_path: Path) -> None:
+    """Notes dated only by `modified` rank by it, in both timestamp forms the store holds."""
+    store = tmp_path / "memory"
+    _note(store, "a_space.md", extra="  modified: 2026-11-04 23:10:00+00:00")
+    _note(store, "b_zulu.md", extra="  modified: 2026-10-01T12:00:00Z")
+    _note(store, "c_undated.md")
+
+    result = _worklist(store, min_age_days=0)
+
+    assert _names(result) == ["c_undated.md", "b_zulu.md", "a_space.md"]
+    assert [row["effective_date"] for row in result["worklist"]] == [None, "2026-10-01", "2026-11-04"]
+    assert result["counts"]["undated"] == 1
+
+
 def test_population_is_laws_and_habits_only(tmp_path: Path) -> None:
     store = tmp_path / "memory"
     _note(store, "a_project_fact.md", type_="project", last_reinforced="'2025-01-01'")
@@ -234,7 +249,7 @@ def test_path_evidence_reads_tracked_and_untracked(tmp_path: Path) -> None:
     assert paths["scripts/dream.py"]["repos"] == [correction.HOME_REPO]
 
 
-def test_references_come_from_code_spans_only(tmp_path: Path) -> None:
+def test_paths_come_from_code_spans_only(tmp_path: Path) -> None:
     store = tmp_path / "memory"
     _note(
         store,
@@ -375,6 +390,30 @@ def test_issue_refs_read_open_closed_and_unchecked(tmp_path: Path) -> None:
     assert sorted(issues.calls) == sorted([(GS_REPO, 9), (OS_REPO, 134)])
 
 
+def test_known_issue_refs_are_read_from_prose_once_each(tmp_path: Path) -> None:
+    """Prose refs of a known prefix count beside span refs; fenced text and unknown prose prefixes do not."""
+    store = tmp_path / "memory"
+    _note(
+        store,
+        "law.md",
+        last_reinforced="'2026-01-01'",
+        description="Settled in OS#134.",
+        extra='  digest: "Per GS#9 and OS#134"',
+        body="Per OS#134, GS#9, WP#3 and `AG#5`; see `OS#134` too.\n```\nsee OS#7 and `GS#8`\n```\n",
+    )
+    issues = FakeIssues({(OS_REPO, 134): "closed", (GS_REPO, 9): "open", (AG_REPO, 5): "open"})
+
+    refs = _worklist(store, _sources(issues=issues))["worklist"][0]["references"]
+
+    assert refs["issues"] == [
+        {"ref": "OS#134", "state": "closed"},
+        {"ref": "GS#9", "state": "open"},
+        {"ref": "AG#5", "state": "open"},
+    ]
+    assert refs["unchecked"] == []
+    assert sorted(issues.calls) == sorted([(OS_REPO, 134), (GS_REPO, 9), (AG_REPO, 5)])
+
+
 def test_references_are_read_for_offered_notes_only(tmp_path: Path) -> None:
     store = tmp_path / "memory"
     _note(store, "a_offered.md", last_reinforced="'2026-01-01'", body="`OS#1` `scripts/a.py`\n")
@@ -456,6 +495,26 @@ def test_issue_read_failure_is_could_not_look(tmp_path: Path, capsys) -> None:
     code = _cli(store, _sources(issues=FailingIssues()))
 
     _assert_could_not_look(capsys, code, "gh exited 1")
+
+
+def test_a_missing_gh_is_could_not_look(tmp_path: Path, capsys, monkeypatch) -> None:
+    """`gh` absent from PATH reaches the real issue-state reader and exits 2, never a crash."""
+    from oversteward.board import client
+    from oversteward.stage_health.sources import GithubIssueStates
+
+    def no_gh(*_args, **_kwargs):
+        raise FileNotFoundError(2, "No such file or directory", "gh")
+
+    monkeypatch.setattr(client.subprocess, "run", no_gh)
+    store = tmp_path / "memory"
+    _note(store, "law.md", last_reinforced="'2026-01-01'", body="`OS#5`\n")
+
+    try:
+        code = _cli(store, _sources(issues=GithubIssueStates()))
+    except OSError as exc:
+        pytest.fail(f"a missing gh crashed the worklist: {exc!r}")
+
+    _assert_could_not_look(capsys, code, "gh could not be run")
 
 
 @pytest.mark.parametrize("make_root", ["absent", "empty"])

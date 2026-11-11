@@ -1,5 +1,5 @@
 # ABOUTME: The correction pass's read-only worklist: the Laws and Habits least recently reinforced,
-# ABOUTME: each with deterministic evidence about the paths and issues its code spans name. Never writes the store.
+# ABOUTME: each with deterministic evidence about the paths and issues it names. Never writes the store.
 
 """The correction worklist (OS#691, PR 1 of 2).
 
@@ -11,13 +11,15 @@ checkout first, as ``estate_map.py check`` does.
 
 - **Population.** Notes :func:`~oversteward.dream.standing.classify` files as a
   Law or a Habit.
-- **Ranking.** Oldest first by ``last_reinforced``, else ``created``. A note
-  with neither field, or an unparseable one, is *undated*: it ranks first and is
-  counted. Age only ranks the list; it never retires a note.
+- **Ranking.** Oldest first by ``last_reinforced``, else ``created``, else
+  ``modified``. A note with none of them, or whose first present field does not
+  parse, is *undated*: it ranks first and is counted. Age only ranks the list;
+  it never retires a note.
 - **Due and offered.** A note is due when it is undated or at least
   ``min_age_days`` old; the first ``limit`` due notes are offered.
-- **Evidence.** Read for offered notes only, from the inline code spans of the
-  description, the digest and the body (fenced blocks are not inline spans).
+- **Evidence.** Read for offered notes only, from the description, the digest
+  and the body, never from a fenced block. Paths come from inline code spans
+  only; issue refs come from spans and from the prose around them.
   A path-like token is ``tracked`` when a registry checkout, listed through a
   :class:`TreeLookup`, tracks a file or directory at that path or ending in it
   (a note names ``services/x.py`` for ``src/pkg/services/x.py``), and
@@ -25,9 +27,10 @@ checkout first, as ``estate_map.py check`` does.
   folder) reads ``untracked`` too. A token that cannot be located is
   ``unchecked``: an absolute, ``~``-rooted, ``*``-bearing or ``..``-bearing
   one, a git ref (``origin/main``), or one naming no directory (a bare filename
-  or a domain). A URL is not a path. An ``OS#``/``GS#``/``AG#`` ref is looked
-  up through an injected issue-state callable; any other prefix is
-  ``unchecked``. A span yielding neither is ``named``, unverified.
+  or a domain). A URL is not a path. An ``OS#``/``GS#``/``AG#`` ref, in a span
+  or in prose, is looked up once through an injected issue-state callable; any
+  other prefix is ``unchecked`` inside a span and ignored in prose. A span
+  yielding neither is ``named``, unverified.
 
 Anything that cannot be read raises :class:`WorklistUnreadable`: an absent or
 empty store, a note that does not parse, a tree or issue read that fails, and
@@ -84,7 +87,7 @@ ISSUE_STATES = frozenset({"open", "closed", "missing"})
 IssueStates = Callable[[str, int], str]
 
 _POPULATION = (LAW, HABIT)
-_DATE_FIELDS = ("last_reinforced", "created")
+_DATE_FIELDS = ("last_reinforced", "created", "modified")
 _DIGEST = "digest"
 _CODE_SPAN_RE = re.compile(r"(`+)(.+?)\1")
 _ISSUE_REF_RE = re.compile(r"(?<![\w#])([A-Z]+)#([1-9][0-9]*)\b")
@@ -212,7 +215,7 @@ def _ranked(candidates: list[_Candidate]) -> list[_Candidate]:
 
 
 def _effective_date(metadata: Mapping[str, Any]) -> date | None:
-    """The first of ``last_reinforced``/``created`` present, as a date; None when absent or unparseable."""
+    """The first of ``_DATE_FIELDS`` present, as a date; None when none is present or it does not parse."""
     for field in _DATE_FIELDS:
         if metadata.get(field) is not None:
             return _as_date(metadata[field])
@@ -242,25 +245,42 @@ def _spans(memory: MemoryFile) -> _Spans:
     issues: list[tuple[str, int]] = []
     unchecked: list[str] = []
     named: list[str] = []
-    for span in _code_spans(memory):
-        found = _read_span(span)
+    for is_span, text in _segments(memory):
+        if not is_span:
+            _extend_unique(issues, _prose_issues(text))
+            continue
+        found = _read_span(text)
         _extend_unique(paths, found.paths)
         _extend_unique(issues, found.issues)
         _extend_unique(unchecked, found.unchecked)
         if not (found.paths or found.issues or found.unchecked):
-            _extend_unique(named, (span,))
+            _extend_unique(named, (text,))
     return _Spans(tuple(paths), tuple(issues), tuple(unchecked), tuple(named))
 
 
-def _code_spans(memory: MemoryFile) -> list[str]:
+def _segments(memory: MemoryFile) -> list[tuple[bool, str]]:
+    """The unfenced text of description, digest and body in reading order: ``(is_span, text)``."""
     digest = memory.metadata.get(_DIGEST)
     texts = [memory.description, digest if isinstance(digest, str) else "", memory.body]
+    segments: list[tuple[bool, str]] = []
+    for text in texts:
+        for line in unfenced_lines(text):
+            end = 0
+            for match in _CODE_SPAN_RE.finditer(line):
+                segments.append((False, line[end : match.start()]))
+                if match.group(2).strip():
+                    segments.append((True, match.group(2).strip()))
+                end = match.end()
+            segments.append((False, line[end:]))
+    return segments
+
+
+def _prose_issues(text: str) -> list[tuple[str, int]]:
+    """Issue refs of a known prefix in prose; an unknown prefix outside a span is not a ref."""
     return [
-        match.group(2).strip()
-        for text in texts
-        for line in unfenced_lines(text)
-        for match in _CODE_SPAN_RE.finditer(line)
-        if match.group(2).strip()
+        (prefix, int(number))
+        for prefix, number in _ISSUE_REF_RE.findall(text)
+        if prefix in REF_REPOS
     ]
 
 
