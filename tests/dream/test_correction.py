@@ -182,10 +182,10 @@ def test_created_stands_in_when_last_reinforced_is_absent(tmp_path: Path) -> Non
 
 
 def test_modified_stands_in_when_neither_earlier_date_is_present(tmp_path: Path) -> None:
-    """Notes dated only by `modified` rank by it, in both timestamp forms the store holds."""
+    """Notes dated only by `modified` rank by it, in the `T…Z` and space-offset forms the store holds."""
     store = tmp_path / "memory"
     _note(store, "a_space.md", extra="  modified: 2026-11-04 23:10:00+00:00")
-    _note(store, "b_zulu.md", extra="  modified: 2026-10-01T12:00:00Z")
+    _note(store, "b_zulu.md", extra="  modified: 2026-10-01T12:00:00.123Z")
     _note(store, "c_undated.md")
 
     result = _worklist(store, min_age_days=0)
