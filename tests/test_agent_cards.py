@@ -403,8 +403,15 @@ PRE_ROUND_SEQUENCE_CARDS = {
         (
             RUFF_CHECK,
             RUFF_FORMAT,
-            ("lite-gate gaudi", "scripts/lint/gaudi_check_files.py"),
-            TOUCHED_TESTS,
+            # The full gate's whole gaudi job, ratchets included (OS#678): a
+            # ratchet first seen in `make verify` is seen after review.
+            ("lite-gate gaudi with its ratchets", "make ci-gaudi"),
+            # The touched tests run on this worktree's bench databases, which
+            # only bench.py names; without it they reach no database (OS#678).
+            (
+                "lite-gate pytest on the touched tests, on the worktree's bench",
+                "scripts/dev/bench.py run -- .venv/bin/python -m pytest $tests",
+            ),
         ),
         *MAKE_VERIFY_SEQUENCE,
     ),

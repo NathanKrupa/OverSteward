@@ -38,8 +38,11 @@ or `uv run --no-sync` / `UV_NO_SYNC=1 uv run` — which is what CI does.
 ### Test / Lint / Security commands (exact, CI-scoped)
 
 ```bash
-# Tests. Needs .env — load it through the sanctioned runner, never `source`:
-scripts/dev/with_test_env.py .venv/bin/python -m pytest
+# Tests. Needs .env — load it through the sanctioned runner, never `source` —
+# and this checkout's bench databases, which only scripts/dev/bench.py names.
+# A worktree has no .env of its own, so name the primary checkout's:
+scripts/dev/with_test_env.py --env-file /home/natha/aigranthelper/.env \
+    .venv/bin/python scripts/dev/bench.py run -- .venv/bin/python -m pytest
 
 # Lint (ruff + format) — CI targets the repo root, not a path list
 uv run --no-sync ruff check .
@@ -59,7 +62,7 @@ PR reported is the signal worth acting on.
 
 **`ci.yml`** (workflow `CI`) — the real gates:
 
-- **`ci-light`** — ruff, the untyped-function ratchet, gaudi (ERROR-only gate) plus its SMELL-003/ARCH-013 ratchets, the boy-scout per-file ratchet, bandit, pip-audit. No database.
+- **`ci-light`** — ruff, the untyped-function ratchet, gaudi (ERROR-only gate) plus its SMELL-003/ARCH-013 ratchets, bandit, pip-audit. No database.
 - **`smoke-guards`** and **`mobile-matrix`** — the browser-driven guards, on every PR to `staging` and `main`.
 - **`ci-heavy`** — pytest and research-drift against a real `pgvector/pgvector:pg17` service container. PRs to `main` only; it skips staging PRs.
 - **`ci-red-alert`** — runs only when one of the four above ends `failure` or `cancelled` on a PR into `staging` **or** `main`, and opens (or comments on) a `ci-red` issue for that PR through `scripts/ci/ci_red_alert.py`. That script is a byte-copy of grantspider's, which is canonical; OverSteward's `tests/test_ci_red_alert_copies.py` compares the two.
@@ -222,10 +225,12 @@ degrade the whole instrument silently, so the input is assembled by code.
 **Before round 1: the lite gate, then the diff ceiling** (the pre-round-1
 sequence in `~/.claude/shared/references/pr-workflow.md`). Commit first, because
 both read the committed diff, which is what the reviewer reads. The lite gate is
-ruff, the gaudi error gate on the changed Python files, and `pytest` on the test
-files the diff touches. It checks what you changed; it does not certify the
-tree. Playbook step 10's full suite does not run here. It is the one full run,
-after the findings, below.
+ruff, `make ci-gaudi` (the gaudi error gate with the SMELL-003 and ARCH-013
+ratchets against staging, the same job the full gate runs), and `pytest` on the
+test files the diff touches, against this worktree's own bench databases. It
+checks what you changed; it does not certify the tree.
+Playbook step 10's full suite does not run here. It is the one full run, after
+the findings, below.
 
 ```bash
 # 0a. Lite gate, from the worktree, with PYTHONPATH pointed at its own source.
@@ -234,13 +239,18 @@ after the findings, below.
 rc=0
 uv run --no-sync ruff check . || rc=1
 uv run --no-sync ruff format --check . || rc=1
+# The whole gaudi job of the full gate, not only its error tier: a ratchet that
+# first fails in the full gate fails after review and forces a delta round.
+AG_BASE_REF=staging make ci-gaudi || rc=1
 changed=$(git diff --name-only --diff-filter=d origin/staging...HEAD)
-py=$(printf '%s\n' $changed | grep '\.py$' || true)
-.venv/bin/python scripts/lint/gaudi_check_files.py $py || rc=1
 tests=$(printf '%s\n' $changed | grep -E '(^|/)test_[^/]*\.py$' || true)
 if [ -n "$tests" ]; then
+    # .env supplies SECRET_KEY and the rest of the settings; bench.py brings the
+    # bench up and points DATABASE_URL and the research database at the pair
+    # this worktree owns. Either half alone fails: without bench.py the tests
+    # reach no database, without .env settings fail to import.
     scripts/dev/with_test_env.py --env-file /home/natha/aigranthelper/.env \
-        .venv/bin/python -m pytest $tests || rc=1
+        .venv/bin/python scripts/dev/bench.py run -- .venv/bin/python -m pytest $tests || rc=1
 else
     echo "LITE GATE: the diff touches no test file, so pytest ran nothing"
 fi
