@@ -2073,9 +2073,10 @@ capabilities:
     - .claude/skills/kaizen/
     - .claude/skills/skill-miner/
   entry_points: [scripts/dream.py, /kaizen, scripts/skill_miner.py]
-  current_shape: 'The largest package: dream/ is 13 modules and 4,045 lines; skills/ (621) and trajectory_tags.py
+  current_shape: 'The largest package: dream/ is 14 modules and 4,423 lines; skills/ (621) and trajectory_tags.py
     (327) sit beside it. Runs on a systemd timer (`shared/scripts/dream/dream-cycle.timer`), under one run
-    lock per machine (`~/.claude/dream_run.lock`, OS#690).'
+    lock per machine (`~/.claude/dream_run.lock`, OS#690). Each run closes with a store-health line: the dangling-link
+    queue and store size against a ceiling (OS#692).'
   target_shape: hold
 - id: os.review-loop
   kind: code
@@ -2279,7 +2280,7 @@ seams:
   producer: [fiscus]
   consumer: [oversteward]
   flows: '`fiscus review trajectories` JSON feeds the dream/kaizen worklist'
-  cite: '`scripts/dream.py:215`'
+  cite: '`scripts/dream.py:266`'
 - id: S-11
   label: grantspider → oversteward
   producer: [grantspider]
