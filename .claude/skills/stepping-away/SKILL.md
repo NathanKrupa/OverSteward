@@ -7,7 +7,8 @@ description: "Load the queue and take Nathan's standing word before he steps awa
 
 ## Why this exists
 
-Sunday 2026-11-08 merged **47 PRs** (GS 28, AG 19), about 2.5x a normal day,
+Sunday 2026-11-08 (the America/New_York day) merged **47 PRs** (GS 31, AG 16),
+about 2.5x a normal day,
 with **zero** messages from Nathan. One orchestrator session launched 40 dev
 agents back to back across two lanes, and ~60 adversarial reviews gated them.
 The night before, Nathan had answered 44 questions and then said: *"Please keep
@@ -22,7 +23,8 @@ moves every decision **before** he leaves, records the authority he grants, and
 runs the lanes without him.
 
 It also writes down what that Sunday got wrong, so an unattended run cannot drift:
-- two agents waived the diff cap themselves (#2770, #3648);
+- one agent fitted the 10-file cap by counting eight deleted templates as one file, a ruling it made for itself (#2770);
+- another went over the line ceiling under Nathan's standing ruling and recorded the waiver in the PR body (#3648). That is allowed, but it is a ruling to apply on purpose, not a habit;
 - two trajectory notes were edited after review with no fresh round (#3631, #3651);
 - 25 follow-up issues were filed in one day.
 
@@ -46,7 +48,7 @@ Measure. Never recall. Each command's exit code means what its own sweep says.
 3. **In flight.** List the open agent PRs per repo (`gh pr list`), any agent this session is still running, and any worktree left from a dead run.
 4. **A run list per lane.** Propose an **ordered** list of issues for each lane (one lane per repo; GS, AG and OS by default).
    - Draw it from Nathan's stated priorities: the session's own queue, epic sequences, and `tribe` issues first.
-   - `scripts/intake.py queue <repo>` is **oldest first, not a priority order**. Its head is often stale work. Use it to find candidates, never as the list itself.
+   - `.venv/bin/python scripts/intake.py queue <repo>` is **oldest first, not a priority order**. Its head is often stale work. Use it to find candidates, never as the list itself.
    - Every listed issue must pass the dispatch preflight readiness checks (`.claude/skills/dispatch/SKILL.md` §2): an acceptance block, no unpicked options, no `needs-input`.
    - Size the list to the absence: about one item per lane per hour away, and at least three per lane.
 5. **Decisions the run would hit.** For every listed item, name each choice that needs Nathan:
@@ -82,14 +84,18 @@ Once he answers, write the charter **before** dispatching anything.
 ## Phase 4 — run the lanes
 
 - **Keep every lane busy.** Each lane runs one dev agent at a time (`/dispatch`, with its full preflight). The moment an agent reports, relay the result, run `cleanup-merged`, and launch the lane's next item. Batch nothing and wait for nothing.
-- **Arm the watchdogs** as `/dispatch` §3.5 says, with `--warn-min 60` or more. On 2026-11-11, 40- and 45-minute warnings fired on healthy agents that were in review or `make verify`. Before treating a warning as a stall, look at the worktree's commits and `.review*` files.
+- **Arm both watchdogs** as `/dispatch` §3.5 says.
+  - Give the branch watchdog (`dispatch_watchdog.py`) `--warn-min 60` or more. On 2026-11-11, 40- and 45-minute warnings fired on healthy agents that were in review or `make verify`. Before treating that warning as a stall, look at the worktree's commits and `.review*` files.
+  - Keep the held-prompt watch (`dispatch_run.py prompts --watch`) at its 10-minute default. An unattended run is exactly when nobody answers a prompt (AG#2736 sat at one for 6h44m, OS#674).
 - **Stop an item, not the run.** Park the item (labelled `needs-input`, with its question posted), then move to the lane's next item, when it hits any of:
   - a decision the charter does not cover;
   - an agent reporting `STOPPED_FOR_INPUT` with a question the charter cannot answer;
   - a third `BLOCK`;
   - a split the agent cannot make within the cap.
 - **Stop a lane** when its repo goes `ci-red`. Dispatch the `ci-red` fix if it is in scope, otherwise leave the lane stopped. A lane whose run list is empty also stops: never improvise priorities from the oldest-first queue.
-- **The session may approve a split** that keeps each PR under the cap, since splitting shrinks the largest piece. It never waives a cap, never edits a reviewed branch without a delta round, never uses `--admin` or `--force`, and never widens the charter.
+- **The session may approve a split** that keeps each PR under the cap, since splitting shrinks the largest piece.
+  - It goes over a cap only under Nathan's standing ruling (an oversized PR is approved as-is when splitting would not shrink the largest piece), with the waiver recorded in the PR body. Every file counts as a file.
+  - It never edits a reviewed branch without a delta round, never uses `--admin` or `--force`, and never widens the charter.
 - **Sabbath:** if the absence is a Sunday, nothing is asked of Nathan until Monday. A Todoist step is filed with no due date earlier than Monday.
 
 ## Phase 5 — the return report
