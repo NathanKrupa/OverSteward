@@ -17,7 +17,9 @@ from oversteward.dream.correction_ledger import CorrectionLedger
 
 from tests.dream.test_correction import TODAY, _dream_cli, _note, _sources
 
-pytestmark = pytest.mark.usefixtures("never_the_live_lock")
+# The lock tests' live foreign holder, and their autouse guard that points the lock
+# defaults at a sentinel, so no test here can reach the live lock.
+from tests.dream.test_dream_cli_lock import _never_the_live_lock, foreign  # noqa: F401
 
 TRACKED = "scripts/dream.py"
 UNTRACKED = "scripts/gone.py"
