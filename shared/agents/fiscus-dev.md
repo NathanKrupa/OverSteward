@@ -274,8 +274,7 @@ if [ "$size" -gt "$ceiling" ]; then echo "OVER THE CEILING: split, or record the
 #    They must be ignored there, or they sit untracked where `git add .` would
 #    commit them and `worktree_doctor.py teardown` refuses over them. Check
 #    before writing; if a name is not ignored, add it to .gitignore in this PR.
-for f in .review-round-1.json .review-verdict-1.md .review-verdict-1.blind-1.md \
-         .review-round-1-relaunch.json .review-verdict-1-relaunch.md; do
+for f in .review-round-1.json .review-verdict-1.md; do
     git -C <worktree-path> check-ignore -q "$f" || echo "$f NOT IGNORED — add it to .gitignore first"
 done
 
@@ -285,39 +284,21 @@ done
 #    a project-level agent; the ONE instruction goes on stdin, so every round's
 #    launch reads the same, and --add-dir grants the reviewer your worktree.
 #    Pass nothing else — no summary, no rationale, no "here's what I was going
-#    for". CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1 takes the background
-#    parameter off the reviewer's Bash tool, so its mutation loop cannot
-#    outlive the headless turn and leave a mutant behind (OS#682).
+#    for".
 ( cd /home/natha/OverSteward && printf '%s\n' \
     "Read <worktree-path>/.review-input.md and return your verdict." \
-    | CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1 claude -p --agent adversarial-reviewer --model opus \
+    | claude -p --agent adversarial-reviewer --model opus \
         --add-dir /home/natha/fiscus --output-format json \
     > <worktree-path>/.review-round-1.json )
 
-# 4. Capture the verdict, then check it is one. The JSON envelope's `result`
-#    is the reviewer's text (its ```reviewer-verdict fence and the findings
-#    beneath it); `usage` is the harness's token count, recorded beside the
-#    reviewer's self-report. A result with no fence is a BLIND ROUND: billed,
-#    certifying nothing, and perhaps leaving a mutant in <worktree-path>.review.
-#    The check records that copy's diff, restores it from HEAD and tears it
-#    down through the doctor (OS#682).
+# 4. Capture the verdict. The JSON envelope's `result` is the reviewer's text
+#    (its ```reviewer-verdict fence and the findings beneath it); `usage` is
+#    the harness's token count, recorded beside the reviewer's self-report.
 jq -r .result <worktree-path>/.review-round-1.json > <worktree-path>/.review-verdict-1.md
-/home/natha/OverSteward/.venv/bin/python \
-    /home/natha/OverSteward/scripts/review/check_verdict_capture.py \
-    <worktree-path>/.review-verdict-1.md
 ```
 
 Then:
 
-- **The check's exit code decides what comes next.** `0` is a verdict: read
-  on. `1` is a blind round, already recorded and cleared: put the blind
-  launch's `jq .usage` on the trajectory note, then relaunch once with the
-  same command on the same input, capturing to
-  `.review-round-<N>-relaunch.json` and `.review-verdict-<N>-relaunch.md`,
-  and check that capture. `3` (the relaunch was blind too) or `2` (the check
-  could not finish) stops the pickup: emit `STOPPED_FOR_INPUT` and quote
-  what it printed. A blind round is never a verdict, and the assembler is
-  not re-run for it, so the round count is unchanged.
 - **Paste the reviewer's `reviewer-verdict` block into the PR body verbatim**,
   under an `## Adversarial review` heading, with its findings beneath it.
 - **Copy the same verdict onto the trajectory note's `reviewer:` front-matter
