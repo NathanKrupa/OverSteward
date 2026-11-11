@@ -690,6 +690,20 @@ def test_the_doctrine_names_the_lite_gates_that_run_bandit() -> None:
     )
 
 
+#: A command that runs bandit: the tool at the start of a line or after a path
+#: or `uv run`, not prose that names it.
+BANDIT_COMMAND = re.compile(r"^[ \t]*(?:\S*/|uv run (?:--no-sync )?)?bandit -", re.MULTILINE)
+
+
+@pytest.mark.parametrize("card", _dev_cards(), ids=_card_id)
+def test_every_bandit_command_reads_the_repo_config(card: Path) -> None:
+    """Bandit without `-c pyproject.toml` loses the repo's skips and fails on what it accepts."""
+    lines = card.read_text(encoding="utf-8").splitlines()
+    runs = [line.strip() for line in lines if BANDIT_COMMAND.match(line)]
+    bare = [run for run in runs if "-c pyproject.toml" not in run]
+    assert not bare, f"{_card_id(card)} runs bandit without its pyproject.toml config: {bare}"
+
+
 #: Both halves an AG pytest line needs in a worktree (OS#678): `.env` for the
 #: settings (SECRET_KEY), and bench.py for the worktree's own database pair.
 #: Either half alone fails, at settings import or at the first connection.
