@@ -4,13 +4,14 @@
 
 """Check and render `estate-map.yaml`, the estate's capability map.
 
-`check` runs validate, locations and coverage in one pass. Exit codes carry
+`check` runs validate, locations, coverage and the memory-cite check (each
+`memory` cite must name a steward-memory note) in one pass. Exit codes carry
 meaning and must not be collapsed:
 
 * **0** — clean: every check looked and found nothing.
 * **1** — findings: the map disagrees with itself, the registry, or a tree.
-* **2** — could not look: the map, the registry, a checkout, a fetch or a ref
-  could not be read, or nothing was claimed to check. Outranks 1, and a crash
+* **2** — could not look: the map, the registry, a checkout, a fetch, a ref or
+  the memory store could not be read, or nothing was claimed to check. Outranks 1, and a crash
   is 2, so no failure to read ever exits like a pass.
 
 `status` attributes every open issue and PR to capabilities at read time and
@@ -41,6 +42,7 @@ def _parse(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--registry", type=Path, default=None)
     parser.add_argument("--digest", type=Path, default=DIGEST_PATH)
     parser.add_argument("--slices", type=Path, default=SLICES_DIR)
+    parser.add_argument("--memory-store", type=Path, default=None)
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("validate")
     sub.add_parser("locations")
@@ -61,6 +63,7 @@ def main(argv: list[str] | None = None, git=None, fetch=None) -> int:
         # Imported here so a broken venv reads as could-not-look with a reason, not a traceback.
         from registry import REGISTRY_PATH, load_registry
 
+        from oversteward.dream.consolidate import DEFAULT_STORE_PATH, MemoryStore
         from oversteward.estate_map import checks, model, render, status, status_github
         from oversteward.estate_map.checkouts import TreeReader, checkouts
         from oversteward.sow.runners import GitCommand
@@ -83,7 +86,10 @@ def main(argv: list[str] | None = None, git=None, fetch=None) -> int:
         if args.command == "status":
             return _status(args, estate, status, fetch or status_github.fetcher(registry))
         reader = TreeReader(git or GitCommand(), checkouts(registry, home_repo=HOME_REPO, home_root=ROOT))
-        outcome = checks.run(args.command, estate, registry, reader, repo=getattr(args, "repo", None))
+        store = MemoryStore(args.memory_store or DEFAULT_STORE_PATH)
+        outcome = checks.run(
+            args.command, estate, registry, reader, store, repo=getattr(args, "repo", None)
+        )
     except Exception as exc:  # noqa: BLE001 — a crash mid-check is could-not-look, never clean
         print(f"COULD NOT LOOK - {args.command} crashed: {type(exc).__name__}: {exc}")
         return EXIT_COULD_NOT_LOOK

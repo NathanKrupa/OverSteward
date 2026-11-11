@@ -47,6 +47,7 @@ __all__ = [
     "StoreUnreadable",
     "assess",
     "measure",
+    "resolvable_names",
     "unfenced_lines",
 ]
 
@@ -168,7 +169,7 @@ def measure(
     cannot be read or parsed.
     """
     memories = _fact_notes(store)
-    resolvable = {Path(mem.filename).stem for mem in memories} | {mem.name for mem in memories}
+    resolvable = _resolvable(memories)
     citers_by_target = _citers_by_target(memories)
     dangling = _oldest_first(
         _dangling(target, citers, added_on, today)
@@ -205,6 +206,19 @@ def assess(
         ceilings=ceilings,
         dangling_before=dangling_before,
     )
+
+
+def resolvable_names(store: MemoryStore) -> frozenset[str]:
+    """Every name a reference to a note in ``store`` resolves by: each filename stem and each ``name:``.
+
+    Raises :class:`StoreUnreadable` when the root is not a directory or a note
+    cannot be read or parsed.
+    """
+    return _resolvable(_fact_notes(store))
+
+
+def _resolvable(memories: list[MemoryFile]) -> frozenset[str]:
+    return frozenset({Path(mem.filename).stem for mem in memories} | {mem.name for mem in memories})
 
 
 def _fact_notes(store: MemoryStore) -> list[MemoryFile]:

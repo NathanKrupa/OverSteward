@@ -1,4 +1,4 @@
-# ABOUTME: The estate-map commands as outcomes — validate, locations, coverage, and check (all three).
+# ABOUTME: The estate-map commands as outcomes — validate, locations, coverage, and check (those plus memory cites).
 # ABOUTME: The OUTER script parses arguments and prints; which repos are measured is decided here.
 
 from __future__ import annotations
@@ -6,9 +6,12 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from oversteward.dream.consolidate import MemoryStore
+
 from .checkouts import TreeReader
 from .coverage import coverage_outcome
 from .locations import check_locations
+from .memory_cites import check_memory_cites
 from .model import EstateMap
 from .outcome import Outcome, combine
 from .validate import validate
@@ -42,12 +45,15 @@ def coverage_report(estate: EstateMap, reader: TreeReader, repos: Sequence[str])
     return combine([*(coverage_outcome(estate, r, reader.files) for r in repos), Outcome(notes=notes)])
 
 
-def check(estate: EstateMap, registry: Mapping[str, Any], reader: TreeReader) -> Outcome:
+def check(
+    estate: EstateMap, registry: Mapping[str, Any], reader: TreeReader, store: MemoryStore
+) -> Outcome:
     return combine(
         [
             validate_outcome(estate, registry),
             check_locations(estate, reader),
             coverage_report(estate, reader, coverage_repos(estate, None)),
+            check_memory_cites(estate, store),
         ]
     )
 
@@ -57,6 +63,7 @@ def run(
     estate: EstateMap,
     registry: Mapping[str, Any],
     reader: TreeReader,
+    store: MemoryStore,
     *,
     repo: str | None = None,
 ) -> Outcome:
@@ -67,5 +74,5 @@ def run(
     if command == "coverage":
         return coverage_report(estate, reader, coverage_repos(estate, repo))
     if command == "check":
-        return check(estate, registry, reader)
+        return check(estate, registry, reader, store)
     raise ValueError(f"unknown estate-map command {command!r}")
