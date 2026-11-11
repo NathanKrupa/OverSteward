@@ -685,14 +685,28 @@ def test_fixed_in_place_refuses_and_closes_nothing(store, capsys, pr, green, mes
 @pytest.mark.parametrize(
     "issue",
     [red_issue(5, title="ci is red on main"),
-     red_issue(5, body=details().replace("- Commit tested:", "- Commit:"))],
-    ids=["no-red-pr", "no-tested-commit"],
+     red_issue(5, body=details().replace("- Commit tested:", "- Commit:")),
+     red_issue(5, body=details().replace("- Run:", "- Log:"))],
+    ids=["no-red-pr", "no-tested-commit", "no-run-line"],
 )
 def test_fixed_in_place_refuses_an_issue_missing_its_pr_commit_or_run(store, issue):
     _pending(store)
     source = _in_place_source(_merged_at(LATER, SHA, LATER), issue=issue)
     with pytest.raises(VerdictError, match="reports no red PR, tested commit and run"):
         _record(store, source, "fixed-in-place", "901")
+    source.close.assert_not_called()
+    assert not store.ledger_path.exists()
+
+
+@pytest.mark.parametrize("ref", ["abc", "901@x"])
+def test_fixed_in_place_refuses_a_ref_that_is_not_a_run_id(store, capsys, ref):
+    _pending(store)
+    source = _in_place_source(_merged_at(LATER, SHA, LATER))
+    argv = ["record", "grantspider#5", "fixed-in-place", "--ref", ref]
+    assert run_main(argv, source, store) == 2
+    err = capsys.readouterr().err
+    assert f"{ref!r} is not a run id; nothing closed" in err
+    assert "Traceback" not in err
     source.close.assert_not_called()
     assert not store.ledger_path.exists()
 
