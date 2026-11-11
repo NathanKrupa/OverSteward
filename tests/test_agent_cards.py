@@ -274,7 +274,7 @@ REVIEWER_STEP_MARKERS = (
     # Edit, Write, Grep, Glob` and cannot launch a subagent, so a card that
     # prescribes an in-session launch prescribes a step the agent cannot take
     # (OS#493 — four pickups each rediscovered the headless form).
-    "| claude -p --agent adversarial-reviewer --model opus",
+    "claude -p --agent adversarial-reviewer --model opus",
     "--output-format json",
 )
 
@@ -756,6 +756,92 @@ def test_every_ag_pytest_line_binds_the_settings_and_the_worktree_bench(card: Pa
     unbound = [run for run in runs if not all(half in run for half in AG_PYTEST_HALVES)]
     assert not unbound, (
         f"{_card_id(card)} runs pytest without both {AG_PYTEST_HALVES}: {unbound}"
+    )
+
+
+#: The headless reviewer's process ends with its turn, so a mutation loop it
+#: backgrounds is lost and its mutant left in `<worktree>.review` (OS#682). The
+#: variable takes `run_in_background` off its Bash tool; a headless probe saw the
+#: parameter used without it and absent with it. It must prefix the `claude`
+#: the instruction is piped into, or it does not reach the reviewer.
+REVIEWER_LAUNCH = "claude -p --agent adversarial-reviewer"
+FOREGROUND_LAUNCH = re.compile(
+    r"\|\s*CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1\s+claude -p --agent adversarial-reviewer\b"
+)
+
+#: The capture, and the check on it that turns a result with no verdict fence
+#: into a blind round: recorded, its scratch copy restored and torn down.
+VERDICT_CAPTURE = (
+    "jq -r .result <worktree-path>/.review-round-1.json > <worktree-path>/.review-verdict-1.md"
+)
+VERDICT_CHECK = (
+    "/home/natha/OverSteward/.venv/bin/python "
+    "/home/natha/OverSteward/scripts/review/check_verdict_capture.py "
+    "<worktree-path>/.review-verdict-1.md"
+)
+BLIND_ROUND_RULE = (
+    "`3` (the relaunch was blind too) or `2` (the check could not finish) stops the pickup"
+)
+
+
+def _live_commands(text: str) -> list[str]:
+    """Each command in ``text`` that runs: continuations joined, spacing closed, comments dropped."""
+    return [
+        " ".join(command.split())
+        for command in _commands(text)
+        if not NOT_A_COMMAND.match(command)
+    ]
+
+
+@pytest.mark.parametrize("card", _dev_cards(), ids=_card_id)
+def test_every_reviewer_launch_takes_away_background_tasks(card: Path) -> None:
+    """A launch that lets the reviewer background its loop can return with no verdict."""
+    launches = [
+        command
+        for command in _live_commands(card.read_text(encoding="utf-8"))
+        if REVIEWER_LAUNCH in command
+    ]
+    assert launches, f"{_card_id(card)} launches no reviewer (a comment or echo runs nothing)"
+    bare = [launch for launch in launches if not FOREGROUND_LAUNCH.search(launch)]
+    assert not bare, (
+        f"{_card_id(card)} launches the reviewer without "
+        f"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1 on the piped `claude`: {bare}"
+    )
+
+
+@pytest.mark.parametrize("card", _dev_cards(), ids=_card_id)
+def test_every_dev_card_checks_the_captured_result_for_a_verdict(card: Path) -> None:
+    """A capture nobody checks reads a blind round as an empty verdict."""
+    text = card.read_text(encoding="utf-8")
+    commands = _live_commands(text)
+    captures = [at for at, command in enumerate(commands) if command == VERDICT_CAPTURE]
+    assert len(captures) == 1, f"{_card_id(card)} captures the verdict {len(captures)} times"
+    checks = [
+        at for at, command in enumerate(commands) if "check_verdict_capture.py" in command
+    ]
+    assert checks, f"{_card_id(card)} never checks the capture (a comment or echo runs nothing)"
+    assert [commands[at] for at in checks] == [VERDICT_CHECK], (
+        f"{_card_id(card)} checks the capture as {[commands[at] for at in checks]}; the check "
+        f"runs once, bare, so nothing after it can hide its exit code: {VERDICT_CHECK!r}"
+    )
+    assert checks[0] > captures[0], f"{_card_id(card)} checks the capture before writing it"
+    assert BLIND_ROUND_RULE in _unwrapped(text), (
+        f"{_card_id(card)} does not say that a second blind round, or a check that could "
+        f"not finish, stops the pickup."
+    )
+
+
+REVIEWER_CARDS = [directory / "adversarial-reviewer.md" for directory in (CANONICAL_DIR, DEPLOYED_DIR)]
+FOREGROUND_RULE = "**Run every command in the foreground, the mutation loop included.**"
+
+
+@pytest.mark.parametrize("card", REVIEWER_CARDS, ids=_card_id)
+def test_the_reviewer_runs_its_mutation_loop_in_the_foreground(card: Path) -> None:
+    """The variable removes the tool's background parameter; a shell `&` needs the rule."""
+    prose = _unwrapped(card.read_text(encoding="utf-8"))
+    assert FOREGROUND_RULE in prose, f"{_card_id(card)} lacks the foreground rule (OS#682)"
+    assert "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1" in prose, (
+        f"{_card_id(card)} does not name the variable its launch sets"
     )
 
 
