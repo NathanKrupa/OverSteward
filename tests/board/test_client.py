@@ -250,3 +250,25 @@ def test_gh_json_raises_a_plain_gh_error_for_any_other_failure(monkeypatch):
     with pytest.raises(GhError, match="GH_TOKEN") as caught:
         gh_json(["api", "repos/NathanKrupa/grantspider/issues/1"])
     assert not isinstance(caught.value, NotFoundError)
+
+
+def test_gh_json_turns_a_gh_that_cannot_be_run_into_a_gh_error(monkeypatch):
+    from oversteward.board import client
+    from oversteward.board.client import GhError, NotFoundError, gh_json
+
+    def no_gh(*_args, **_kwargs):
+        raise FileNotFoundError(2, "No such file or directory", "gh")
+
+    monkeypatch.setattr(client.subprocess, "run", no_gh)
+
+    try:
+        gh_json(["api", "repos/NathanKrupa/grantspider/issues/1"])
+    except GhError as exc:
+        caught = exc
+    except OSError as exc:
+        pytest.fail(f"an OSError escaped gh_json: {exc!r}")
+    else:
+        pytest.fail("gh_json returned although gh could not be run")
+    assert "gh could not be run" in str(caught)
+    assert "No such file or directory" in str(caught)
+    assert not isinstance(caught, NotFoundError)

@@ -52,9 +52,18 @@ class NotFoundError(GhError):
 
 
 def gh_json(args: list[str]) -> Any:
-    proc = subprocess.run(
-        ["gh", *args], capture_output=True, text=True, encoding="utf-8", check=False
-    )
+    """``gh <args>``'s stdout parsed as JSON.
+
+    A ``gh`` that cannot be run (absent from PATH, not executable) or exits
+    non-zero is a :class:`GhError`, which reaches the same handlers as any other
+    ``gh`` failure.
+    """
+    try:
+        proc = subprocess.run(
+            ["gh", *args], capture_output=True, text=True, encoding="utf-8", check=False
+        )
+    except OSError as exc:
+        raise GhError(f"gh could not be run for `gh {' '.join(args)}`: {exc}") from exc
     if proc.returncode != 0:
         message = f"gh {' '.join(args)} failed (exit {proc.returncode}): {proc.stderr.strip()}"
         if "HTTP 404" in proc.stderr:
