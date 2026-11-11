@@ -2086,6 +2086,7 @@ capabilities:
     - src/oversteward/review_input.py
     - src/oversteward/review_collector.py
     - src/oversteward/review_verdict.py
+    - src/oversteward/review_capture.py
     - src/oversteward/reviewer_eval.py
     - src/oversteward/gaudi_binary.py
     - scripts/review/
@@ -2094,8 +2095,10 @@ capabilities:
     - shared/agents/adversarial-reviewer.md
   entry_points:
   - scripts/review/assemble_review_input.py
+  - scripts/review/check_verdict_capture.py
   - scripts/lint/require_review_verdict.py
-  current_shape: 5 modules, 1,371 lines; the assembler keeps a `.review-rounds` ledger and CI's reviewer-verdict
+  current_shape: 6 modules, 1,617 lines; the assembler keeps a `.review-rounds` ledger, a captured result
+    with no verdict fence is a blind round whose scratch copy is cleared, and CI's reviewer-verdict
     job reads the PR body. Which commits a verdict covers is doctrine, not tooling (OS#534, open).
   target_shape: Tooling that checks the commits after the reviewed SHA, so a commit no verdict covers
     cannot merge (OS#534).
