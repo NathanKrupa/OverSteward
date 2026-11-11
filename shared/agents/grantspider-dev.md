@@ -31,8 +31,9 @@ You are the dedicated PR worker for the **grantspider** repository.
 ruff check src/ tests/
 ruff format --check src/ tests/
 
-# Security
-bandit -r src/
+# Security — the scope and config CI's security job uses; bare `bandit -r src/`
+# skips tests/ and the pyproject.toml skips, and fails on findings they accept.
+.venv/bin/bandit -r src/ tests/ -c pyproject.toml
 ```
 
 ### CI check names — read them live
@@ -100,7 +101,7 @@ Closes #<issue>
 ## Tested locally
 - `pytest` → <X/Y passed>
 - `ruff check src/ tests/` → <result>
-- `bandit -r src/` → <result>
+- `bandit -r src/ tests/ -c pyproject.toml` → <result>
 - <any CLI sanity check, e.g. `grantspider gov sync-state NY --help`>
 
 ## Scope
@@ -133,8 +134,9 @@ degrade the whole instrument silently, so the input is assembled by code.
 sequence in `~/.claude/shared/references/pr-workflow.md`). Commit first, because
 both read the committed diff, which is what the reviewer reads. The lite gate is
 ruff, the gaudi error gate on the changed Python files, the boy-scout ratchet,
-and `pytest` on the test files the diff touches. It checks what you changed; it does not certify the
-tree. Playbook step 10's full suite does not run here. It is the one full run,
+bandit over `src/` and `tests/` as the full gate's security job runs it, and
+`pytest` on the test files the diff touches. It checks what you changed; it does
+not certify the tree. Playbook step 10's full suite does not run here. It is the one full run,
 after the findings, below.
 
 ```bash
@@ -152,6 +154,9 @@ PATH="$PWD/.venv/bin:$PATH" .venv/bin/python scripts/lint/gaudi_check_files.py $
 # copy already carries debt fails here, and finding that after review forces a
 # restructure the rounds then have to re-read. It needs no database.
 GRANTSPIDER_CI_LOCAL_SKIP_DB_READY=1 make ci-boy-scout || rc=1
+# Bandit as the full gate's security job runs it, tests/ included: a test that
+# uses subprocess otherwise passes review and first fails the full gate.
+.venv/bin/bandit -r src/ tests/ -c pyproject.toml || rc=1
 tests=$(printf '%s\n' $changed | grep -E '(^|/)test_[^/]*\.py$' || true)
 if [ -n "$tests" ]; then
     .venv/bin/python -m pytest $tests || rc=1

@@ -226,9 +226,10 @@ degrade the whole instrument silently, so the input is assembled by code.
 sequence in `~/.claude/shared/references/pr-workflow.md`). Commit first, because
 both read the committed diff, which is what the reviewer reads. The lite gate is
 ruff, `make ci-gaudi` (the gaudi error gate with the SMELL-003 and ARCH-013
-ratchets against staging, the same job the full gate runs), and `pytest` on the
-test files the diff touches, against this worktree's own bench databases. It
-checks what you changed; it does not certify the tree.
+ratchets against staging, the same job the full gate runs), bandit as the full
+gate's security job runs it, and `pytest` on the test files the diff touches,
+against this worktree's own bench databases. It checks what you changed; it does
+not certify the tree.
 Playbook step 10's full suite does not run here. It is the one full run, after
 the findings, below.
 
@@ -242,6 +243,9 @@ uv run --no-sync ruff format --check . || rc=1
 # The whole gaudi job of the full gate, not only its error tier: a ratchet that
 # first fails in the full gate fails after review and forces a delta round.
 AG_BASE_REF=staging make ci-gaudi || rc=1
+# Bandit as the full gate's security job runs it: its scope, its pyproject.toml
+# config (which excludes tests/). A finding first seen there is seen after review.
+uv run --no-sync bandit -r apps/ config/ scripts/ -c pyproject.toml || rc=1
 changed=$(git diff --name-only --diff-filter=d origin/staging...HEAD)
 tests=$(printf '%s\n' $changed | grep -E '(^|/)test_[^/]*\.py$' || true)
 if [ -n "$tests" ]; then

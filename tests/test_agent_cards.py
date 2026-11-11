@@ -350,6 +350,15 @@ RUFF_CHECK = ("lite-gate ruff check", "ruff check")
 RUFF_FORMAT = ("lite-gate ruff format", "ruff format --check")
 TOUCHED_TESTS = ("lite-gate pytest on the touched tests", "-m pytest $tests")
 
+#: Bandit as each repo's full gate runs it, with its scope and its
+#: `pyproject.toml` config (OS#677). A lite gate without it passes a test that
+#: uses `subprocess`, and the full gate first fails it after review. fiscus and
+#: ai-assistants carry no bandit in any gate, so their cards carry no step.
+AG_BANDIT = ("lite-gate bandit", "bandit -r apps/ config/ scripts/ -c pyproject.toml")
+GS_BANDIT = ("lite-gate bandit", ".venv/bin/bandit -r src/ tests/ -c pyproject.toml")
+WPHELPER_BANDIT = ("lite-gate bandit", ".venv/bin/bandit -r src/ -c pyproject.toml")
+EXCHEQUER_BANDIT = ("lite-gate bandit", ".venv/bin/bandit -q -r src/ -c pyproject.toml")
+
 #: A line that runs `make verify`, bare or through the sanctioned `.env` runner.
 MAKE_VERIFY_RUN = re.compile(
     r"^[ \t]*(?:\S*with_test_env\.py(?:[ \t]+--env-file[ \t]+\S+)?[ \t]+)?make verify[ \t]*$",
@@ -406,6 +415,7 @@ PRE_ROUND_SEQUENCE_CARDS = {
             # The full gate's whole gaudi job, ratchets included (OS#678): a
             # ratchet first seen in `make verify` is seen after review.
             ("lite-gate gaudi with its ratchets", "make ci-gaudi"),
+            AG_BANDIT,
             # The touched tests run on this worktree's bench databases, which
             # only bench.py names; without it they reach no database (OS#678).
             (
@@ -421,6 +431,7 @@ PRE_ROUND_SEQUENCE_CARDS = {
             RUFF_FORMAT,
             ("lite-gate gaudi", "scripts/lint/gaudi_check_files.py"),
             ("lite-gate boy-scout", "make ci-boy-scout"),
+            GS_BANDIT,
             TOUCHED_TESTS,
         ),
         *MAKE_VERIFY_SEQUENCE,
@@ -430,6 +441,7 @@ PRE_ROUND_SEQUENCE_CARDS = {
             RUFF_CHECK,
             RUFF_FORMAT,
             ("lite-gate gaudi", "scripts/lint/gaudi_gate.py"),
+            WPHELPER_BANDIT,
             TOUCHED_TESTS,
         ),
         (WPHELPER_FULL_PYTEST,),
@@ -456,6 +468,7 @@ PRE_ROUND_SEQUENCE_CARDS = {
             RUFF_CHECK,
             RUFF_FORMAT,
             ("lite-gate gaudi", "gaudi check src/ --severity error --exit-code"),
+            EXCHEQUER_BANDIT,
             TOUCHED_TESTS,
         ),
         *MAKE_VERIFY_SEQUENCE,
@@ -496,6 +509,9 @@ FULL_SUITE_IN_LITE = re.compile(
 
 #: A lite-gate line that runs nothing: a comment, or a message it prints.
 NOT_A_COMMAND = re.compile(r"^\s*(?:#|echo\b)")
+
+#: A pipe (not `||`): a step piped into a filter hands `|| rc=1` the filter's status.
+PIPE = re.compile(r"(?<!\|)\|(?!\|)")
 
 REVIEW_BLOCK = re.compile(r"^## Adversarial review\b.*?(?=^## )", re.MULTILINE | re.DOTALL)
 
@@ -604,12 +620,25 @@ def test_the_lite_gate_fails_closed_and_runs_only_the_touched_tests(card: Path) 
     """A step whose failure the next command hides, or an unscoped pytest, defeats the gate."""
     lite = _lite_gate_block(card)
     for step, marker in PRE_ROUND_SEQUENCE_CARDS[card.name].lite_gate:
-        lines = [line for line in lite.splitlines() if marker in line]
-        assert lines, f"{_card_id(card)} lite gate lacks the {step}"
+        lines = [
+            line
+            for line in lite.splitlines()
+            if marker in line and not NOT_A_COMMAND.match(line)
+        ]
+        assert lines, f"{_card_id(card)} lite gate lacks the {step} (a comment or echo runs nothing)"
         unchained = [line.strip() for line in lines if LITE_GATE_FAILURE not in line]
         assert not unchained, (
             f"{_card_id(card)}: the {step} does not fold its failure into "
             f"the block's status ({LITE_GATE_FAILURE!r}): {unchained}"
+        )
+        piped = [
+            line.strip()
+            for line in lines
+            if PIPE.search(line.split(LITE_GATE_FAILURE, 1)[0])
+        ]
+        assert not piped, (
+            f"{_card_id(card)}: the {step} pipes its output, so `{LITE_GATE_FAILURE}` "
+            f"reads the last command's status, not the step's: {piped}"
         )
     full_runs = [
         line.strip()
@@ -651,6 +680,49 @@ def test_the_card_ceiling_is_the_one_the_doctrine_states(card: Path) -> None:
         f"{_card_id(card)} compares against {in_card[0]}, but pr-workflow.md "
         f"states the {repo} ceiling as {stated[0]}."
     )
+
+
+#: The doctrine's list of the repos whose lite gate runs bandit (OS#677).
+DOCTRINE_BANDIT = re.compile(
+    r"bandit with the full gate's own scope and `pyproject\.toml` config where the "
+    r"full gate runs it \(([^)]*)\)"
+)
+
+
+def test_the_doctrine_names_the_lite_gates_that_run_bandit() -> None:
+    """The bandit list in pr-workflow.md and the cards' bandit steps stay one set."""
+    stated = DOCTRINE_BANDIT.findall(PR_WORKFLOW.read_text(encoding="utf-8"))
+    assert len(stated) == 1, f"pr-workflow.md states the lite-gate bandit list {len(stated)} times"
+    named = {repo.strip() for repo in stated[0].split(",")}
+    carried = {
+        name.removesuffix(f"{DEV_CARD_SUFFIX}.md")
+        for name, spec in PRE_ROUND_SEQUENCE_CARDS.items()
+        if any(step == "lite-gate bandit" for step, _ in spec.lite_gate)
+    }
+    assert carried, "no card carries a lite-gate bandit step; the comparison would be vacuous"
+    assert named == carried, (
+        f"pr-workflow.md says the lite gate runs bandit in {sorted(named)}, but the cards "
+        f"that carry the step are {sorted(carried)}."
+    )
+
+
+#: A command that runs bandit: the tool after the start of a line or a shell
+#: separator, bare or by path, behind any env assignment, `uv run` or `cd … &&`.
+#: Prose names it in backticks, which this does not match.
+BANDIT_COMMAND = re.compile(r"(?:^|[\s;&(])(?:\S*/)?bandit -")
+
+
+@pytest.mark.parametrize("card", _dev_cards(), ids=_card_id)
+def test_every_bandit_command_reads_the_repo_config(card: Path) -> None:
+    """Bandit without `-c pyproject.toml` loses the repo's skips and fails on what it accepts."""
+    lines = card.read_text(encoding="utf-8").splitlines()
+    runs = [
+        line.strip()
+        for line in lines
+        if BANDIT_COMMAND.search(line) and not NOT_A_COMMAND.match(line)
+    ]
+    bare = [run for run in runs if "-c pyproject.toml" not in run]
+    assert not bare, f"{_card_id(card)} runs bandit without its pyproject.toml config: {bare}"
 
 
 #: Both halves an AG pytest line needs in a worktree (OS#678): `.env` for the
