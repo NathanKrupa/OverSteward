@@ -261,6 +261,35 @@ def test_a_store_outside_git_is_unreadable(tmp_path: Path) -> None:
         first_added_dates(tmp_path, store)
 
 
+def test_a_store_outside_the_repo_is_unreadable(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    _init_git_repo(repo)
+    _commit(repo, [_note(repo / "memory", "fact.md")], "2026-01-01")
+    outside = tmp_path / "elsewhere"
+    _note(outside, "fact.md")
+
+    with pytest.raises(StoreUnreadable, match="log"):
+        first_added_dates(repo, outside)
+
+
+def test_a_renamed_note_is_dated_by_its_current_name(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    _init_git_repo(repo)
+    _commit(repo, [_note(repo / "memory", "old.md")], "2026-01-01")
+    subprocess.run(["git", "mv", "memory/old.md", "memory/new.md"], cwd=repo, check=True)
+    _commit(repo, [], "2026-05-01")
+
+    assert first_added_dates(repo, repo / "memory").get("new.md") == date(2026, 5, 1)
+
+
+def test_a_non_ascii_note_name_is_dated(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    _init_git_repo(repo)
+    _commit(repo, [_note(repo / "memory", "café.md")], "2026-01-01")
+
+    assert first_added_dates(repo, repo / "memory") == {"café.md": date(2026, 1, 1)}
+
+
 def test_a_repo_with_no_commits_dates_nothing(tmp_path: Path) -> None:
     _init_git_repo(tmp_path)
     store = tmp_path / "memory"
@@ -285,6 +314,16 @@ def test_ruled_is_the_set_of_snapshot_targets_that_no_longer_dangle(tmp_path: Pa
 
     assert health.ruled == 1
     assert health.closing_line().startswith("2 dangling (1 ruled this run); store 1 notes / ")
+
+
+def test_ruled_counts_the_targets_that_stopped_dangling_not_those_still_dangling(
+    tmp_path: Path,
+) -> None:
+    _note(tmp_path, "citer.md", body="[[c]]\n")
+
+    health = _measure(tmp_path, dangling_before=frozenset({"a", "b", "c"}))
+
+    assert health.ruled == 2
 
 
 def test_ruled_without_a_snapshot_is_unmeasured(tmp_path: Path) -> None:
