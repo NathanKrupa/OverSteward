@@ -403,8 +403,15 @@ PRE_ROUND_SEQUENCE_CARDS = {
         (
             RUFF_CHECK,
             RUFF_FORMAT,
-            ("lite-gate gaudi", "scripts/lint/gaudi_check_files.py"),
-            TOUCHED_TESTS,
+            # The full gate's whole gaudi job, ratchets included (OS#678): a
+            # ratchet first seen in `make verify` is seen after review.
+            ("lite-gate gaudi with its ratchets", "make ci-gaudi"),
+            # The touched tests run on this worktree's bench databases, which
+            # only bench.py names; without it they reach no database (OS#678).
+            (
+                "lite-gate pytest on the touched tests, on the worktree's bench",
+                "scripts/dev/bench.py run -- .venv/bin/python -m pytest $tests",
+            ),
         ),
         *MAKE_VERIFY_SEQUENCE,
     ),
@@ -643,6 +650,40 @@ def test_the_card_ceiling_is_the_one_the_doctrine_states(card: Path) -> None:
     assert int(in_card[0]) == int(stated[0].replace(",", "")), (
         f"{_card_id(card)} compares against {in_card[0]}, but pr-workflow.md "
         f"states the {repo} ceiling as {stated[0]}."
+    )
+
+
+#: Both halves an AG pytest line needs in a worktree (OS#678): `.env` for the
+#: settings (SECRET_KEY), and bench.py for the worktree's own database pair.
+#: Either half alone fails, at settings import or at the first connection.
+AG_PYTEST_HALVES = (
+    "scripts/dev/with_test_env.py --env-file /home/natha/aigranthelper/.env",
+    "scripts/dev/bench.py run -- .venv/bin/python -m pytest",
+)
+AG_CARDS = [directory / "aigranthelper-dev.md" for directory in (CANONICAL_DIR, DEPLOYED_DIR)]
+
+
+def _commands(text: str) -> list[str]:
+    """Each shell command in ``text``, with its backslash continuations joined."""
+    return re.sub(r"\\\n\s*", " ", text).splitlines()
+
+
+@pytest.mark.parametrize("card", AG_CARDS, ids=_card_id)
+def test_every_ag_pytest_line_binds_the_settings_and_the_worktree_bench(card: Path) -> None:
+    """A pytest line missing either half runs nothing in a dispatch worktree."""
+    text = card.read_text(encoding="utf-8")
+    runs = [
+        command.strip()
+        for command in _commands(text)
+        if "-m pytest" in command and not NOT_A_COMMAND.match(command)
+    ]
+    assert len(runs) >= 2, (
+        f"{_card_id(card)} runs pytest {len(runs)} times; the full-suite command and the "
+        f"lite gate's touched tests should each run it."
+    )
+    unbound = [run for run in runs if not all(half in run for half in AG_PYTEST_HALVES)]
+    assert not unbound, (
+        f"{_card_id(card)} runs pytest without both {AG_PYTEST_HALVES}: {unbound}"
     )
 
 
