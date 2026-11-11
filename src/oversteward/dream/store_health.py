@@ -23,7 +23,7 @@ empty, clean-looking store.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
@@ -47,6 +47,7 @@ __all__ = [
     "StoreUnreadable",
     "assess",
     "measure",
+    "unfenced_lines",
 ]
 
 # How many of the oldest dangling targets one dream run rules on (Nathan, OS#692).
@@ -241,7 +242,11 @@ def _link_targets(body: str) -> set[str]:
 
 def _prose(body: str) -> str:
     """``body`` with fenced blocks and inline code spans removed."""
-    kept: list[str] = []
+    return "\n".join(_CODE_SPAN_RE.sub("", line) for line in unfenced_lines(body))
+
+
+def unfenced_lines(body: str) -> Iterator[str]:
+    """Each line of ``body`` outside a fenced code block; the fence lines themselves are dropped."""
     fence: str | None = None
     for line in body.splitlines():
         opener = _FENCE_RE.match(line)
@@ -252,8 +257,7 @@ def _prose(body: str) -> str:
             if line.strip().startswith(fence[0] * len(fence)):
                 fence = None
             continue
-        kept.append(_CODE_SPAN_RE.sub("", line))
-    return "\n".join(kept)
+        yield line
 
 
 def _dangling(

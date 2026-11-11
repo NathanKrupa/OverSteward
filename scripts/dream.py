@@ -10,7 +10,9 @@ import sys
 from datetime import date, datetime
 from pathlib import Path
 
-from oversteward.dream import cycle, kaizen, promotion, roadmap, runlock, store_health
+import yaml
+
+from oversteward.dream import correction, cycle, kaizen, promotion, roadmap, runlock, store_health
 from oversteward.dream.consolidate import MemoryStore, StoreUnreadable, commit_store
 from oversteward.dream.extract import CandidateFact
 from oversteward.dream.ledger import ProcessedLedger
@@ -23,6 +25,12 @@ from oversteward.dream.transcripts import (
     find_transcript,
     parse_transcript,
 )
+from oversteward.estate_map.checkouts import TreeReader
+from oversteward.sow.runners import GitCommand
+from oversteward.stage_health.sources import GithubIssueStates
+
+ROOT = Path(__file__).resolve().parent.parent
+REGISTRY_PATH = ROOT / "registry.yaml"
 
 
 def _format_meta(meta: TranscriptMeta) -> str:
@@ -181,6 +189,45 @@ def _cmd_store_health(args: argparse.Namespace) -> int:
     health = store_health.assess(MemoryStore(Path(args.store)), Path(args.store_repo), today=today)
     _emit(health.to_dict(args.limit))
     return 1 if health.over else 0
+
+
+def _correction_sources() -> correction.Sources:
+    """Every registry checkout with a local_path, read the way `estate_map.py check` reads them."""
+    try:
+        registry = yaml.safe_load(REGISTRY_PATH.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError) as exc:
+        raise correction.WorklistUnreadable(f"registry unreadable: {exc}") from exc
+    found = correction.tree_checkouts(registry, home_root=ROOT)
+    return correction.Sources(
+        trees=TreeReader(GitCommand(), found), repos=tuple(found), issue_states=GithubIssueStates()
+    )
+
+
+def _cmd_correction_worklist(args: argparse.Namespace) -> int:
+    """Read-only, so no run lock. WorklistUnreadable exits 2 in main."""
+    today = date.fromisoformat(args.today) if args.today else date.today()
+    worklist = correction.build_worklist(
+        MemoryStore(Path(args.store)),
+        args.correction_sources or _correction_sources(),
+        today=today,
+        min_age_days=args.min_age_days,
+        limit=args.limit,
+    )
+    return _emit(worklist.to_dict())
+
+
+def _add_correction_subparser(sub: argparse._SubParsersAction) -> None:
+    grp = sub.add_parser("correction", help="the correction pass over stale Laws and Habits (OS#691)")
+    actions = grp.add_subparsers(dest="action", required=True)
+
+    wkl = actions.add_parser(
+        "worklist", help="read-only: least recently reinforced Laws/Habits + evidence (JSON)"
+    )
+    wkl.add_argument("--store", default=str(cycle.DEFAULT_STORE_PATH))
+    wkl.add_argument("--min-age-days", type=int, default=correction.DEFAULT_MIN_AGE_DAYS)
+    wkl.add_argument("--limit", type=int, default=correction.DEFAULT_LIMIT)
+    wkl.add_argument("--today", default=None, help="YYYY-MM-DD stamp (default: today)")
+    wkl.set_defaults(func=_cmd_correction_worklist)
 
 
 def _cmd_drain(args: argparse.Namespace) -> int:
@@ -489,12 +536,14 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_roadmap_subparser(sub)
     _add_promotion_subparser(sub)
     _add_kaizen_subparser(sub)
+    _add_correction_subparser(sub)
     return parser
 
 
-def main(argv: list[str]) -> int:
+def main(argv: list[str], correction_sources: correction.Sources | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
+    args.correction_sources = correction_sources
     projects_root = getattr(args, "projects_root", None)
     args.projects_root = default_projects_root() if projects_root is None else Path(projects_root)
     try:
@@ -507,6 +556,9 @@ def main(argv: list[str]) -> int:
         return 2
     except StoreUnreadable as exc:
         print(f"dream: store unreadable — {exc}", file=sys.stderr)
+        return 2
+    except correction.WorklistUnreadable as exc:
+        print(f"dream: correction worklist could not look — {exc}", file=sys.stderr)
         return 2
 
 
