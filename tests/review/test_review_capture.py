@@ -184,6 +184,41 @@ class TestABlindRoundIsRecordedRestoredAndTornDown:
         assert outcome.code == EXIT_STOP
         assert "worktree_doctor" in outcome.message
 
+    def test_a_link_the_reviewer_added_is_removed_and_its_target_kept(
+        self, author: Path, tmp_path: Path
+    ) -> None:
+        kept = tmp_path / "bench-data"
+        kept.mkdir()
+        (kept / "rows.csv").write_text("1\n", encoding="utf-8")
+        (_scratch(author) / "bench").symlink_to(kept, target_is_directory=True)
+        outcome = check_capture(_capture(author, BLIND_RESULT), git=run_git, teardown=_teardown())
+        assert outcome.code == EXIT_BLIND, outcome.message
+        assert not (_scratch(author) / "bench").is_symlink()
+        assert (kept / "rows.csv").read_text(encoding="utf-8") == "1\n"
+
+    def test_the_authors_own_worktree_is_never_restored(self, author: Path) -> None:
+        (author / "billing.py").write_text(MUTANT, encoding="utf-8")
+        (author / "draft.py").write_text("WIP = True\n", encoding="utf-8")
+        _leave_a_mutant(author)
+        outcome = check_capture(_capture(author, BLIND_RESULT), git=run_git, teardown=_teardown())
+        assert outcome.code == EXIT_BLIND, outcome.message
+        assert (author / "billing.py").read_text(encoding="utf-8") == MUTANT
+        assert (author / "draft.py").read_text(encoding="utf-8") == "WIP = True\n"
+
+    def test_a_record_that_cannot_be_written_restores_nothing(self, author: Path) -> None:
+        _leave_a_mutant(author)
+        capture = _capture(author, BLIND_RESULT)
+        teardown = _teardown()
+        author.chmod(0o555)
+        try:
+            outcome = check_capture(capture, git=run_git, teardown=teardown)
+        finally:
+            author.chmod(0o755)
+        assert outcome.code == EXIT_STOP
+        assert "nothing was restored" in outcome.message
+        assert (_scratch(author) / "billing.py").read_text(encoding="utf-8") == MUTANT
+        teardown.assert_not_called()
+
     def test_a_staged_mutant_the_restore_cannot_clear_never_reaches_the_doctor(
         self, author: Path
     ) -> None:
