@@ -83,8 +83,9 @@ def _cmd_begin(args: argparse.Namespace) -> int:
 
 def _cmd_end(args: argparse.Namespace) -> int:
     lock, holder, trigger = _run_lock(args)
-    lock.ensure(holder, trigger)
-    lock.release(holder, runlock.ENDED, reason=args.reason)
+    # No ensure: `end` closes a run, it never opens one. release refuses a lock
+    # another run holds, and on a free lock records only the `ended` row.
+    lock.release(holder, runlock.ENDED, reason=args.reason, trigger=trigger)
     return _emit({"holder": holder.pid, "ended": args.reason})
 
 

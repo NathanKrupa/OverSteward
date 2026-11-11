@@ -91,6 +91,16 @@ def test_recycled_pid_is_reclaimed(tmp_path: Path) -> None:
     assert [r["event"] for r in _rows(lock)] == ["reclaimed", "started"]
 
 
+def test_a_reused_pid_with_another_start_is_not_the_holder(tmp_path: Path) -> None:
+    """The dead holder's pid now names this caller's process: (pid, start) differ, so reclaim."""
+    caller = Holder(pid=42, start=9, comm="claude")
+    lock = _lock(tmp_path, {caller.pid: caller.start})
+    _seed(lock, {**FOREIGN_RECORD, "pid": 42, "start": 7})
+    assert lock.ensure(caller, "session") is True
+    assert _record(lock)["start"] == 9
+    assert [r["event"] for r in _rows(lock)] == ["reclaimed", "started"]
+
+
 def test_same_holder_re_enters_without_touching_the_record(tmp_path: Path) -> None:
     lock = _lock(tmp_path, {ME.pid: ME.start})
     assert lock.ensure(ME, "session") is True

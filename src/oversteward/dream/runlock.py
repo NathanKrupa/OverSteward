@@ -183,13 +183,19 @@ class RunLock:
             self._append(STARTED, holder, trigger)
             return True
 
-    def release(self, holder: Holder, event: str, *, count: int = 0, reason: str = "") -> None:
-        """Free the lock and close the run with ``event``. Only the holder may release."""
+    def release(
+        self, holder: Holder, event: str, *, count: int = 0, reason: str = "", trigger: str = ""
+    ) -> None:
+        """Free the lock and close the run with ``event``. Only the holder may release.
+
+        On a lock already free (finalize released it, then a later step aborted) it
+        records the close and nothing else, under ``trigger``.
+        """
         with self._critical() as fd:
             record = self._read(fd)
             if record is not None and not self._is_holder(record, holder):
                 raise Locked(self._locked_message(record))
-            trigger = record["trigger"] if record is not None else ""
+            trigger = record["trigger"] if record is not None else trigger
             os.ftruncate(fd, 0)
             os.fsync(fd)
             self._append(event, holder, trigger, count=count, reason=reason)

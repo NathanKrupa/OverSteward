@@ -147,12 +147,10 @@ def _seam(command: str, cli) -> tuple[object, str, object]:
     if command == "supersede":
         retired = mock.MagicMock(filename="a-fact.md", metadata={"superseded_by": "x"})
         return cli, "supersede", retired
-    if command == "end":
-        return cli.runlock.RunLock, "release", None
     raise AssertionError(command)
 
 
-WRITERS = ["apply", "drain", "end", "finalize", "supersede"]
+WRITERS = ["apply", "drain", "finalize", "supersede"]
 
 
 # ---- refusals ----------------------------------------------------------------
@@ -199,6 +197,20 @@ def test_writers_never_run_while_another_live_run_holds_the_lock(
     seam.assert_not_called()
     assert _tree_digest(paths["store_repo"]) == store_before
     assert paths["lock"].read_bytes() == lock_before
+
+
+def test_end_against_a_live_foreign_holder_exits_3_and_closes_nothing(paths, foreign, capsys) -> None:
+    paths["lock"].write_text(json.dumps(foreign))
+    before = paths["lock"].read_bytes()
+
+    code = _dream_cli().main([*_argv("end", paths), *_lock_args(paths)])
+
+    err = capsys.readouterr().err
+    assert code == 3
+    assert f"locked by pid {foreign['pid']}" in err
+    assert "Traceback" not in err
+    assert paths["lock"].read_bytes() == before
+    assert "ended" not in [r["event"] for r in _rows(paths)]
 
 
 def test_begin_twice_from_one_holder_is_one_run(paths, capsys) -> None:
@@ -316,6 +328,40 @@ def test_a_writer_called_without_begin_takes_the_lock_itself(paths, capsys, monk
     monkeypatch.setattr(cli.cycle, "apply_verdicts", mock.MagicMock(return_value=[]))
     assert cli.main([*_argv("apply", paths), *_lock_args(paths)]) == 0
     assert json.loads(paths["lock"].read_text())["pid"] > 0
+    assert [r["event"] for r in _rows(paths)] == ["started"]
+
+
+def test_end_on_a_free_lock_records_the_close_and_no_start(paths, capsys) -> None:
+    """After finalize released, an abort's `end` must not log a run that never began."""
+    cli = _dream_cli()
+    argv = ["cycle", "end", "--reason", "step 6 aborted", "--trigger", "session", *_lock_args(paths)]
+    assert cli.main(argv) == 0
+    assert not paths["lock"].exists() or paths["lock"].read_bytes() == b""
+    rows = _rows(paths)
+    assert [r["event"] for r in rows] == ["ended"]
+    assert rows[0]["trigger"] == "session"
+
+
+def _drain_seam(cli, monkeypatch) -> None:
+    result = cycle.DrainResult(drained=0, review_path=Path("r"), remaining=0)
+    monkeypatch.setattr(cli.cycle, "drain_flagged", mock.MagicMock(return_value=result))
+
+
+def test_drain_alone_releases_what_it_acquired(paths, capsys, monkeypatch) -> None:
+    cli = _dream_cli()
+    _drain_seam(cli, monkeypatch)
+    assert cli.main([*_argv("drain", paths), *_lock_args(paths)]) == 0
+    assert paths["lock"].read_bytes() == b""
+    assert [r["event"] for r in _rows(paths)] == ["started", "ended"]
+
+
+def test_drain_inside_a_run_leaves_the_run_holding(paths, capsys, monkeypatch) -> None:
+    cli = _dream_cli()
+    _drain_seam(cli, monkeypatch)
+    assert cli.main(["cycle", "begin", *_lock_args(paths)]) == 0
+    held = paths["lock"].read_bytes()
+    assert cli.main([*_argv("drain", paths), *_lock_args(paths)]) == 0
+    assert paths["lock"].read_bytes() == held
     assert [r["event"] for r in _rows(paths)] == ["started"]
 
 
