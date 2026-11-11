@@ -2073,7 +2073,7 @@ capabilities:
     - .claude/skills/kaizen/
     - .claude/skills/skill-miner/
   entry_points: [scripts/dream.py, /kaizen, scripts/skill_miner.py]
-  current_shape: 'The largest package: dream/ is 17 modules and 5,387 lines; skills/ (621) and trajectory_tags.py
+  current_shape: 'The largest package: dream/ is 17 modules and 5,395 lines; skills/ (621) and trajectory_tags.py
     (327) sit beside it. Runs on a systemd timer (`shared/scripts/dream/dream-cycle.timer`), under one run
     lock per machine (`~/.claude/dream_run.lock`, OS#690). Each run closes with a store-health line: the dangling-link
     queue and store size against a ceiling (OS#692). A correction pass re-checks the Laws and Habits least recently

@@ -25,7 +25,7 @@ Each current shape is its first sentence; the full measurement is in the map.
 - `os.vintner` · live · `/pipeline-status` GS→AG funnel; reads one read-only DSN (`VINTNER_RESEARCH_DATABASE_URL`, GS Neon).
   - 6 modules, 463 lines; one read-only DSN to GS Neon (`src/oversteward/vintner/reader.py:21`). → hold
 - `os.dream-kaizen` · live · Transcript → memory consolidation (systemd timer); kaizen queue from Fiscus lesson clusters + `kaizen` issues, plus the skill miner and trajectory-tag lint.
-  - The largest package: dream/ is 17 modules and 5,387 lines; skills/ (621) and trajectory_tags.py (327) sit beside it. → hold
+  - The largest package: dream/ is 17 modules and 5,395 lines; skills/ (621) and trajectory_tags.py (327) sit beside it. → hold
 - `os.review-loop` · live · Assembled-input adversarial reviewer with a `.review-rounds` ledger; CI `reviewer-verdict` gate.
   - 6 modules, 1,617 lines; the assembler keeps a `.review-rounds` ledger, a captured result with no verdict fence is a blind round whose scratch copy is cleared, and CI's reviewer-verdict job reads the PR body. → Tooling that checks the commits after the reviewed SHA, so a commit no verdict covers cannot merge (OS#534).
 - `os.memory-deploy` · live · steward-memory → `~/.claude/projects/*/memory/`.

@@ -354,6 +354,18 @@ def test_a_conflict_holds_once_surfaces_and_commits_the_review_surface_only(path
     assert [r["verdict"] for r in _verdict_rows(paths)] == ["conflict", "conflict"]
 
 
+def test_a_committing_run_prints_only_its_json(paths, capfd) -> None:
+    """git's own commit summary must not reach stdout, which Step 7 saves and parses as JSON."""
+    _init_store_repo(paths)
+    _note(paths["store"], "a.md")
+
+    assert _apply(paths, [_row(paths, "a.md")], [_conflict("a.md", "r", "p")]) == 0
+
+    out, _ = capfd.readouterr()
+    assert out.startswith("{"), out.splitlines()[0]
+    assert json.loads(out)["commit"]["committed"] is True
+
+
 def test_a_conflict_keeps_the_open_set_it_found(paths, capsys) -> None:
     _init_store_repo(paths)
     _note(paths["store"], "a.md")

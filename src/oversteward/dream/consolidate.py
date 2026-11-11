@@ -651,7 +651,8 @@ def commit_store(
     The repo root is INJECTABLE (tests run it against a temp git repo; the live
     store commit is operator-run). Stages only the given paths (never ``-A``).
     Returns ``committed=False`` with no error when there is nothing to commit, so
-    a no-op run does not raise.
+    a no-op run does not raise. git's commit summary is captured and logged, not
+    printed: its callers in ``scripts/dream.py`` each print one JSON document on stdout.
     """
     rels = [str(p.relative_to(repo_root)) if p.is_absolute() else str(p) for p in paths]
     subprocess.run([_GIT, "add", _PATHSPEC_SEP, *rels], cwd=repo_root, check=True)
@@ -665,7 +666,14 @@ def commit_store(
     if not status.stdout.strip():
         log.info("commit_store: nothing staged for %s", rels)
         return CommitResult(committed=False, message=message, paths=rels)
-    subprocess.run([_GIT, "commit", "-m", message, _PATHSPEC_SEP, *rels], cwd=repo_root, check=True)
+    commit = subprocess.run(
+        [_GIT, "commit", "-m", message, _PATHSPEC_SEP, *rels],
+        cwd=repo_root,
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    log.info("commit_store: %s", commit.stdout.strip())
     return CommitResult(committed=True, message=message, paths=rels)
 
 
