@@ -13,16 +13,20 @@ This module tells the two apart and, for a blind round, does the recovery in a
 fixed order, each step only after the one before it held:
 
 1. **record** the result and the scratch copy's status and diff beside the
-   capture, as ``.review-verdict-<N>.blind-<k>.md``;
+   capture, as ``<capture>.blind.md``;
 2. **restore** every path the copy lists from ``HEAD`` by content, or delete it
-   where ``HEAD`` has no such path, and require a clean status afterwards;
+   where ``HEAD`` has no such path, refusing any path that passes through a
+   symlink, and require a clean status afterwards;
 3. **tear the copy down** through ``worktree_doctor.py``, which drops its bench
    databases after removing it.
 
-The relaunch is the caller's: the card relaunches once on the same input. The
-record count is what makes a second blind round on the same review round
-distinguishable from the first, so it stops instead of relaunching again. The
-assembler is never re-run, so a blind round is not a review round.
+The relaunch is the caller's, captured under the ``-relaunch`` name. Which
+launch was blind is read from the capture's name, so re-running the check on
+the same capture (after clearing a copy by hand) never counts a second launch.
+The assembler is never re-run, so a blind round is not a review round.
+
+Exit codes keep ``1`` free: an uncaught exception exits 1, and a crash must
+never read as "relaunch".
 """
 
 from __future__ import annotations
@@ -37,16 +41,16 @@ from pathlib import Path
 from oversteward.review_verdict import MalformedVerdictError, has_verdict_block, parse_verdict
 
 EXIT_VERDICT = 0
-EXIT_BLIND = 1
 EXIT_STOP = 2
-EXIT_SECOND_BLIND = 3
+EXIT_BLIND = 3
+EXIT_SECOND_BLIND = 4
 
 #: The reviewer's scratch copy is the author's worktree path plus this suffix
 #: (`shared/agents/adversarial-reviewer.md`).
 SCRATCH_SUFFIX = ".review"
 
 #: The capture names the dev cards write: a round's capture, and its one relaunch.
-CAPTURE_NAME = re.compile(r"^\.review-verdict-(?P<round>\d+)(?:-relaunch)?\.md$")
+CAPTURE_NAME = re.compile(r"^\.review-verdict-(?P<round>\d+)(?P<relaunch>-relaunch)?\.md$")
 
 #: Runs git with the given arguments; stdout and stderr are captured as bytes.
 Git = Callable[[list[str]], "subprocess.CompletedProcess[bytes]"]
@@ -64,10 +68,10 @@ class Outcome:
     message: str
 
 
-def run_git(args: list[str]) -> subprocess.CompletedProcess[bytes]:
+def run_git(args: list[str], *, executable: str = "git") -> subprocess.CompletedProcess[bytes]:
     """Git, never through a shell; an absent git is a failed call, not a traceback."""
     try:
-        return subprocess.run(["git", *args], capture_output=True, check=False)  # nosec B603 B607
+        return subprocess.run([executable, *args], capture_output=True, check=False)  # nosec B603
     except OSError as exc:
         return subprocess.CompletedProcess(args, 127, b"", str(exc).encode())
 
@@ -92,7 +96,7 @@ def check_capture(
             "or .review-verdict-<N>-relaunch.md in the author's worktree.",
         )
     try:
-        text = capture.read_text(encoding="utf-8")
+        text = capture.read_bytes().decode("utf-8", "replace")
     except OSError as exc:
         return Outcome(EXIT_STOP, f"could not read {capture}: {exc}")
     if has_verdict_block(text):
@@ -101,32 +105,35 @@ def check_capture(
         except MalformedVerdictError as exc:
             return Outcome(EXIT_STOP, f"the reviewer-verdict fence cannot be read: {exc}")
         return Outcome(EXIT_VERDICT, f"{verdict.verdict}, {verdict.findings} finding(s).")
-    return _blind_round(capture, named.group("round"), text, git=git, teardown=teardown)
+    return _blind_round(capture, named, text, git=git, teardown=teardown)
 
 
 def _blind_round(
-    capture: Path, round_number: str, text: str, *, git: Git, teardown: Teardown
+    capture: Path, named: re.Match[str], text: str, *, git: Git, teardown: Teardown
 ) -> Outcome:
     worktree = capture.parent
-    count = len(list(worktree.glob(f".review-verdict-{round_number}.blind-*.md"))) + 1
-    record = worktree / f".review-verdict-{round_number}.blind-{count}.md"
+    record = capture.with_name(capture.name.removesuffix(".md") + ".blind.md")
     scratch = worktree.with_name(worktree.name + SCRATCH_SUFFIX)
     state = _scratch_state(scratch, git) if scratch.exists() else None
     if scratch.exists() and state is None:
         return Outcome(EXIT_STOP, f"could not read the state of {scratch}; recover it by hand.")
     try:
-        record.write_text(_record(round_number, count, text, scratch, state), encoding="utf-8")
+        # Appended, never overwritten: a re-check after a hand repair must not
+        # replace the diff the blind launch left behind.
+        first = not record.exists()
+        with record.open("a", encoding="utf-8") as out:
+            out.write(_record(named, first, text, scratch, state))
     except OSError as exc:
         return Outcome(EXIT_STOP, f"could not write {record}: {exc}; nothing was restored.")
     if state is not None:
         refusal = _restore_and_tear_down(scratch, state[0], git=git, teardown=teardown)
         if refusal is not None:
             return Outcome(EXIT_STOP, f"{refusal} The blind round is recorded in {record}.")
-    if count > 1:
+    if named.group("relaunch"):
         return Outcome(
             EXIT_SECOND_BLIND,
-            f"blind round {count} on review round {round_number}: stop the pickup. "
-            f"Recorded in {record}.",
+            f"the relaunch for review round {named.group('round')} was blind too: stop the "
+            f"pickup. Recorded in {record}.",
         )
     return Outcome(
         EXIT_BLIND,
@@ -164,30 +171,57 @@ def _status_paths(porcelain: bytes) -> list[str]:
 
 
 def _record(
-    round_number: str, count: int, text: str, scratch: Path, state: tuple[list[str], str] | None
+    named: re.Match[str],
+    first: bool,
+    text: str,
+    scratch: Path,
+    state: tuple[list[str], str] | None,
 ) -> str:
     copy = state[1] if state is not None else f"There was no scratch copy at {scratch}.\n"
     if state is not None and not state[0]:
         copy = f"The scratch copy at {scratch} was clean.\n"
+    launch = "relaunch" if named.group("relaunch") else "launch"
+    heading = (
+        f"# Blind {launch} on review round {named.group('round')}"
+        if first
+        else "\n# Checked again"
+    )
     return (
-        f"# Blind round {count} on review round {round_number}\n\n"
-        f"## Result\n\n{text.strip() or '(empty)'}\n\n"
+        f"{heading}\n\n## Result\n\n{text.strip() or '(empty)'}\n\n"
         f"## Scratch copy\n\n{scratch}\n\n{copy}"
     )
+
+
+def _through_a_link(scratch: Path, path: str) -> bool:
+    """Whether any directory between ``scratch`` and ``path`` is a symlink."""
+    current = scratch
+    for part in Path(path).parts[:-1]:
+        current = current / part
+        if current.is_symlink():
+            return True
+    return False
 
 
 def _restore_and_tear_down(
     scratch: Path, paths: list[str], *, git: Git, teardown: Teardown
 ) -> str | None:
-    """Each path back to its HEAD bytes, then the doctor; the reason it stopped, or None."""
+    """Each path back to its HEAD bytes, then the doctor; the reason it stopped, or None.
+
+    A write or a delete never follows a link: a path under a linked directory is
+    refused before anything is touched, and a path that is itself a link is
+    unlinked before HEAD's bytes are written, so nothing outside the copy changes.
+    """
+    linked = [path for path in paths if _through_a_link(scratch, path)]
+    if linked:
+        return f"{scratch} lists paths under a symlinked directory ({', '.join(linked)})."
     for path in paths:
         head = git(["-C", str(scratch), "show", f"HEAD:{path}"])
         target = scratch / path
+        if target.is_symlink() or (target.is_file() and head.returncode != 0):
+            target.unlink()
         if head.returncode == 0:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(head.stdout)
-        elif target.is_file() or target.is_symlink():
-            target.unlink()
     after = git(["-C", str(scratch), "status", "--porcelain", "--untracked-files=all"])
     left = after.stdout.decode("utf-8", "replace").strip()
     if after.returncode != 0 or left:

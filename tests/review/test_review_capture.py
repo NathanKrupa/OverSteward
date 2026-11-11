@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -126,7 +127,7 @@ class TestABlindRoundIsRecordedRestoredAndTornDown:
 
         assert outcome.code == EXIT_BLIND, outcome.message
         assert "relaunch" in outcome.message
-        record = (author / ".review-verdict-1.blind-1.md").read_text(encoding="utf-8")
+        record = (author / ".review-verdict-1.blind.md").read_text(encoding="utf-8")
         assert BLIND_RESULT.strip() in record
         assert "+    return bool(price_id) or any(items)" in record
         assert "mutation_loop.log" in record
@@ -142,7 +143,7 @@ class TestABlindRoundIsRecordedRestoredAndTornDown:
         outcome = check_capture(_capture(author, "null\n"), git=run_git, teardown=teardown)
         assert outcome.code == EXIT_BLIND, outcome.message
         teardown.assert_not_called()
-        assert "no scratch copy" in (author / ".review-verdict-1.blind-1.md").read_text(
+        assert "no scratch copy" in (author / ".review-verdict-1.blind.md").read_text(
             encoding="utf-8"
         )
 
@@ -161,12 +162,12 @@ class TestABlindRoundIsRecordedRestoredAndTornDown:
             teardown=teardown,
         )
         assert second.code == EXIT_SECOND_BLIND, second.message
-        assert (author / ".review-verdict-1.blind-2.md").is_file()
+        assert (author / ".review-verdict-1-relaunch.blind.md").is_file()
         assert (_scratch(author) / "billing.py").read_text(encoding="utf-8") == GUARDED
         teardown.assert_called_once()
 
     def test_a_blind_round_in_a_later_round_is_counted_on_its_own(self, author: Path) -> None:
-        (author / ".review-verdict-1.blind-1.md").write_text("earlier\n", encoding="utf-8")
+        (author / ".review-verdict-1-relaunch.blind.md").write_text("earlier\n", encoding="utf-8")
         _leave_a_mutant(author)
         outcome = check_capture(
             _capture(author, BLIND_RESULT, ".review-verdict-2.md"),
@@ -174,7 +175,7 @@ class TestABlindRoundIsRecordedRestoredAndTornDown:
             teardown=_teardown(),
         )
         assert outcome.code == EXIT_BLIND, outcome.message
-        assert (author / ".review-verdict-2.blind-1.md").is_file()
+        assert (author / ".review-verdict-2.blind.md").is_file()
 
     def test_a_doctor_refusal_stops_the_pickup(self, author: Path) -> None:
         _leave_a_mutant(author)
@@ -231,6 +232,60 @@ class TestABlindRoundIsRecordedRestoredAndTornDown:
         teardown.assert_not_called()
 
 
+    def test_a_tracked_file_swapped_for_a_link_never_writes_through_it(
+        self, author: Path
+    ) -> None:
+        """Round-1 finding 1: the restore followed a link into the author's worktree."""
+        (author / "billing.py").write_text("AUTHOR UNCOMMITTED WORK\n", encoding="utf-8")
+        scratch = _scratch(author)
+        (scratch / "billing.py").unlink()
+        (scratch / "billing.py").symlink_to(author / "billing.py")
+        outcome = check_capture(_capture(author, BLIND_RESULT), git=run_git, teardown=_teardown())
+        assert outcome.code == EXIT_BLIND, outcome.message
+        assert (author / "billing.py").read_text(encoding="utf-8") == "AUTHOR UNCOMMITTED WORK\n"
+        assert not (scratch / "billing.py").is_symlink()
+        assert (scratch / "billing.py").read_text(encoding="utf-8") == GUARDED
+
+    def test_a_directory_swapped_for_a_link_stops_before_touching_anything(
+        self, author: Path, tmp_path: Path
+    ) -> None:
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "billing.py").write_text("OUTSIDE\n", encoding="utf-8")
+        (outside / "new.py").write_text("OUTSIDE NEW\n", encoding="utf-8")
+        (author / "pkg").mkdir()
+        (author / "pkg" / "billing.py").write_text(GUARDED, encoding="utf-8")
+        _git(author, "add", "pkg/billing.py")
+        _git(author, "commit", "-qm", "a tracked package")
+        scratch = _scratch(author)
+        _git(author, "worktree", "remove", str(scratch))
+        _git(author, "worktree", "add", "-q", "--detach", str(scratch), "HEAD")
+        shutil.rmtree(scratch / "pkg")
+        (scratch / "pkg").symlink_to(outside, target_is_directory=True)
+        teardown = _teardown()
+        outcome = check_capture(_capture(author, BLIND_RESULT), git=run_git, teardown=teardown)
+        assert outcome.code == EXIT_STOP, outcome.message
+        assert "symlinked directory" in outcome.message
+        assert (outside / "billing.py").read_text(encoding="utf-8") == "OUTSIDE\n"
+        assert (outside / "new.py").read_text(encoding="utf-8") == "OUTSIDE NEW\n"
+        teardown.assert_not_called()
+
+    def test_checking_the_same_capture_again_is_not_a_second_blind_round(
+        self, author: Path
+    ) -> None:
+        """Round-1 finding 3: a re-run after a hand repair counted as a second launch."""
+        _leave_a_mutant(author)
+        capture = _capture(author, BLIND_RESULT)
+        first = check_capture(capture, git=run_git, teardown=_teardown(code=1))
+        assert first.code == EXIT_STOP
+        again = check_capture(capture, git=run_git, teardown=_teardown())
+        assert again.code == EXIT_BLIND, again.message
+        record = (author / ".review-verdict-1.blind.md").read_text(encoding="utf-8")
+        assert "+    return bool(price_id) or any(items)" in record
+        assert "# Checked again" in record
+        assert not (author / ".review-verdict-1-relaunch.blind.md").exists()
+
+
 class TestWhatCannotBeCheckedStops:
     def test_a_capture_that_cannot_be_read_stops(self, author: Path) -> None:
         teardown = _teardown()
@@ -247,6 +302,49 @@ class TestWhatCannotBeCheckedStops:
         assert outcome.code == EXIT_STOP
         assert ".review-verdict-<N>" in outcome.message
         teardown.assert_not_called()
+
+
+    def test_a_scratch_copy_git_cannot_read_stops_and_says_so(self, author: Path) -> None:
+        """Round-1 finding 4: an unreadable copy was recorded as no copy at all."""
+        _git(author, "worktree", "remove", str(_scratch(author)))
+        _scratch(author).mkdir()
+        (_scratch(author) / "billing.py").write_text(MUTANT, encoding="utf-8")
+        teardown = _teardown()
+        outcome = check_capture(
+            _capture(author, BLIND_RESULT), git=run_git, teardown=teardown
+        )
+        assert outcome.code == EXIT_STOP
+        assert "could not read the state" in outcome.message
+        teardown.assert_not_called()
+
+    def test_a_copy_whose_primary_cannot_be_named_never_reaches_the_doctor(
+        self, author: Path
+    ) -> None:
+        def no_worktree_list(args: list[str]) -> subprocess.CompletedProcess[bytes]:
+            if "worktree" in args:
+                return subprocess.CompletedProcess(args, 128, b"", b"fatal")
+            return run_git(args)
+
+        _leave_a_mutant(author)
+        teardown = _teardown()
+        outcome = check_capture(
+            _capture(author, BLIND_RESULT), git=no_worktree_list, teardown=teardown
+        )
+        assert outcome.code == EXIT_STOP
+        assert "primary checkout" in outcome.message
+        teardown.assert_not_called()
+
+    def test_an_absent_git_is_a_failed_call_not_a_traceback(self) -> None:
+        result = run_git(["status"], executable="git-that-is-not-installed")
+        assert result.returncode != 0
+        assert b"git-that-is-not-installed" in result.stderr
+
+    def test_a_verdict_with_a_stray_byte_is_still_read(self, author: Path) -> None:
+        """Round-1 finding 2: a non-UTF-8 byte crashed the read."""
+        capture = author / ".review-verdict-1.md"
+        capture.write_bytes(_verdict("PASS", 0).encode() + b"\xff\n")
+        outcome = check_capture(capture, git=run_git, teardown=_teardown())
+        assert outcome.code == EXIT_VERDICT, outcome.message
 
 
 def _script(*args: str) -> subprocess.CompletedProcess[str]:
@@ -267,7 +365,14 @@ class TestTheScript:
         assert "STOP" in proc.stderr
         assert "Traceback" not in proc.stderr
 
-    def test_a_blind_round_with_no_copy_left_exits_one(self, author: Path) -> None:
+    def test_no_outcome_shares_the_exit_status_of_a_crash(self) -> None:
+        """Round-1 finding 2: a crash exited 1, which was the code for "relaunch"."""
+        crash = subprocess.run(
+            [sys.executable, "-c", "raise RuntimeError('crash')"], capture_output=True, check=False
+        ).returncode
+        assert crash not in (EXIT_VERDICT, EXIT_BLIND, EXIT_SECOND_BLIND, EXIT_STOP)
+
+    def test_a_blind_round_with_no_copy_left_exits_blind(self, author: Path) -> None:
         _git(author, "worktree", "remove", str(_scratch(author)))
         proc = _script(str(_capture(author, BLIND_RESULT)))
         assert proc.returncode == EXIT_BLIND, proc.stderr

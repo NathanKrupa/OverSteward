@@ -10,11 +10,15 @@ Run after ``jq -r .result <envelope> > <worktree>/.review-verdict-<N>.md``.
 Exit codes:
 
 * ``0`` — a readable ``reviewer-verdict`` fence: PASS, PASS-WITH-FINDINGS or BLOCK.
-* ``1`` — a blind round: no fence. ``<worktree>.review`` was recorded, restored
-  from HEAD and torn down through the doctor. Relaunch once on the same input.
 * ``2`` — stop: the capture could not be read, its fence is malformed, or the
   scratch copy could not be cleared. Nothing here is a pass.
-* ``3`` — stop: the relaunch was blind too. Its copy was still cleared.
+* ``3`` — a blind round: no fence. ``<worktree>.review`` was recorded, restored
+  from HEAD and torn down through the doctor. Relaunch once on the same input,
+  capturing to ``.review-verdict-<N>-relaunch.md``.
+* ``4`` — stop: the relaunch was blind too. Its copy was still cleared.
+
+``1`` is never returned on purpose: it is what an uncaught exception exits
+with, so a crash can never read as "relaunch".
 """
 
 from __future__ import annotations

@@ -27,7 +27,7 @@ Each current shape is its first sentence; the full measurement is in the map.
 - `os.dream-kaizen` · live · Transcript → memory consolidation (systemd timer); kaizen queue from Fiscus lesson clusters + `kaizen` issues, plus the skill miner and trajectory-tag lint.
   - The largest package: dream/ is 12 modules and 3,758 lines; skills/ (621) and trajectory_tags.py (327) sit beside it. → hold
 - `os.review-loop` · live · Assembled-input adversarial reviewer with a `.review-rounds` ledger; CI `reviewer-verdict` gate.
-  - 6 modules, 1,583 lines; the assembler keeps a `.review-rounds` ledger, a captured result with no verdict fence is a blind round whose scratch copy is cleared, and CI's reviewer-verdict job reads the PR body. → Tooling that checks the commits after the reviewed SHA, so a commit no verdict covers cannot merge (OS#534).
+  - 6 modules, 1,617 lines; the assembler keeps a `.review-rounds` ledger, a captured result with no verdict fence is a blind round whose scratch copy is cleared, and CI's reviewer-verdict job reads the PR body. → Tooling that checks the commits after the reviewed SHA, so a commit no verdict covers cannot merge (OS#534).
 - `os.memory-deploy` · live · steward-memory → `~/.claude/projects/*/memory/`.
   - memory_deploy.py (108 lines). → hold
 - `os.dispatch` · live · Issue intake and in-session pickup: the dispatch playbook, the architect card, the tribe-first queue, /project-status and the abandoned-work sweep.
