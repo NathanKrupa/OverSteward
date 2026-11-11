@@ -22,6 +22,10 @@ Type=oneshot
 # registry, and the oversteward package.
 WorkingDirectory=%h/OverSteward
 Environment=PYTHONPATH=%h/OverSteward/src
+# Names this run's trigger in the run lock and its ledger (~/.claude/dream_runs.jsonl),
+# so a boot-time tick that finds a session's /dream holding the lock records a
+# `skipped` row with trigger `timer` instead of racing it (OS#690).
+Environment=OVERSTEWARD_DREAM_TRIGGER=timer
 # Headless Claude Code uses the Max SUBSCRIPTION (in-session), NOT the metered
 # API — this is a backstop trigger, never an API daemon. The /dream skill is the
 # convergent runner; on a current ledger it exits as a clean no-op.

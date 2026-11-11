@@ -27,6 +27,21 @@ the processed ledger. When a sign-off already drained the queue, the backstop ru
 finds nothing and exits clean — so a nightly tick on top of an already-consolidated
 day costs one short headless session and writes nothing.
 
+It is also safe when another run is **in flight**. The `/dream` skill's Step 0
+(`scripts/dream.py cycle begin`) takes one machine-wide run lock,
+`~/.claude/dream_run.lock`, and every store writer checks it too (OS#690). A tick
+that fires at boot while a session's own `/dream` holds the lock stops at once
+and records a `skipped` row, "locked by <pid>", in `~/.claude/dream_runs.jsonl`
+— a skip never reads as a run. The unit sets `OVERSTEWARD_DREAM_TRIGGER=timer` so
+those rows name it. `cycle begin` exits:
+
+- **0** — the lock is held by this run;
+- **3** — another live run holds it: skipped, nothing written;
+- **2** — the lock or the holder's liveness could not be read: stop and look.
+
+A lock left by a run that died is reclaimed by the next run, with a `reclaimed`
+row naming the dead holder.
+
 ## Install (systemd `--user`) — explicit, not automatic
 
 Shipping these units does **not** schedule anything. Enabling is a deliberate
@@ -69,7 +84,7 @@ Disable: `systemctl --user disable --now dream-cycle.timer`.
 If you prefer cron to systemd:
 
 ```cron
-30 3 * * *  cd $HOME/OverSteward && PYTHONPATH=$HOME/OverSteward/src claude -p "Run the dream cycle: follow the /dream skill end to end (memory/docs only, never code). If the ledger is current, no-op." >> $HOME/.claude/dream-cron.log 2>&1
+30 3 * * *  cd $HOME/OverSteward && PYTHONPATH=$HOME/OverSteward/src OVERSTEWARD_DREAM_TRIGGER=timer claude -p "Run the dream cycle: follow the /dream skill end to end (memory/docs only, never code). If the ledger is current, no-op." >> $HOME/.claude/dream-cron.log 2>&1
 ```
 
 ## Running it by hand
@@ -82,8 +97,13 @@ PYTHONPATH=$PWD/src claude -p "Run the dream cycle: follow the /dream skill."
 Or drive the deterministic steps directly (what the skill calls):
 
 ```bash
+PYTHONPATH=$PWD/src python scripts/dream.py cycle begin        # take the run lock (exit 3: held)
 PYTHONPATH=$PWD/src python scripts/dream.py cycle unprocessed
+PYTHONPATH=$PWD/src python scripts/dream.py cycle end --reason "ledger current"
 ```
+
+`finalize` releases the lock on success; `cycle end --reason` releases it on any
+other way out.
 
 ## Scope
 
