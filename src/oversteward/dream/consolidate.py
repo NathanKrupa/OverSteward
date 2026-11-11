@@ -25,6 +25,8 @@ of the model judgment itself:
   candidate that contradicts a ``nathan-stated`` memory (surfaced, never written).
 - :func:`commit_store` — a thin ``git add``/``commit`` wrapper over the store
   repo (injectable path) — the audit trail.
+- :func:`first_added_dates` — one ``git log`` over the store path, dating each
+  note by its first commit (read by :mod:`oversteward.dream.store_health`).
 """
 
 from __future__ import annotations
@@ -662,3 +664,69 @@ def commit_store(
         return CommitResult(committed=False, message=message, paths=rels)
     subprocess.run([_GIT, "commit", "-m", message, _PATHSPEC_SEP, *rels], cwd=repo_root, check=True)
     return CommitResult(committed=True, message=message, paths=rels)
+
+
+class StoreUnreadable(RuntimeError):
+    """The memory store, a note in it, or its git history could not be read."""
+
+
+def first_added_dates(repo_root: Path, store_root: Path) -> dict[str, date]:
+    """Map each note basename under ``store_root`` to the date git first saw it added.
+
+    One ``git log --diff-filter=A`` over the store path, keeping the earliest
+    committer date per basename; ``--no-renames`` dates a renamed note by its
+    current name. A note never committed is absent, as is one whose name git
+    C-quotes (a quote, backslash or control character). A repo with no commits yet
+    returns an empty map; any other git failure (not a repo, a path outside it,
+    git missing) raises :class:`StoreUnreadable`, so "could not look" never
+    reads as "nothing old".
+    """
+    head = _read_git(repo_root, ["rev-parse", "-q", "--verify", "HEAD"])
+    if head.returncode == _GIT_NO_SUCH_REF:
+        return {}
+    _require_ok(head)
+    log = _read_git(
+        repo_root,
+        [
+            "-c", "core.quotepath=off", "log", "--no-renames", "--diff-filter=A",
+            "--format=%x00%cs", "--name-only", _PATHSPEC_SEP, str(store_root),
+        ],
+    )
+    _require_ok(log)
+    return _earliest_by_basename(log.stdout)
+
+
+def _earliest_by_basename(log_text: str) -> dict[str, date]:
+    """Fold ``%x00<date>`` lines and the path lines under them into earliest date per basename."""
+    added: dict[str, date] = {}
+    when: date | None = None
+    for line in log_text.splitlines():
+        if line.startswith(_DATE_MARK):
+            when = date.fromisoformat(line[len(_DATE_MARK):])
+        elif line and when is not None:
+            name = Path(line).name
+            if name not in added or when < added[name]:
+                added[name] = when
+    return added
+
+
+# `git rev-parse -q --verify` exits 1 when the ref is absent (a repo with no
+# commits yet) and 128 when there is no repo at all.
+_GIT_NO_SUCH_REF = 1
+# The log's `%x00` prefix: a NUL cannot occur in a path, so it marks a date line.
+_DATE_MARK = "\x00"
+
+
+def _read_git(repo_root: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            [_GIT, *args], cwd=repo_root, capture_output=True, text=True, check=False
+        )
+    except OSError as exc:
+        raise StoreUnreadable(f"git could not run in {repo_root}: {exc}") from exc
+
+
+def _require_ok(proc: subprocess.CompletedProcess[str]) -> None:
+    if proc.returncode != 0:
+        detail = proc.stderr.strip() or f"exit {proc.returncode}"
+        raise StoreUnreadable(f"git {proc.args[1:]} failed: {detail}")

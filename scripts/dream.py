@@ -10,8 +10,8 @@ import sys
 from datetime import date, datetime
 from pathlib import Path
 
-from oversteward.dream import cycle, kaizen, promotion, roadmap, runlock
-from oversteward.dream.consolidate import MemoryStore, commit_store
+from oversteward.dream import cycle, kaizen, promotion, roadmap, runlock, store_health
+from oversteward.dream.consolidate import MemoryStore, StoreUnreadable, commit_store
 from oversteward.dream.extract import CandidateFact
 from oversteward.dream.ledger import ProcessedLedger
 from oversteward.dream.standing import classify
@@ -149,6 +149,7 @@ def _cmd_finalize(args: argparse.Namespace) -> int:
             message=args.message,
             queue_path=Path(args.queue) if args.queue else None,
             flagged_path=Path(args.flagged) if args.flagged else None,
+            dangling_before=_snapshot_targets(args.dangling_before),
         ),
     )
     # Success only: a finalize that raised keeps the lock for its retry.
@@ -162,8 +163,24 @@ def _cmd_finalize(args: argparse.Namespace) -> int:
             "recorded": result.recorded,
             "queue_drained": result.queue_drained,
             "open_flagged": result.open_flagged,
+            "store_health": result.store_health.to_dict() if result.store_health else None,
         }
     )
+
+
+def _snapshot_targets(path: str | None) -> frozenset[str] | None:
+    """The queued targets of a `cycle store-health` report, or None without one."""
+    if path is None:
+        return None
+    return frozenset(entry["target"] for entry in _read_json(path)["queue"])
+
+
+def _cmd_store_health(args: argparse.Namespace) -> int:
+    """Read-only, so no run lock. Exit 1 over a ceiling; StoreUnreadable exits 2 in main."""
+    today = date.fromisoformat(args.today) if args.today else date.today()
+    health = store_health.assess(MemoryStore(Path(args.store)), Path(args.store_repo), today=today)
+    _emit(health.to_dict(args.limit))
+    return 1 if health.over else 0
 
 
 def _cmd_drain(args: argparse.Namespace) -> int:
@@ -438,8 +455,16 @@ def _add_cycle_subparser(sub: argparse._SubParsersAction) -> None:
     fin.add_argument("--queue", default=str(cycle.DEFAULT_QUEUE_PATH))
     fin.add_argument("--flagged", default=None, help="open-set path (default: ledger sibling)")
     fin.add_argument("--message", default=None, help="override the doc-only commit message")
+    fin.add_argument("--dangling-before", default=None, help="pre-ruling `cycle store-health` JSON")
     _add_lock_args(fin)
     fin.set_defaults(func=_cmd_finalize)
+
+    hlt = actions.add_parser("store-health", help="dangling-link queue + store size vs ceiling (JSON)")
+    hlt.add_argument("--store", default=str(cycle.DEFAULT_STORE_PATH))
+    hlt.add_argument("--store-repo", default=str(cycle.DEFAULT_STORE_REPO))
+    hlt.add_argument("--limit", type=int, default=store_health.DEFAULT_QUEUE_LIMIT)
+    hlt.add_argument("--today", default=None, help="YYYY-MM-DD stamp (default: today)")
+    hlt.set_defaults(func=_cmd_store_health)
 
     drn = actions.add_parser("drain", help="approve/clear held items + rebuild review surface (JSON)")
     drn.add_argument("--key", action="append", help="drain only this hold key (repeatable; default: all)")
@@ -479,6 +504,9 @@ def main(argv: list[str]) -> int:
         return 3
     except runlock.LockUnreadable as exc:
         print(f"dream: {exc}", file=sys.stderr)
+        return 2
+    except StoreUnreadable as exc:
+        print(f"dream: store unreadable — {exc}", file=sys.stderr)
         return 2
 
 

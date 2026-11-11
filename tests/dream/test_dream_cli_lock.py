@@ -300,6 +300,8 @@ def test_finalize_releases_and_records_the_count_on_success(paths, capsys) -> No
 
 
 def test_a_failed_finalize_keeps_the_lock(paths, capsys, monkeypatch) -> None:
+    # A real store repo, so the failure is the commit's and not the store measurement's.
+    _init_git_repo(paths["store_repo"])
     cli = _dream_cli()
     assert cli.main(["cycle", "begin", *_lock_args(paths)]) == 0
     held = paths["lock"].read_bytes()

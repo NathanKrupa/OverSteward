@@ -15,8 +15,8 @@ deterministic:
   :mod:`oversteward.dream.consolidate` — no consolidation logic is duplicated.
 - :func:`apply_verdicts` — feed each in-session verdict through the existing
   :func:`~oversteward.dream.consolidate.consolidate` write ops (step 3).
-- :func:`finalize_run` — index regen, review surface, doc-only commit, ledger
-  record (step 4, batched once per run).
+- :func:`finalize_run` — index regen, review surface, store-health measurement,
+  doc-only commit, ledger record (step 4, batched once per run).
 
 The pending-queue helpers (:func:`enqueue_transcript` etc.) are re-exported from
 :mod:`oversteward.dream.ledger` so the stdlib-only Stop hook and this module share
@@ -55,6 +55,7 @@ from .ledger import (
     queued_hashes,
     transcript_hash,
 )
+from .store_health import DEFAULT_CEILINGS, Ceilings, StoreHealth, assess
 from .transcripts import default_projects_root, enumerate_transcripts
 
 __all__ = [
@@ -499,7 +500,7 @@ class RunResults:
 
 @dataclass
 class FinalizeResult:
-    """What the once-per-run finalize did — index, review, commit, ledger, queue."""
+    """What the once-per-run finalize did — index, review, store health, commit, ledger, queue."""
 
     index_path: Path
     review_path: Path
@@ -507,6 +508,7 @@ class FinalizeResult:
     recorded: list[str] = field(default_factory=list)
     queue_drained: int = 0
     open_flagged: int = 0
+    store_health: StoreHealth | None = None
 
 
 def _record_processed(
@@ -528,6 +530,8 @@ class FinalizeOptions:
 
     ``flagged_path`` is the durable open set; it defaults to a JSONL sibling of
     the ledger so a test's temp ledger keeps its open set isolated.
+    ``dangling_before`` is the dangling-link snapshot taken before the run ruled
+    on its queue; without it the store-health line reports ruled as unmeasured.
     """
 
     repo_root: Path | None = None
@@ -535,6 +539,8 @@ class FinalizeOptions:
     now: datetime | None = None
     queue_path: Path | None = None
     flagged_path: Path | None = None
+    ceilings: Ceilings = DEFAULT_CEILINGS
+    dangling_before: frozenset[str] | None = None
 
 
 def _rebuild_surfaces(
@@ -557,6 +563,17 @@ def _rebuild_surfaces(
     return index_path, review_path, len(open_set)
 
 
+def _measure_store(store: MemoryStore, repo_root: Path, opts: FinalizeOptions) -> StoreHealth:
+    """The store-health measurement finalize embeds, dated by ``opts.now`` (default today)."""
+    return assess(
+        store,
+        repo_root,
+        today=opts.now.date() if opts.now is not None else date.today(),
+        ceilings=opts.ceilings,
+        dangling_before=opts.dangling_before,
+    )
+
+
 def finalize_run(
     store: MemoryStore,
     results: RunResults,
@@ -569,12 +586,17 @@ def finalize_run(
     it yielded no facts, so a barren session is not re-processed next run. The commit
     is the audit trail; the ledger update is local idempotency state. The review
     surface is rebuilt from the full open set (see :func:`_rebuild_surfaces`).
+
+    The store is measured after the surfaces are rebuilt and before the commit, so
+    a measurement that raises :class:`~oversteward.dream.store_health.StoreUnreadable`
+    leaves no commit and no ledger row. Over a ceiling is reported, never raised.
     """
     opts = options or FinalizeOptions()
     repo_root = opts.repo_root if opts.repo_root is not None else store.root.parent
     index_path, review_path, open_flagged = _rebuild_surfaces(
         store, ledger, results, opts.flagged_path
     )
+    health = _measure_store(store, repo_root, opts)
     message = opts.message or default_commit_message(results.processed)
     commit = commit_store(repo_root, [*results.written_paths, index_path, review_path], message)
     drained = drain_queue(opts.queue_path, ledger) if opts.queue_path is not None else 0
@@ -585,4 +607,5 @@ def finalize_run(
         open_flagged=open_flagged,
         recorded=_record_processed(ledger, results.processed, opts.now),
         queue_drained=drained,
+        store_health=health,
     )
