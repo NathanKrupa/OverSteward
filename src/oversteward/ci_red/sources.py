@@ -85,6 +85,10 @@ class PrInfo:
     #: ``OPEN``, ``CLOSED`` or ``MERGED``, as GitHub spells it.
     state: str
     merged_at: str | None
+    #: The PR's head commit — for a merged PR, the head it merged at — or ``None`` if unread.
+    head_sha: str | None = None
+    #: The PR's commits, oldest first, as GitHub lists them.
+    commits: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -155,12 +159,18 @@ class GithubCiRed:
 
     def pr_info(self, full_name: str, number: int) -> PrInfo:
         row = self._read(
-            ["pr", "view", str(number), "--repo", full_name, "--json", "state,mergedAt"]
+            [
+                "pr", "view", str(number), "--repo", full_name,
+                "--json", "state,mergedAt,headRefOid,commits",
+            ]
         )
         state = row.get("state") if isinstance(row, dict) else None
         if state not in ("OPEN", "CLOSED", "MERGED"):
             raise SourceUnavailableError(f"{full_name} PR #{number}: unexpected state {state!r}")
-        return PrInfo(state, row.get("mergedAt") or None)
+        commits = tuple(
+            str(c["oid"]) for c in row.get("commits") or () if isinstance(c, dict) and c.get("oid")
+        )
+        return PrInfo(state, row.get("mergedAt") or None, row.get("headRefOid") or None, commits)
 
     def run_info(self, full_name: str, run_id: int) -> RunInfo:
         row = self._read(
