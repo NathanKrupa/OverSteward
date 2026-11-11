@@ -510,6 +510,9 @@ FULL_SUITE_IN_LITE = re.compile(
 #: A lite-gate line that runs nothing: a comment, or a message it prints.
 NOT_A_COMMAND = re.compile(r"^\s*(?:#|echo\b)")
 
+#: A pipe (not `||`): a step piped into a filter hands `|| rc=1` the filter's status.
+PIPE = re.compile(r"(?<!\|)\|(?!\|)")
+
 REVIEW_BLOCK = re.compile(r"^## Adversarial review\b.*?(?=^## )", re.MULTILINE | re.DOTALL)
 
 #: The lite gate's own shell block: the fence after its heading, up to the
@@ -617,12 +620,25 @@ def test_the_lite_gate_fails_closed_and_runs_only_the_touched_tests(card: Path) 
     """A step whose failure the next command hides, or an unscoped pytest, defeats the gate."""
     lite = _lite_gate_block(card)
     for step, marker in PRE_ROUND_SEQUENCE_CARDS[card.name].lite_gate:
-        lines = [line for line in lite.splitlines() if marker in line]
-        assert lines, f"{_card_id(card)} lite gate lacks the {step}"
+        lines = [
+            line
+            for line in lite.splitlines()
+            if marker in line and not NOT_A_COMMAND.match(line)
+        ]
+        assert lines, f"{_card_id(card)} lite gate lacks the {step} (a comment or echo runs nothing)"
         unchained = [line.strip() for line in lines if LITE_GATE_FAILURE not in line]
         assert not unchained, (
             f"{_card_id(card)}: the {step} does not fold its failure into "
             f"the block's status ({LITE_GATE_FAILURE!r}): {unchained}"
+        )
+        piped = [
+            line.strip()
+            for line in lines
+            if PIPE.search(line.split(LITE_GATE_FAILURE, 1)[0])
+        ]
+        assert not piped, (
+            f"{_card_id(card)}: the {step} pipes its output, so `{LITE_GATE_FAILURE}` "
+            f"reads the last command's status, not the step's: {piped}"
         )
     full_runs = [
         line.strip()
@@ -690,16 +706,21 @@ def test_the_doctrine_names_the_lite_gates_that_run_bandit() -> None:
     )
 
 
-#: A command that runs bandit: the tool at the start of a line or after a path
-#: or `uv run`, not prose that names it.
-BANDIT_COMMAND = re.compile(r"^[ \t]*(?:\S*/|uv run (?:--no-sync )?)?bandit -", re.MULTILINE)
+#: A command that runs bandit: the tool after the start of a line or a shell
+#: separator, bare or by path, behind any env assignment, `uv run` or `cd … &&`.
+#: Prose names it in backticks, which this does not match.
+BANDIT_COMMAND = re.compile(r"(?:^|[\s;&(])(?:\S*/)?bandit -")
 
 
 @pytest.mark.parametrize("card", _dev_cards(), ids=_card_id)
 def test_every_bandit_command_reads_the_repo_config(card: Path) -> None:
     """Bandit without `-c pyproject.toml` loses the repo's skips and fails on what it accepts."""
     lines = card.read_text(encoding="utf-8").splitlines()
-    runs = [line.strip() for line in lines if BANDIT_COMMAND.match(line)]
+    runs = [
+        line.strip()
+        for line in lines
+        if BANDIT_COMMAND.search(line) and not NOT_A_COMMAND.match(line)
+    ]
     bare = [run for run in runs if "-c pyproject.toml" not in run]
     assert not bare, f"{_card_id(card)} runs bandit without its pyproject.toml config: {bare}"
 
