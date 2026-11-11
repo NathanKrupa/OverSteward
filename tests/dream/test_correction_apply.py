@@ -375,6 +375,19 @@ def test_a_conflict_keeps_the_open_set_it_found(paths, capsys) -> None:
     assert len(cycle.FlaggedStore(paths["flagged"]).open_items()) == 2
 
 
+def test_two_notes_with_one_description_hold_apart(paths, capsys) -> None:
+    """The hold's key includes the note's filename, so a shared description never merges two notes."""
+    _init_store_repo(paths)
+    _note(paths["store"], "a.md", description="Same words.")
+    _note(paths["store"], "b.md", description="Same words.")
+    rows = [_row(paths, "a.md"), _row(paths, "b.md")]
+
+    assert _apply(paths, rows, [_conflict("a.md", "r1", "p1"), _conflict("b.md", "r2", "p2")]) == 0
+
+    held = cycle.FlaggedStore(paths["flagged"]).open_items()
+    assert sorted(item.nearest.filename for item in held) == ["a.md", "b.md"]
+
+
 def test_a_conflict_needs_a_reason(paths, capsys, monkeypatch) -> None:
     _init_store_repo(paths)  # so an unrefused conflict would commit, not crash
     _note(paths["store"], "a.md")

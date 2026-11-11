@@ -257,7 +257,7 @@ $CORRECTION apply --worksheet /tmp/dream/correction_worklist.json \
 - **`2`**: the worksheet, the verdicts, a note or the ledger could not be read. Close with `--aborted` and the reason.
 - **exit 3**: another live run holds the lock. Report "correction skipped: locked by <pid>"; no ledger row is written.
 
-Every run, zero verdicts included, ends with a `closed` row in `data/dream/corrections.jsonl`. The ledger is the re-check clock: a note with a recorded verdict leaves the worklist for 30 days, and `confirmed` writes nothing to the note. Only a conflict writes the store: one `[skip ci]` commit of `MEMORY_REVIEW.md` alone.
+Every `apply` that takes the lock and reads its input ends with a `closed` row in `data/dream/corrections.jsonl`, zero verdicts included. The ledger is the re-check clock: a note with a recorded verdict leaves the worklist for 30 days, and `confirmed` writes nothing to the note. Only a conflict writes the store: one `[skip ci]` commit of `MEMORY_REVIEW.md` alone.
 
 ## Draining the review surface (approve held items)
 
