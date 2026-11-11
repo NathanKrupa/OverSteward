@@ -14,6 +14,7 @@ import pytest
 from oversteward.dream import cycle
 from oversteward.dream.consolidate import REVIEW_FILENAME, MemoryStore
 from oversteward.dream.correction_ledger import CorrectionLedger
+from oversteward.dream.extract import CandidateValidationError
 
 from tests.dream.test_correction import TODAY, _dream_cli, _note, _sources
 
@@ -275,6 +276,7 @@ def test_a_second_verdict_for_one_note_is_refused(paths, capsys) -> None:
 
 
 def test_a_note_changed_since_the_worksheet_is_stale(paths, capsys, monkeypatch) -> None:
+    _init_store_repo(paths)  # so a stale conflict that slipped through would commit, not crash
     _note(paths["store"], "a_changed.md")
     _note(paths["store"], "b_same.md")
     rows = [_row(paths, "a_changed.md"), _row(paths, "b_same.md", paths=[(TRACKED, "tracked")])]
@@ -288,10 +290,10 @@ def test_a_note_changed_since_the_worksheet_is_stale(paths, capsys, monkeypatch)
 
     code = _apply(paths, rows, verdicts)
 
+    merge.assert_not_called()
     out = json.loads(capsys.readouterr().out)
     assert code == 0
     assert out["stale"] == ["a_changed.md"]
-    merge.assert_not_called()
     assert [r["filename"] for r in _verdict_rows(paths)] == ["b_same.md"]
     assert _closed(paths)["skipped"]["stale"] == 1
 
@@ -321,7 +323,10 @@ def test_a_conflict_holds_once_surfaces_and_commits_the_review_surface_only(path
     head_before = _git(paths["store_repo"], "rev-parse", "HEAD")
     rows = [_row(paths, "a_law.md")]
 
-    first = _apply(paths, rows, [_conflict("a_law.md", "the merge flag changed", "Use --rebase.")])
+    try:
+        first = _apply(paths, rows, [_conflict("a_law.md", "the merge flag changed", "Use --rebase.")])
+    except CandidateValidationError as exc:
+        pytest.fail(f"a hold for a note with no metadata.type broke the open set: {exc}")
     capsys.readouterr()
     second = _apply(paths, rows, [_conflict("a_law.md", "different words", "Use --squash.")])
     capsys.readouterr()
@@ -371,6 +376,7 @@ def test_a_conflict_keeps_the_open_set_it_found(paths, capsys) -> None:
 
 
 def test_a_conflict_needs_a_reason(paths, capsys, monkeypatch) -> None:
+    _init_store_repo(paths)  # so an unrefused conflict would commit, not crash
     _note(paths["store"], "a.md")
     merge = mock.MagicMock(name="merge")
     monkeypatch.setattr(cycle.FlaggedStore, "merge", merge)
@@ -407,7 +413,7 @@ def test_aborted_closes_the_run_with_its_reason(paths, capsys) -> None:
     assert code == 0
     rows = _ledger(paths)
     assert [r["event"] for r in rows] == ["opened", "closed"]
-    assert rows[1]["aborted"] == "worklist exited 2: instrument blind"
+    assert rows[1].get("aborted") == "worklist exited 2: instrument blind"
     assert rows[1]["checked"] == 0
     assert rows[0]["run"] == rows[1]["run"]
 
