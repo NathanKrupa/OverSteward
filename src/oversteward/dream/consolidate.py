@@ -225,10 +225,11 @@ class MemoryStore:
     def write_review_surface(self, flagged: list[FlaggedItem]) -> Path:
         """Write ``MEMORY_REVIEW.md`` from the full open set of held candidates.
 
-        The cycle auto-approves the ambiguous 0.55-0.85 band, so the only items
-        that land here are candidates the provenance guard held — a contradiction
-        against a ``nathan-stated`` memory (surfaced, never auto-written). The
-        caller passes the **full accumulated open set** (not just the current
+        The cycle auto-approves the ambiguous 0.55-0.85 band, so two kinds of hold
+        land here: a candidate the provenance guard held — a contradiction against
+        a ``nathan-stated`` memory (surfaced, never auto-written) — and a note the
+        correction pass judged in conflict (reason ``CONFLICT: …``, see
+        :mod:`oversteward.dream.correction_apply`). The caller passes the **full accumulated open set** (not just the current
         run's holds), so a barren run never wipes prior state; items leave the set
         only via an explicit drain. One section per held candidate, each carrying
         its dedupe ``key`` for selective drain.
@@ -236,11 +237,13 @@ class MemoryStore:
         lines = [
             "# Memory Review Queue",
             "",
-            "Held candidates the dream cycle surfaced instead of auto-writing — each",
-            "contradicts a `nathan-stated` memory (the provenance guard). Auto-approved",
-            "writes land directly in the store (their git history is the audit trail);",
-            "only these holds accumulate here across runs until cleared by an explicit",
-            "drain (`scripts/dream.py cycle drain`).",
+            "Held candidates the dream cycle surfaced instead of auto-writing: a",
+            "candidate that contradicts a `nathan-stated` memory (the provenance guard),",
+            "or a note the correction pass found in conflict (reason `CONFLICT:`, with",
+            "the judge's proposal beneath it). Auto-approved writes land directly in the",
+            "store (their git history is the audit trail); only these holds accumulate",
+            "here across runs until cleared by an explicit drain",
+            "(`scripts/dream.py cycle drain`).",
             "",
         ]
         for item in flagged:

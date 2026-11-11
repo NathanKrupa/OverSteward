@@ -114,6 +114,7 @@ def _sources(trees=None, issues=None, repos=(correction.HOME_REPO,)) -> correcti
 
 def _worklist(root: Path, sources=None, **kwargs) -> dict:
     kwargs.setdefault("today", TODAY)
+    kwargs.setdefault("checked", {})
     return correction.build_worklist(MemoryStore(root), sources or _sources(), **kwargs).to_dict()
 
 
@@ -131,7 +132,10 @@ def _dream_cli():
 
 
 def _cli(store: Path, sources: correction.Sources, *extra: str) -> int:
-    argv = ["correction", "worklist", "--store", str(store), "--today", TODAY.isoformat(), *extra]
+    argv = [
+        "correction", "worklist", "--store", str(store), "--today", TODAY.isoformat(),
+        "--corrections-ledger", str(store.parent / "corrections.jsonl"), *extra,
+    ]
     return _dream_cli().main(argv, correction_sources=sources)
 
 
