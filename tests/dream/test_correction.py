@@ -263,6 +263,24 @@ def test_unrooted_tokens_and_bare_spans_are_sorted_apart(tmp_path: Path) -> None
     assert refs["named"] == ["--severity error", "/dream"]
 
 
+def test_tokens_naming_no_directory_are_unchecked(tmp_path: Path) -> None:
+    """A bare filename or domain cannot be located, so it must not read as untracked; a URL is no path."""
+    store = tmp_path / "memory"
+    _note(
+        store,
+        "law.md",
+        last_reinforced="'2026-01-01'",
+        body="`_alembic_guards.py`, `aigranthelper.com`, `https://example.org/a/b.py` and `scripts/dream.py`.\n",
+    )
+    trees = FakeTrees({correction.HOME_REPO: {"scripts/dream.py"}})
+
+    refs = _worklist(store, _sources(trees=trees))["worklist"][0]["references"]
+
+    assert [entry["path"] for entry in refs["paths"]] == ["scripts/dream.py"]
+    assert refs["unchecked"] == ["_alembic_guards.py", "aigranthelper.com"]
+    assert refs["named"] == ["https://example.org/a/b.py"]
+
+
 def test_fenced_blocks_are_not_inline_spans(tmp_path: Path) -> None:
     store = tmp_path / "memory"
     _note(store, "law.md", last_reinforced="'2026-01-01'", body="```\nrun `scripts/fenced.py`\n```\n")

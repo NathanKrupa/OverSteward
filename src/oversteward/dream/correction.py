@@ -17,8 +17,9 @@ correction pass works from; it issues no verdicts and writes nothing.
 - **Evidence.** Read for offered notes only, from the inline code spans of the
   description, the digest and the body (fenced blocks are not inline spans).
   A path-like token is looked up in every registry checkout through a
-  :class:`TreeLookup`; an absolute, ``~``-rooted or ``*``-bearing one is
-  ``unchecked``. An ``OS#``/``GS#``/``AG#`` ref is looked up through an
+  :class:`TreeLookup`; an absolute, ``~``-rooted or ``*``-bearing one, or one
+  naming no directory (a bare filename or a domain, which cannot be located),
+  is ``unchecked``. A URL is not a path. An ``OS#``/``GS#``/``AG#`` ref is looked up through an
   injected issue-state callable; any other prefix is ``unchecked``. A span
   yielding neither is ``named``, unverified.
 
@@ -262,12 +263,13 @@ def _read_span(span: str) -> _Spans:
             unchecked.append(f"{prefix}#{number}")
     paths: list[str] = []
     for token in span.split():
-        if "://" in token or not mentioned_paths(token):
+        found = [] if "://" in token else mentioned_paths(token)
+        if not found:
             continue
-        if token.startswith(("/", "~")) or "*" in token:
+        if token.startswith(("/", "~")) or "*" in token or not any("/" in p for p in found):
             unchecked.append(token)
         else:
-            paths.extend(mentioned_paths(token))
+            paths.extend(found)
     return _Spans(tuple(paths), tuple(issues), tuple(unchecked), ())
 
 
