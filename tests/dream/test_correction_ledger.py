@@ -75,9 +75,14 @@ def test_a_verdict_in_an_unclosed_run_starts_no_clock(tmp_path: Path) -> None:
     assert _names(result) == ["a_note.md"]
 
 
-def test_the_latest_closed_run_sets_the_clock(tmp_path: Path) -> None:
+@pytest.mark.parametrize("order", ["oldest-first", "newest-first"])
+def test_the_latest_closed_run_sets_the_clock(tmp_path: Path, order: str) -> None:
+    """The live ledger is append-only, so oldest first; the latest day wins in either order."""
     ledger = tmp_path / "corrections.jsonl"
-    _write_rows(ledger, [*_run("new", 3, ["a.md"]), *_run("old", 40, ["a.md"])])
+    runs = [_run("old", 40, ["a.md"]), _run("new", 3, ["a.md"])]
+    if order == "newest-first":
+        runs.reverse()
+    _write_rows(ledger, [row for run in runs for row in run])
 
     assert CorrectionLedger(ledger).last_checked() == {"a.md": TODAY - timedelta(days=3)}
 
@@ -112,6 +117,16 @@ def test_probe_of_a_run_closed_today_is_not_stale(tmp_path: Path) -> None:
     assert probe["days_since"] == 0
     assert probe["last_closed"]["run"] == "r1"
     assert probe["unclosed"] == 0
+
+
+def test_probe_reports_the_latest_closing_row(tmp_path: Path) -> None:
+    ledger = tmp_path / "corrections.jsonl"
+    _write_rows(ledger, [*_run("old", 40, ["a.md"]), *_run("new", 0, ["b.md"])])
+
+    probe = CorrectionLedger(ledger).probe(today=TODAY)
+
+    assert probe.last_closed["run"] == "new"
+    assert (probe.days_since, probe.stale) == (0, False)
 
 
 @pytest.mark.parametrize(("days_ago", "stale"), [(7, False), (8, True)])

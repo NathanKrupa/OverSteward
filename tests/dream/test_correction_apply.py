@@ -590,6 +590,36 @@ def test_an_unreadable_ledger_stops_the_worklist(paths, capsys) -> None:
     assert out == ""
 
 
+def _row_without(field: str) -> dict:
+    """A well-formed worksheet row with exactly one field broken."""
+    row = {"filename": "a.md", "content_sha256": "0", "references": {"paths": [], "issues": []}}
+    if field == "content_sha256":
+        del row["content_sha256"]
+    elif field == "references":
+        row["references"] = "not a mapping"
+    else:
+        del row["references"][field]
+    return row
+
+
+@pytest.mark.parametrize("field", ["content_sha256", "references", "paths", "issues"])
+def test_a_worksheet_row_missing_one_field_exits_2(paths, capsys, field) -> None:
+    _note(paths["store"], "a.md")
+    argv = _apply_argv(paths, [], [{"filename": "a.md", "verdict": "unverified", "searched": ["x"]}])
+    argv[argv.index("--worksheet") + 1] = _write_json(
+        paths["tmp"] / "bad.json", {"worklist": [_row_without(field)]}
+    )
+
+    code = _dream_cli().main(argv)
+
+    out, err = capsys.readouterr()
+    assert code == 2
+    assert "correction apply could not look" in err
+    assert "Traceback" not in err
+    assert out == ""
+    assert not paths["corrections"].exists()
+
+
 # ---- probe -----------------------------------------------------------------------
 
 
