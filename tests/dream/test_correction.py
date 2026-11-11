@@ -414,6 +414,23 @@ def test_known_issue_refs_are_read_from_prose_once_each(tmp_path: Path) -> None:
     assert sorted(issues.calls) == sorted([(OS_REPO, 134), (GS_REPO, 9), (AG_REPO, 5)])
 
 
+def test_prose_refs_are_read_from_a_spanless_line_and_before_a_span(tmp_path: Path) -> None:
+    """Each ref sits in one position only: alone on a line with no span, and only before a span."""
+    store = tmp_path / "memory"
+    _note(
+        store,
+        "law.md",
+        last_reinforced="'2026-01-01'",
+        description="Settled in OS#134.",
+        body="GS#9 first, then `scripts/a.py`.\n",
+    )
+    issues = FakeIssues({(OS_REPO, 134): "closed", (GS_REPO, 9): "open"})
+
+    refs = _worklist(store, _sources(issues=issues))["worklist"][0]["references"]
+
+    assert refs["issues"] == [{"ref": "OS#134", "state": "closed"}, {"ref": "GS#9", "state": "open"}]
+
+
 def test_references_are_read_for_offered_notes_only(tmp_path: Path) -> None:
     store = tmp_path / "memory"
     _note(store, "a_offered.md", last_reinforced="'2026-01-01'", body="`OS#1` `scripts/a.py`\n")
