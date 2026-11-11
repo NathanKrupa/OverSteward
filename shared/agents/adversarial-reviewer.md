@@ -78,6 +78,17 @@ recall. You are expected to:
 Work in a scratch copy. **Never commit, never push, never edit the author's
 branch.** Your mutations are experiments and must leave no trace.
 
+**Run every command in the foreground, the mutation loop included.** You run
+headless (`claude -p`), and the process ends when your turn ends. A job you
+background is lost with nobody to read its result, its mutant stays applied in
+`<D>.review`, and a reply saying the work "is still running" carries no verdict:
+the author gets a billed round that certified nothing (OS#682). Never pass
+`run_in_background`, never end a command with `&`, and never `nohup`, `disown`
+or `setsid` one. The launch sets `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`, which
+removes the Bash tool's background parameter, but a shell `&` survives it. A
+long mutation loop runs in foreground batches, each restored before the next;
+you return only after the last one has finished and the copy is gone.
+
 **The scratch copy is a real worktree at one path: `<D>.review`**, where `<D>`
 is the directory holding the review-input file you were handed — the author's
 worktree. Its tests create bench databases named from that path, so the path
