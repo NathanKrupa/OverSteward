@@ -24,13 +24,33 @@ PROMOTION="python scripts/dream.py promotion"  # step 6 — likewise top-level
 
 The store is the private `steward-memory` repo; the ledger is OverSteward's `data/dream/`. The `cycle` subcommands default to the live paths — pass `--store` / `--ledger` / `--store-repo` only when testing.
 
+## Step 0 — take the run lock
+
+```bash
+$DREAM begin
+```
+
+One dream run per machine (OS#690). `begin` records this session's `claude` process as the holder in `~/.claude/dream_run.lock` and appends a row to `~/.claude/dream_runs.jsonl`. **Its exit code decides what comes next — do not collapse them:**
+
+- **`0`** — the lock is held by this run (taken now, or already ours). Go on to step 1.
+- **exit 3** — another live run holds the lock (the boot-time timer racing a session's own `/dream`, or the reverse). **Stop here** and report "skipped: locked by <pid>" with the holder, trigger and start time it printed. Do not run any later step; the ledger already records the skip.
+- **`2`** — the lock or the holder's liveness could not be read. **Stop and surface it loudly**: a run that cannot look does not write, and this is never a quiet morning.
+
+Every store writer below (`apply`, `finalize`, `drain`, `supersede`) checks the same lock itself and exits 3 or 2 the same way, so a skipped Step 0 still cannot double-write the store; Step 0 only moves the refusal ahead of the expensive extraction. A run that dies holding the lock is reclaimed by the next one, with a `reclaimed` row naming the dead holder.
+
 ## Step 1 — enumerate unprocessed (no-op fast path)
 
 ```bash
 $DREAM unprocessed > /tmp/dream/unprocessed.json
 ```
 
-Each entry is a transcript whose content hash is **not** in the processed ledger. **If the list is empty, stop here** — report "ledger current, nothing to consolidate" and exit clean. This is what makes the cron backstop a safe no-op when a sign-off already drained the queue.
+Each entry is a transcript whose content hash is **not** in the processed ledger. **If the list is empty, stop here** — release the lock and close the run, then report "ledger current, nothing to consolidate" and exit clean:
+
+```bash
+$DREAM end --reason "ledger current"
+```
+
+This is what makes the cron backstop a safe no-op when a sign-off already drained the queue. **Any abort after Step 0** closes the same way, with the reason: `$DREAM end --reason "<why>"`.
 
 ## Step 2 — per transcript: read → extract (in-session) → gate
 
@@ -78,7 +98,7 @@ Merge every `apply_<i>.json`'s `flagged` and `written_paths` with step 1's trans
 $DREAM finalize --results /tmp/dream/results.json > /tmp/dream/finalize.json
 ```
 
-This regenerates `MEMORY.md`, **merges this run's holds into the durable open set** (`data/dream/flagged.jsonl`, de-duped by key) and rebuilds `MEMORY_REVIEW.md` from the **full** open set — a barren run never wipes prior holds (OS#134 Bug 1). It then **commits the store as a doc-only `[skip ci]` change** (HARD CONSTRAINT #2 / acceptance #5 — memory commits never burn a CI run), records every processed transcript in the ledger (even barren ones, so they are not re-processed), and drains the Stop-hook queue.
+This regenerates `MEMORY.md`, **merges this run's holds into the durable open set** (`data/dream/flagged.jsonl`, de-duped by key) and rebuilds `MEMORY_REVIEW.md` from the **full** open set — a barren run never wipes prior holds (OS#134 Bug 1). It then **commits the store as a doc-only `[skip ci]` change** (HARD CONSTRAINT #2 / acceptance #5 — memory commits never burn a CI run), records every processed transcript in the ledger (even barren ones, so they are not re-processed), and drains the Stop-hook queue. On success it **releases the run lock** and closes the run with a `completed` row carrying the transcript count; a finalize that fails keeps the lock, so its retry is still this run's.
 
 ## Step 5 — roadmap reconciliation (§13.4 intent pass, OS#231)
 
@@ -205,3 +225,4 @@ One short summary: sessions processed, facts appended/merged, holds surfaced for
 - **LLM steps are in-session/Max**, never the metered API.
 - **Reuse the engine.** Extraction gating, the §6 bands, the provenance guard, and the commit all live in `src/oversteward/dream/`; this skill calls them, it never duplicates them.
 - **The Stop hook never runs this cycle** — it only enqueues + reminds. Work runs here, in-session.
+- **One run per machine.** Step 0 takes the run lock; finalize or `$DREAM end --reason` releases it. Exit 3 is a skip and exit 2 is a stop, never a run.

@@ -5,11 +5,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from datetime import date, datetime
 from pathlib import Path
 
-from oversteward.dream import cycle, kaizen, promotion, roadmap
+from oversteward.dream import cycle, kaizen, promotion, roadmap, runlock
 from oversteward.dream.consolidate import MemoryStore, commit_store
 from oversteward.dream.extract import CandidateFact
 from oversteward.dream.ledger import ProcessedLedger
@@ -68,6 +69,25 @@ def _emit(payload: object) -> int:
     return 0
 
 
+def _run_lock(args: argparse.Namespace) -> tuple[runlock.RunLock, runlock.Holder, str]:
+    holder = runlock.discover_holder()
+    trigger = args.trigger or runlock.default_trigger(holder, dict(os.environ))
+    return runlock.RunLock(Path(args.lock), Path(args.runs)), holder, trigger
+
+
+def _cmd_begin(args: argparse.Namespace) -> int:
+    lock, holder, trigger = _run_lock(args)
+    acquired = lock.ensure(holder, trigger)
+    return _emit({"holder": holder.pid, "trigger": trigger, "acquired": acquired})
+
+
+def _cmd_end(args: argparse.Namespace) -> int:
+    lock, holder, trigger = _run_lock(args)
+    lock.ensure(holder, trigger)
+    lock.release(holder, runlock.ENDED, reason=args.reason)
+    return _emit({"holder": holder.pid, "ended": args.reason})
+
+
 def _cmd_unprocessed(args: argparse.Namespace) -> int:
     ledger = ProcessedLedger(Path(args.ledger))
     pending = cycle.find_unprocessed(args.projects_root, ledger, repo=args.repo)
@@ -82,6 +102,8 @@ def _cmd_worksheet(args: argparse.Namespace) -> int:
 
 
 def _cmd_apply(args: argparse.Namespace) -> int:
+    lock, holder, trigger = _run_lock(args)
+    lock.ensure(holder, trigger)
     sheets = _read_json(args.worksheet)["worksheets"]
     verdicts = _read_json(args.verdicts)
     if len(sheets) != len(verdicts):
@@ -107,6 +129,8 @@ def _cmd_apply(args: argparse.Namespace) -> int:
 
 
 def _cmd_finalize(args: argparse.Namespace) -> int:
+    lock, holder, trigger = _run_lock(args)
+    lock.ensure(holder, trigger)
     results = _read_json(args.results)
     store = MemoryStore(Path(args.store))
     ledger = ProcessedLedger(Path(args.ledger))
@@ -126,6 +150,8 @@ def _cmd_finalize(args: argparse.Namespace) -> int:
             flagged_path=Path(args.flagged) if args.flagged else None,
         ),
     )
+    # Success only: a finalize that raised keeps the lock for its retry.
+    lock.release(holder, runlock.COMPLETED, count=len(run_results.processed))
     return _emit(
         {
             "committed": result.commit.committed,
@@ -140,6 +166,8 @@ def _cmd_finalize(args: argparse.Namespace) -> int:
 
 
 def _cmd_drain(args: argparse.Namespace) -> int:
+    lock, holder, trigger = _run_lock(args)
+    acquired = lock.ensure(holder, trigger)
     store = MemoryStore(Path(args.store))
     flagged_store = cycle.FlaggedStore(Path(args.flagged))
     keys = args.key or None
@@ -147,6 +175,8 @@ def _cmd_drain(args: argparse.Namespace) -> int:
     if not args.no_commit and result.drained:
         message = f"dream: drain {result.drained} reviewed hold(s) {cycle.SKIP_CI_MARKER}"
         commit_store(Path(args.store_repo), [result.review_path], message)
+    if acquired:
+        lock.release(holder, runlock.ENDED, reason="drain")
     return _emit(
         {
             "drained": result.drained,
@@ -157,9 +187,13 @@ def _cmd_drain(args: argparse.Namespace) -> int:
 
 
 def _cmd_supersede(args: argparse.Namespace) -> int:
+    lock, holder, trigger = _run_lock(args)
+    acquired = lock.ensure(holder, trigger)
     store = MemoryStore(Path(args.store))
     memory = supersede(store, args.memory, args.replacement)
     index_path = store.regenerate_index()
+    if acquired:
+        lock.release(holder, runlock.ENDED, reason="supersede")
     return _emit(
         {
             "filename": memory.filename,
@@ -335,6 +369,7 @@ def _add_supersede_subparser(sub: argparse._SubParsersAction) -> None:
     sup.add_argument("memory", help="the memory's <slug>.md basename (bare slug accepted)")
     sup.add_argument("replacement", help="what to reach for instead, or 'no successor — <why>'")
     sup.add_argument("--store", default=str(cycle.DEFAULT_STORE_PATH))
+    _add_lock_args(sup)
     sup.set_defaults(func=_cmd_supersede)
 
 
@@ -349,9 +384,29 @@ def _add_transcripts_subparser(sub: argparse._SubParsersAction) -> None:
     show_p.set_defaults(func=_cmd_show)
 
 
+def _add_lock_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--lock", default=str(runlock.DEFAULT_LOCK_PATH), help="run-lock path")
+    parser.add_argument("--runs", default=str(runlock.DEFAULT_RUNS_PATH), help="run-ledger path")
+    parser.add_argument(
+        "--trigger",
+        choices=runlock.TRIGGERS,
+        default=None,
+        help=f"what started this run (default: ${runlock.TRIGGER_ENV}, else session/manual)",
+    )
+
+
 def _add_cycle_subparser(sub: argparse._SubParsersAction) -> None:
     grp = sub.add_parser("cycle", help="the convergent dream-cycle batch steps")
     actions = grp.add_subparsers(dest="action", required=True)
+
+    bgn = actions.add_parser("begin", help="take the machine-wide run lock (exit 3: another run holds it)")
+    _add_lock_args(bgn)
+    bgn.set_defaults(func=_cmd_begin)
+
+    end = actions.add_parser("end", help="release the run lock and close the run with a reason")
+    end.add_argument("--reason", required=True, help="why the run ended, one line")
+    _add_lock_args(end)
+    end.set_defaults(func=_cmd_end)
 
     unp = actions.add_parser("unprocessed", help="transcripts not yet in the ledger (JSON)")
     unp.add_argument("--projects-root", default=None)
@@ -371,6 +426,7 @@ def _add_cycle_subparser(sub: argparse._SubParsersAction) -> None:
     app.add_argument("--store", default=str(cycle.DEFAULT_STORE_PATH))
     app.add_argument("--today", default=None, help="YYYY-MM-DD stamp (default: today)")
     app.add_argument("--session", default=None, help="originating session id")
+    _add_lock_args(app)
     app.set_defaults(func=_cmd_apply)
 
     fin = actions.add_parser("finalize", help="index + review + commit + ledger (JSON)")
@@ -381,6 +437,7 @@ def _add_cycle_subparser(sub: argparse._SubParsersAction) -> None:
     fin.add_argument("--queue", default=str(cycle.DEFAULT_QUEUE_PATH))
     fin.add_argument("--flagged", default=None, help="open-set path (default: ledger sibling)")
     fin.add_argument("--message", default=None, help="override the doc-only commit message")
+    _add_lock_args(fin)
     fin.set_defaults(func=_cmd_finalize)
 
     drn = actions.add_parser("drain", help="approve/clear held items + rebuild review surface (JSON)")
@@ -393,6 +450,7 @@ def _add_cycle_subparser(sub: argparse._SubParsersAction) -> None:
         help="open-set path (default: ledger sibling)",
     )
     drn.add_argument("--no-commit", action="store_true", help="rebuild the surface but do not commit")
+    _add_lock_args(drn)
     drn.set_defaults(func=_cmd_drain)
 
 
@@ -413,7 +471,14 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     projects_root = getattr(args, "projects_root", None)
     args.projects_root = default_projects_root() if projects_root is None else Path(projects_root)
-    return args.func(args)
+    try:
+        return args.func(args)
+    except runlock.Locked as exc:
+        print(f"dream: skipped — {exc}", file=sys.stderr)
+        return 3
+    except runlock.LockUnreadable as exc:
+        print(f"dream: {exc}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":
