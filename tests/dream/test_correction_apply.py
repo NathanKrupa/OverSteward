@@ -385,6 +385,7 @@ def test_two_notes_with_one_description_hold_apart(paths, capsys) -> None:
     assert _apply(paths, rows, [_conflict("a.md", "r1", "p1"), _conflict("b.md", "r2", "p2")]) == 0
 
     held = cycle.FlaggedStore(paths["flagged"]).open_items()
+    assert len(held) == 2
     assert sorted(item.nearest.filename for item in held) == ["a.md", "b.md"]
 
 
