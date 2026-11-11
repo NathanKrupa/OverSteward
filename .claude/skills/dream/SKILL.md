@@ -230,13 +230,13 @@ $DREAM drain --key <hold-key>      # clear just one
 
 A `user` fact is a law outright, so a rule that has since been LIFTED keeps loading as live law — the worst class of always-loaded content. The cycle handles this on the way in: set `superseded_by` on the candidate and both write paths persist it, which files the fact under `## Graveyard`. That only reaches facts a transcript still raises. A rule nobody discusses any more never comes back through the cycle.
 
-To find candidates, read the correction worklist (OS#691). It is read-only: it writes nothing, takes no lock, and issues no verdicts:
+To find candidates, read the correction worklist (OS#691). It writes nothing to the store, takes no lock, and issues no verdicts. Reading a sibling repo's tree fetches `origin/<branch>` in that checkout first, as `estate_map.py check` does:
 
 ```bash
 python scripts/dream.py correction worklist   # --limit 10 --min-age-days 30 by default
 ```
 
-It lists the Laws and Habits least recently reinforced (`last_reinforced`, else `created`; undated notes first), each with evidence from its inline code spans: paths `tracked` in a registry checkout or `untracked`, `OS#`/`GS#`/`AG#` refs `open`, `closed` or `missing`, and `unchecked`/`named` tokens nothing verified. Exit 2 is could-not-look (an absent or empty store, a note that does not parse, a tree or `gh` read that failed, or the "instrument blind" canary), never an empty list. Age only ranks a note, and an `untracked` path is evidence, not a verdict: a law nobody mentions may simply be obeyed.
+It lists the Laws and Habits least recently reinforced (`last_reinforced`, else `created`; undated notes first), each with evidence from its inline code spans: paths `tracked` (a registry checkout tracks a file or directory at that path or ending in it) or `untracked` (a gitignored runtime path reads `untracked` too), `OS#`/`GS#`/`AG#` refs `open`, `closed` or `missing`, and `unchecked`/`named` tokens nothing verified. Exit 2 is could-not-look (an absent or empty store, a note that does not parse, a tree or `gh` read that failed, or the "instrument blind" canary), never an empty list. Age only ranks a note, and an `untracked` path is evidence, not a verdict: a law nobody mentions may simply be obeyed.
 
 Then retire a dead one by name:
 

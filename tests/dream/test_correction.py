@@ -62,18 +62,18 @@ def _days_ago(days: int) -> str:
 
 
 class FakeTrees:
-    """Answers `existing` from a fixed map of repo -> tracked paths, recording each call."""
+    """Lists a fixed map of repo -> tracked files, recording each repo listed."""
 
     def __init__(self, held: dict[str, set[str]] | None = None, *, canary: bool = True) -> None:
         self.held = {repo: set(paths) for repo, paths in (held or {}).items()}
         if canary:
             self.held.setdefault(correction.HOME_REPO, set()).add(correction.CANARY_PATH)
-        self.calls: list[tuple[str, list[str]]] = []
+        self.calls: list[str] = []
 
-    def existing(self, repo: str, paths) -> set[str]:
-        wanted = list(paths)
-        self.calls.append((repo, sorted(wanted)))
-        return {p for p in wanted if p in self.held.get(repo, set())}
+    def files(self, repo: str, roots) -> list[str]:
+        assert list(roots) == [], "the worklist lists whole trees"
+        self.calls.append(repo)
+        return sorted(self.held.get(repo, set()))
 
 
 class BlindTrees(FakeTrees):
@@ -84,7 +84,7 @@ class BlindTrees(FakeTrees):
 
 
 class FailingTrees(FakeTrees):
-    def existing(self, repo: str, paths) -> set[str]:
+    def files(self, repo: str, roots) -> list[str]:
         raise CouldNotLook(f"{repo}: checkout /nowhere is absent")
 
 
@@ -256,14 +256,86 @@ def test_unrooted_tokens_and_bare_spans_are_sorted_apart(tmp_path: Path) -> None
         store,
         "law.md",
         last_reinforced="'2026-01-01'",
-        body="See `/home/natha/x.py`, `~/.claude/y.md`, `tests/*.py`, `--severity error` and `/dream`.\n",
+        body=(
+            "See `/home/natha/x.py`, `~/.claude/y.md`, `src/**/dream/correction.py`, "
+            "`--severity error` and `/dream`.\n"
+        ),
     )
 
     refs = _worklist(store)["worklist"][0]["references"]
 
     assert refs["paths"] == []
-    assert sorted(refs["unchecked"]) == ["/home/natha/x.py", "tests/*.py", "~/.claude/y.md"]
+    assert sorted(refs["unchecked"]) == ["/home/natha/x.py", "src/**/dream/correction.py", "~/.claude/y.md"]
     assert refs["named"] == ["--severity error", "/dream"]
+
+
+def test_parent_relative_paths_and_git_refs_are_unchecked(tmp_path: Path) -> None:
+    """`git ls-tree` refuses a path above the repo, and a ref is no path; neither may read untracked."""
+    store = tmp_path / "memory"
+    _note(
+        store,
+        "law.md",
+        last_reinforced="'2026-01-01'",
+        body="`uv pip install ../grantspider`, `git diff HEAD..origin/main` and `origin/staging`.\n",
+    )
+
+    refs = _worklist(store)["worklist"][0]["references"]
+
+    assert refs["paths"] == []
+    assert refs["unchecked"] == ["../grantspider", "HEAD..origin/main", "origin/staging"]
+
+
+def test_a_path_tail_resolves_to_the_tracked_path_it_ends(tmp_path: Path) -> None:
+    """A note names `services/x.py` for `src/pkg/services/x.py`, in whichever repo holds it."""
+    store = tmp_path / "memory"
+    _note(
+        store,
+        "law.md",
+        last_reinforced="'2026-01-01'",
+        body="`services/enrichment.py`, `scripts/dev`, `ices/enrichment.py` and `services/enrich.py`.\n",
+    )
+    trees = FakeTrees(
+        {
+            correction.HOME_REPO: {"scripts/dev/new-session.sh"},
+            "grantspider": {"src/grantspider/services/enrichment.py"},
+        }
+    )
+
+    result = _worklist(store, _sources(trees=trees, repos=(correction.HOME_REPO, "grantspider")))
+
+    paths = {e["path"]: (e["status"], e["repos"]) for e in result["worklist"][0]["references"]["paths"]}
+    assert paths == {
+        "services/enrichment.py": ("tracked", ["grantspider"]),
+        "scripts/dev": ("tracked", [correction.HOME_REPO]),
+        "ices/enrichment.py": ("untracked", []),
+        "services/enrich.py": ("untracked", []),
+    }
+
+
+def test_description_and_digest_spans_are_read(tmp_path: Path) -> None:
+    store = tmp_path / "memory"
+    _note(
+        store,
+        "a_law.md",
+        last_reinforced="'2026-01-01'",
+        description="Use `scripts/a.py` first.",
+        body="No spans here.\n",
+        extra='  digest: "Per `OS#7`, run it"',
+    )
+    _note(
+        store,
+        "b_law.md",
+        last_reinforced="'2026-02-01'",
+        body="No spans here.\n",
+        extra="  digest:\n  - '`scripts/listed.py`'",
+    )
+    issues = FakeIssues({(OS_REPO, 7): "open"})
+
+    rows = _worklist(store, _sources(issues=issues))["worklist"]
+
+    assert [e["path"] for e in rows[0]["references"]["paths"]] == ["scripts/a.py"]
+    assert rows[0]["references"]["issues"] == [{"ref": "OS#7", "state": "open"}]
+    assert rows[1]["references"]["paths"] == []
 
 
 def test_tokens_naming_no_directory_are_unchecked(tmp_path: Path) -> None:
@@ -312,7 +384,7 @@ def test_references_are_read_for_offered_notes_only(tmp_path: Path) -> None:
     _worklist(store, _sources(trees=trees, issues=issues), limit=1)
 
     assert issues.calls == [(OS_REPO, 1)]
-    assert trees.calls == [(correction.HOME_REPO, sorted([correction.CANARY_PATH, "scripts/a.py"]))]
+    assert trees.calls == [correction.HOME_REPO]
 
 
 def test_row_carries_identity_fields(tmp_path: Path) -> None:
@@ -357,6 +429,24 @@ def test_blind_reader_trips_the_canary(tmp_path: Path, capsys) -> None:
     code = _cli(store, _sources(trees=BlindTrees()))
 
     _assert_could_not_look(capsys, code, "instrument blind")
+
+
+def test_home_repo_absent_from_the_trees_is_blind(tmp_path: Path, capsys) -> None:
+    store = tmp_path / "memory"
+    _note(store, "law.md", last_reinforced="'2026-01-01'")
+
+    code = _cli(store, _sources(repos=("grantspider",)))
+
+    _assert_could_not_look(capsys, code, "instrument blind")
+
+
+def test_unrecognised_issue_state_is_could_not_look(tmp_path: Path, capsys) -> None:
+    store = tmp_path / "memory"
+    _note(store, "law.md", last_reinforced="'2026-01-01'", body="`OS#5`\n")
+
+    code = _cli(store, _sources(issues=FakeIssues({(OS_REPO, 5): ""})))
+
+    _assert_could_not_look(capsys, code, "unrecognised issue state")
 
 
 def test_issue_read_failure_is_could_not_look(tmp_path: Path, capsys) -> None:

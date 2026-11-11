@@ -1,11 +1,13 @@
 # ABOUTME: The correction pass's read-only worklist: the Laws and Habits least recently reinforced,
-# ABOUTME: each with deterministic evidence about the paths and issues its code spans name. Writes nothing.
+# ABOUTME: each with deterministic evidence about the paths and issues its code spans name. Never writes the store.
 
 """The correction worklist (OS#691, PR 1 of 2).
 
 The dream cycle writes and consolidates notes but never re-checks one, so a Law
 whose subject has gone keeps loading as live law. This module builds the list a
-correction pass works from; it issues no verdicts and writes nothing.
+correction pass works from; it issues no verdicts and writes nothing to the
+store. Reading a sibling repo's tree fetches ``origin/<branch>`` in that
+checkout first, as ``estate_map.py check`` does.
 
 - **Population.** Notes :func:`~oversteward.dream.standing.classify` files as a
   Law or a Habit.
@@ -16,12 +18,16 @@ correction pass works from; it issues no verdicts and writes nothing.
   ``min_age_days`` old; the first ``limit`` due notes are offered.
 - **Evidence.** Read for offered notes only, from the inline code spans of the
   description, the digest and the body (fenced blocks are not inline spans).
-  A path-like token is looked up in every registry checkout through a
-  :class:`TreeLookup`; an absolute, ``~``-rooted or ``*``-bearing one, or one
-  naming no directory (a bare filename or a domain, which cannot be located),
-  is ``unchecked``. A URL is not a path. An ``OS#``/``GS#``/``AG#`` ref is looked up through an
-  injected issue-state callable; any other prefix is ``unchecked``. A span
-  yielding neither is ``named``, unverified.
+  A path-like token is ``tracked`` when a registry checkout, listed through a
+  :class:`TreeLookup`, tracks a file or directory at that path or ending in it
+  (a note names ``services/x.py`` for ``src/pkg/services/x.py``), and
+  ``untracked`` otherwise; a gitignored runtime path (``.venv/...``, a data
+  folder) reads ``untracked`` too. A token that cannot be located is
+  ``unchecked``: an absolute, ``~``-rooted, ``*``-bearing or ``..``-bearing
+  one, a git ref (``origin/main``), or one naming no directory (a bare filename
+  or a domain). A URL is not a path. An ``OS#``/``GS#``/``AG#`` ref is looked
+  up through an injected issue-state callable; any other prefix is
+  ``unchecked``. A span yielding neither is ``named``, unverified.
 
 Anything that cannot be read raises :class:`WorklistUnreadable`: an absent or
 empty store, a note that does not parse, a tree or issue read that fails, and
@@ -82,6 +88,8 @@ _DATE_FIELDS = ("last_reinforced", "created")
 _DIGEST = "digest"
 _CODE_SPAN_RE = re.compile(r"(`+)(.+?)\1")
 _ISSUE_REF_RE = re.compile(r"(?<![\w#])([A-Z]+)#([1-9][0-9]*)\b")
+#: Tokens that name a git ref rather than a path.
+_REF_PREFIXES = ("origin/", "upstream/")
 
 
 class WorklistUnreadable(RuntimeError):
@@ -89,9 +97,12 @@ class WorklistUnreadable(RuntimeError):
 
 
 class TreeLookup(Protocol):
-    """The tree reader's one call this module makes (:class:`~oversteward.estate_map.checkouts.TreeReader`)."""
+    """The tree reader's one call this module makes (:class:`~oversteward.estate_map.checkouts.TreeReader`).
 
-    def existing(self, repo: str, paths: Sequence[str]) -> set[str]: ...
+    ``files(repo, [])`` lists every tracked file on the repo's ref.
+    """
+
+    def files(self, repo: str, roots: Sequence[str]) -> list[str]: ...
 
 
 @dataclass(frozen=True)
@@ -266,11 +277,18 @@ def _read_span(span: str) -> _Spans:
         found = [] if "://" in token else mentioned_paths(token)
         if not found:
             continue
-        if token.startswith(("/", "~")) or "*" in token or not any("/" in p for p in found):
+        if _unlocatable(token) or not any("/" in p for p in found):
             unchecked.append(token)
         else:
             paths.extend(found)
     return _Spans(tuple(paths), tuple(issues), tuple(unchecked), ())
+
+
+def _unlocatable(token: str) -> bool:
+    """Rooted outside a checkout, a glob, above the repo root, or a git ref."""
+    return (
+        token.startswith(("/", "~", *_REF_PREFIXES)) or "*" in token or ".." in token
+    )
 
 
 def _extend_unique(into: list, items) -> None:
@@ -280,24 +298,34 @@ def _extend_unique(into: list, items) -> None:
 
 
 def _tracked_in(sources: Sources, paths: list[str]) -> dict[str, list[str]]:
-    """Each path's repos, read from every repo's tree; the canary rides the home repo's call."""
+    """Each path's repos, from a listing of every repo's tree; the canary rides the home repo's listing."""
     if HOME_REPO not in sources.repos:
         raise WorklistUnreadable(f"instrument blind: {HOME_REPO} is not among the trees read")
     found: dict[str, list[str]] = {path: [] for path in paths}
     for repo in sources.repos:
-        wanted = [*paths, CANARY_PATH] if repo == HOME_REPO else paths
-        if not wanted:
+        if repo != HOME_REPO and not paths:
             continue
         try:
-            present = sources.trees.existing(repo, wanted)
+            listing = sources.trees.files(repo, [])
         except CouldNotLook as exc:
             raise WorklistUnreadable(str(exc)) from exc
-        if repo == HOME_REPO and CANARY_PATH not in present:
+        if repo == HOME_REPO and CANARY_PATH not in listing:
             raise WorklistUnreadable(f"instrument blind: {CANARY_PATH} did not read as tracked in {HOME_REPO}")
+        known = _segment_runs(listing)
         for path in paths:
-            if path in present:
+            if path in known:
                 found[path].append(repo)
     return found
+
+
+def _segment_runs(files: Sequence[str]) -> set[str]:
+    """Every run of whole consecutive segments in ``files``: each file or directory path and each of its tails."""
+    runs: set[str] = set()
+    for tracked in files:
+        parts = tracked.split("/")
+        for start in range(len(parts)):
+            runs.update("/".join(parts[start:end]) for end in range(start + 1, len(parts) + 1))
+    return runs
 
 
 def _issue_states(read: IssueStates, refs: list[tuple[str, int]]) -> dict[tuple[str, int], str]:
