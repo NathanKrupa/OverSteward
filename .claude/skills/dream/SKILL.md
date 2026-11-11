@@ -20,6 +20,7 @@ export PYTHONPATH="$PWD/src"
 DREAM="python scripts/dream.py cycle"       # use the project venv's python
 ROADMAP="python scripts/dream.py roadmap"   # step 5 — a top-level command, not a cycle action
 PROMOTION="python scripts/dream.py promotion"  # step 6 — likewise top-level
+CORRECTION="python scripts/dream.py correction"  # step 7 — likewise top-level
 ```
 
 The store is the private `steward-memory` repo; the ledger is OverSteward's `data/dream/`. The `cycle` subcommands default to the live paths — pass `--store` / `--ledger` / `--store-repo` only when testing.
@@ -36,7 +37,7 @@ One dream run per machine (OS#690). `begin` records this session's `claude` proc
 - **exit 3** — another live run holds the lock (the boot-time timer racing a session's own `/dream`, or the reverse). **Stop here** and report "skipped: locked by <pid>" with the holder, trigger and start time it printed. Do not run any later step; the ledger already records the skip.
 - **`2`** — the lock or the holder's liveness could not be read. **Stop and surface it loudly**: a run that cannot look does not write, and this is never a quiet morning.
 
-Every store writer below (`apply`, `finalize`, `drain`, `supersede`) checks the same lock itself and exits 3 or 2 the same way, so a skipped Step 0 still cannot double-write the store; Step 0 only moves the refusal ahead of the expensive extraction. A run that dies holding the lock is reclaimed by the next one, with a `reclaimed` row naming the dead holder.
+Every store writer below (`apply`, `finalize`, `drain`, `supersede`, `correction apply`) checks the same lock itself and exits 3 or 2 the same way, so a skipped Step 0 still cannot double-write the store; Step 0 only moves the refusal ahead of the expensive extraction. A run that dies holding the lock is reclaimed by the next one, with a `reclaimed` row naming the dead holder.
 
 ## Step 1 — enumerate unprocessed (no-op fast path)
 
@@ -51,7 +52,7 @@ $DREAM store-health > /tmp/dream/dangling.json   # read-only; prints the closing
 $DREAM end --reason "ledger current"
 ```
 
-Report the `closing_line` from `dangling.json` even on this path ("N dangling (ruled: unmeasured); store X notes / Y KB of Z KB ceiling"): a no-op run is never silent about the store. `store-health` exits **0** under every ceiling, **1** over one (a finding to report, not a stop), and **2** when the store could not be read — report that loudly ("store unreadable"), never as a quiet ledger.
+Report the `closing_line` from `dangling.json` even on this path ("N dangling (ruled: unmeasured); store X notes / Y KB of Z KB ceiling"): a no-op run is never silent about the store. Then run **Step 7** (the correction pass) before reporting: it runs on the no-op path too. `store-health` exits **0** under every ceiling, **1** over one (a finding to report, not a stop), and **2** when the store could not be read — report that loudly ("store unreadable"), never as a quiet ledger.
 
 This is what makes the cron backstop a safe no-op when a sign-off already drained the queue. **Any abort after Step 0** closes the same way, with the reason: `$DREAM end --reason "<why>"`.
 
@@ -215,9 +216,52 @@ The `--record` flag stamps the run ledger, so a **skipped month shows as a gap**
 in `data/dream/promotion.json` rather than being silently forgotten. Record the
 run even when the worklist is empty — a measured nothing is still a measurement.
 
+## Step 7 — correction pass (OS#691; every run)
+
+Runs after Step 6, and on Step 1's no-op path after `$DREAM end`. It re-checks the Laws and Habits least recently checked against the code, and never edits a note.
+
+```bash
+$CORRECTION probe > /tmp/dream/correction_probe.json        # read-only: the last closing row
+$CORRECTION worklist > /tmp/dream/correction_worklist.json  # read-only; --limit 10 --min-age-days 30
+```
+
+`probe` reports the pass's last closing row, its age in days, and runs opened but never closed. `"stale": true` (never closed, or closed more than 7 days ago) goes in the report. Use the worklist's default limit; it reads each issue's state with one `gh` call. Exit 2 from either is a loud stop (an unreadable ledger, or the worklist could not look); close the pass with the reason, so the ledger shows a blind pass rather than none:
+
+```bash
+$CORRECTION apply --aborted "worklist exited 2: <its stderr line>"
+```
+
+Judge each worklist row yourself, in-session, and write a JSON list of verdicts keyed by filename, `[{"filename": …, "verdict": …, "basis": […], "reason": …, "searched": […], "proposal": …}, …]`, leaving out the fields a verdict does not use. This pass takes three verdicts; `corrected` and `superseded` are refused as unknown until OS#691's second half lands.
+
+- **`confirmed`**: `basis` lists the paths, each one the row reports `tracked`, that show the note still holds. An issue state is never a basis, because a closed issue says nothing about whether the note is still true. When the row also holds an `untracked` path or a `missing` issue, add a `reason` saying why the note stands.
+- **`unverified`**: nothing checkable confirms it. `searched` records what you looked for. Expect it to be the commonest verdict; it is counted apart, never as `confirmed`.
+- **`conflict`**: the code contradicts the note. `reason` says how and `proposal` is the wording you would put in its place. It is held in `MEMORY_REVIEW.md` for Nathan, never applied, whatever the note's provenance.
+
+For a note with no evidence, the search is bounded (OS#691 decision (c)):
+
+1. grep the store's MEMORY_FULL.md for two or three of the note's distinctive terms; read only later notes;
+2. `git grep -n` up to three `named` terms in the repo the note's `scope` names;
+3. transcripts only as escalation before a conflict/corrected/superseded verdict: `grep -l` the term in transcripts dated after the note, at most three files, matching lines only. Never to reach `confirmed`.
+
+Then apply:
+
+```bash
+$CORRECTION apply --worksheet /tmp/dream/correction_worklist.json \
+    --verdicts /tmp/dream/correction_verdicts.json > /tmp/dream/correction_apply.json
+```
+
+`apply` takes the run lock itself, since finalize or `end` has released it, and releases only what it took. **Its exit code decides what comes next:**
+
+- **`0`**: applied. A note whose bytes changed since the worksheet is listed under `stale` and skipped.
+- **`1`**: a verdict was refused (each named on stderr as `refused <file>: <why>`; a refused verdict writes nothing, so re-run `apply` with only the refused ones fixed), or the `MEMORY_REVIEW.md` commit failed (the hold is in the open set; the next finalize commits the surface).
+- **`2`**: the worksheet, the verdicts, a note or the ledger could not be read. Close with `--aborted` and the reason.
+- **exit 3**: another live run holds the lock. Report "correction skipped: locked by <pid>"; no ledger row is written.
+
+Every `apply` that takes the lock and reads its input ends with a `closed` row in `data/dream/corrections.jsonl`, zero verdicts included. The ledger is the re-check clock: a note with a recorded verdict leaves the worklist for 30 days, and `confirmed` writes nothing to the note. Only a conflict writes the store: one `[skip ci]` commit of `MEMORY_REVIEW.md` alone.
+
 ## Draining the review surface (approve held items)
 
-`MEMORY_REVIEW.md` is no longer a blocking queue — it accumulates only the `nathan-stated`-contradiction holds across runs. When Nathan has adjudicated, clear them explicitly (all, or one by its `key` shown in the surface):
+`MEMORY_REVIEW.md` is no longer a blocking queue — it accumulates two kinds of hold across runs: `nathan-stated`-contradiction holds, and the correction pass's `CONFLICT:` holds (Step 7), each carrying the judge's proposal. When Nathan has adjudicated, clear them explicitly (all, or one by its `key` shown in the surface):
 
 ```bash
 $DREAM drain                       # approve & clear every hold
@@ -236,7 +280,7 @@ To find candidates, read the correction worklist (OS#691). It writes nothing to 
 python scripts/dream.py correction worklist   # --limit 10 --min-age-days 30 by default
 ```
 
-It lists the Laws and Habits least recently reinforced (`last_reinforced`, else `created`, else `modified`; undated notes first), each with evidence from its description, digest and body outside fenced blocks: paths from inline code spans only, `tracked` (a registry checkout tracks a file or directory at that path or ending in it) or `untracked` (a gitignored runtime path reads `untracked` too); `OS#`/`GS#`/`AG#` refs from spans and prose alike, each once, `open`, `closed` or `missing`; and `unchecked`/`named` span tokens nothing verified (another prefix is `unchecked` in a span and ignored in prose). Exit 2 is could-not-look (an absent or empty store, a note that does not parse, a tree or `gh` read that failed, or the "instrument blind" canary), never an empty list. Age only ranks a note, and an `untracked` path is evidence, not a verdict: a law nobody mentions may simply be obeyed.
+It lists the Laws and Habits least recently reinforced or checked (`last_reinforced`, else `created`, else `modified`, or the day the correction ledger last recorded a verdict on the note when that is later; undated notes first), each with evidence from its description, digest and body outside fenced blocks: paths from inline code spans only, `tracked` (a registry checkout tracks a file or directory at that path or ending in it) or `untracked` (a gitignored runtime path reads `untracked` too); `OS#`/`GS#`/`AG#` refs from spans and prose alike, each once, `open`, `closed` or `missing`; and `unchecked`/`named` span tokens nothing verified (another prefix is `unchecked` in a span and ignored in prose). Exit 2 is could-not-look (an absent or empty store, a note that does not parse, a tree or `gh` read that failed, or the "instrument blind" canary), never an empty list. Age only ranks a note, and an `untracked` path is evidence, not a verdict: a law nobody mentions may simply be obeyed.
 
 Then retire a dead one by name:
 
@@ -249,12 +293,12 @@ One named memory, one operator-supplied replacement, `MEMORY.md` rebuilt. Never 
 
 ## Report
 
-One short summary: sessions processed, facts appended/merged, holds surfaced for review (point Nathan at `MEMORY_REVIEW.md`, drained via `cycle drain`), the roadmap verdict ("roadmap current" or the reconciliation PR number + any unfiled-intent flags), the promotion verdict ("promotion current", the worklist size + PR number, or **a loud stop if the packet exited 2 — a broken detector, not a quiet estate**), and whether the commit landed. **End with the store-health closing line** — finalize's `store_health.closing_line` ("N dangling (M ruled this run); store X notes / Y KB of Z KB ceiling", plus "OVER CEILING: …" when a measure is over). On a no-op run, "ledger current" followed by the closing line from Step 1. A store-health exit 2 is a loud stop, never a quiet report.
+One short summary: sessions processed, facts appended/merged, holds surfaced for review (point Nathan at `MEMORY_REVIEW.md`, drained via `cycle drain`), the roadmap verdict ("roadmap current" or the reconciliation PR number + any unfiled-intent flags), the promotion verdict ("promotion current", the worklist size + PR number, or **a loud stop if the packet exited 2 — a broken detector, not a quiet estate**), whether the commit landed, and the correction line from Step 7's `closed` row ("correction: N checked, C confirmed, U unverified, F conflicts", with stale, refused and unjudged counts when non-zero, and "probe stale" when the probe said so). **End with the store-health closing line** — finalize's `store_health.closing_line` ("N dangling (M ruled this run); store X notes / Y KB of Z KB ceiling", plus "OVER CEILING: …" when a measure is over). On a no-op run, "ledger current" followed by the closing line from Step 1. A store-health exit 2 is a loud stop, never a quiet report.
 
 ## Invariants (do not violate)
 
-- **Docs/memory only — never code.** The cycle's only writes are Markdown.
+- **Docs/memory only — never code.** The cycle's only store writes are Markdown; everything else it writes outside a PR is per-machine state (the ledgers in `data/dream/`, the queue and the run lock in `~/.claude/`).
 - **LLM steps are in-session/Max**, never the metered API.
 - **Reuse the engine.** Extraction gating, the §6 bands, the provenance guard, and the commit all live in `src/oversteward/dream/`; this skill calls them, it never duplicates them.
 - **The Stop hook never runs this cycle** — it only enqueues + reminds. Work runs here, in-session.
-- **One run per machine.** Step 0 takes the run lock; finalize or `$DREAM end --reason` releases it. Exit 3 is a skip and exit 2 is a stop, never a run.
+- **One run per machine.** Step 0 takes the run lock; finalize or `$DREAM end --reason` releases it, and Step 7's `correction apply` takes and releases its own short hold. Exit 3 is a skip and exit 2 is a stop, never a run.

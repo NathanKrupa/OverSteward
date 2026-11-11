@@ -1,20 +1,21 @@
 # ABOUTME: The correction pass's read-only worklist: the Laws and Habits least recently reinforced,
 # ABOUTME: each with deterministic evidence about the paths and issues it names. Never writes the store.
 
-"""The correction worklist (OS#691, PR 1 of 2).
+"""The correction worklist (OS#691).
 
 The dream cycle writes and consolidates notes but never re-checks one, so a Law
 whose subject has gone keeps loading as live law. This module builds the list a
 correction pass works from; it issues no verdicts and writes nothing to the
-store. Reading a sibling repo's tree fetches ``origin/<branch>`` in that
+store (:mod:`oversteward.dream.correction_apply` records the verdicts). Reading a sibling repo's tree fetches ``origin/<branch>`` in that
 checkout first, as ``estate_map.py check`` does.
 
 - **Population.** Notes :func:`~oversteward.dream.standing.classify` files as a
   Law or a Habit.
 - **Ranking.** Oldest first by ``last_reinforced``, else ``created``, else
-  ``modified``. A note with none of them, or whose first present field does not
-  parse, is *undated*: it ranks first and is counted. Age only ranks the list;
-  it never retires a note.
+  ``modified``, or by the day the correction ledger last recorded a verdict on
+  the note when that is later. A note with none of them, or whose first present
+  field does not parse and with no ledgered verdict, is *undated*: it ranks
+  first and is counted. Age only ranks the list; it never retires a note.
 - **Due and offered.** A note is due when it is undated or at least
   ``min_age_days`` old; the first ``limit`` due notes are offered.
 - **Evidence.** Read for offered notes only, from the description, the digest
@@ -150,16 +151,19 @@ def build_worklist(
     sources: Sources,
     *,
     today: date,
+    checked: Mapping[str, date],
     min_age_days: int = DEFAULT_MIN_AGE_DAYS,
     limit: int = DEFAULT_LIMIT,
 ) -> Worklist:
     """The Laws and Habits due for a re-check, oldest first, with their evidence.
 
-    Reads the store and, for the offered notes only, the trees and issue states
+    ``checked`` maps a note's filename to the day the correction ledger last
+    recorded a verdict on it; a note's effective date is the later of that and
+    its own date. Reads the store and, for the offered notes only, the trees and issue states
     in ``sources``. Writes nothing. Raises :class:`WorklistUnreadable` on any
     failure to read, and when the canary does not come back tracked.
     """
-    population = _ranked(_population(store))
+    population = _ranked(_population(store, checked))
     due = [c for c in population if c.effective is None or (today - c.effective).days >= min_age_days]
     offered = due[:limit]
     spans = {c.memory.filename: _spans(c.memory) for c in offered}
@@ -189,7 +193,7 @@ def tree_checkouts(registry: Mapping[str, Any], *, home_root: Path) -> dict[str,
 # ---- population and ranking ---------------------------------------------------
 
 
-def _population(store: MemoryStore) -> list[_Candidate]:
+def _population(store: MemoryStore, checked: Mapping[str, date]) -> list[_Candidate]:
     if not store.root.is_dir():
         raise WorklistUnreadable(f"store root is not a directory: {store.root}")
     try:
@@ -202,7 +206,8 @@ def _population(store: MemoryStore) -> list[_Candidate]:
     for memory in memories:
         kind = classify(memory).kind
         if kind in _POPULATION:
-            candidates.append(_Candidate(memory, kind, _effective_date(memory.metadata)))
+            noted = _effective_date(memory.metadata)
+            candidates.append(_Candidate(memory, kind, _latest(noted, checked.get(memory.filename))))
     return candidates
 
 
@@ -220,6 +225,12 @@ def _effective_date(metadata: Mapping[str, Any]) -> date | None:
         if metadata.get(field) is not None:
             return _as_date(metadata[field])
     return None
+
+
+def _latest(noted: date | None, checked: date | None) -> date | None:
+    """The later of the note's own date and its last ledgered check; either may be absent."""
+    present = [day for day in (noted, checked) if day is not None]
+    return max(present) if present else None
 
 
 def _as_date(value: Any) -> date | None:

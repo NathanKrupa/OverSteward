@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import os
 import sys
@@ -12,7 +13,17 @@ from pathlib import Path
 
 import yaml
 
-from oversteward.dream import correction, cycle, kaizen, promotion, roadmap, runlock, store_health
+from oversteward.dream import (
+    correction,
+    correction_apply,
+    correction_ledger,
+    cycle,
+    kaizen,
+    promotion,
+    roadmap,
+    runlock,
+    store_health,
+)
 from oversteward.dream.consolidate import MemoryStore, StoreUnreadable, commit_store
 from oversteward.dream.extract import CandidateFact
 from oversteward.dream.ledger import ProcessedLedger
@@ -210,10 +221,73 @@ def _cmd_correction_worklist(args: argparse.Namespace) -> int:
         MemoryStore(Path(args.store)),
         args.correction_sources or _correction_sources(),
         today=today,
+        checked=_corrections_ledger(args).last_checked(),
         min_age_days=args.min_age_days,
         limit=args.limit,
     )
     return _emit(worklist.to_dict())
+
+
+def _corrections_ledger(args: argparse.Namespace) -> correction_ledger.CorrectionLedger:
+    return correction_ledger.CorrectionLedger(Path(args.corrections_ledger))
+
+
+def _read_apply_input(args: argparse.Namespace) -> tuple[list[dict], list]:
+    try:
+        rows = correction_apply.parse_worksheet(_read_json(args.worksheet))
+        verdicts = correction_apply.parse_verdicts(_read_json(args.verdicts))
+    except (OSError, ValueError) as exc:
+        raise correction_apply.ApplyUnreadable(f"input unreadable: {exc}") from exc
+    return rows, verdicts
+
+
+def _cmd_correction_apply(args: argparse.Namespace) -> int:
+    """Takes the run lock and releases it only when this call took it. Exit 1: a refusal or a failed commit."""
+    if args.aborted is None and not (args.worksheet and args.verdicts):
+        print("dream: correction apply needs --worksheet and --verdicts, or --aborted", file=sys.stderr)
+        return 2
+    ledger = _corrections_ledger(args)
+    rows, verdicts = ([], []) if args.aborted is not None else _read_apply_input(args)
+    lock, holder, trigger = _run_lock(args)
+    acquired = lock.ensure(holder, trigger)
+    run, now = correction_ledger.new_run_id(), datetime.now()
+    try:
+        if args.aborted is not None:
+            closed = correction_apply.close_aborted(ledger, run=run, now=now, reason=args.aborted)
+            return _emit({"closed": closed})
+        context = correction_apply.ApplyContext(
+            store=MemoryStore(Path(args.store)),
+            ledger=ledger,
+            flagged=cycle.FlaggedStore(Path(args.flagged)),
+            commit=functools.partial(commit_store, Path(args.store_repo)),
+            run=run,
+            now=now,
+        )
+        result = correction_apply.apply_corrections(context, rows, verdicts)
+    except correction_apply.CommitFailed as exc:
+        print(f"dream: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        if acquired:
+            lock.release(holder, runlock.ENDED, reason="correction")
+    for refusal in result.refused:
+        print(f"refused {refusal['filename']}: {refusal['why']}", file=sys.stderr)
+    _emit(result.to_dict())
+    return 1 if result.refused else 0
+
+
+def _cmd_correction_probe(args: argparse.Namespace) -> int:
+    """Read-only. LedgerUnreadable exits 2 in main."""
+    today = date.fromisoformat(args.today) if args.today else date.today()
+    return _emit(_corrections_ledger(args).probe(today=today).to_dict())
+
+
+def _add_corrections_ledger_arg(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--corrections-ledger",
+        default=str(cycle.DEFAULT_LEDGER_PATH.parent / correction_ledger.FILENAME),
+        help="correction ledger path (default: data/dream)",
+    )
 
 
 def _add_correction_subparser(sub: argparse._SubParsersAction) -> None:
@@ -227,7 +301,30 @@ def _add_correction_subparser(sub: argparse._SubParsersAction) -> None:
     wkl.add_argument("--min-age-days", type=int, default=correction.DEFAULT_MIN_AGE_DAYS)
     wkl.add_argument("--limit", type=int, default=correction.DEFAULT_LIMIT)
     wkl.add_argument("--today", default=None, help="YYYY-MM-DD stamp (default: today)")
+    _add_corrections_ledger_arg(wkl)
     wkl.set_defaults(func=_cmd_correction_worklist)
+
+    app = actions.add_parser(
+        "apply", help="record confirmed / unverified / conflict verdicts on a worksheet (JSON)"
+    )
+    app.add_argument("--worksheet", default=None, help="`correction worklist` JSON")
+    app.add_argument("--verdicts", default=None, help="judge verdicts JSON, keyed by filename")
+    app.add_argument("--aborted", default=None, metavar="REASON", help="close a run that judged nothing")
+    app.add_argument("--store", default=str(cycle.DEFAULT_STORE_PATH))
+    app.add_argument("--store-repo", default=str(cycle.DEFAULT_STORE_REPO))
+    app.add_argument(
+        "--flagged",
+        default=str(cycle.DEFAULT_LEDGER_PATH.parent / cycle.FLAGGED_FILENAME),
+        help="open-set path (default: ledger sibling)",
+    )
+    _add_corrections_ledger_arg(app)
+    _add_lock_args(app)
+    app.set_defaults(func=_cmd_correction_apply)
+
+    prb = actions.add_parser("probe", help="read-only: when the correction pass last closed (JSON)")
+    prb.add_argument("--today", default=None, help="YYYY-MM-DD stamp (default: today)")
+    _add_corrections_ledger_arg(prb)
+    prb.set_defaults(func=_cmd_correction_probe)
 
 
 def _cmd_drain(args: argparse.Namespace) -> int:
@@ -559,6 +656,12 @@ def main(argv: list[str], correction_sources: correction.Sources | None = None) 
         return 2
     except correction.WorklistUnreadable as exc:
         print(f"dream: correction worklist could not look — {exc}", file=sys.stderr)
+        return 2
+    except correction_apply.ApplyUnreadable as exc:
+        print(f"dream: correction apply could not look — {exc}", file=sys.stderr)
+        return 2
+    except correction_ledger.LedgerUnreadable as exc:
+        print(f"dream: correction ledger unreadable — {exc}", file=sys.stderr)
         return 2
 
 
