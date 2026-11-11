@@ -101,7 +101,10 @@ def build_parser() -> argparse.ArgumentParser:
     rec.add_argument(
         "--ref",
         required=True,
-        help="fixed: <repo>#<pr>; unmerged: <red pr>; green: <run id>; filed|known: <repo>#<n>",
+        help=(
+            "fixed: <repo>#<pr>; unmerged: <red pr>; green: <run id>; "
+            "fixed-in-place: <run id>; filed|known: <repo>#<n>"
+        ),
     )
     rec.set_defaults(func=_cmd_record)
     return parser

@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
@@ -118,6 +120,8 @@ class FakeSource:
 
     def pr_info(self, full_name, number):
         self._check(("pr", full_name, number))
+        if (full_name, number) not in self.prs:
+            raise SourceUnavailableError(f"PR {number} not found")  # as gh answers
         state = self.prs[(full_name, number)]
         if isinstance(state, PrInfo):
             return state
@@ -591,3 +595,127 @@ def test_github_connector_reads_timestamps_and_merge_time():
     raw = gh.issue("o/r", 5)
     assert (raw.created_at, raw.comment_times) == (RED_AT, (MERGED_AFTER,))
     assert gh.pr_info("o/r", 13) == PrInfo("MERGED", MERGED_AFTER)
+
+
+# --- record fixed-in-place: a later head of the red PR went green ----------------------
+#
+# GS#3668's shape: the red run tested SHA on PR #12, a later commit LATER landed on the
+# same PR, run 901 of the same workflow went green on LATER, and #12 merged at LATER.
+
+LATER = "c" * 40
+NEWER = "d" * 40
+OLDER = "e" * 40
+
+
+def _in_place_source(pr: PrInfo, green: RunInfo | None = None, issue: RawIssue | None = None):
+    source = FakeSource(
+        {GS.full_name: [issue or red_issue(5)]},
+        prs={(GS.full_name, 12): pr},
+        runs={(GS.full_name, 901): green or RunInfo("success", LATER, CI_WORKFLOW_ID),
+              (GS.full_name, 900): RunInfo("failure", SHA, CI_WORKFLOW_ID)},
+    )
+    source.close = Mock(wraps=source.close)
+    return source
+
+
+def _merged_at(head: str, *commits: str) -> PrInfo:
+    return PrInfo("MERGED", MERGED_AFTER, head, commits)
+
+
+def test_fixed_in_place_closes_naming_the_run_and_the_head(store):
+    _pending(store)
+    source = _in_place_source(_merged_at(LATER, SHA, LATER))
+    ruling = _record(store, source, "fixed-in-place", "901")
+    source.close.assert_called_once_with(
+        GS.full_name, 5,
+        "Closed by `scripts/ci_red.py record` (fixed-in-place): run 901 of the same "
+        f"workflow is green on {LATER}, a later head of the red PR.",
+    )
+    assert ruling.ref == f"901@{LATER}"
+    assert store.rulings()["grantspider#5"] == ruling
+
+
+def test_fixed_in_place_accepts_an_open_pr_whose_head_is_still_the_green_one(store):
+    _pending(store)
+    source = _in_place_source(PrInfo("OPEN", None, LATER, (SHA, LATER)))
+    assert _record(store, source, "fixed-in-place", "901").ref == f"901@{LATER}"
+    source.close.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    ("pr", "green", "message"),
+    [
+        (_merged_at(LATER, SHA, LATER), RunInfo("success", OTHER_SHA, CI_WORKFLOW_ID),
+         f"run 901 tested {OTHER_SHA}, but PR #12 merged at {LATER}"),
+        (PrInfo("OPEN", None, LATER, (SHA, LATER)), RunInfo("success", OTHER_SHA, CI_WORKFLOW_ID),
+         f"run 901 tested {OTHER_SHA}, but PR #12 is at {LATER}"),
+        (_merged_at(OLDER, OLDER), RunInfo("success", OLDER, CI_WORKFLOW_ID),
+         f"{OLDER} is not a later commit than {SHA} on PR #12"),
+        (_merged_at(OLDER, OLDER, SHA), RunInfo("success", OLDER, CI_WORKFLOW_ID),
+         f"{OLDER} is not a later commit than {SHA} on PR #12"),
+        (_merged_at(SHA, SHA), RunInfo("success", SHA, CI_WORKFLOW_ID),
+         f"{SHA} is not a later commit than {SHA} on PR #12"),
+        (_merged_at(LATER, SHA, LATER), RunInfo("success", LATER, 1),
+         "run 901 is another workflow than red run 900"),
+        (_merged_at(NEWER, SHA, LATER, NEWER), RunInfo("success", LATER, CI_WORKFLOW_ID),
+         f"run 901 tested {LATER}, but PR #12 merged at {NEWER}"),
+        (PrInfo("CLOSED", None, LATER, (SHA, LATER)), RunInfo("success", LATER, CI_WORKFLOW_ID),
+         "PR #12 is CLOSED, not MERGED or OPEN"),
+        (_merged_at(LATER, SHA, LATER), RunInfo("failure", LATER, CI_WORKFLOW_ID),
+         "run 901 concluded 'failure', not success"),
+    ],
+    ids=["another-prs-head", "another-prs-head-open-pr", "head-older-force-pushed-back",
+         "head-before-tested-in-the-list", "head-is-the-tested-sha", "another-workflow",
+         "merged-at-another-head", "pr-closed-unmerged", "run-not-green"],
+)
+def test_fixed_in_place_refuses_and_closes_nothing(store, capsys, pr, green, message):
+    _pending(store)
+    source = _in_place_source(pr, green)
+    with pytest.raises(VerdictError, match=re.escape(message)):
+        _record(store, source, "fixed-in-place", "901")
+    argv = ["record", "grantspider#5", "fixed-in-place", "--ref", "901"]
+    assert run_main(argv, source, store) == 2
+    err = capsys.readouterr().err
+    assert f"{message}; nothing closed" in err
+    assert "Traceback" not in err
+    source.close.assert_not_called()
+    assert not store.ledger_path.exists()
+
+
+@pytest.mark.parametrize(
+    "issue",
+    [red_issue(5, title="ci is red on main"),
+     red_issue(5, body=details().replace("- Commit tested:", "- Commit:"))],
+    ids=["no-red-pr", "no-tested-commit"],
+)
+def test_fixed_in_place_refuses_an_issue_missing_its_pr_commit_or_run(store, issue):
+    _pending(store)
+    source = _in_place_source(_merged_at(LATER, SHA, LATER), issue=issue)
+    with pytest.raises(VerdictError, match="reports no red PR, tested commit and run"):
+        _record(store, source, "fixed-in-place", "901")
+    source.close.assert_not_called()
+    assert not store.ledger_path.exists()
+
+
+def test_fixed_in_place_with_an_unread_head_is_unreadable_not_a_verdict(store, capsys):
+    _pending(store)
+    source = _in_place_source(PrInfo("MERGED", MERGED_AFTER, None, (SHA, LATER)))
+    argv = ["record", "grantspider#5", "fixed-in-place", "--ref", "901"]
+    assert run_main(argv, source, store) == 1
+    assert "PR #12's head commit could not be read; nothing closed" in capsys.readouterr().err
+    source.close.assert_not_called()
+    assert not store.ledger_path.exists()
+
+
+def test_github_connector_reads_a_prs_head_and_commits():
+    seen = []
+
+    def run_json(args):
+        seen.append(args)
+        return {"state": "MERGED", "mergedAt": MERGED_AFTER, "headRefOid": LATER,
+                "commits": [{"oid": SHA}, {"oid": LATER}]}
+
+    assert GithubCiRed(run_json=run_json).pr_info("o/r", 12) == PrInfo(
+        "MERGED", MERGED_AFTER, LATER, (SHA, LATER))
+    assert seen == [["pr", "view", "12", "--repo", "o/r",
+                     "--json", "state,mergedAt,headRefOid,commits"]]
