@@ -539,6 +539,15 @@ def test_what_merges_nothing_watched_is_allowed_without_asking(command):
     assert issues.asked == []
 
 
+def test_merging_on_an_unwatched_repo_never_reads_the_checkout():
+    """An OverSteward `gh pr merge --auto` names no pull request; git is not asked for one."""
+    checkouts, pulls = FakeCheckouts(), FakePulls()
+    command = "gh pr merge --repo NathanKrupa/OverSteward --auto --merge"
+    assert_allowed(*run(command, checkouts=checkouts, pulls=pulls))
+    assert checkouts.asked == []
+    assert pulls.asked == []
+
+
 # --- guard merge look: a pull request that cannot be read refuses with its own text -----
 
 
