@@ -155,6 +155,11 @@ class MemoryStore:
     def root(self) -> Path:
         return self._root
 
+    @property
+    def full_index_path(self) -> Path:
+        """The on-demand full flat index :meth:`regenerate_index` writes beside ``MEMORY.md``."""
+        return self._root / FULL_INDEX_FILENAME
+
     def memories(self) -> list[MemoryFile]:
         """Parse every fact file in the store (index, review surface, sidecars excluded).
 
@@ -218,7 +223,7 @@ class MemoryStore:
             if standing not in mem.description:
                 line = f"{line} — standing: {standing}"
             lines.append(line)
-        path = self._root / FULL_INDEX_FILENAME
+        path = self.full_index_path
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return path
 

@@ -348,6 +348,77 @@ def test_finalize_records_even_with_no_facts(tmp_path: Path) -> None:
     assert result.recorded == ["s1"]
 
 
+# ---- both indexes committed, sibling work untouched (OS#679) ----------------
+
+
+def _git_out(repo: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", *args], cwd=repo, check=True, capture_output=True, text=True
+    ).stdout
+
+
+def _finalize_one_fact(repo: Path, store: MemoryStore, tmp_path: Path) -> cycle.FinalizeResult:
+    cand = CandidateFact.from_dict(_candidate_dict())
+    outcomes = cycle.apply_verdicts(
+        [(cand, cycle.Verdict(similarity=0.1))], store, today=date(2026, 6, 27), session_id="s1"
+    )
+    return cycle.finalize_run(
+        store,
+        cycle.RunResults(written_paths=cycle.collect_written_paths(store, outcomes)),
+        ProcessedLedger(tmp_path / "ledger.jsonl"),
+        cycle.FinalizeOptions(repo_root=repo, flagged_path=tmp_path / "flagged.jsonl"),
+    )
+
+
+def test_finalize_commits_both_index_files(tmp_path: Path) -> None:
+    repo = tmp_path / "steward-memory"
+    repo.mkdir()
+    _init_git_repo(repo)
+    store = MemoryStore(repo / "memory")
+
+    result = _finalize_one_fact(repo, store, tmp_path)
+
+    assert result.commit.committed is True
+    indexes = ["memory/MEMORY.md", "memory/MEMORY_FULL.md"]
+    assert _git_out(repo, "status", "--porcelain", "--", *indexes) == ""
+    committed = _git_out(repo, "show", "--name-only", "--format=", "HEAD").split()
+    assert set(indexes) <= set(committed)
+    assert (repo / "memory" / "MEMORY_FULL.md").read_text(encoding="utf-8") == _git_out(
+        repo, "show", "HEAD:memory/MEMORY_FULL.md"
+    )
+
+
+def test_finalize_leaves_sibling_sessions_uncommitted_memories_alone(tmp_path: Path) -> None:
+    repo = tmp_path / "steward-memory"
+    repo.mkdir()
+    _init_git_repo(repo)
+    store = MemoryStore(repo / "memory")
+    tracked = store.write(_memory("feedback_sibling_tracked", "a tracked sibling note"))
+    subprocess.run(["git", "add", "--", str(tracked)], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "seed"], cwd=repo, check=True)
+    # Another session's work in progress: one edit to a tracked note, one new note.
+    tracked.write_text(tracked.read_text(encoding="utf-8") + "Sibling edit.\n", encoding="utf-8")
+    untracked = store.write(_memory("feedback_sibling_new", "a sibling note never added"))
+    siblings = [
+        "memory/feedback_sibling_tracked.md",
+        "memory/feedback_sibling_new.md",
+    ]
+    before_status = _git_out(repo, "status", "--porcelain", "--", *siblings)
+    before_bytes = {p: (repo / p).read_bytes() for p in siblings}
+
+    result = _finalize_one_fact(repo, store, tmp_path)
+
+    assert result.commit.committed is True
+    assert before_status == (
+        " M memory/feedback_sibling_tracked.md\n?? memory/feedback_sibling_new.md\n"
+    )
+    assert _git_out(repo, "status", "--porcelain", "--", *siblings) == before_status
+    assert {p: (repo / p).read_bytes() for p in siblings} == before_bytes
+    committed = _git_out(repo, "show", "--name-only", "--format=", "HEAD").split()
+    assert not set(siblings) & set(committed)
+    assert _git_out(repo, "diff", "--cached", "--name-only") == ""
+
+
 # ---- durable open set (OS#134 Bug 1) ----------------------------------------
 
 

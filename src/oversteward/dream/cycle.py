@@ -587,6 +587,10 @@ def finalize_run(
     is the audit trail; the ledger update is local idempotency state. The review
     surface is rebuilt from the full open set (see :func:`_rebuild_surfaces`).
 
+    The commit stages only this run's written paths, both indexes (``MEMORY.md`` and
+    ``MEMORY_FULL.md``) and the review surface, so another session's uncommitted
+    memory files stay out of it (OS#679).
+
     The store is measured after the surfaces are rebuilt and before the commit, so
     a measurement that raises :class:`~oversteward.dream.store_health.StoreUnreadable`
     leaves no commit and no ledger row. Over a ceiling is reported, never raised.
@@ -598,7 +602,11 @@ def finalize_run(
     )
     health = _measure_store(store, repo_root, opts)
     message = opts.message or default_commit_message(results.processed)
-    commit = commit_store(repo_root, [*results.written_paths, index_path, review_path], message)
+    commit = commit_store(
+        repo_root,
+        [*results.written_paths, index_path, store.full_index_path, review_path],
+        message,
+    )
     drained = drain_queue(opts.queue_path, ledger) if opts.queue_path is not None else 0
     return FinalizeResult(
         index_path=index_path,
