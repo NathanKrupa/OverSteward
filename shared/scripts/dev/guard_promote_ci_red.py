@@ -26,8 +26,9 @@ grantspider it is ``staging``, so it is not.
 **Merging is checked too** (OS#661), because a ci-red issue can open between a
 promote's opening and its merge: ``gh pr merge`` (by number, URL, branch, or
 the checkout's branch when none is named) and a non-GET ``gh api`` call to
-``repos/<owner>/<repo>/pulls/<n>/merge``, on a repo in :data:`PROMOTE_REPOS`.
-The command does not say what the pull request merges, so :data:`ReadPull`
+``repos/<owner>/<repo>/pulls/<n>/merge`` (as a path or a full URL), on a repo
+in :data:`PROMOTE_REPOS`. A repo or pull request holding text the shell would
+still expand (``$`` or a backtick) is unread, never taken as written. The command does not say what the pull request merges, so :data:`ReadPull`
 asks GitHub for its base and head; a merge whose base is ``main`` and whose
 head carries staging is a promote and meets the rule below, and any other
 merge — a hotfix into main, a feature into staging — is allowed. A merge whose
@@ -684,7 +685,10 @@ _PR_MERGE_VALUE_FLAGS = frozenset(
         "--match-head-commit", "-R", "--repo", "-t", "--subject",
     }
 )
-_MERGE_ENDPOINT = re.compile(r"^/?repos/([^/]+)/([^/]+)/pulls/([^/]+)/merge/?$")
+# ``gh api`` takes a path or a full URL, so a scheme and host may lead the path.
+_MERGE_ENDPOINT = re.compile(
+    r"^(?:https?://[^/]+(?:/api/v3)?)?/?repos/([^/]+)/([^/]+)/pulls/([^/]+)/merge/?$"
+)
 _PULL_URL = re.compile(r"^https?://github\.com/([^/]+)/([^/]+)/pull/(\d+)(?:[/?#].*)?$")
 # Text the shell would still expand: what reaches gh is not what the guard sees.
 _UNEXPANDED = re.compile(r"[$`]")
@@ -704,6 +708,25 @@ class Merge:
     override: str | None
 
 
+def _read_slug(text: str | None) -> str | None:
+    """``owner/repo`` from ``text``; None when absent or when the shell would still expand it."""
+    if text is None or _UNEXPANDED.search(text):
+        return None
+    return _slug(text)
+
+
+def _has_flag(args: list[str], flag: str, value_flags: frozenset[str]) -> bool:
+    """True when ``flag`` is given as a flag, not as the value of another flag."""
+    index = 0
+    while index < len(args):
+        if args[index] == "--":
+            return False
+        if args[index] == flag:
+            return True
+        index += 2 if args[index] in value_flags else 1
+    return False
+
+
 def _merge_on(slug: str | None, selector: str | None, ctx: _Context) -> Merge | None:
     """The merge of ``selector`` on ``slug``, or None when ``slug`` is not watched."""
     if slug is not None and slug not in PROMOTE_REPOS:
@@ -714,19 +737,19 @@ def _merge_on(slug: str | None, selector: str | None, ctx: _Context) -> Merge | 
 
 
 def _pr_merge(args: list[str], ctx: _Context) -> Merge | None:
-    if "--disable-auto" in args:
+    if _has_flag(args, "--disable-auto", _PR_MERGE_VALUE_FLAGS):
         return None  # turns auto-merge off; merges nothing
     pairs, positionals = _options(args, _PR_MERGE_VALUE_FLAGS)
     selector = positionals[0] if positionals else None
     url = _PULL_URL.match(selector) if selector is not None else None
     if url is not None:
-        return _merge_on(_slug(f"{url[1]}/{url[2]}"), url[3], ctx)
+        return _merge_on(_read_slug(f"{url[1]}/{url[2]}"), url[3], ctx)
     repo = _last(pairs, "-R", "--repo") or ctx.gh_repo()
     checkout = None
     if repo is None:
         checkout = ctx.checkout()
         repo = checkout.origin
-    slug = _slug(repo)
+    slug = _read_slug(repo)
     if slug is not None and slug not in PROMOTE_REPOS:
         return None
     if selector is None:
@@ -744,7 +767,10 @@ def _api_merge(args: list[str], ctx: _Context) -> Merge | None:
     if method.upper() == "GET":
         return None  # asks whether the pull request is merged; merges nothing
     number = match[3] if match[3].isdigit() else None
-    return _merge_on(_api_repo(match[1], match[2], ctx), number, ctx)
+    owner, name = match[1], match[2]
+    if "{" in owner + name:  # gh's {owner}/{repo} placeholders: GH_REPO, else origin
+        return _merge_on(_read_slug(ctx.gh_repo() or ctx.checkout().origin), number, ctx)
+    return _merge_on(_read_slug(f"{owner}/{name}"), number, ctx)
 
 
 def _merges_in(argv: list[str], ctx: _Context) -> list[Merge]:

@@ -448,6 +448,9 @@ def assert_pull_unread(code: int, message: str) -> None:
         GS_REST_MERGE,
         "gh api -X PUT repos/NathanKrupa/grantspider/pulls/3532/merge -f merge_method=merge",
         "gh api --method=put /repos/NathanKrupa/grantspider/pulls/3532/merge",
+        "gh api -X PUT https://api.github.com/repos/NathanKrupa/grantspider/pulls/3532/merge",
+        "gh pr merge 3532 --repo NathanKrupa/grantspider --merge --body --disable-auto",
+        "gh pr merge 3532 --repo NathanKrupa/grantspider -t --disable-auto",
         "gh api repos/NathanKrupa/grantspider/pulls/3532/merge -f merge_method=merge",
         f"bash -c '{GS_MERGE}'",
         f"timeout 60 {GS_MERGE}",
@@ -580,6 +583,13 @@ def test_the_pull_unread_text_differs_from_red_and_from_could_not_look():
         ("gh pr merge `cat pr` --repo NathanKrupa/grantspider", "names no repo"),  # backticks split it
         ("gh api repos/NathanKrupa/grantspider/pulls/$PR/merge -X PUT", "names no pull request"),
         ("gh api repos/NathanKrupa/grantspider/pulls/{number}/merge -X PUT", "names no pull request"),
+        ("gh pr merge 3532 --repo NathanKrupa/$R --merge", "names no repo"),
+        ("gh pr merge 3532 --repo $OWNER/grantspider --merge", "names no repo"),
+        ("gh pr merge https://github.com/NathanKrupa/$R/pull/3532", "names no repo"),
+        ("gh api -X PUT repos/NathanKrupa/$R/pulls/3532/merge", "names no repo"),
+        ("gh api -X PUT https://api.github.com/repos/$O/grantspider/pulls/3532/merge", "names no repo"),
+        ("GH_REPO=NathanKrupa/$R gh pr merge 3532", "names no repo"),
+        ("GH_REPO=NathanKrupa/$R gh api -X PUT 'repos/{owner}/{repo}/pulls/3532/merge'", "names no repo"),
     ],
 )
 def test_a_merge_the_guard_cannot_identify_is_refused_without_asking(command, says):
@@ -629,6 +639,20 @@ def test_a_promote_merge_after_an_allowed_merge_in_one_command_is_refused():
     command = "gh pr merge 1 --repo NathanKrupa/grantspider && " + GS_MERGE
     assert_red(*run(command, pulls=pulls))
     assert pulls.asked == [(GS, "1"), (GS, "3532")]
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        f"PROMOTE_OVER_CI_RED=why {GS_PROMOTE} && PROMOTE_OVER_CI_RED=why {GS_MERGE}",
+        f"PROMOTE_OVER_CI_RED=why {GS_MERGE} && PROMOTE_OVER_CI_RED=why {GS_MERGE}",
+    ],
+)
+def test_one_promote_opened_and_merged_records_its_override_once(command):
+    """The same repo and reason, reached twice in one command, is one promote: one comment per issue."""
+    issues, comments = FakeRedIssues({GS: [red(GS, 3530)]}), FakeComments()
+    assert_allowed(*run(command, issues=issues, comments=comments, pulls=gs_pulls()))
+    assert comments.posted == [(GS, 3530, OVERRIDE_BODY.format("why"))]
 
 
 def test_a_merge_after_an_opening_in_one_command_is_checked_on_its_own_repo():
