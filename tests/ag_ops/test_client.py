@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 import email.message
+import http.server
 import io
 import json
+import threading
 import urllib.error
+import urllib.parse
 from pathlib import Path
 
 import pytest
@@ -376,3 +379,138 @@ def test_an_exported_value_wins_over_the_dotenv(tmp_path: Path) -> None:
     client = client_from_env({BASE_URL_ENV: "https://exported.example"}, dotenv)
 
     assert client.base_url == "https://exported.example"
+
+
+def test_the_default_base_url_is_the_apex_that_answers_without_a_redirect() -> None:
+    """``www`` answers every path with a 301 to the apex, which turns a POST into a GET (OS#633)."""
+    assert urllib.parse.urlsplit(DEFAULT_BASE_URL).hostname == "aigranthelper.com"
+
+
+# --- a write is never re-sent to a redirect (OS#633) --------------------------
+#
+# These run the client's *default* opener against a real HTTP server on the
+# loopback, because the defect lives in that opener: urllib follows a 301 or
+# 302 on a POST by re-issuing a bodiless GET, and the producer answers the GET
+# with a 405 that used to be reported as the edge.
+
+_REDIRECT_TARGET = "/apex/internal/ops/verdicts/"
+_LOOP_PATH = "/internal/ops/reports/loop/"
+
+
+class _Recorder(http.server.BaseHTTPRequestHandler):
+    """Answers a POST with ``redirect_status`` to the apex path; answers every GET with 405 HTML."""
+
+    seen: list[tuple[str, str]] = []
+    redirect_status = 301
+
+    def do_POST(self) -> None:  # noqa: N802 — the stdlib's handler naming
+        type(self).seen.append(("POST", self.path))
+        self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        self.send_response(type(self).redirect_status)
+        self.send_header("Location", f"http://{self.headers['Host']}{_REDIRECT_TARGET}")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def do_GET(self) -> None:  # noqa: N802 — the stdlib's handler naming
+        type(self).seen.append(("GET", self.path))
+        if self.path == "/internal/ops/reports/":
+            self.send_response(301)
+            self.send_header("Location", f"http://{self.headers['Host']}/apex/internal/ops/reports/")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        if self.path == _LOOP_PATH:
+            self.send_response(302)
+            self.send_header("Location", f"http://{self.headers['Host']}{_LOOP_PATH}")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        if self.path == "/apex/internal/ops/reports/":
+            self._send(200, json.dumps(manifest()).encode(), "application/json")
+            return
+        self._send(405, b"<html>Method Not Allowed</html>", "text/html")
+
+    def _send(self, status: int, body: bytes, content_type: str) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *_args) -> None:
+        """Keep the test output pristine."""
+
+
+@pytest.fixture
+def redirecting_server():
+    """A loopback server whose handler class records every request it answered."""
+    handler = type("Handler", (_Recorder,), {"seen": []})
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield server, handler
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+
+def _default_opener_client(server) -> AgOpsClient:
+    host, port = server.server_address[:2]
+    return AgOpsClient(reports_token=READ_TOKEN, verdicts_token=WRITE_TOKEN, base_url=f"http://{host}:{port}")
+
+
+@pytest.mark.parametrize("status", [301, 302, 303, 307, 308])
+def test_a_redirected_write_is_refused_naming_the_location_and_the_setting(redirecting_server, status) -> None:
+    server, handler = redirecting_server
+    handler.redirect_status = status
+
+    with pytest.raises(AgOpsUnavailableError) as caught:
+        _default_opener_client(server).post_verdicts([{"kind": "feedback", "id": "abc", "status": "responded"}])
+
+    assert handler.seen == [("POST", "/internal/ops/verdicts/")], "a follow-up request was issued"
+    message = str(caught.value)
+    host, port = server.server_address[:2]
+    assert f"redirected to http://{host}:{port}{_REDIRECT_TARGET}" in message
+    assert BASE_URL_ENV in message
+    assert f"HTTP {status}" in message
+    assert "a write is never re-sent to a redirect" in message
+    assert "edge" not in message
+    assert WRITE_TOKEN not in message
+
+
+def test_a_redirected_read_still_follows_to_the_answer(redirecting_server) -> None:
+    """Only writes refuse: a GET survives a redirect intact, so a sweep keeps working."""
+    server, handler = redirecting_server
+
+    assert _default_opener_client(server).manifest()["contract_version"] == 1
+    assert handler.seen == [("GET", "/internal/ops/reports/"), ("GET", "/apex/internal/ops/reports/")]
+
+
+def test_a_read_caught_in_a_redirect_loop_is_not_reported_as_a_refused_write(redirecting_server) -> None:
+    """urllib gives up on a looping GET with the 3xx itself; that is no write refusal."""
+    server, _handler = redirecting_server
+
+    with pytest.raises(AgOpsUnavailableError) as caught:
+        _default_opener_client(server).report("loop")
+
+    message = str(caught.value)
+    assert "HTTP 302" in message
+    assert "(GET /internal/ops/reports/loop/)" in message
+    assert BASE_URL_ENV in message
+    assert "write" not in message
+    assert READ_TOKEN not in message
+
+
+def test_a_non_json_405_is_not_blamed_on_the_edge() -> None:
+    """Only 401/403/503 make a claim the producer's envelope must back; a 405 makes none (OS#633)."""
+    opener = _Failing(_http_error(405, b"<html>Method Not Allowed</html>", content_type="text/html"))
+
+    with pytest.raises(AgOpsUnavailableError) as caught:
+        _client(opener).post_verdicts([])
+    message = str(caught.value)
+    assert not isinstance(caught.value, AgOpsConfigError)
+    assert "405" in message
+    assert "text/html" in message
+    assert "edge" not in message
