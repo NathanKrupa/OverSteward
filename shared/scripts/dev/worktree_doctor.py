@@ -1003,7 +1003,10 @@ def is_tracked(worktree: Path, relative: str) -> bool:
     name — grantspider commits its ``.envrc``. Asking git makes the rule true
     rather than assumed, and an unanswerable git reads as *tracked*: the cost of
     keeping a file that could have gone is a retry, the cost of deleting one
-    that should have stayed is the operator's work.
+    that should have stayed is the operator's work. Only exit 1, git's "did not
+    match", is untracked; any other exit (128 for a corrupt index or an
+    unreadable repository) is git failing to answer — the rule
+    ``new-session.sh`` keeps for the same question.
     """
     try:
         result = subprocess.run(  # list-form argv, no shell
@@ -1016,7 +1019,7 @@ def is_tracked(worktree: Path, relative: str) -> bool:
         )
     except (OSError, subprocess.SubprocessError):
         return True
-    return result.returncode == 0
+    return result.returncode != 1
 
 
 def clear_launcher_scaffolding(worktree: Path) -> list[str]:
