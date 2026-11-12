@@ -189,7 +189,7 @@ class AgOpsClient:
             with self._opener(request, timeout=self._timeout) as response:
                 body = response.read()
         except urllib.error.HTTPError as exc:
-            raise _from_http_error(exc, where) from None
+            raise _from_http_error(exc, where, method) from None
         except urllib.error.URLError as exc:
             raise AgOpsUnavailableError(f"AG ops unreachable {where}{exc.reason}") from None
         except OSError as exc:
@@ -227,13 +227,15 @@ def _query_string(since: str, limit: int) -> str:
     return f"?{urllib.parse.urlencode(params)}" if params else ""
 
 
-def _from_http_error(exc: urllib.error.HTTPError, where: str) -> AgOpsUnavailableError | AgOpsConfigError:
+def _from_http_error(
+    exc: urllib.error.HTTPError, where: str, method: str
+) -> AgOpsUnavailableError | AgOpsConfigError:
     """Map one HTTP failure to the exception that says what actually happened.
 
     ``where`` is the call site as a message prefix — never a credential.
     """
     if exc.code in _HTTP_REDIRECTS:
-        return _refused_redirect(exc, where)
+        return _unfollowed_redirect(exc, where, method)
     body = _error_body(exc)
     if exc.code == _HTTP_NOT_FOUND:
         return AgOpsNotFoundError(f"AG ops has no such path (HTTP 404) {where}{_detail(body or {})}")
@@ -254,14 +256,22 @@ def _from_http_error(exc: urllib.error.HTTPError, where: str) -> AgOpsUnavailabl
     return AgOpsUnavailableError(f"AG ops returned HTTP {exc.code} {where}{_detail(body)}")
 
 
-def _refused_redirect(exc: urllib.error.HTTPError, where: str) -> AgOpsUnavailableError:
-    """A write that was sent somewhere else: say where, and which setting points there."""
+def _unfollowed_redirect(exc: urllib.error.HTTPError, where: str, method: str) -> AgOpsUnavailableError:
+    """A 3xx that reached us: say where it pointed, and which setting to change.
+
+    On a write it is :class:`_WriteRedirectRefusal` declining. On a read urllib
+    itself gave up — a redirect loop, more redirects than it follows, or no
+    ``Location`` — so the message must not claim a write was refused.
+    """
     headers = getattr(exc, "headers", None)
     location = (headers.get("Location", "") if headers else "") or "an unnamed location"
+    if method == _GET:
+        why = "the redirect chain never reached an answer (a loop, too many hops, or no location)."
+    else:
+        why = "a write is never re-sent to a redirect: urllib would re-issue it as a bodiless GET."
     return AgOpsUnavailableError(
         f"AG ops answered with a redirect that was not followed (HTTP {exc.code}) {where}"
-        f"redirected to {location}; set {BASE_URL_ENV} to the address that answers it. "
-        f"A write is never re-sent to a redirect: urllib would re-issue it as a bodiless GET."
+        f"redirected to {location}; set {BASE_URL_ENV} to the address that answers it — {why}"
     )
 
 

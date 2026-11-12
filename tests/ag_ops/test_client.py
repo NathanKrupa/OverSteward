@@ -394,6 +394,7 @@ def test_the_default_base_url_is_the_apex_that_answers_without_a_redirect() -> N
 # with a 405 that used to be reported as the edge.
 
 _REDIRECT_TARGET = "/apex/internal/ops/verdicts/"
+_LOOP_PATH = "/internal/ops/reports/loop/"
 
 
 class _Recorder(http.server.BaseHTTPRequestHandler):
@@ -415,6 +416,12 @@ class _Recorder(http.server.BaseHTTPRequestHandler):
         if self.path == "/internal/ops/reports/":
             self.send_response(301)
             self.send_header("Location", f"http://{self.headers['Host']}/apex/internal/ops/reports/")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        if self.path == _LOOP_PATH:
+            self.send_response(302)
+            self.send_header("Location", f"http://{self.headers['Host']}{_LOOP_PATH}")
             self.send_header("Content-Length", "0")
             self.end_headers()
             return
@@ -468,6 +475,7 @@ def test_a_redirected_write_is_refused_naming_the_location_and_the_setting(redir
     assert f"redirected to http://{host}:{port}{_REDIRECT_TARGET}" in message
     assert BASE_URL_ENV in message
     assert f"HTTP {status}" in message
+    assert "a write is never re-sent to a redirect" in message
     assert "edge" not in message
     assert WRITE_TOKEN not in message
 
@@ -478,6 +486,21 @@ def test_a_redirected_read_still_follows_to_the_answer(redirecting_server) -> No
 
     assert _default_opener_client(server).manifest()["contract_version"] == 1
     assert handler.seen == [("GET", "/internal/ops/reports/"), ("GET", "/apex/internal/ops/reports/")]
+
+
+def test_a_read_caught_in_a_redirect_loop_is_not_reported_as_a_refused_write(redirecting_server) -> None:
+    """urllib gives up on a looping GET with the 3xx itself; that is no write refusal."""
+    server, _handler = redirecting_server
+
+    with pytest.raises(AgOpsUnavailableError) as caught:
+        _default_opener_client(server).report("loop")
+
+    message = str(caught.value)
+    assert "HTTP 302" in message
+    assert "(GET /internal/ops/reports/loop/)" in message
+    assert BASE_URL_ENV in message
+    assert "write" not in message
+    assert READ_TOKEN not in message
 
 
 def test_a_non_json_405_is_not_blamed_on_the_edge() -> None:
