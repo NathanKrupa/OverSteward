@@ -2459,8 +2459,10 @@ invariants:
   text: 'An open `ci-red` issue stops the line on its repo: dispatch refuses every issue but that `ci-red`
     issue and one declaring `Closes #<m>` for it, and an open `dispatch-paused` issue refuses everything.
     A dispatch past `ci-red` needs `--override`, recorded as a comment on each open `ci-red` issue.
-    The promote guard refuses opening a GS or AG staging→main promote while one is open, but not
-    merging one; it is registered in OverSteward, and in GS and AG on `staging`; sessions in a GS or
+    The promote guard refuses opening or merging a GS or AG staging→main promote while one is open
+    (a merge is a promote when GitHub reports base `main` and a head carrying staging, and one it
+    cannot read is refused), though not the later merge `gh pr merge --auto` leaves to GitHub; it is
+    registered in OverSteward, and in GS and AG on `staging`; sessions in a GS or
     AG primary checkout on `main` lack it until the next promote. GS files `ci-red` issues for PRs into
     `staging`, AG for PRs into `staging` and `main`'
   cite: '`src/oversteward/intake/line.py` (`stop_line`), `scripts/intake.py line`; `scripts/ci_red.py`

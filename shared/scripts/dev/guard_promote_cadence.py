@@ -526,11 +526,26 @@ def _pr_create_promote(args: list[str], ctx: _Context) -> Promote | None:
     return ctx.promote(slug)
 
 
+def _fill_placeholders(owner: str, name: str, resolved: str | None) -> str | None:
+    """``owner/repo`` of a REST path, each of gh's placeholders filled on its own.
+
+    gh replaces ``{owner}`` and ``{repo}`` separately, so ``{owner}/grantspider``
+    names grantspider whatever repo the placeholder resolves against. None when
+    ``resolved`` is unread or a brace is left over.
+    """
+    if resolved is None:
+        return None
+    resolved_owner, _, resolved_name = resolved.partition("/")
+    owner = resolved_owner if owner == "{owner}" else owner
+    name = resolved_name if name == "{repo}" else name
+    return None if "{" in owner + name else _slug(f"{owner}/{name}")
+
+
 def _api_repo(owner: str, name: str, ctx: _Context) -> str | None:
     """``owner/repo`` of a REST path, resolving gh's ``{owner}/{repo}`` placeholders."""
     if "{" not in owner + name:
         return _slug(f"{owner}/{name}")
-    return _slug(ctx.gh_repo() or ctx.checkout().origin)
+    return _fill_placeholders(owner, name, _slug(ctx.gh_repo() or ctx.checkout().origin))
 
 
 def _api_promote(args: list[str], ctx: _Context) -> Promote | None:
