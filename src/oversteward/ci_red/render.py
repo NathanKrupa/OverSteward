@@ -1,8 +1,9 @@
 # ABOUTME: Renders the ci-red sweep — a headline with the repo count, each repo's watch state,
-# ABOUTME: and every open ci-red issue with its override count and why it awaits a verdict.
+# ABOUTME: and every open ci-red issue with its override count; also a verdict and a rerun.
 
 from __future__ import annotations
 
+from .rerun import Rerun
 from .triage import VERDICTS, Ruling, SweepResult
 
 
@@ -44,3 +45,13 @@ def render_sweep(result: SweepResult) -> str:
 
 def render_record(ruling: Ruling) -> str:
     return f"recorded {ruling.key}: {ruling.verdict} → {ruling.ref}"
+
+
+def render_rerun(result: Rerun) -> str:
+    return (
+        f"dispatched run {result.run_id} of {result.workflow_path} on {result.sha} "
+        f"via {result.branch} for {result.key}\n"
+        f"  {result.branch}: {result.ref_outcome}\n"
+        f"Once it is green: scripts/ci_red.py record {result.key} {result.verdict} "
+        f"--ref {result.run_id}\n"
+    )
