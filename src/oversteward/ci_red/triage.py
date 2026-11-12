@@ -477,7 +477,7 @@ def _verify_tracking(ref: str, source: CiRedSource, targets: dict[str, Target]) 
 def swept_issue(
     store: VerdictStore, source: CiRedSource, targets: Iterable[Target], key: str
 ) -> tuple[Target, CiRedIssue]:
-    """``key``, refused unless the last measured sweep saw it and it is still an open ci-red issue."""
+    """``key``, refused unless the last sweep saw it and it is still an open ci-red issue."""
     pending = store.pending()
     if pending is None:
         raise VerdictError("no measured sweep on record — run `ci_red.py sweep` first")

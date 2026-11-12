@@ -115,7 +115,7 @@ class FakeWorkflows:
 
     def delete_ref(self, full_name, branch):
         self.calls.append(("delete_ref", branch))
-        self.refs.pop(branch)
+        self.refs.pop(branch, None)
 
     def dispatch(self, full_name, workflow_id, branch):
         self.calls.append(("dispatch", workflow_id, branch))
@@ -215,6 +215,13 @@ def test_a_stale_run_on_the_branch_is_not_taken_for_the_new_one(store, capsys):
     workflows = FakeWorkflows(prior_runs=[(NEW_RUN + 50, MERGE_HEAD)])
     assert run_rerun(FakeSource(merged()), workflows, store) == 0
     assert f"dispatched run {NEW_RUN} " in capsys.readouterr().out
+
+
+def test_a_run_on_the_branch_at_another_commit_is_not_taken_for_the_new_one(store, capsys):
+    workflows = FakeWorkflows(runs_after=((NEW_RUN, MOVED),))
+    assert run_rerun(FakeSource(merged()), workflows, store) == 1
+    assert "delete_ref" not in workflows.writes()
+    assert f"no run of {CI_PATH} on {BRANCH} at {MERGE_HEAD}" in capsys.readouterr().err
 
 
 # --- refusals: nothing written --------------------------------------------------------

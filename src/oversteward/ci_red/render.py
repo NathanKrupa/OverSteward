@@ -1,5 +1,5 @@
 # ABOUTME: Renders the ci-red sweep — a headline with the repo count, each repo's watch state,
-# ABOUTME: and every open ci-red issue with its override count; a recorded verdict; a dispatched rerun.
+# ABOUTME: and every open ci-red issue with its override count; also a verdict and a rerun.
 
 from __future__ import annotations
 
