@@ -704,6 +704,10 @@ class Reconciliation:
     #: Databases outside this repo's stems — another repo's, or hand-made. Never
     #: dropped: the doctor has no derivation that could have written them.
     unattributed: tuple[str, ...]
+    #: The primary checkout whose bench declaration answered an empty listing —
+    #: set only when the repo declares no bench and no Postgres was running, so
+    #: that pass never reads like a bench that was asked and held nothing.
+    no_bench: Path | None = None
 
     @property
     def orphans(self) -> tuple[Candidate, ...]:
@@ -880,7 +884,8 @@ def reconcile(repo: Path, docker: DockerRunner) -> Reconciliation:
     module = require_worktree_db()
     primary, linked = live_worktrees(repo)
     trees = [_live_tree(module, path) for path in linked]
-    listings = _database_listings(docker, benchless=declares_no_bench(primary))
+    benchless = declares_no_bench(primary)
+    listings = _database_listings(docker, benchless=benchless)
     everything = [database for _, _, databases in listings for database in databases]
     stems = _stems(module, primary, trees, everything)
     candidates = [
@@ -898,7 +903,13 @@ def reconcile(repo: Path, docker: DockerRunner) -> Reconciliation:
     return Reconciliation(
         tuple(candidates),
         tuple(sorted(set(everything) - named - SYSTEM_DATABASES)),
+        no_bench=primary if benchless and not listings else None,
     )
+
+
+def _no_bench_running(root: Path) -> str:
+    """What a sweep says when a benchless repo's empty listing was the answer."""
+    return f"{root} declares no bench in {BENCH_DECLARATION} and no Postgres is running"
 
 
 def sweep_candidates(repo: Path, docker: DockerRunner) -> list[Candidate]:
@@ -935,6 +946,9 @@ def sweep(repo: Path, docker: DockerRunner, drop: bool = False) -> int:
     still has to answer. Answering it with ``--drop`` exits 0.
     """
     found = reconcile(repo, docker)
+    if found.no_bench is not None:
+        print(f"{_no_bench_running(found.no_bench)} — there was nothing to reconcile")
+        return 0
     report_reconciliation(found)
     if not found.orphans:
         print("\nNo orphans — every database in this repo's shape has a live worktree.")
@@ -1415,6 +1429,9 @@ def cleanup_sweep(primary: Path, docker: DockerRunner) -> int:
     except CouldNotLook as unavailable:
         _step("sweep", UNLOOKED, str(unavailable))
         return 2
+    if found.no_bench is not None:
+        _step("sweep", DONE, _no_bench_running(found.no_bench))
+        return 0
     if found.orphans:
         names = ", ".join(candidate.database for candidate in found.orphans)
         _step("sweep", REFUSED, f"orphaned {names} — audit `worktree_doctor.py sweep`, then --drop")

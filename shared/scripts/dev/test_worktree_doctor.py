@@ -1602,15 +1602,45 @@ def test_a_benchless_repo_still_drops_what_a_running_postgres_holds(doctor, tmp_
 
     rc = doctor.teardown(worktree, [doctor.venv_of(repo)], docker=docker, remove=lambda path: None)
 
+    out = capsys.readouterr().out
     assert rc == 0
-    assert "dropped repo_test_demo (grantspider-test-pg)" in capsys.readouterr().out
+    assert "dropped repo_test_demo (grantspider-test-pg)" in out
+    assert "declares no bench" not in out, "a teardown that dropped something owned something"
 
 
-def test_a_benchless_sweep_with_no_postgres_finds_nothing_to_reconcile(doctor, tmp_path):
+def test_an_undeclared_teardown_that_drops_nothing_says_nothing_of_a_bench(
+    doctor, tmp_path, capsys
+):
+    """The note is the declaration's; a bench that held nothing must not print it."""
+    repo, worktree = _make_git_repo(tmp_path)
+
+    rc = doctor.teardown(
+        worktree, [doctor.venv_of(repo)], docker=_bench_docker(), remove=lambda path: None
+    )
+
+    assert rc == 0
+    assert "declares no bench" not in capsys.readouterr().out
+
+
+def test_a_benchless_sweep_with_no_postgres_finds_nothing_to_reconcile(doctor, tmp_path, capsys):
     repo, _ = _make_git_repo(tmp_path)
     _declare(repo, NO_BENCH)
 
     assert doctor.sweep(repo, _no_postgres()) == 0
+    out = capsys.readouterr().out
+    assert "declares no bench" in out
+    assert "No orphans" not in out, "a benchless pass must not read like a bench that was asked"
+
+
+def test_a_benchless_sweep_of_a_running_postgres_still_reconciles(doctor, tmp_path, capsys):
+    """The declaration answers only the empty listing; a live Postgres is reconciled."""
+    repo, _ = _make_git_repo(tmp_path)
+    _declare(repo, NO_BENCH)
+
+    assert doctor.sweep(repo, _bench_docker("repo_test_ghost")) == 1
+    out = capsys.readouterr().out
+    assert "repo_test_ghost" in out
+    assert "declares no bench" not in out
 
 
 def test_a_benchless_sweep_still_refuses_a_docker_silent_on_ps(doctor, tmp_path):
@@ -2159,6 +2189,9 @@ def test_cleanup_of_a_benchless_repo_proceeds_with_no_postgres(doctor, tmp_path,
     out = capsys.readouterr().out
     assert rc == 0, out
     assert "declares no bench" in out
+    assert any(
+        line.startswith("sweep: done") and "declares no bench" in line for line in out.splitlines()
+    ), out
     assert not worktree.exists()
     assert not _has_branch(repo)
     assert DELETE_CALL in _gh_calls(gh)
