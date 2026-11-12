@@ -82,10 +82,13 @@ step nothing can undo. It clears only the `.venv` symlink and `.envrc` that
 `new-session.sh` wrote, never `--force`, so a worktree holding real uncommitted
 work refuses and keeps its databases. A docker that cannot say what the bench
 holds (no answer, no running Postgres) is exit 2 before anything is removed
-(OS#502): start docker and run it again. A repo with no bench of its own (this
-one, fiscus, exchequer) refuses too while no Postgres runs anywhere, docker up or
-not; `teardown --no-docker` is its escape, and `cleanup-merged` has none yet
-(OS#716). `check` alone exits non-zero and names
+(OS#502): start docker and run it again. A repo with no bench of its own says so
+in `.worktree-bench` at its root (one line, `none`; `#` lines are comments), and
+there a docker that answers but runs no Postgres means the worktree owns nothing,
+so `teardown` and `cleanup-merged` proceed and say the repo declares no bench
+(OS#716). This repo declares it. An absent, unreadable or malformed declaration
+means "has a bench", and a docker that does not answer still refuses everywhere.
+`check` alone exits non-zero and names
 every captured console-script shebang, `__editable__*.pth` and compose
 container, and reports the worktree's databases as owned state — owned state
 never blocks removal. `repair` repoints shebangs and `.pth` entries at this
