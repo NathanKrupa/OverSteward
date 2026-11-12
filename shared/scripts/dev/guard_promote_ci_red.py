@@ -23,6 +23,20 @@ An omitted ``--base`` is the repo's default branch. For aigranthelper that is
 ``main``, so ``gh pr create --head staging`` there is a promote; for
 grantspider it is ``staging``, so it is not.
 
+**Merging is checked too** (OS#661), because a ci-red issue can open between a
+promote's opening and its merge: ``gh pr merge`` (by number, URL, branch, or
+the checkout's branch when none is named) and a non-GET ``gh api`` call to
+``repos/<owner>/<repo>/pulls/<n>/merge``, on a repo in :data:`PROMOTE_REPOS`.
+The command does not say what the pull request merges, so :data:`ReadPull`
+asks GitHub for its base and head; a merge whose base is ``main`` and whose
+head carries staging is a promote and meets the rule below, and any other
+merge — a hotfix into main, a feature into staging — is allowed. A merge whose
+repo or pull request cannot be read from the command, or whose pull request
+GitHub cannot be asked about, is refused with its own "could not read the
+pull request" text. ``gh pr merge --disable-auto`` merges nothing and is
+allowed. This parsing sits outside the duplicated parser block below: the
+cadence guard reads only openings.
+
 **Rule.** Ask GitHub for the promote's repo's open issues labelled ``ci-red``
 (both repos when the repo could not be read). Any open one refuses, naming
 each. If GitHub cannot be asked, refuse with a different message: "could not
@@ -41,11 +55,10 @@ does not count, and neither does the variable in the session environment or on
 another command. With no open ci-red issue the override records nothing and
 the promote is simply allowed.
 
-**Not covered.** Merging is not checked, only opening: ``gh pr merge`` on a
-promote opened while nothing was red passes, though a ci-red issue may have
-opened since. And aigranthelper has no ``ci_red_alert.py`` and no ``ci-red``
-label until OS#657 PR E lands, so until then its lookup is always empty and
-every AG promote is allowed: "nothing is red" there means "nothing can be".
+**Not covered.** A merge is checked when the command is run, not when it
+completes: ``gh pr merge --auto`` checks once, and the merge GitHub performs
+later, when the checks pass, is unguarded. A merge through GraphQL
+(``gh api graphql`` with ``mergePullRequest``) or the web UI is not seen.
 
 **Unlexable text** (an unbalanced quote) is allowed: no shell would run it
 either, and it never reaches ``gh``.
@@ -206,6 +219,14 @@ class RedIssue:
     title: str
 
 
+@dataclass(frozen=True)
+class Pull:
+    """What GitHub says a pull request merges: its base and head branches."""
+
+    base: str
+    head: str
+
+
 class LookupFailed(Exception):
     """GitHub could not be asked, or its answer could not be read."""
 
@@ -217,6 +238,9 @@ class CommentFailed(Exception):
 ReadCheckout = Callable[[str], Checkout]
 ListRedIssues = Callable[[str], "list[RedIssue]"]
 PostComment = Callable[[RedIssue, str], None]
+# (repo, selector) -> the pull request's base and head; raises LookupFailed.
+# The selector is what ``gh pr view`` accepts: a number or a branch name.
+ReadPull = Callable[[str, str], Pull]
 
 
 def _git(path: str, *args: str) -> str | None:
@@ -301,6 +325,33 @@ def post_github_comment(issue: RedIssue, body: str) -> None:
         raise CommentFailed(f"gh issue comment did not run: {exc!r}") from exc
     if result.returncode != 0:
         raise CommentFailed(f"gh issue comment exited {result.returncode}: {_last_line(result.stderr)}")
+
+
+def parse_pull(payload: str) -> Pull:
+    """The base and head in ``gh pr view --json baseRefName,headRefName`` output."""
+    try:
+        data = json.loads(payload)
+        base, head = data["baseRefName"], data["headRefName"]
+    except (ValueError, TypeError, KeyError) as exc:
+        raise LookupFailed(f"unreadable gh pr view answer: {exc!r}") from exc
+    if not (isinstance(base, str) and base and isinstance(head, str) and head):
+        raise LookupFailed(f"gh pr view gave no base or head: {payload.strip()[:200]}")
+    return Pull(base=base, head=head)
+
+
+def read_github_pull(repo: str, selector: str) -> Pull:
+    """The real :data:`ReadPull`: ``gh pr view`` for the base and head of ``selector``.
+
+    The selector follows ``--``, so a selector that looks like a flag is read
+    as a pull request, never as one of ``gh pr view``'s own options.
+    """
+    try:
+        result = _gh("pr", "view", "--repo", repo, "--json", "baseRefName,headRefName", "--", selector)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise LookupFailed(f"gh pr view did not run: {exc!r}") from exc
+    if result.returncode != 0:
+        raise LookupFailed(f"gh pr view exited {result.returncode}: {_last_line(result.stderr)}")
+    return parse_pull(result.stdout)
 
 
 # ---------------------------------------------------------------------------
@@ -622,6 +673,124 @@ def find_promote(
 
 
 # ---------------------------------------------------------------------------
+# Reading a merge. This guard's own: the cadence guard reads only openings, so
+# none of this sits in the duplicated parser block above, which it reuses.
+# ---------------------------------------------------------------------------
+
+# Flags of ``gh pr merge`` that take a value, from ``gh pr merge --help``.
+_PR_MERGE_VALUE_FLAGS = frozenset(
+    {
+        "-A", "--author-email", "-b", "--body", "-F", "--body-file",
+        "--match-head-commit", "-R", "--repo", "-t", "--subject",
+    }
+)
+_MERGE_ENDPOINT = re.compile(r"^/?repos/([^/]+)/([^/]+)/pulls/([^/]+)/merge/?$")
+_PULL_URL = re.compile(r"^https?://github\.com/([^/]+)/([^/]+)/pull/(\d+)(?:[/?#].*)?$")
+# Text the shell would still expand: what reaches gh is not what the guard sees.
+_UNEXPANDED = re.compile(r"[$`]")
+
+
+@dataclass(frozen=True)
+class Merge:
+    """A merge found in a command, on a watched repo or one that could not be read.
+
+    ``repo`` is None when the command does not say which repo, and
+    ``selector`` (a number or branch, as ``gh pr view`` takes it) is None when
+    it does not say which pull request: either refuses as "could not read".
+    """
+
+    repo: str | None
+    selector: str | None
+    override: str | None
+
+
+def _merge_on(slug: str | None, selector: str | None, ctx: _Context) -> Merge | None:
+    """The merge of ``selector`` on ``slug``, or None when ``slug`` is not watched."""
+    if slug is not None and slug not in PROMOTE_REPOS:
+        return None
+    if selector is not None and _UNEXPANDED.search(selector):
+        selector = None
+    return Merge(slug, selector, ctx.promote(slug).override)
+
+
+def _pr_merge(args: list[str], ctx: _Context) -> Merge | None:
+    if "--disable-auto" in args:
+        return None  # turns auto-merge off; merges nothing
+    pairs, positionals = _options(args, _PR_MERGE_VALUE_FLAGS)
+    selector = positionals[0] if positionals else None
+    url = _PULL_URL.match(selector) if selector is not None else None
+    if url is not None:
+        return _merge_on(_slug(f"{url[1]}/{url[2]}"), url[3], ctx)
+    repo = _last(pairs, "-R", "--repo") or ctx.gh_repo()
+    checkout = None
+    if repo is None:
+        checkout = ctx.checkout()
+        repo = checkout.origin
+    slug = _slug(repo)
+    if slug is not None and slug not in PROMOTE_REPOS:
+        return None
+    if selector is None:
+        selector = (checkout or ctx.checkout()).branch  # gh merges the branch's own PR
+    return _merge_on(slug, selector, ctx)
+
+
+def _api_merge(args: list[str], ctx: _Context) -> Merge | None:
+    pairs, positionals = _options(args, _API_VALUE_FLAGS)
+    match = _MERGE_ENDPOINT.match(positionals[0].split("?")[0]) if positionals else None
+    if match is None:
+        return None
+    has_body = any(name in _API_FIELD_FLAGS for name, _ in pairs) or _last(pairs, "--input") is not None
+    method = _last(pairs, "-X", "--method") or ("POST" if has_body else "GET")
+    if method.upper() == "GET":
+        return None  # asks whether the pull request is merged; merges nothing
+    number = match[3] if match[3].isdigit() else None
+    return _merge_on(_api_repo(match[1], match[2], ctx), number, ctx)
+
+
+def _merges_in(argv: list[str], ctx: _Context) -> list[Merge]:
+    """The merges one unwrapped invocation runs, looking inside ``sh -c`` scripts."""
+    script = _shell_script(argv)
+    if script is not None:
+        return find_merges(
+            script,
+            ctx.cwd,
+            environ=ctx.environ,
+            read_checkout=ctx.read_checkout,
+            inherited=ctx.assignments,
+        )
+    if os.path.basename(argv[0]) != "gh":
+        return []
+    found = None
+    if argv[1:3] == ["pr", "merge"]:
+        found = _pr_merge(argv[3:], ctx)
+    elif argv[1:2] == ["api"]:
+        found = _api_merge(argv[2:], ctx)
+    return [found] if found is not None else []
+
+
+def find_merges(
+    command: str,
+    cwd: str,
+    *,
+    environ: Mapping[str, str],
+    read_checkout: ReadCheckout,
+    inherited: list[str] | None = None,
+) -> list[Merge]:
+    """Every pull-request merge on a ``PROMOTE_REPOS`` repo ``command`` would run.
+
+    Whether each is a promote is GitHub's to say; see :func:`_merge_promote`.
+    """
+    merges: list[Merge] = []
+    for assignments, argv in _invocations(command) or []:
+        argv, run_assignments, run_cwd = _unwrap(argv, [*(inherited or []), *assignments], cwd)
+        if not argv:
+            continue
+        merges.extend(_merges_in(argv, _Context(run_assignments, run_cwd, environ, read_checkout)))
+        cwd = _next_cwd(argv, cwd)
+    return merges
+
+
+# ---------------------------------------------------------------------------
 # The decision.
 # ---------------------------------------------------------------------------
 
@@ -630,6 +799,7 @@ _HOW_TO_OVERRIDE = (
     "reason is commented on every open ci-red issue, and the promote is\n"
     "allowed only once every comment has landed:\n"
     "    PROMOTE_OVER_CI_RED='<why production needs this now>' gh pr create ...\n"
+    "(or gh pr merge ..., for a promote already open).\n"
 )
 
 _RED = (
@@ -645,6 +815,15 @@ _COULD_NOT_LOOK = (
     "red verdict: the ci-red issues were never read.\n\n"
     "The lookup failed: {reason}\n\n"
     "Retry once `gh api` works.\n"
+)
+
+_PULL_UNREAD = (
+    "BLOCKED — could not read pull request {ref}, so this merge is refused\n"
+    "rather than allowed blind: without its base and head this guard cannot\n"
+    "tell a staging→main promote from any other merge. This is not a red\n"
+    "verdict: no ci-red issue was read.\n\n"
+    "{reason}\n\n"
+    "Name the pull request by number with --repo, and retry once `gh pr view` works.\n"
 )
 
 _UNRECORDED = (
@@ -691,19 +870,32 @@ def _record_override(
     return 0, _OVERRIDDEN.format(count=len(issues), issues=", ".join(landed), reason=reason)
 
 
-def evaluate(
-    command: str,
-    cwd: str,
-    *,
-    environ: Mapping[str, str],
-    read_checkout: ReadCheckout,
-    list_red_issues: ListRedIssues,
-    post_comment: PostComment,
+def _merge_promote(merge: Merge, read_pull: ReadPull) -> tuple[Promote | None, str]:
+    """(the promote ``merge`` is, or None when it is not one; a refusal, or "").
+
+    A merge is a promote when GitHub says its base is main and its head carries
+    staging. A merge it cannot ask about is refused, never allowed.
+    """
+    ref = f"{merge.repo or '<unread repo>'}#{merge.selector or '<unread pull request>'}"
+    if merge.repo is None:
+        reason = "The command names no repo this guard could read (--repo, GH_REPO or origin)."
+        return None, _PULL_UNREAD.format(ref=ref, reason=reason)
+    if merge.selector is None:
+        reason = "The command names no pull request this guard could read."
+        return None, _PULL_UNREAD.format(ref=ref, reason=reason)
+    try:
+        pull = read_pull(merge.repo, merge.selector)
+    except LookupFailed as exc:
+        return None, _PULL_UNREAD.format(ref=ref, reason=f"The lookup failed: {exc}")
+    if not _is_promote(pull.base, pull.head):
+        return None, ""
+    return Promote(repo=merge.repo, override=merge.override), ""
+
+
+def _check(
+    promote: Promote, list_red_issues: ListRedIssues, post_comment: PostComment
 ) -> tuple[int, str]:
-    """(exit code, stderr text) for ``command`` run from ``cwd``. 2 refuses, 0 allows."""
-    promote = find_promote(command, cwd, environ=environ, read_checkout=read_checkout)
-    if promote is None:
-        return 0, ""
+    """(exit code, stderr text) for one promote: refused while its repo is red."""
     repos = [promote.repo] if promote.repo is not None else sorted(PROMOTE_REPOS)
     reason = (promote.override or "").strip()
     note = _EMPTY_OVERRIDE if promote.override is not None and not reason else ""
@@ -717,6 +909,37 @@ def evaluate(
         return _record_override(issues, reason, post_comment)
     message = _RED.format(count=len(issues), repos=" and ".join(repos), issues=_listing(issues))
     return 2, message + note
+
+
+def evaluate(
+    command: str,
+    cwd: str,
+    *,
+    environ: Mapping[str, str],
+    read_checkout: ReadCheckout,
+    list_red_issues: ListRedIssues,
+    post_comment: PostComment,
+    read_pull: ReadPull,
+) -> tuple[int, str]:
+    """(exit code, stderr text) for ``command`` run from ``cwd``. 2 refuses, 0 allows.
+
+    Every promote the command opens or merges is checked; the first refusal wins.
+    """
+    opened = find_promote(command, cwd, environ=environ, read_checkout=read_checkout)
+    promotes = [opened] if opened is not None else []
+    for merge in find_merges(command, cwd, environ=environ, read_checkout=read_checkout):
+        promote, refusal = _merge_promote(merge, read_pull)
+        if refusal:
+            return 2, refusal
+        if promote is not None and promote not in promotes:
+            promotes.append(promote)
+    notes = []
+    for promote in promotes:
+        code, message = _check(promote, list_red_issues, post_comment)
+        if code != 0:
+            return code, message
+        notes.append(message)
+    return 0, "".join(notes)
 
 
 def main() -> int:
@@ -734,6 +957,7 @@ def main() -> int:
         read_checkout=read_git_checkout,
         list_red_issues=list_github_red_issues,
         post_comment=post_github_comment,
+        read_pull=read_github_pull,
     )
     sys.stderr.write(message)
     return code
