@@ -94,6 +94,9 @@ class FakeWorkflows:
         self.refs: dict[str, str] = {}
         self.calls: list[tuple] = []
         self.dispatch_error: Exception | None = None
+        #: Raised by every read of the ref, or of the runs, once the dispatch has been sent.
+        self.ref_error_after_dispatch: Exception | None = None
+        self.runs_error_after_dispatch: Exception | None = None
         self.reads_of_file: list[tuple[str, str]] = []
 
     def workflow_path(self, full_name, workflow_id):
@@ -105,6 +108,8 @@ class FakeWorkflows:
         return self.blob
 
     def ref_sha(self, full_name, branch):
+        if self.dispatched() and self.ref_error_after_dispatch is not None:
+            raise self.ref_error_after_dispatch
         if self.dispatched() and self.ref_at_settle != "same":
             return self.ref_at_settle
         return self.refs.get(branch)
@@ -128,6 +133,8 @@ class FakeWorkflows:
     def dispatched_runs(self, full_name, workflow_id, branch):
         if not self.dispatched():
             return self.prior_runs
+        if self.runs_error_after_dispatch is not None:
+            raise self.runs_error_after_dispatch
         if self.runs_after is not None:
             return self.runs_after
         return (*self.prior_runs, (NEW_RUN, self.refs.get(branch, "")))
@@ -318,6 +325,47 @@ def test_a_failed_dispatch_takes_the_branch_back_down(store, capsys):
     assert run_rerun(FakeSource(merged()), workflows, store) == 1
     assert workflows.writes() == ["create_ref", "dispatch", "delete_ref"]
     assert "the dispatch failed — HTTP 422" in capsys.readouterr().err
+
+
+def test_an_unreadable_branch_after_the_run_still_prints_the_run_id(store, capsys):
+    workflows = FakeWorkflows()
+    workflows.ref_error_after_dispatch = SourceUnavailableError("HTTP 502")
+    assert run_rerun(FakeSource(merged()), workflows, store) == 1
+    assert "delete_ref" not in workflows.writes()
+    captured = capsys.readouterr()
+    assert f"record {KEY} fixed-in-place --ref {NEW_RUN}" in captured.out
+    assert f"{BRANCH} could not be checked — HTTP 502; left in place" in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_an_unreadable_branch_after_a_failed_dispatch_is_reported_left(store, capsys):
+    workflows = FakeWorkflows()
+    workflows.dispatch_error = SourceUnavailableError("HTTP 422")
+    workflows.ref_error_after_dispatch = SourceUnavailableError("HTTP 502")
+    assert run_rerun(FakeSource(merged()), workflows, store) == 1
+    assert "delete_ref" not in workflows.writes()
+    err = capsys.readouterr().err
+    assert "the dispatch failed — HTTP 422" in err
+    assert f"{BRANCH} could not be checked — HTTP 502, left in place" in err
+
+
+def test_unreadable_runs_after_the_dispatch_leave_the_branch_and_say_so(store, capsys):
+    workflows = FakeWorkflows()
+    workflows.runs_error_after_dispatch = SourceUnavailableError("HTTP 502")
+    assert run_rerun(FakeSource(merged()), workflows, store) == 1
+    assert workflows.writes() == ["create_ref", "dispatch"]
+    err = capsys.readouterr().err
+    assert f"the runs on {BRANCH} could not be read — HTTP 502; {BRANCH} left in place" in err
+    assert "Traceback" not in err
+
+
+def test_a_merged_pr_whose_head_is_unread_is_unreadable_not_a_green_rerun(store, capsys):
+    workflows = FakeWorkflows()
+    assert run_rerun(FakeSource(merged(head=None)), workflows, store) == 1
+    assert workflows.calls == []
+    err = capsys.readouterr().err
+    assert "PR #12's merge head could not be read" in err
+    assert "Traceback" not in err
 
 
 def test_no_dispatch_targets_exits_2(store, capsys):
