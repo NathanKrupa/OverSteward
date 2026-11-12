@@ -10,7 +10,7 @@
 
 - `ag.research` · live · Research reads: the read-only mirror of GS's research schema and the plumbing every research read goes through.
 - `ag.funder-search` · live · Funder search and match scoring: keyword, semantic and hybrid search, Typesense with a Postgres fallback, and funding-fit scoring.
-- `ag.funder-pages` · live · Funder pages: foundation and federal-grant profiles, the search pages, and state, sector and city hubs.
+- `ag.funder-pages` · live · Funder pages: foundation and federal-grant profiles, the search pages, the county agency ladder, and state, sector and city hubs.
 - `ag.search-indexing` · live · What Google may index and how it learns of it: sitemaps, the indexability tier, IndexNow, URL Inspection sweeps and the indexation experiments.
 - `ag.edge` · live · The Cloudflare edge: Cache-Control headers and cache rules, purges, the warmer, the origin lock and the Web Bot Auth key directory.
 - `ag.landing-pages` · live · Conversion pages: the CMS-edited home page, its try-it widget and walkthrough recorder, and the /grants-for/ lead pages.
