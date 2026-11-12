@@ -43,7 +43,13 @@ def _write(tmp_path: Path, data: dict[str, Any], name: str) -> Path:
     return path
 
 
-def _args(tmp_path: Path, data: dict[str, Any], *, gs_path: Path | None = None) -> list[str]:
+def _args(
+    tmp_path: Path,
+    data: dict[str, Any],
+    *,
+    gs_path: Path | None = None,
+    memory_store: Path | None = None,
+) -> list[str]:
     registry = {
         "contexts": [
             {"id": "oversteward", "branch": "master", "local_path": str(ROOT)},
@@ -65,6 +71,8 @@ def _args(tmp_path: Path, data: dict[str, Any], *, gs_path: Path | None = None) 
         str(tmp_path / "digest.md"),
         "--slices",
         str(tmp_path / "slices"),
+        "--memory-store",
+        str(memory_store or tmp_path / "no-memory-store"),
     ]
 
 
@@ -86,6 +94,47 @@ def test_check_runs_locations(cli, capsys, tmp_path, local):
     _cap(local, "os.sow")["claims"]["oversteward"].append("src/oversteward/nope.py")
     assert cli.main([*_args(tmp_path, local), "check"]) == 1
     assert "missing-path: os.sow" in capsys.readouterr().out
+
+
+def _memory_store(tmp_path: Path) -> Path:
+    root = tmp_path / "memory"
+    root.mkdir()
+    (root / "a_note.md").write_text("---\nname: a_note\ndescription: d\n---\n\nBody.\n", encoding="utf-8")
+    return root
+
+
+def _cite(data: dict[str, Any], inv_id: str, cite: str) -> None:
+    next(i for i in data["invariants"] if i["id"] == inv_id)["cite"] = cite
+
+
+def test_check_finds_a_memory_cite_naming_no_note(cli, capsys, tmp_path, local):
+    _cite(local, "I-2", "memory `no_such_note`")
+    assert cli.main([*_args(tmp_path, local, memory_store=_memory_store(tmp_path)), "check"]) == 1
+    out = capsys.readouterr().out
+    assert "FINDING - memory-cite: I-2" in out and "no_such_note" in out
+
+
+def test_check_resolves_a_memory_cite_naming_a_note(cli, capsys, tmp_path, local):
+    _cite(local, "I-2", "memory `a_note`")
+    assert cli.main([*_args(tmp_path, local, memory_store=_memory_store(tmp_path)), "check"]) == 0
+    assert "memory cites: 1 checked" in capsys.readouterr().out
+
+
+def test_check_with_an_unreadable_memory_store_exits_2_without_a_traceback(cli, capsys, tmp_path, local):
+    _cite(local, "I-2", "memory `a_note`")
+    assert cli.main([*_args(tmp_path, local), "check"]) == 2
+    captured = capsys.readouterr()
+    assert "COULD NOT LOOK - memory cites: store root is not a directory" in captured.out
+    assert "Traceback" not in captured.out + captured.err
+
+
+def test_an_unreadable_memory_store_outranks_a_finding(cli, capsys, tmp_path, local):
+    _cite(local, "I-2", "memory `a_note`")
+    _cap(local, "gs.website-resolution")["serves"] = ["ag.nope"]
+    assert cli.main([*_args(tmp_path, local), "check"]) == 2
+    out = capsys.readouterr().out
+    assert "COULD NOT LOOK - memory cites:" in out
+    assert "FINDING - dangling-ref: gs.website-resolution" in out
 
 
 def test_coverage_with_no_measured_floor_exits_2(cli, capsys, tmp_path, local):
