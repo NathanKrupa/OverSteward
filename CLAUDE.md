@@ -80,7 +80,9 @@ nothing), names every database the worktree owns, removes the worktree, and only
 then drops them — the removal is the step git can still refuse, the drop is the
 step nothing can undo. It clears only the `.venv` symlink and `.envrc` that
 `new-session.sh` wrote, never `--force`, so a worktree holding real uncommitted
-work refuses and keeps its databases. `check` alone exits non-zero and names
+work refuses and keeps its databases. A docker that cannot say what the bench
+holds (no answer, no running Postgres) is exit 2 before anything is removed
+(OS#502): start docker and run it again. `check` alone exits non-zero and names
 every captured console-script shebang, `__editable__*.pth` and compose
 container, and reports the worktree's databases as owned state — owned state
 never blocks removal. `repair` repoints shebangs and `.pth` entries at this

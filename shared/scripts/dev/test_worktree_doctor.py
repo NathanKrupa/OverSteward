@@ -1392,6 +1392,15 @@ def _logging_docker(tmp_path: Path, names: str, env: str, listing: str) -> Path:
     return log
 
 
+#: What each refusal must tell the operator — the fix differs per shape.
+SILENCE_REASONS = {
+    "ps-unanswered": "did not answer `docker ps`",
+    "no-postgres-running": "no running Postgres container",
+    "inspect-unanswered": "did not answer `docker inspect repo-test-pg`",
+    "listing-unanswered": "repo-test-pg did not answer `SELECT datname",
+}
+
+
 @pytest.mark.parametrize("silence", sorted(CLI_SILENCES))
 def test_the_cli_teardown_exits_2_and_keeps_the_worktree(tmp_path, monkeypatch, silence):
     """OS#502 as the operator met it: exit 2, the refusal on stderr, nothing removed."""
@@ -1403,6 +1412,7 @@ def test_the_cli_teardown_exits_2_and_keeps_the_worktree(tmp_path, monkeypatch, 
 
     assert result.returncode == 2, result.stdout + result.stderr
     assert "teardown refused" in result.stderr
+    assert SILENCE_REASONS[silence] in result.stderr
     assert "Traceback" not in result.stderr
     assert result.stdout.strip() == ""
     assert worktree.is_dir()
