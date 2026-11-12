@@ -449,7 +449,8 @@ def postgres_containers(docker: DockerRunner) -> list[tuple[str, str]]:
     constant, because the name differs per repo (``grantspider``,
     ``aigranthelper``) and this file is a byte-identical copy in all of them. A
     container with no ``POSTGRES_USER`` is not a Postgres, and is never exec'd
-    into.
+    into. A container docker will not describe is a refusal, not a skip: it may
+    be the bench, and skipping it reads as "it holds nothing".
     """
     listing = docker(["ps", "--format", "{{.Names}}"])
     found = []
@@ -457,7 +458,9 @@ def postgres_containers(docker: DockerRunner) -> list[tuple[str, str]]:
         env = docker(
             ["inspect", "--format", "{{range .Config.Env}}{{println .}}{{end}}", container]
         )
-        for line in (env or "").splitlines():
+        if env is None:
+            raise CouldNotLook(f"docker did not answer `docker inspect {container}`")
+        for line in env.splitlines():
             key, _, value = line.partition("=")
             if key == "POSTGRES_USER" and value:
                 found.append((container, value))
@@ -562,17 +565,21 @@ def _holders(worktree: Path, docker: DockerRunner, name: str | None) -> list[tup
     Listing every database and filtering here — rather than asking after one
     name — is what lets a worktree own N of them without the doctor knowing any
     repo's stems. See :class:`Ownership`.
+
+    The listing is :func:`_database_listings`, the sweep's, so a docker that
+    cannot say what the bench holds raises :class:`CouldNotLook` here too rather
+    than answer "nothing" (OS#502). An ``UNOWNED`` tree returns before docker is
+    asked: its answer comes from the path alone, and no listing could change it.
     """
     ownership = Ownership(exact=name) if name is not None else _ownership(worktree)
     if ownership == UNOWNED:
         return []
-    held = []
-    for container, user in postgres_containers(docker):
-        listing = _listed(docker(_psql(container, user, LIST_DATABASES)))
-        held.extend(
-            (container, user, database) for database in listing if ownership.owns(database)
-        )
-    return held
+    return [
+        (container, user, database)
+        for container, user, databases in _database_listings(docker)
+        for database in databases
+        if ownership.owns(database)
+    ]
 
 
 def database_hits(
@@ -816,7 +823,7 @@ def _database_listings(docker: DockerRunner) -> list[tuple[str, str, list[str]]]
     if not listings:
         raise CouldNotLook(
             "no running Postgres container — a stopped bench still holds every "
-            "database it ever had, so nothing here could be called an orphan"
+            "database it ever had, so none of them can be named or ruled out"
         )
     return listings
 
@@ -1118,9 +1125,10 @@ def teardown(
     every name is derived from the worktree's path; they are *dropped* after it,
     because a removal git refuses must cost nothing (OS#286).
 
-    Naming first is also what makes the OS#305 refusal safe: :class:`CouldNotLook`
-    escapes from the naming step, so it lands before the removal and the
-    worktree — the only thing that can still produce the names — is still there.
+    Naming first is also what makes the OS#305 and OS#502 refusals safe:
+    :class:`CouldNotLook` escapes from the naming step — a missing derivation, or
+    a docker that cannot list the bench — so it lands before the removal and the
+    worktree, the only thing that can still produce the names, is still there.
     """
     hits = check_worktree(worktree, venvs, docker=docker)
     if hits:

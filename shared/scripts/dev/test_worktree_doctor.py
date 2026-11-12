@@ -8,6 +8,7 @@ import os
 import shutil
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -403,20 +404,26 @@ def test_the_worktrees_database_is_found_on_the_shared_container(doctor, tmp_pat
 
 
 def test_no_database_no_hit(doctor, tmp_path):
+    """A running bench that lacks the database — not a bench that is absent (OS#502)."""
     _, worktree = _make_repo(tmp_path, captured=False)
-    docker = ScriptedDocker({"ps --format": "grantspider-test-pg\n"})
+    docker = _bench_docker()
 
     assert doctor.database_hits(worktree, docker, name="repo_test_demo") == []
 
 
 def test_a_container_that_is_not_postgres_is_skipped(doctor, tmp_path):
-    """No POSTGRES_USER means the image is not a postgres — never exec into it."""
+    """No POSTGRES_USER means the image is not a postgres — never exec into it.
+
+    The bench runs beside it: with no Postgres at all the listing refuses (OS#502).
+    """
     _, worktree = _make_repo(tmp_path, captured=False)
-    docker = ScriptedDocker({"ps --format": "redis\n"})
+    docker = _bench_docker()
 
     doctor.database_hits(worktree, docker, name="repo_test_demo")
 
-    assert not any(call[0] == "exec" for call in docker.calls)
+    execs = [call for call in docker.calls if call[0] == "exec"]
+    assert execs, "the bench beside it was never asked"
+    assert not any(call[1] == "some-unrelated-app" for call in execs)
 
 
 def test_the_database_does_not_block_removal(doctor, tmp_path):
@@ -447,7 +454,7 @@ def test_dropping_the_database_targets_the_right_container(doctor, tmp_path):
 
 def test_dropping_an_absent_database_is_a_no_op(doctor, tmp_path):
     _, worktree = _make_repo(tmp_path, captured=False)
-    docker = ScriptedDocker({"ps --format": "grantspider-test-pg\n"})
+    docker = _bench_docker()
 
     assert doctor.drop_database(worktree, docker, name="repo_test_demo") == []
     assert not any("dropdb" in call for call in docker.calls)
@@ -1283,6 +1290,160 @@ def test_a_no_docker_teardown_says_the_databases_were_left(doctor, tmp_path, cap
 
 
 # ---------------------------------------------------------------------------
+# a docker that cannot list the databases must not let teardown act (OS#502)
+# ---------------------------------------------------------------------------
+#
+# Each shape below occurred in grantspider on 2026-09-17: Docker Desktop hung
+# (`docker ps` timed out, so the runner answered None), and Docker Desktop
+# restarted with no bench running (`docker ps` answered an empty list). Both
+# times teardown printed `removed <path>`, dropped nothing and exited 0, and
+# the worktree's database was left where only `sweep` could find it again.
+
+PG_ENV = "inspect --format {{range .Config.Env}}{{println .}}{{end}} grantspider-test-pg"
+OTHER_ENV = "inspect --format {{range .Config.Env}}{{println .}}{{end}} other-pg"
+
+#: Every way the docker runner can fail to say what the bench holds.
+SILENCES = {
+    "ps-unanswered": lambda: FakeDocker(output=None),
+    "no-postgres-running": lambda: ScriptedDocker({"ps --format": ""}),
+    # A second Postgres that answers, so the bench's silence cannot pass for
+    # "no Postgres running": skipping it would leave a listing with no owned name.
+    "inspect-unanswered": lambda: ScriptedDocker(
+        {
+            "ps --format": "other-pg\ngrantspider-test-pg\n",
+            OTHER_ENV: "POSTGRES_USER=grantspider\n",
+            PG_ENV: None,
+        },
+        databases=frozenset({"postgres", "repo_test"}),
+    ),
+    "listing-unanswered": lambda: ScriptedDocker(
+        {"ps --format": "grantspider-test-pg\n", PG_ENV: "POSTGRES_USER=grantspider\n"},
+        databases=frozenset(),  # no maintenance database: the psql listing gets None
+    ),
+}
+
+
+@pytest.mark.parametrize("silence", sorted(SILENCES))
+def test_teardown_refuses_before_removing_when_docker_cannot_list(doctor, tmp_path, silence):
+    """The refusal must land before ``remove``: after it, no derivation reaches the names."""
+    repo, worktree = _make_git_repo(tmp_path)
+    docker = SILENCES[silence]()
+    removed: list[Path] = []
+
+    with pytest.raises(doctor.CouldNotLook):
+        doctor.teardown(worktree, [doctor.venv_of(repo)], docker=docker, remove=removed.append)
+
+    assert removed == []
+    assert not any("dropdb" in call for call in docker.calls)
+
+
+@pytest.mark.parametrize("silence", sorted(SILENCES))
+def test_check_and_drop_refuse_when_docker_cannot_list(doctor, tmp_path, silence):
+    """``check`` reports the owned databases; an empty report would read as "none"."""
+    _, worktree = _make_git_repo(tmp_path)
+
+    with pytest.raises(doctor.CouldNotLook):
+        doctor.database_hits(worktree, SILENCES[silence]())
+    docker = SILENCES[silence]()
+    with pytest.raises(doctor.CouldNotLook):
+        doctor.drop_database(worktree, docker)
+    assert not any("dropdb" in call for call in docker.calls)
+
+
+def test_a_primary_checkout_needs_no_docker_to_own_nothing(doctor, tmp_path):
+    """``UNOWNED`` is derived from the path alone, so a silent docker cannot change it."""
+    repo, _ = _make_git_repo(tmp_path)
+    docker = FakeDocker(output=None)
+
+    assert doctor.database_hits(repo, docker) == []
+    assert docker.calls == []
+
+
+#: The `docker` stub's answer to each read, per shape. A `case` arm that runs
+#: `exit 1` is docker failing, which the runner turns into None.
+CLI_SILENCES = {
+    "ps-unanswered": ("exit 1", "exit 1", "exit 1"),
+    "no-postgres-running": (":", "exit 1", "exit 1"),
+    "inspect-unanswered": (
+        "echo other-pg; echo repo-test-pg",
+        'case "$*" in *other-pg) echo POSTGRES_USER=repo ;; *) exit 1 ;; esac',
+        "echo postgres; echo repo_test",
+    ),
+    "listing-unanswered": ("echo repo-test-pg", "echo POSTGRES_USER=repo", "exit 1"),
+}
+
+
+def _logging_docker(tmp_path: Path, names: str, env: str, listing: str) -> Path:
+    """A ``docker`` on PATH that logs every argv, so a test can prove no drop was made."""
+    log = tmp_path / "docker-calls"
+    script = tmp_path / "docker"
+    script.write_text(
+        "#!/bin/sh\n"
+        f'echo "$*" >> {log}\n'
+        'case "$*" in\n'
+        f'  *"--format {{{{.Names}}}}"*) {names} ;;\n'
+        f'  *"{{{{range .Config.Env}}}}"*) {env} ;;\n'
+        f"  *pg_database*) {listing} ;;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+    log.touch()
+    return log
+
+
+@pytest.mark.parametrize("silence", sorted(CLI_SILENCES))
+def test_the_cli_teardown_exits_2_and_keeps_the_worktree(tmp_path, monkeypatch, silence):
+    """OS#502 as the operator met it: exit 2, the refusal on stderr, nothing removed."""
+    repo, worktree = _make_git_repo(tmp_path)
+    log = _logging_docker(tmp_path, *CLI_SILENCES[silence])
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+
+    result = _run("teardown", str(worktree), "--repo", str(repo))
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "teardown refused" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert result.stdout.strip() == ""
+    assert worktree.is_dir()
+    assert "dropdb" not in log.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("silence", sorted(CLI_SILENCES))
+def test_the_cli_check_exits_2_when_docker_cannot_list(tmp_path, monkeypatch, silence):
+    repo, worktree = _make_git_repo(tmp_path)
+    _logging_docker(tmp_path, *CLI_SILENCES[silence])
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+
+    result = _run("check", str(worktree), "--repo", str(repo))
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "check refused" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_the_cli_teardown_still_drops_what_a_live_bench_holds(tmp_path, monkeypatch):
+    """The regression pin: a docker that answers still gets its database dropped."""
+    repo, worktree = _make_git_repo(tmp_path)
+    log = _logging_docker(
+        tmp_path,
+        "echo repo-test-pg",
+        "echo POSTGRES_USER=repo",
+        "echo postgres; echo repo_test; echo repo_test_demo",
+    )
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+
+    result = _run("teardown", str(worktree), "--repo", str(repo))
+
+    assert result.returncode == 0, result.stderr
+    assert f"removed {worktree}" in result.stdout
+    assert "dropped repo_test_demo (repo-test-pg)" in result.stdout
+    assert not worktree.exists()
+    drops = [line for line in log.read_text(encoding="utf-8").splitlines() if "dropdb" in line]
+    assert len(drops) == 1 and drops[0].endswith(" repo_test_demo")
+
+
+# ---------------------------------------------------------------------------
 # cleanup-merged — dispatch SKILL.md §5 as one command (OS#571)
 # ---------------------------------------------------------------------------
 #
@@ -1651,16 +1812,57 @@ def test_a_base_origin_cannot_fetch_could_not_look(doctor, tmp_path, gh, capsys)
 def test_a_sweep_that_cannot_look_exits_2_and_the_pr_is_still_cleaned(
     doctor, tmp_path, gh, capsys
 ):
-    """A docker that never answers is the repo's finding, not a reason to keep the PR's."""
+    """A sweep that cannot look is the repo's finding, not a reason to keep the PR's.
+
+    The docker here answers the teardown's listing and then falls silent, so the
+    PR's own worktree was accounted for before the sweep lost its answer.
+    """
     repo, worktree = _merged_repo(tmp_path)
 
-    rc = doctor.cleanup_merged(repo, 7, lambda args: None)
+    rc = doctor.cleanup_merged(repo, 7, _silent_after_one_listing(doctor))
 
     out = capsys.readouterr().out
     assert rc == 2
     assert "sweep: could not look" in out
     assert not worktree.exists()
     assert not _has_branch(repo)
+
+
+def _silent_after_one_listing(doctor) -> Callable[[list[str]], str | None]:
+    """A running bench that stops answering once it has listed its databases once."""
+    bench = _bench()
+    listed: list[bool] = []
+
+    def docker(args: list[str]) -> str | None:
+        if listed:
+            return None
+        answer = bench(args)
+        if args[-1] == doctor.LIST_DATABASES:
+            listed.append(True)
+        return answer
+
+    return docker
+
+
+def test_a_docker_that_cannot_list_stops_cleanup_before_the_teardown(
+    doctor, tmp_path, gh, capsys
+):
+    """OS#502 through cleanup-merged: the worktree is the only key to its databases.
+
+    Removing it under a silent docker orphans them, so the sequence stops at the
+    teardown, before the branch and the remote ref, the way any refusal does.
+    """
+    repo, worktree = _merged_repo(tmp_path)
+
+    rc = doctor.cleanup_merged(repo, 7, lambda args: None)
+
+    out = capsys.readouterr().out
+    assert rc == 2
+    assert "could not look" in out
+    assert worktree.is_dir()
+    assert _has_branch(repo)
+    assert DELETE_CALL not in _gh_calls(gh)
+    assert f"branch {HEAD_BRANCH}:" not in out, "the sequence ran on past the refusal"
 
 
 def test_an_absent_remote_ref_makes_no_delete_call(doctor, tmp_path, gh, capsys):
