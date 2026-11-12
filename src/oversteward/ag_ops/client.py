@@ -20,7 +20,7 @@ unprovisioned token answers ``{"error": ...}``, while a store that went dark
 answers RFC 9457 problem details naming the ``source``. Collapsing them would
 make an unconfigured estate look like a broken one — or worse, the reverse.
 
-**Not every answer comes from the producer.** ``www.aigranthelper.com`` sits
+**Not every answer comes from the producer.** ``aigranthelper.com`` sits
 behind Cloudflare, which blocks the default ``Python-urllib/3.x`` User-Agent at
 the edge with a 403 the application never sees (OS#394 — measured: ``error code:
 1010``, ``text/plain``). Hence the two rules below:
@@ -35,6 +35,14 @@ the edge with a 403 the application never sees (OS#394 — measured: ``error cod
   Django's own 404 page *is* HTML (measured against production, and pinned by
   ``test_an_html_404_is_still_not_found...``), so requiring JSON there would
   turn an honest "surface not mounted" into a false edge report.
+
+**A write is never re-sent to a redirect.** ``www.aigranthelper.com`` answers
+every path with a Cloudflare 301 to the apex, and urllib follows a 301, 302
+or 303 on a POST by re-issuing it as a bodiless GET — which the verdicts endpoint
+refuses with a 405 (OS#633). The default address is therefore the apex, and the
+default opener stops at any 3xx answering a write, reporting where it was sent
+so the operator can point :data:`BASE_URL_ENV` there. Reads still follow a
+redirect: a GET survives one intact.
 """
 
 from __future__ import annotations
@@ -55,7 +63,7 @@ REPORTS_TOKEN_ENV = "OPS_REPORTS_TOKEN"
 VERDICTS_TOKEN_ENV = "OPS_VERDICTS_TOKEN"
 BASE_URL_ENV = "AG_OPS_BASE_URL"
 
-DEFAULT_BASE_URL = "https://www.aigranthelper.com"
+DEFAULT_BASE_URL = "https://aigranthelper.com"
 DEFAULT_TIMEOUT = 30.0
 
 #: This tool's version, carried in :data:`USER_AGENT`. Bump it when the request
@@ -81,10 +89,14 @@ _ERROR_KEY = "error"
 _GET = "GET"
 _POST = "POST"
 
+_HTTP_REDIRECTS = range(300, 400)
 _HTTP_UNAUTHORIZED = 401
 _HTTP_FORBIDDEN = 403
 _HTTP_NOT_FOUND = 404
 _HTTP_UNAVAILABLE = 503
+#: The statuses whose meaning is a claim about our credential or the producer's
+#: configuration — the ones only the producer's JSON envelope may back.
+_PRODUCER_VERDICT_STATUSES = (_HTTP_UNAUTHORIZED, _HTTP_FORBIDDEN, _HTTP_UNAVAILABLE)
 
 
 class AgOpsConfigError(RuntimeError):
@@ -125,7 +137,7 @@ class AgOpsClient:
         self._verdicts_token = verdicts_token
         self.base_url = base_url.rstrip("/")
         self._timeout = timeout
-        self._opener = opener if opener is not None else urllib.request.urlopen
+        self._opener = opener if opener is not None else _default_opener()
 
     def manifest(self) -> dict:
         """Every report this producer offers, with the contract version it serves."""
@@ -185,6 +197,26 @@ class AgOpsClient:
         return _decode(body, where)
 
 
+class _WriteRedirectRefusal(urllib.request.HTTPRedirectHandler):
+    """Follows a redirect for a read; for any other method, lets the 3xx surface as an error.
+
+    Returning ``None`` from :meth:`redirect_request` declines the redirect; no
+    other handler takes it, so urllib's default error handler raises the 3xx as
+    an :class:`urllib.error.HTTPError` carrying the ``Location`` header instead
+    of re-issuing it as a GET. The loopback tests in ``tests/ag_ops`` pin this.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if req.get_method() != _GET:
+            return None
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _default_opener() -> Callable:
+    """urllib's opener with :class:`_WriteRedirectRefusal` in place of its redirect handler."""
+    return urllib.request.build_opener(_WriteRedirectRefusal()).open
+
+
 def _query_string(since: str, limit: int) -> str:
     """The cursor and page size as a query string — empty when neither was asked for."""
     params = {}
@@ -200,11 +232,18 @@ def _from_http_error(exc: urllib.error.HTTPError, where: str) -> AgOpsUnavailabl
 
     ``where`` is the call site as a message prefix — never a credential.
     """
+    if exc.code in _HTTP_REDIRECTS:
+        return _refused_redirect(exc, where)
     body = _error_body(exc)
     if exc.code == _HTTP_NOT_FOUND:
         return AgOpsNotFoundError(f"AG ops has no such path (HTTP 404) {where}{_detail(body or {})}")
-    if body is None:
+    if body is None and exc.code in _PRODUCER_VERDICT_STATUSES:
         return _edge_interference(exc, where)
+    if body is None:
+        return AgOpsUnavailableError(
+            f"AG ops returned HTTP {exc.code} ({_content_type(exc)}) {where}"
+            f"with a body that is not the producer's JSON envelope."
+        )
     if exc.code == _HTTP_UNAVAILABLE:
         return _from_unavailable(body, where)
     if exc.code in (_HTTP_UNAUTHORIZED, _HTTP_FORBIDDEN):
@@ -213,6 +252,17 @@ def _from_http_error(exc: urllib.error.HTTPError, where: str) -> AgOpsUnavailabl
             f"— the token in .env does not match the producer's setting."
         )
     return AgOpsUnavailableError(f"AG ops returned HTTP {exc.code} {where}{_detail(body)}")
+
+
+def _refused_redirect(exc: urllib.error.HTTPError, where: str) -> AgOpsUnavailableError:
+    """A write that was sent somewhere else: say where, and which setting points there."""
+    headers = getattr(exc, "headers", None)
+    location = (headers.get("Location", "") if headers else "") or "an unnamed location"
+    return AgOpsUnavailableError(
+        f"AG ops answered with a redirect that was not followed (HTTP {exc.code}) {where}"
+        f"redirected to {location}; set {BASE_URL_ENV} to the address that answers it. "
+        f"A write is never re-sent to a redirect: urllib would re-issue it as a bodiless GET."
+    )
 
 
 def _edge_interference(exc: urllib.error.HTTPError, where: str) -> AgOpsUnavailableError:

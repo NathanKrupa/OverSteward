@@ -23,7 +23,8 @@ own factory: `OPS_REPORTS_TOKEN` (read) and `OPS_VERDICTS_TOKEN` (write). The
 split is deliberate — a sweep holds only the read token, and a leak of it moves
 no rows. **Never `source .env`, never put a token on a command line**
 (credential-hygiene.md). `AG_OPS_BASE_URL` overrides the target
-(`https://www.aigranthelper.com` by default) for a staging check.
+(`https://aigranthelper.com` by default — never `www`, whose 301 turns a
+verdict POST into a GET) for a staging check.
 
 ## Step 1 — sweep
 
