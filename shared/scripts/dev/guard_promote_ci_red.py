@@ -28,7 +28,8 @@ promote's opening and its merge: ``gh pr merge`` (by number, URL, branch, or
 the checkout's branch when none is named) and a non-GET ``gh api`` call to
 ``repos/<owner>/<repo>/pulls/<n>/merge`` (as a path or a full URL), on a repo
 in :data:`PROMOTE_REPOS`. A repo or pull request holding text the shell would
-still expand (``$`` or a backtick) is unread, never taken as written. The command does not say what the pull request merges, so :data:`ReadPull`
+still expand (``$``, a backtick or a brace) is unread, never taken as written,
+and bundled short flags (``-dR <repo>``) are split as gh splits them. The command does not say what the pull request merges, so :data:`ReadPull`
 asks GitHub for its base and head; a merge whose base is ``main`` and whose
 head carries staging is a promote and meets the rule below, and any other
 merge — a hotfix into main, a feature into staging — is allowed. A merge whose
@@ -599,11 +600,26 @@ def _pr_create_promote(args: list[str], ctx: _Context) -> Promote | None:
     return ctx.promote(slug)
 
 
+def _fill_placeholders(owner: str, name: str, resolved: str | None) -> str | None:
+    """``owner/repo`` of a REST path, each of gh's placeholders filled on its own.
+
+    gh replaces ``{owner}`` and ``{repo}`` separately, so ``{owner}/grantspider``
+    names grantspider whatever repo the placeholder resolves against. None when
+    ``resolved`` is unread or a brace is left over.
+    """
+    if resolved is None:
+        return None
+    resolved_owner, _, resolved_name = resolved.partition("/")
+    owner = resolved_owner if owner == "{owner}" else owner
+    name = resolved_name if name == "{repo}" else name
+    return None if "{" in owner + name else _slug(f"{owner}/{name}")
+
+
 def _api_repo(owner: str, name: str, ctx: _Context) -> str | None:
     """``owner/repo`` of a REST path, resolving gh's ``{owner}/{repo}`` placeholders."""
     if "{" not in owner + name:
         return _slug(f"{owner}/{name}")
-    return _slug(ctx.gh_repo() or ctx.checkout().origin)
+    return _fill_placeholders(owner, name, _slug(ctx.gh_repo() or ctx.checkout().origin))
 
 
 def _api_promote(args: list[str], ctx: _Context) -> Promote | None:
@@ -690,8 +706,13 @@ _MERGE_ENDPOINT = re.compile(
     r"^(?:https?://[^/]+(?:/api/v3)?)?/?repos/([^/]+)/([^/]+)/pulls/([^/]+)/merge/?$"
 )
 _PULL_URL = re.compile(r"^https?://github\.com/([^/]+)/([^/]+)/pull/(\d+)(?:[/?#].*)?$")
-# Text the shell would still expand: what reaches gh is not what the guard sees.
-_UNEXPANDED = re.compile(r"[$`]")
+# Text the shell would still expand — a parameter, a command substitution or a
+# brace expansion: what reaches gh is not what the guard sees.
+_UNEXPANDED = re.compile(r"[$`{]")
+# ``gh pr merge``'s single-letter flags. pflag reads ``-dR x`` as ``-d -R x``
+# and ``-dRx`` as ``-d -R x``: letters are booleans until one takes a value,
+# which is then the rest of the word, or the next word when nothing is left.
+_PR_MERGE_SHORT_VALUE = frozenset({"A", "b", "F", "R", "t"})
 
 
 @dataclass(frozen=True)
@@ -713,6 +734,25 @@ def _read_slug(text: str | None) -> str | None:
     if text is None or _UNEXPANDED.search(text):
         return None
     return _slug(text)
+
+
+def _split_short_flags(args: list[str]) -> list[str]:
+    """``args`` with each bundle of short flags (``-dt``, ``-dRx``) split as pflag reads it."""
+    split: list[str] = []
+    for index, arg in enumerate(args):
+        if arg == "--":
+            return split + args[index:]
+        if not arg.startswith("-") or arg.startswith("--") or len(arg) <= 2:
+            split.append(arg)
+            continue
+        for offset, letter in enumerate(arg[1:], start=1):
+            split.append(f"-{letter}")
+            if letter in _PR_MERGE_SHORT_VALUE:
+                rest = arg[offset + 1 :].removeprefix("=")
+                if rest:
+                    split.append(rest)
+                break
+    return split
 
 
 def _has_flag(args: list[str], flag: str, value_flags: frozenset[str]) -> bool:
@@ -737,6 +777,7 @@ def _merge_on(slug: str | None, selector: str | None, ctx: _Context) -> Merge | 
 
 
 def _pr_merge(args: list[str], ctx: _Context) -> Merge | None:
+    args = _split_short_flags(args)
     if _has_flag(args, "--disable-auto", _PR_MERGE_VALUE_FLAGS):
         return None  # turns auto-merge off; merges nothing
     pairs, positionals = _options(args, _PR_MERGE_VALUE_FLAGS)
@@ -769,7 +810,8 @@ def _api_merge(args: list[str], ctx: _Context) -> Merge | None:
     number = match[3] if match[3].isdigit() else None
     owner, name = match[1], match[2]
     if "{" in owner + name:  # gh's {owner}/{repo} placeholders: GH_REPO, else origin
-        return _merge_on(_read_slug(ctx.gh_repo() or ctx.checkout().origin), number, ctx)
+        resolved = _read_slug(ctx.gh_repo() or ctx.checkout().origin)
+        return _merge_on(_read_slug(_fill_placeholders(owner, name, resolved)), number, ctx)
     return _merge_on(_read_slug(f"{owner}/{name}"), number, ctx)
 
 

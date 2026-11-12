@@ -451,6 +451,12 @@ def assert_pull_unread(code: int, message: str) -> None:
         "gh api -X PUT https://api.github.com/repos/NathanKrupa/grantspider/pulls/3532/merge",
         "gh pr merge 3532 --repo NathanKrupa/grantspider --merge --body --disable-auto",
         "gh pr merge 3532 --repo NathanKrupa/grantspider -t --disable-auto",
+        "gh pr merge 3532 --repo NathanKrupa/grantspider -dt --disable-auto",
+        "gh pr merge 3532 --repo NathanKrupa/grantspider -mb --disable-auto",
+        "gh pr merge 3532 -dR NathanKrupa/grantspider",
+        "gh pr merge 3532 -dRNathanKrupa/grantspider",
+        "gh pr merge 3532 -sdR=NathanKrupa/grantspider",
+        "GH_REPO=NathanKrupa/grantspider gh api -X PUT 'repos/NathanKrupa/{repo}/pulls/3532/merge'",
         "gh api repos/NathanKrupa/grantspider/pulls/3532/merge -f merge_method=merge",
         f"bash -c '{GS_MERGE}'",
         f"timeout 60 {GS_MERGE}",
@@ -487,6 +493,37 @@ def test_merging_the_checkouts_own_branch_asks_github_for_that_branch():
     command = "cd /home/natha/grantspider && gh pr merge --merge"
     assert_red(*run(command, checkouts=checkouts, pulls=pulls))
     assert pulls.asked == [(GS, PROMOTE_BRANCH)]
+
+
+OS_ORIGIN = "git@github.com:NathanKrupa/OverSteward.git"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "gh api -X PUT 'repos/{owner}/grantspider/pulls/3532/merge'",
+        "gh api -X PUT https://api.github.com/repos/{owner}/grantspider/pulls/3532/merge",
+    ],
+)
+def test_a_partial_placeholder_fills_only_its_own_part(command):
+    """gh fills {owner} alone: from an OverSteward checkout this path is still grantspider."""
+    checkouts = FakeCheckouts({"/home/natha/OverSteward": g.Checkout(OS_ORIGIN, "master")})
+    pulls = gs_pulls()
+    assert_red(*run(f"cd /home/natha/OverSteward && {command}", checkouts=checkouts, pulls=pulls))
+    assert pulls.asked == [(GS, "3532")]
+
+
+def test_opening_through_a_partial_placeholder_is_refused():
+    """The opening path fills placeholders the same way (shared parser, OS#661 round 2)."""
+    checkouts = FakeCheckouts({"/home/natha/OverSteward": g.Checkout(OS_ORIGIN, "master")})
+    command = "cd /home/natha/OverSteward && gh api 'repos/{owner}/grantspider/pulls' -f base=main -f head=staging"
+    assert_red(*run(command, checkouts=checkouts))
+
+
+def test_split_short_flags_reads_bundles_as_gh_does():
+    assert g._split_short_flags(["-dt", "x", "-dRNathanKrupa/gs", "-R=a/b", "--merge", "-m", "--", "-dR"]) == [
+        "-d", "-t", "x", "-d", "-R", "NathanKrupa/gs", "-R", "a/b", "--merge", "-m", "--", "-dR",
+    ]
 
 
 def test_the_rest_placeholders_resolve_against_the_checkout():
@@ -589,6 +626,9 @@ def test_the_pull_unread_text_differs_from_red_and_from_could_not_look():
         ("gh api -X PUT repos/NathanKrupa/$R/pulls/3532/merge", "names no repo"),
         ("gh api -X PUT https://api.github.com/repos/$O/grantspider/pulls/3532/merge", "names no repo"),
         ("GH_REPO=NathanKrupa/$R gh pr merge 3532", "names no repo"),
+        ("gh pr merge 3532 --repo=NathanKrupa/grant{spider,spider}", "names no repo"),
+        ("gh api -X PUT repos/NathanKrupa/grant{spider,x}/pulls/3532/merge", "names no repo"),
+        ("GH_REPO=NathanKrupa/grantspider gh api -X PUT 'repos/{owner}/$R/pulls/3532/merge'", "names no repo"),
         ("GH_REPO=NathanKrupa/$R gh api -X PUT 'repos/{owner}/{repo}/pulls/3532/merge'", "names no repo"),
     ],
 )

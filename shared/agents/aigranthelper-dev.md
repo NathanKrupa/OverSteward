@@ -77,8 +77,8 @@ not lost, because it lands as an open `ci-red` issue, and an open `ci-red`
 issue stops dispatch on this repo until it closes. **The promote guard
 `.claude/hooks/guard_promote_ci_red.py` is deployed** on `staging` (registered
 in `.claude/settings.json`; `main` gets it at the next promote): it refuses
-opening or merging a `staging` → `main` promote PR while any `ci-red` issue is
-open, and refuses with a different message when it could not ask GitHub.
+opening a `staging` → `main` promote PR while any `ci-red` issue is open, and
+refuses with a different message when it could not ask GitHub.
 
 **`ci-passthrough.yml`** (workflow `CI Passthrough (docs-only)`) — reports
 **`Lint`, `Types`, `Gaudi-ratchet`, `Security`, `Test`, `research-drift-check`**
