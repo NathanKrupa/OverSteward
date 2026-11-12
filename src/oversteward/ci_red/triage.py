@@ -434,7 +434,7 @@ def _verify_green(ref: str, issue: CiRedIssue, target: Target, source: CiRedSour
     return str(run_id)
 
 
-def _follows(commits: Sequence[str], earlier: str, later: str) -> bool:
+def follows(commits: Sequence[str], earlier: str, later: str) -> bool:
     """Whether ``later`` is listed after ``earlier`` in ``commits``, oldest first."""
     return earlier in commits and later in commits and commits.index(earlier) < commits.index(later)
 
@@ -459,7 +459,7 @@ def _verify_fixed_in_place(
         raise VerdictError(
             f"run {run_id} tested {run.head_sha}, but PR #{issue.red_pr} {where} {pr.head_sha}"
         )
-    if not _follows(pr.commits, issue.tested_sha, run.head_sha):
+    if not follows(pr.commits, issue.tested_sha, run.head_sha):
         raise VerdictError(
             f"{run.head_sha} is not a later commit than {issue.tested_sha} on PR #{issue.red_pr}"
         )
@@ -474,10 +474,18 @@ def _verify_tracking(ref: str, source: CiRedSource, targets: dict[str, Target]) 
     return f"{target.id}#{number}"
 
 
-def _open_issue(
-    key: str, targets: dict[str, Target], source: CiRedSource
+def swept_issue(
+    store: VerdictStore, source: CiRedSource, targets: Iterable[Target], key: str
 ) -> tuple[Target, CiRedIssue]:
-    target, number = _repo_ref(key, targets)
+    """``key``, refused unless the last measured sweep saw it and it is still an open ci-red issue."""
+    pending = store.pending()
+    if pending is None:
+        raise VerdictError("no measured sweep on record — run `ci_red.py sweep` first")
+    if key not in pending:
+        raise VerdictError(
+            f"{key} was not open in the last sweep; open: {', '.join(sorted(pending)) or 'none'}"
+        )
+    target, number = _repo_ref(key, _by_id(targets))
     raw = _read(lambda: source.issue(target.full_name, number))
     if raw.state != STATE_OPEN or CI_RED not in raw.labels:
         raise VerdictError(f"{key} is not an open ci-red issue")
@@ -509,15 +517,8 @@ def record(
     """Verify ``ref``, close the issue for a closing verdict, then append the ruling."""
     if verdict not in VERDICTS:
         raise VerdictError(f"unknown verdict {verdict!r} — expected one of {', '.join(VERDICTS)}")
-    pending = store.pending()
-    if pending is None:
-        raise VerdictError("no measured sweep on record — run `ci_red.py sweep` first")
-    if key not in pending:
-        raise VerdictError(
-            f"{key} was not open in the last sweep; open: {', '.join(sorted(pending)) or 'none'}"
-        )
-    by_id = _by_id(targets)
-    target, issue = _open_issue(key, by_id, source)
+    targets = tuple(targets)
+    target, issue = swept_issue(store, source, targets, key)
     if verdict == VERDICT_FIXED:
         verified = _verify_fixed(ref, issue, target, source)
     elif verdict == VERDICT_UNMERGED:
@@ -527,7 +528,7 @@ def record(
     elif verdict == VERDICT_FIXED_IN_PLACE:
         verified = _verify_fixed_in_place(ref, issue, target, source)
     else:
-        verified = _verify_tracking(ref, source, by_id)
+        verified = _verify_tracking(ref, source, _by_id(targets))
     if verdict in CLOSING_VERDICTS:
         comment = _close_comment(verdict, verified)
         _read(lambda: source.close(target.full_name, issue.number, comment))
