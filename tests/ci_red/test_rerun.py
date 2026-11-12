@@ -261,6 +261,13 @@ def test_no_sweep_on_record_is_refused(tmp_path, capsys):
     _assert_refused(capsys, workflows, "no measured sweep on record")
 
 
+def test_an_issue_closed_since_the_sweep_is_refused(store, capsys):
+    workflows = FakeWorkflows()
+    closed = RawIssue(**{**red_issue().__dict__, "state": "closed"})
+    assert run_rerun(FakeSource(merged(), closed), workflows, store) == 1
+    _assert_refused(capsys, workflows, f"{KEY} is not an open ci-red issue")
+
+
 def test_an_issue_without_its_tested_commit_and_run_is_refused(store, capsys):
     workflows = FakeWorkflows()
     source = FakeSource(merged(), red_issue(body="no details"))
