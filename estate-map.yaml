@@ -199,13 +199,14 @@ capabilities:
   target_shape: hold
 - id: ag.funder-pages
   kind: code
-  purpose: 'Funder pages: foundation and federal-grant profiles, the search pages, and state, sector and
-    city hubs.'
+  purpose: 'Funder pages: foundation and federal-grant profiles, the search pages, the county agency ladder,
+    and state, sector and city hubs.'
   status: live
   depends_on: [ag.research, ag.funder-search]
   claims:
     aigranthelper:
     - apps/research/views.py
+    - apps/research/agency_views.py
     - apps/research/city_views.py
     - apps/research/sector_views.py
     - apps/research/urls.py
@@ -226,6 +227,8 @@ capabilities:
     - apps/research/services/giving_radius.py
     - apps/research/services/giving_sector.py
     - apps/research/services/giving_trend.py
+    - apps/research/services/gov_agencies.py
+    - apps/research/services/gov_agency_trail.py
     - apps/research/services/gov_detail_display.py
     - apps/research/services/gov_documents.py
     - apps/research/services/gov_obligations.py
@@ -242,7 +245,7 @@ capabilities:
     - apps/research/services/shared_recipients.py
     - apps/research/services/unsolicited_access.py
   liabilities: [L-AG-5]
-  current_shape: '41 modules, 10,799 lines; 63 feature PRs in 90 days. `views.py` is 2,156 lines (1,128 code
+  current_shape: '44 modules, 12,128 lines; 63 feature PRs in 90 days. `views.py` is 2,156 lines (1,128 code
     lines) and was touched by 36 feature PRs, 56 counting promotions to main. It assembles the profile context
     itself (`_build_foundation_detail_context`, `_load_*`, `_stash_*`) and holds four `_apply_*_cache_control`
     helpers whose body `city_views.py`, `sector_views.py` and `seo/lead_views.py` each copy (L-AG-5).'
@@ -1721,6 +1724,7 @@ capabilities:
   purpose: 'Funding-authority map: who passes public money down, from FAC audits and USASpending subawards,
     with county closure and attribution.'
   status: building
+  serves: [ag.funder-pages]
   depends_on: [gs.outbound-http]
   claims:
     grantspider:
@@ -1739,8 +1743,12 @@ capabilities:
     - src/grantspider/services/opportunity_tracker.py
     - src/grantspider/cli/authorities.py
   liabilities: [L-GS-3]
-  current_shape: '14 modules, 4,082 lines; 23 feature PRs in 90 days. CLI only: no Dagster asset yet, and AG
-    reads none of it. Epic GS#3295 is open. `opportunity_tracker.py` has no live importer (L-GS-3).'
+  current_shape: '14 modules, 4,082 lines; 23 feature PRs in 90 days. CLI only: no Dagster asset yet. AG reads
+    it through five `ag_research` views and the `funding_authority_id` of `gov_opportunities_v`: the county
+    agency ladder at `/gov/agencies/<st>/<county>/` (`apps/research/services/gov_agencies.py`) reads
+    `funding_authorities_v`, `funding_authority_areas_v`, `funding_authority_channels_v`,
+    `funding_authority_edges_v` and `funding_authority_coverage_v`, and the money trail
+    (`gov_agency_trail.py`) reads the authorities, areas and edges. Epic GS#3295 is open. `opportunity_tracker.py` has no live importer (L-GS-3).'
   target_shape: hold
 - id: gs.data-quality
   kind: code

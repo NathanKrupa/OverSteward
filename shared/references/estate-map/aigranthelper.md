@@ -14,8 +14,8 @@ Each current shape is its first sentence; the full measurement is in the map.
   - 40 modules, 8,457 lines; 72 feature PRs touched them in 90 days. → `services/__init__.py` and `constants.py` split along capability lines: search into ag.funder-search, indexability and hub lists into ag.search-indexing, page constants into ag.funder-pages. This capability keeps the mirror, the router and the read primitives.
 - `ag.funder-search` · live · Funder search and match scoring: keyword, semantic and hybrid search, Typesense with a Postgres fallback, and funding-fit scoring.
   - 24 modules, 3,993 lines; 10 feature PRs in 90 days. → hold
-- `ag.funder-pages` · live · Funder pages: foundation and federal-grant profiles, the search pages, and state, sector and city hubs.
-  - 41 modules, 10,799 lines; 63 feature PRs in 90 days. → Thin views over research services: views parse the request, call one service per page, and render. Profile and gov-detail context assembly moves into services; the copied cache-control helpers give way to one in `apps/core/cache_headers.py`.
+- `ag.funder-pages` · live · Funder pages: foundation and federal-grant profiles, the search pages, the county agency ladder, and state, sector and city hubs.
+  - 44 modules, 12,128 lines; 63 feature PRs in 90 days. → Thin views over research services: views parse the request, call one service per page, and render. Profile and gov-detail context assembly moves into services; the copied cache-control helpers give way to one in `apps/core/cache_headers.py`.
 - `ag.search-indexing` · live · What Google may index and how it learns of it: sitemaps, the indexability tier, IndexNow, URL Inspection sweeps and the indexation experiments.
   - 29 modules, 5,726 lines; 30 feature PRs in 90 days. → hold
 - `ag.edge` · live · The Cloudflare edge: Cache-Control headers and cache rules, purges, the warmer, the origin lock and the Web Bot Auth key directory.
