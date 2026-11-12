@@ -1454,6 +1454,233 @@ def test_the_cli_teardown_still_drops_what_a_live_bench_holds(tmp_path, monkeypa
 
 
 # ---------------------------------------------------------------------------
+# a repo that declares no bench of its own (OS#716)
+# ---------------------------------------------------------------------------
+#
+# The doctor is byte-identical everywhere, so it cannot know which repos keep a
+# Postgres bench. A repo that has none says so in a file of its own; there, and
+# only there, "no Postgres running" reads as "owns nothing". Every other silence
+# still refuses, and an absent or unreadable declaration means "has a bench".
+
+NO_BENCH = "# ABOUTME: this repo keeps no Postgres test bench.\n# ABOUTME: second line.\nnone\n"
+
+#: Declarations that must read as "has a bench" — the fail-closed side.
+NOT_DECLARED = {
+    "absent": None,
+    "empty": "",
+    "only-comments": "# ABOUTME: none\n",
+    "another-word": "no\n",
+    "two-values": "none\nnone\n",
+    "trailing-text": "none please\n",
+    "undecodable": b"\xff\xfenone\n",
+    "a-directory": "dir",
+}
+
+#: Docker up, answering ``ps``, with no Postgres among what it runs.
+DOCKER_UP_NO_POSTGRES = "redis\n"
+
+
+def _declare(root: Path, content: str | bytes | None) -> None:
+    """Write ``root``'s bench declaration; None leaves it absent, ``dir`` makes it unreadable."""
+    target = root / ".worktree-bench"
+    if content is None:
+        return
+    if content == "dir":
+        target.mkdir()
+    elif isinstance(content, bytes):
+        target.write_bytes(content)
+    else:
+        target.write_text(content, encoding="utf-8")
+
+
+def _no_postgres() -> ScriptedDocker:
+    return ScriptedDocker({"ps --format": DOCKER_UP_NO_POSTGRES})
+
+
+def test_a_declaration_of_none_reads_as_no_bench(doctor, tmp_path):
+    _declare(tmp_path, NO_BENCH)
+
+    assert doctor.declares_no_bench(tmp_path) is True
+
+
+def test_a_declaration_with_no_comments_reads_as_no_bench(doctor, tmp_path):
+    _declare(tmp_path, "  none  \n\n")
+
+    assert doctor.declares_no_bench(tmp_path) is True
+
+
+@pytest.mark.parametrize("shape", sorted(NOT_DECLARED))
+def test_anything_but_a_well_formed_declaration_means_a_bench(doctor, tmp_path, shape):
+    """Fail closed: a typo or an unreadable file keeps today's refusal."""
+    _declare(tmp_path, NOT_DECLARED[shape])
+
+    assert doctor.declares_no_bench(tmp_path) is False
+
+
+def test_no_root_means_a_bench(doctor):
+    """A tree git cannot place has no declaration to read."""
+    assert doctor.declares_no_bench(None) is False
+
+
+def test_a_benchless_teardown_proceeds_with_docker_up_and_no_postgres(doctor, tmp_path, capsys):
+    repo, worktree = _make_git_repo(tmp_path)
+    _declare(repo, NO_BENCH)
+    docker = _no_postgres()
+    removed: list[Path] = []
+
+    rc = doctor.teardown(worktree, [doctor.venv_of(repo)], docker=docker, remove=removed.append)
+
+    assert rc == 0
+    assert removed == [worktree]
+    assert "declares no bench" in capsys.readouterr().out
+    assert not any("dropdb" in call for call in docker.calls)
+
+
+def test_the_declaration_is_read_from_the_primary_checkout(doctor, tmp_path):
+    """The worktree's own copy is the branch's; the repo's word is its primary's."""
+    repo, worktree = _make_git_repo(tmp_path)
+    _declare(worktree, NO_BENCH)
+    removed: list[Path] = []
+
+    with pytest.raises(doctor.CouldNotLook):
+        doctor.teardown(
+            worktree, [doctor.venv_of(repo)], docker=_no_postgres(), remove=removed.append
+        )
+
+    assert removed == []
+
+
+def test_a_benchless_teardown_still_refuses_a_docker_silent_on_ps(doctor, tmp_path):
+    """The declaration answers "no Postgres running", never "docker would not say"."""
+    repo, worktree = _make_git_repo(tmp_path)
+    _declare(repo, NO_BENCH)
+    removed: list[Path] = []
+
+    with pytest.raises(doctor.CouldNotLook, match="did not answer `docker ps`"):
+        doctor.teardown(
+            worktree, [doctor.venv_of(repo)], docker=FakeDocker(output=None), remove=removed.append
+        )
+
+    assert removed == []
+
+
+@pytest.mark.parametrize("silence", sorted(set(SILENCES) - {"no-postgres-running"}))
+def test_a_benchless_teardown_still_refuses_every_other_silence(doctor, tmp_path, silence):
+    """A Postgres that will not describe or list itself may be a bench after all."""
+    repo, worktree = _make_git_repo(tmp_path)
+    _declare(repo, NO_BENCH)
+    docker = SILENCES[silence]()
+    removed: list[Path] = []
+
+    with pytest.raises(doctor.CouldNotLook):
+        doctor.teardown(worktree, [doctor.venv_of(repo)], docker=docker, remove=removed.append)
+
+    assert removed == []
+    assert not any("dropdb" in call for call in docker.calls)
+
+
+@pytest.mark.parametrize("shape", sorted(NOT_DECLARED))
+def test_an_undeclared_repo_with_no_postgres_still_refuses(doctor, tmp_path, shape):
+    """The OS#502 pin: without a well-formed declaration, no Postgres is "could not look"."""
+    repo, worktree = _make_git_repo(tmp_path)
+    _declare(repo, NOT_DECLARED[shape])
+    removed: list[Path] = []
+
+    with pytest.raises(doctor.CouldNotLook, match="no running Postgres container"):
+        doctor.teardown(
+            worktree, [doctor.venv_of(repo)], docker=_no_postgres(), remove=removed.append
+        )
+
+    assert removed == []
+
+
+def test_a_benchless_repo_still_drops_what_a_running_postgres_holds(doctor, tmp_path, capsys):
+    """The declaration short-circuits only the empty listing; a live bench is still read."""
+    repo, worktree = _make_git_repo(tmp_path)
+    _declare(repo, NO_BENCH)
+    docker = _bench_docker("repo_test_demo")
+
+    rc = doctor.teardown(worktree, [doctor.venv_of(repo)], docker=docker, remove=lambda path: None)
+
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "dropped repo_test_demo (grantspider-test-pg)" in out
+    assert "declares no bench" not in out, "a teardown that dropped something owned something"
+
+
+def test_an_undeclared_teardown_that_drops_nothing_says_nothing_of_a_bench(
+    doctor, tmp_path, capsys
+):
+    """The note is the declaration's; a bench that held nothing must not print it."""
+    repo, worktree = _make_git_repo(tmp_path)
+
+    rc = doctor.teardown(
+        worktree, [doctor.venv_of(repo)], docker=_bench_docker(), remove=lambda path: None
+    )
+
+    assert rc == 0
+    assert "declares no bench" not in capsys.readouterr().out
+
+
+def test_a_benchless_sweep_with_no_postgres_finds_nothing_to_reconcile(doctor, tmp_path, capsys):
+    repo, _ = _make_git_repo(tmp_path)
+    _declare(repo, NO_BENCH)
+
+    assert doctor.sweep(repo, _no_postgres()) == 0
+    out = capsys.readouterr().out
+    assert "declares no bench" in out
+    assert "No orphans" not in out, "a benchless pass must not read like a bench that was asked"
+
+
+def test_a_benchless_sweep_of_a_running_postgres_still_reconciles(doctor, tmp_path, capsys):
+    """The declaration answers only the empty listing; a live Postgres is reconciled."""
+    repo, _ = _make_git_repo(tmp_path)
+    _declare(repo, NO_BENCH)
+
+    assert doctor.sweep(repo, _bench_docker("repo_test_ghost")) == 1
+    out = capsys.readouterr().out
+    assert "repo_test_ghost" in out
+    assert "declares no bench" not in out
+
+
+def test_a_benchless_sweep_still_refuses_a_docker_silent_on_ps(doctor, tmp_path):
+    repo, _ = _make_git_repo(tmp_path)
+    _declare(repo, NO_BENCH)
+
+    with pytest.raises(doctor.CouldNotLook):
+        doctor.sweep_candidates(repo, lambda args: None)
+
+
+def test_the_cli_tears_down_a_benchless_worktree_with_no_postgres(tmp_path, monkeypatch):
+    repo, worktree = _make_git_repo(tmp_path)
+    _declare(repo, NO_BENCH)
+    log = _logging_docker(tmp_path, "echo redis", "echo REDIS_VERSION=7", "exit 1")
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+
+    result = _run("teardown", str(worktree), "--repo", str(repo))
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert f"removed {worktree}" in result.stdout
+    assert "declares no bench" in result.stdout
+    assert not worktree.exists()
+    assert "dropdb" not in log.read_text(encoding="utf-8")
+
+
+def test_the_cli_still_refuses_a_benchless_teardown_when_ps_is_silent(tmp_path, monkeypatch):
+    repo, worktree = _make_git_repo(tmp_path)
+    _declare(repo, NO_BENCH)
+    _logging_docker(tmp_path, "exit 1", "exit 1", "exit 1")
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+
+    result = _run("teardown", str(worktree), "--repo", str(repo))
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "did not answer `docker ps`" in result.stderr
+    assert result.stdout.strip() == ""
+    assert worktree.is_dir()
+
+
+# ---------------------------------------------------------------------------
 # cleanup-merged — dispatch SKILL.md §5 as one command (OS#571)
 # ---------------------------------------------------------------------------
 #
@@ -1947,6 +2174,68 @@ def test_the_cli_cleans_a_merged_pr_end_to_end(tmp_path, gh, monkeypatch):
     result = _run("cleanup-merged", "7", "--repo", str(repo))
 
     assert result.returncode == 0, result.stdout + result.stderr
+    assert not worktree.exists()
+    assert not _has_branch(repo)
+    assert DELETE_CALL in _gh_calls(gh)
+
+
+def test_cleanup_of_a_benchless_repo_proceeds_with_no_postgres(doctor, tmp_path, gh, capsys):
+    """OS#716: the teardown and the sweep both read "no Postgres" as "owns nothing" here."""
+    repo, worktree = _merged_repo(tmp_path)
+    _declare(repo, NO_BENCH)
+
+    rc = doctor.cleanup_merged(repo, 7, _no_postgres())
+
+    out = capsys.readouterr().out
+    assert rc == 0, out
+    assert "declares no bench" in out
+    assert any(
+        line.startswith("sweep: done") and "declares no bench" in line for line in out.splitlines()
+    ), out
+    assert not worktree.exists()
+    assert not _has_branch(repo)
+    assert DELETE_CALL in _gh_calls(gh)
+
+
+def test_cleanup_of_a_benchless_repo_still_stops_when_ps_is_silent(doctor, tmp_path, gh, capsys):
+    repo, worktree = _merged_repo(tmp_path)
+    _declare(repo, NO_BENCH)
+
+    rc = doctor.cleanup_merged(repo, 7, lambda args: None)
+
+    out = capsys.readouterr().out
+    assert rc == 2
+    assert "did not answer `docker ps`" in out
+    assert worktree.is_dir()
+    assert _has_branch(repo)
+    assert DELETE_CALL not in _gh_calls(gh)
+    assert f"branch {HEAD_BRANCH}:" not in out, "the sequence ran on past the refusal"
+
+
+def test_cleanup_of_an_undeclared_repo_with_no_postgres_still_stops(doctor, tmp_path, gh, capsys):
+    """The OS#502 pin through cleanup-merged: no declaration, no Postgres, no teardown."""
+    repo, worktree = _merged_repo(tmp_path)
+
+    rc = doctor.cleanup_merged(repo, 7, _no_postgres())
+
+    out = capsys.readouterr().out
+    assert rc == 2
+    assert "no running Postgres container" in out
+    assert worktree.is_dir()
+    assert _has_branch(repo)
+    assert DELETE_CALL not in _gh_calls(gh)
+
+
+def test_the_cli_cleans_a_benchless_merged_pr_with_no_postgres(tmp_path, gh, monkeypatch):
+    repo, worktree = _merged_repo(tmp_path)
+    _declare(repo, NO_BENCH)
+    _logging_docker(tmp_path, "echo redis", "echo REDIS_VERSION=7", "exit 1")
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+
+    result = _run("cleanup-merged", "7", "--repo", str(repo))
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "declares no bench" in result.stdout
     assert not worktree.exists()
     assert not _has_branch(repo)
     assert DELETE_CALL in _gh_calls(gh)

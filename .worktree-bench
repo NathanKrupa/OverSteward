@@ -1,0 +1,3 @@
+# ABOUTME: OverSteward keeps no Postgres test bench; scripts/dev/worktree_doctor.py reads this file.
+# ABOUTME: "none" makes no running Postgres mean a worktree owns no database (OS#716).
+none

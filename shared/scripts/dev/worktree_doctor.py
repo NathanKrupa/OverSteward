@@ -35,6 +35,13 @@ owns, remove the worktree, and only then drop them. Everything that can fail
 happens before anything that cannot be undone, so a teardown that stops halfway
 has destroyed nothing.
 
+Naming the databases needs a Postgres to ask, so a docker that runs none is
+"could not look" (exit 2) — a stopped bench still holds every database it had.
+A repo with no bench of its own says so in ``.worktree-bench`` at its primary
+checkout's root, a repo-owned file outside this byte-copy family; there, and
+only there, a docker that answers ``ps`` and runs no Postgres means "owns
+nothing". An absent, unreadable or malformed declaration means "has a bench".
+
 ``sweep`` is the recovery path for the worktrees that never went through
 ``teardown``. Every other verb names a database by deriving it from a worktree's
 path; remove the worktree by any other means and the path is gone, the
@@ -570,13 +577,17 @@ def _holders(worktree: Path, docker: DockerRunner, name: str | None) -> list[tup
     cannot say what the bench holds raises :class:`CouldNotLook` here too rather
     than answer "nothing" (OS#502). An ``UNOWNED`` tree returns before docker is
     asked: its answer comes from the path alone, and no listing could change it.
+
+    Whether the repo declares no bench is read from the primary checkout, not
+    from ``worktree``: a branch's copy of the declaration is not the repo's word.
     """
     ownership = Ownership(exact=name) if name is not None else _ownership(worktree)
     if ownership == UNOWNED:
         return []
+    benchless = declares_no_bench(primary_checkout(worktree))
     return [
         (container, user, database)
-        for container, user, databases in _database_listings(docker)
+        for container, user, databases in _database_listings(docker, benchless=benchless)
         for database in databases
         if ownership.owns(database)
     ]
@@ -693,6 +704,10 @@ class Reconciliation:
     #: Databases outside this repo's stems — another repo's, or hand-made. Never
     #: dropped: the doctor has no derivation that could have written them.
     unattributed: tuple[str, ...]
+    #: The primary checkout whose bench declaration answered an empty listing —
+    #: set only when the repo declares no bench and no Postgres was running, so
+    #: that pass never reads like a bench that was asked and held nothing.
+    no_bench: Path | None = None
 
     @property
     def orphans(self) -> tuple[Candidate, ...]:
@@ -805,12 +820,48 @@ def _attributed(module, database: str, stems: Iterable[str]) -> str | None:
     return None
 
 
-def _database_listings(docker: DockerRunner) -> list[tuple[str, str, list[str]]]:
+#: The repo-owned file, at the primary checkout's root, in which a repo with no
+#: Postgres test bench of its own says so (OS#716). This file is a byte-identical
+#: copy in every repo, so it cannot know which repos keep a bench; the repo has
+#: to tell it. Its one meaningful line is ``none``; ``#`` lines are comments.
+BENCH_DECLARATION = ".worktree-bench"
+
+
+def declares_no_bench(root: Path | None) -> bool:
+    """True only when ``root`` holds a well-formed declaration that it has no bench.
+
+    Fails closed: an absent, unreadable or malformed declaration — anything but
+    exactly one non-comment line reading ``none`` — means "has a bench", so the
+    refusal for a missing Postgres stands wherever a repo has not said otherwise.
+    """
+    if root is None:
+        return False
+    try:
+        text = (root / BENCH_DECLARATION).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return False
+    values = [
+        line.strip()
+        for line in text.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    return values == ["none"]
+
+
+def _database_listings(
+    docker: DockerRunner, *, benchless: bool = False
+) -> list[tuple[str, str, list[str]]]:
     """``(container, superuser, databases)`` for every running Postgres.
 
     Every silence is a refusal. ``docker`` answers None when it is absent or
     unhappy, which by the time it reaches a caller is indistinguishable from an
     empty answer — and an empty answer here reads as "nothing is orphaned".
+
+    The one exception is ``benchless``: in a repo that declares no bench (see
+    :func:`declares_no_bench`), a docker that answered ``ps`` and runs no
+    Postgres holds nothing of this repo's, so the empty listing is the answer.
+    A docker that does not answer, or a Postgres that will not describe or list
+    itself, still refuses there.
     """
     if docker(["ps", "--format", "{{.Names}}"]) is None:
         raise CouldNotLook("docker did not answer `docker ps` — is the daemon running?")
@@ -820,7 +871,7 @@ def _database_listings(docker: DockerRunner) -> list[tuple[str, str, list[str]]]
         if answer is None:
             raise CouldNotLook(f"{container} did not answer `{LIST_DATABASES}`")
         listings.append((container, user, _listed(answer)))
-    if not listings:
+    if not listings and not benchless:
         raise CouldNotLook(
             "no running Postgres container — a stopped bench still holds every "
             "database it ever had, so none of them can be named or ruled out"
@@ -833,7 +884,8 @@ def reconcile(repo: Path, docker: DockerRunner) -> Reconciliation:
     module = require_worktree_db()
     primary, linked = live_worktrees(repo)
     trees = [_live_tree(module, path) for path in linked]
-    listings = _database_listings(docker)
+    benchless = declares_no_bench(primary)
+    listings = _database_listings(docker, benchless=benchless)
     everything = [database for _, _, databases in listings for database in databases]
     stems = _stems(module, primary, trees, everything)
     candidates = [
@@ -851,7 +903,13 @@ def reconcile(repo: Path, docker: DockerRunner) -> Reconciliation:
     return Reconciliation(
         tuple(candidates),
         tuple(sorted(set(everything) - named - SYSTEM_DATABASES)),
+        no_bench=primary if benchless and not listings else None,
     )
+
+
+def _no_bench_running(root: Path) -> str:
+    """What a sweep says when a benchless repo's empty listing was the answer."""
+    return f"{root} declares no bench in {BENCH_DECLARATION} and no Postgres is running"
 
 
 def sweep_candidates(repo: Path, docker: DockerRunner) -> list[Candidate]:
@@ -888,6 +946,9 @@ def sweep(repo: Path, docker: DockerRunner, drop: bool = False) -> int:
     still has to answer. Answering it with ``--drop`` exits 0.
     """
     found = reconcile(repo, docker)
+    if found.no_bench is not None:
+        print(f"{_no_bench_running(found.no_bench)} — there was nothing to reconcile")
+        return 0
     report_reconciliation(found)
     if not found.orphans:
         print("\nNo orphans — every database in this repo's shape has a live worktree.")
@@ -1135,6 +1196,8 @@ def teardown(
         report_capture(worktree, hits, "teardown refused")
         return 1
     held = _holders(worktree, docker, name) if docker is not None else []
+    # Resolved before the removal: once the worktree is gone git cannot place it.
+    root = primary_checkout(worktree)
     try:
         remove(worktree)
     except WorktreeRemovalRefused as refused:
@@ -1147,6 +1210,9 @@ def teardown(
         return 0
     for dropped in drop_held(held, docker):
         print(f"dropped {dropped}")
+    if not held and declares_no_bench(root):
+        # Said aloud, so a benchless pass never reads like a bench that held nothing.
+        print(f"{root} declares no bench in {BENCH_DECLARATION} — no database was dropped")
     return 0
 
 
@@ -1363,6 +1429,9 @@ def cleanup_sweep(primary: Path, docker: DockerRunner) -> int:
     except CouldNotLook as unavailable:
         _step("sweep", UNLOOKED, str(unavailable))
         return 2
+    if found.no_bench is not None:
+        _step("sweep", DONE, _no_bench_running(found.no_bench))
+        return 0
     if found.orphans:
         names = ", ".join(candidate.database for candidate in found.orphans)
         _step("sweep", REFUSED, f"orphaned {names} — audit `worktree_doctor.py sweep`, then --drop")
