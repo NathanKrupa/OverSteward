@@ -863,6 +863,7 @@ def _git_answering_ls_files(shim_dir: Path, status: int) -> None:
     ("status", "kept"),
     [
         (128, True),  # git ran and could not answer: a corrupt index, an unreadable repo
+        (2, True),  # any other non-zero exit: still not git's "did not match"
         (1, False),  # git's "did not match": the launcher's own untracked file
         (0, True),  # git has it under version control
     ],
