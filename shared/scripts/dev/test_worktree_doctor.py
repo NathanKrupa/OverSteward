@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -839,6 +840,50 @@ def test_a_tracked_envrc_is_never_deleted_as_scaffolding(doctor, tmp_path):
 
     assert (worktree / ".envrc").read_text(encoding="utf-8") == "committed .envrc\n"
     assert cleared == [".venv"]
+
+
+def _git_answering_ls_files(shim_dir: Path, status: int) -> None:
+    """A ``git`` that exits ``status`` for ``ls-files`` and runs the real git otherwise."""
+    real_git = shutil.which("git")
+    assert real_git, "the shim delegates to a real git"
+    shim_dir.mkdir()
+    shim = shim_dir / "git"
+    shim.write_text(
+        "#!/bin/sh\n"
+        'case " $* " in\n'
+        f'  *" ls-files "*) exit {status} ;;\n'
+        "esac\n"
+        f'exec {real_git} "$@"\n',
+        encoding="utf-8",
+    )
+    shim.chmod(0o755)
+
+
+@pytest.mark.parametrize(
+    ("status", "kept"),
+    [
+        (128, True),  # git ran and could not answer: a corrupt index, an unreadable repo
+        (1, False),  # git's "did not match": the launcher's own untracked file
+        (0, True),  # git has it under version control
+    ],
+)
+def test_only_a_did_not_match_answer_clears_the_envrc(
+    doctor, tmp_path, monkeypatch, status, kept
+):
+    """OS#609: only exit 1 reads as untracked, the rule ``new-session.sh`` keeps (OS#608).
+
+    Any other exit is git failing to answer, and an unanswered question reads as
+    tracked: deleting a file that should have stayed costs the operator's work.
+    """
+    _, worktree = _make_git_repo(tmp_path)
+    (worktree / ".envrc").write_text('export PYTHONPATH="$PWD/src"\n', encoding="utf-8")
+    _git_answering_ls_files(tmp_path / "shim", status)
+    monkeypatch.setenv("PATH", f"{tmp_path / 'shim'}:{os.environ['PATH']}")
+
+    cleared = doctor.clear_launcher_scaffolding(worktree)
+
+    assert (worktree / ".envrc").is_file() is kept
+    assert (".envrc" in cleared) is not kept
 
 
 def test_a_worktree_whose_envrc_is_tracked_tears_down(doctor, tmp_path):
