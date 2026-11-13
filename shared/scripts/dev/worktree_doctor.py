@@ -35,6 +35,14 @@ owns, remove the worktree, and only then drop them. Everything that can fail
 happens before anything that cannot be undone, so a teardown that stops halfway
 has destroyed nothing.
 
+The drop is the one step that comes after something irreversible, so its
+failure has its own exit code. A ``dropdb`` docker did not confirm prints
+``NOT dropped <name>`` on stderr, never ``dropped <name>``, and the verb exits 3
+(:data:`DROP_UNCONFIRMED`): not 1, which means nothing was changed, and not 2,
+which means the verb could not look before it acted. The worktree is gone by
+then and the name with it, so the message points at ``sweep``, which finds a
+database by absence (OS#717). ``sweep --drop`` reports its drops the same way.
+
 Naming the databases needs a Postgres to ask, so a docker that runs none is
 "could not look" (exit 2) — a stopped bench still holds every database it had.
 A repo with no bench of its own says so in ``.worktree-bench`` at its primary
@@ -73,7 +81,12 @@ branch with ``git branch -d`` (never ``-D``), and deletes the remote ref
 through the refs API after re-checking, immediately before the delete, that
 ``origin`` still holds the sha it proved. The refs API takes no expected sha,
 so a push landing between that re-check and the DELETE is not caught. One line
-per step, then a verdict: exit 0 clean (already-gone included), 1 refused, 2 could not look.
+per step, then a verdict: exit 0 clean (already-gone included), 1 refused, 2 could not look,
+3 a database its teardown could not confirm dropping. The worktree is gone by
+then, so that one is a finding like the sweep's: the branch steps still run.
+When findings meet, 3 outranks 2 and 1: it is the one outcome that left
+something behind after a step nothing can undo, and its remedy (``sweep``,
+once docker answers) is the one the operator must not miss.
 """
 
 from __future__ import annotations
@@ -124,8 +137,26 @@ LAUNCHER_ARTIFACTS = (".venv", ".envrc")
 DockerRunner = Callable[[list[str]], "str | None"]
 
 
+#: The exit code of a verb that removed a worktree, or ran ``sweep --drop``, and
+#: then could not confirm a database drop. See the module docstring (OS#717).
+DROP_UNCONFIRMED = 3
+
+
 class WorktreeRemovalRefused(RuntimeError):
     """``git worktree remove`` declined — uncommitted work, or a held lock."""
+
+
+class DropsUnconfirmed(RuntimeError):
+    """``dropdb`` calls docker did not confirm, with the drops it did confirm.
+
+    Raised rather than returned so no caller of :func:`drop_held` can count a
+    drop it only asked for.
+    """
+
+    def __init__(self, dropped: list[str], unconfirmed: list[str]) -> None:
+        super().__init__(", ".join(unconfirmed))
+        self.dropped = dropped
+        self.unconfirmed = unconfirmed
 
 
 @dataclass(frozen=True)
@@ -619,6 +650,10 @@ def drop_database(worktree: Path, docker: DockerRunner, name: str | None = None)
 def drop_held(held: Iterable[tuple[str, str, str]], docker: DockerRunner) -> list[str]:
     """Drop already-named databases; return what was dropped.
 
+    A drop docker answered with ``None`` — no docker, or a non-zero ``dropdb`` —
+    is not a drop. Every database is still tried, and then
+    :class:`DropsUnconfirmed` carries both lists.
+
     Separate from the naming because teardown must name them *before* the
     worktree goes and drop them *after* — every name is derived from the
     worktree's path, so nothing can work them out once it has been removed.
@@ -627,11 +662,11 @@ def drop_held(held: Iterable[tuple[str, str, str]], docker: DockerRunner) -> lis
     reached only through an explicit ``teardown``, where dropping the database
     is the whole point of the verb. Nothing else on the container is touched.
     """
-    dropped = []
+    dropped, unconfirmed = [], []
     for container, user, database in held:
         # ``--maintenance-db`` for the same reason as the probe's ``-d``, with
         # one addition: a client cannot drop the database it is connected to.
-        docker(
+        answer = docker(
             [
                 "exec",
                 container,
@@ -644,8 +679,31 @@ def drop_held(held: Iterable[tuple[str, str, str]], docker: DockerRunner) -> lis
                 database,
             ]
         )
-        dropped.append(f"{database} ({container})")
+        (unconfirmed if answer is None else dropped).append(f"{database} ({container})")
+    if unconfirmed:
+        raise DropsUnconfirmed(dropped, unconfirmed)
     return dropped
+
+
+def report_drops(held: Iterable[tuple[str, str, str]], docker: DockerRunner) -> int:
+    """Drop ``held``, print each outcome, and return 0 or :data:`DROP_UNCONFIRMED`.
+
+    A confirmed drop goes to stdout as ``dropped <name>``; an unconfirmed one to
+    stderr, with the command that can still find it.
+    """
+    try:
+        dropped, unconfirmed = drop_held(held, docker), []
+    except DropsUnconfirmed as partial:
+        dropped, unconfirmed = partial.dropped, partial.unconfirmed
+    for name in dropped:
+        print(f"dropped {name}")
+    for name in unconfirmed:
+        print(
+            f"NOT dropped {name} — docker did not confirm the drop. It may still be on "
+            "the container: run `worktree_doctor.py sweep` to find it.",
+            file=sys.stderr,
+        )
+    return DROP_UNCONFIRMED if unconfirmed else 0
 
 
 # ---------------------------------------------------------------------------
@@ -943,7 +1001,8 @@ def sweep(repo: Path, docker: DockerRunner, drop: bool = False) -> int:
     """Report the databases no live worktree accounts for; drop them only if asked.
 
     Non-zero means orphans were found and left standing — a question the operator
-    still has to answer. Answering it with ``--drop`` exits 0.
+    still has to answer. Answering it with ``--drop`` exits 0, or
+    :data:`DROP_UNCONFIRMED` when docker did not confirm a drop.
     """
     found = reconcile(repo, docker)
     if found.no_bench is not None:
@@ -960,9 +1019,7 @@ def sweep(repo: Path, docker: DockerRunner, drop: bool = False) -> int:
         )
         return 1
     print()
-    for dropped in drop_held([candidate.held for candidate in found.orphans], docker):
-        print(f"dropped {dropped}")
-    return 0
+    return report_drops([candidate.held for candidate in found.orphans], docker)
 
 
 # ---------------------------------------------------------------------------
@@ -1179,7 +1236,10 @@ def teardown(
     remove: Callable[[Path], None] = remove_worktree,
     name: str | None = None,
 ) -> int:
-    """Check, remove the worktree, then drop what it owned. Non-zero means refused.
+    """Check, remove the worktree, then drop what it owned.
+
+    0 is done; 1 refused, before anything changed; :data:`DROP_UNCONFIRMED` is a
+    removed worktree with a drop docker did not confirm.
 
     Most recoverable step first, irreversible last — the ordering rule in the
     module docstring. The databases are *named* before the removal, because
@@ -1208,12 +1268,11 @@ def teardown(
         # Silence here would read exactly like a worktree that owned nothing.
         print("--no-docker: this worktree's databases were neither named nor dropped")
         return 0
-    for dropped in drop_held(held, docker):
-        print(f"dropped {dropped}")
+    code = report_drops(held, docker)
     if not held and declares_no_bench(root):
         # Said aloud, so a benchless pass never reads like a bench that held nothing.
         print(f"{root} declares no bench in {BENCH_DECLARATION} — no database was dropped")
-    return 0
+    return code
 
 
 def repair_repo(repo: Path, docker: DockerRunner | None = None) -> tuple[list[str], list[str]]:
@@ -1243,7 +1302,14 @@ SIBLING_SUFFIXES = (".baseline", ".review")
 
 GITHUB_SLUG = re.compile(r"github\.com/([^/]+/[^/]+)/pull/\d+")
 
-VERDICTS = {0: "clean", 1: "refused", 2: "could not look"}
+VERDICTS = {
+    0: "clean",
+    1: "refused",
+    2: "could not look",
+    DROP_UNCONFIRMED: (
+        "a database was not dropped — run `worktree_doctor.py sweep` once docker answers"
+    ),
+}
 
 
 class CleanupStopped(RuntimeError):
@@ -1366,20 +1432,28 @@ def _checkouts(primary: Path) -> dict[Path, str | None]:
 
 def _tear_down(
     path: Path, pr: MergedPr, checkouts: dict[Path, str | None], docker: DockerRunner
-) -> None:
-    """One tree through :func:`teardown`, whose refusal stops the sequence unchanged."""
+) -> int:
+    """One tree through :func:`teardown`, whose refusal stops the sequence unchanged.
+
+    Returns :data:`DROP_UNCONFIRMED` for a tree that went but left a database:
+    nothing later depends on that drop, so the sequence carries on.
+    """
     subject = f"teardown {path}"
     if not path.exists():
         _step(subject, ABSENT)
-        return
+        return 0
     branch = checkouts.get(path.resolve())
     if branch not in (None, pr.head):
         _refuse(subject, f"it has {branch} checked out, not {pr.head} — not this PR's tree")
     code = teardown(path, default_venvs(path), docker=docker)
+    if code == DROP_UNCONFIRMED:
+        _step(subject, REFUSED, "removed, but a database was not dropped (above)")
+        return code
     if code != 0:
         _step(subject, REFUSED, "the doctor refused it (above) — fix that, then re-run")
         raise CleanupStopped(code)
     _step(subject, DONE)
+    return 0
 
 
 def stray_siblings(primary: Path) -> list[Path]:
@@ -1396,7 +1470,8 @@ def stray_siblings(primary: Path) -> list[Path]:
 def cleanup_worktrees(
     primary: Path, pr: MergedPr, docker: DockerRunner, worktree: Path | None
 ) -> int:
-    """Step 4: the PR's worktree and its siblings. Returns 1 for a stray left standing.
+    """Step 4: the PR's worktree and its siblings. Returns 1 for a stray left standing,
+    or :data:`DROP_UNCONFIRMED` for a database a teardown did not drop.
 
     The worktree is the one named, else the one with the head branch checked
     out. A sibling of a worktree already gone cannot be tied to this PR, so it
@@ -1404,11 +1479,12 @@ def cleanup_worktrees(
     """
     checkouts = _checkouts(primary)
     main = worktree or next((p for p, branch in checkouts.items() if branch == pr.head), None)
+    undropped = 0
     if main is None:
         _step("worktree", ABSENT, f"no worktree has {pr.head} checked out")
     else:
         for path in (main, *(Path(f"{main}{suffix}") for suffix in SIBLING_SUFFIXES)):
-            _tear_down(path, pr, checkouts, docker)
+            undropped = max(undropped, _tear_down(path, pr, checkouts, docker))
     strays = stray_siblings(primary)
     if strays:
         _step(
@@ -1417,9 +1493,9 @@ def cleanup_worktrees(
             f"{', '.join(map(str, strays))} outlived its worktree — "
             "`worktree_doctor.py teardown` each once you know whose it is",
         )
-        return 1
+        return max(undropped, 1)
     _step("siblings", ABSENT, "no .baseline/.review outlives its worktree")
-    return 0
+    return undropped
 
 
 def cleanup_sweep(primary: Path, docker: DockerRunner) -> int:
@@ -1539,9 +1615,9 @@ def cleanup_merged(
     """§5 in order: merged, childless, on the trunk, worktrees, sweep, branch, remote.
 
     0 is clean, already-gone included. A refusal or an unanswerable question at
-    a step that guards a deletion stops there; the sweep and a stray sibling are
-    findings about the repo, not this PR, so they set the exit code and the
-    sequence carries on.
+    a step that guards a deletion stops there; the sweep, a stray sibling and a
+    database a removed worktree left undropped are findings that guard no later
+    step, so they set the exit code and the sequence carries on.
     """
     findings = 0
     try:

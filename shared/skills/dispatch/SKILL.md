@@ -280,10 +280,13 @@ It runs, in this order, and prints one line per step and a verdict:
 
 Absent is a pass at every step, so a PR whose leftovers were already cleaned
 exits 0. Exit 1 is a refusal, exit 2 is "could not look" (gh failed, git could
-not reach origin, docker did not answer the sweep). Every refusal stops the
-sequence there, so nothing after it runs — except two findings that belong to
-the repo rather than this PR, an orphan the sweep found and a stray sibling,
-which set the exit code and let the rest run. The doctor's own refusal (exit 1 = something
+not reach origin, docker did not answer the sweep). Exit 3 is a teardown that
+removed a worktree but could not confirm dropping its database: it prints
+`NOT dropped <name>` on stderr, and `worktree_doctor.py sweep` finds what was
+left (OS#717). Every refusal stops the
+sequence there, so nothing after it runs — except three findings that guard no
+later step, an orphan the sweep found, a stray sibling and that undropped
+database, which set the exit code and let the rest run. The doctor's own refusal (exit 1 = something
 still points here or the tree is dirty, exit 2 = it could not look) is the one
 legitimate stop, and it is a finding to fix in-session — inspect the stray
 file, run `repair`, start docker, then run the command again — not a step to
