@@ -61,7 +61,7 @@
 - `gs.giving-stats` · live · Giving statistics: per-funder fingerprints and distributions, top funders by state, city and sector, and the one sector taxonomy.
 - `gs.deadlines` · live · Deadlines: deterministic extraction from crawled pages and the 990-PF, rolling-cue classification, and the one open-to-applications predicate.
 - `gs.embeddings-search` · live · Embeddings and search: local all-MiniLM-L6-v2 (384-d) for funders, open opportunities and page chunks; Typesense reindexes.
-- `gs.authority-map` · building · Funding-authority map: who passes public money down, from FAC audits and USASpending subawards, with county closure and attribution.
+- `gs.authority-map` · building · The government-funder map: every public body that has funded in the last two years, federal to tribal, with the counties it serves, its focus and where it posts funding.
 - `gs.data-quality` · live · Data quality: the write gate, nightly snapshots and drift scans, freshness SLAs, the stage-health ledger, canaries, the Vintner funnel, operator stats.
 - `gs.safety` · live · Database safety: operator-armed prod migrations, pre-migration and weekly B2 backups, the restore drill, wipe canaries, the Neon budget canary.
 - `gs.dagster-runtime` · live · Dagster runtime: definitions, schedules, sensors and run guards; zombie and orphan reapers; the out-of-band daemon watchdog; cron check-ins.
