@@ -2218,15 +2218,17 @@ seams:
   producer: [grantspider]
   consumer: [aigranthelper]
   flows: AG reads the research DB through **`ag_research.*` views and functions** (35 unmanaged `_v` models
-    on AG `staging`, 34 on `main`, of the 41 views GS's manifest exposes; plus search/match SQL functions),
-    connecting with the read-only `ag_research_reader` role. Nine documented
+    on AG `staging`, 34 on `main`, of the 41 views GS's manifest exposes; 28 of them, 27 on `main`, have a
+    runtime reader, and the other 7 are declared and migrated but read only by tests; plus search/match SQL
+    functions), connecting with the read-only `ag_research_reader` role. Nine documented
     base-table reads remain, each tagged `READS-BASE-TABLE:`. `grantspider.ontology` supplies one type
     (`NteeCode`) and is not the read path
   cite: GS `src/grantspider/ag_research_views/__init__.py`; AG `apps/research/models/_views.py`, `apps/core/grantspider_reads.py`,
     `docs/CROSS_REPO_SCHEMA.md` rule 1; OverSteward `documentation/data-contract-grantspider-aigranthelper.md`
     v1.2. Counted 2026-11-13 (OS#727), the GS views as `expected_view_columns()` imported from `origin/staging`
     and `origin/main`, the AG models as the `db_table = '"ag_research"."<name>_v"'` classes in
-    `apps/research/models/__init__.py`, each referenced outside tests, with no `_v` view read by raw SQL alone
+    `apps/research/models/__init__.py`, a model counted as read when its class is named in `apps/` outside
+    that module, migrations and tests, with no `_v` view read by raw SQL alone
   invariants: [I-4, I-6]
 - id: S-2
   label: grantspider → aigranthelper (code)
