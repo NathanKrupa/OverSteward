@@ -251,7 +251,9 @@ capabilities:
     helpers whose body `city_views.py`, `sector_views.py` and `seo/lead_views.py` each copy (L-AG-5).'
   target_shape: 'Thin views over research services: views parse the request, call one service per page, and
     render. Profile and gov-detail context assembly moves into services; the copied cache-control helpers give
-    way to one in `apps/core/cache_headers.py`.'
+    way to one in `apps/core/cache_headers.py`. The county ladder opens on a focus question and lists every
+    level, with the role chips kept as a second filter; county pages stay noindex until Nathan rules the ladder
+    filled out; state pages are the later indexing test (epic GS#3764).'
 - id: ag.search-indexing
   kind: code
   purpose: 'What Google may index and how it learns of it: sitemaps, the indexability tier, IndexNow,
@@ -1723,11 +1725,11 @@ capabilities:
   target_shape: hold
 - id: gs.authority-map
   kind: code
-  purpose: 'Funding-authority map: who passes public money down, from FAC audits and USASpending subawards,
-    with county closure and attribution.'
+  purpose: 'The government-funder map: every public body that has funded in the last two years, federal
+    to tribal, with the counties it serves, its focus and where it posts funding.'
   status: building
   serves: [ag.funder-pages]
-  depends_on: [gs.outbound-http]
+  depends_on: [gs.outbound-http, gs.federal-opportunities, gs.state-opportunities, gs.research-schema]
   claims:
     grantspider:
     - src/grantspider/config/authorities.py
@@ -1743,15 +1745,63 @@ capabilities:
     - src/grantspider/services/fac_discovery.py
     - src/grantspider/services/usaspending_discovery.py
     - src/grantspider/services/opportunity_tracker.py
+    - src/grantspider/config/service_categories.py
+    - src/grantspider/connectors/careeronestop.py
+    - src/grantspider/connectors/usaspending_obligations.py
+    - src/grantspider/connectors/shapefile.py
+    - src/grantspider/connectors/r2_inbox.py
+    - src/grantspider/services/authority_channel_discovery.py
+    - src/grantspider/services/authority_display_names.py
+    - src/grantspider/services/authority_listing.py
+    - src/grantspider/services/authority_merge.py
+    - src/grantspider/services/authority_names.py
+    - src/grantspider/services/authority_obligations.py
+    - src/grantspider/services/authority_state_presence.py
+    - src/grantspider/services/authority_subscribe.py
+    - src/grantspider/services/aging_listing.py
+    - src/grantspider/services/caa_seed_generation.py
+    - src/grantspider/services/caa_seed_run.py
+    - src/grantspider/services/coc_seed_generation.py
+    - src/grantspider/services/coc_seed_run.py
+    - src/grantspider/services/lwdb_listing.py
+    - src/grantspider/services/seed_generation.py
+    - src/grantspider/services/sighting_programs.py
+    - src/grantspider/services/pass_through_extract.py
+    - src/grantspider/services/pass_through_poll.py
+    - src/grantspider/services/pass_through_record.py
+    - src/grantspider/services/pass_through_recall.py
+    - src/grantspider/services/county_overlay.py
+    - src/grantspider/services/email_intake.py
+    - src/grantspider/services/email_message.py
+    - src/grantspider/services/email_canary.py
+    - src/grantspider/services/cloudflare_email_setup.py
     - src/grantspider/cli/authorities.py
-  liabilities: [L-GS-3]
-  current_shape: '14 modules, 4,082 lines; 23 feature PRs in 90 days. CLI only: no Dagster asset yet. AG reads
+    - src/grantspider/cli/authorities_email.py
+    - src/grantspider/cli/authorities_generate.py
+    - src/grantspider/cli/authorities_listing.py
+    - src/grantspider/cli/authorities_lwdb.py
+    - src/grantspider/cli/authorities_obligations.py
+    - src/grantspider/cli/authorities_presence.py
+    - src/grantspider/cli/authorities_subscribe.py
+  liabilities: [L-GS-3, L-GS-4]
+  current_shape: '51 modules, 15,616 lines at GS main de6df3ee; 59 first-parent merges on `origin/staging`
+    touched them in the 90 days to 2026-11-13. CLI only: no Dagster asset yet. AG reads
     it through five `ag_research` views and the `funding_authority_id` of `gov_opportunities_v`: the county
     agency ladder at `/gov/agencies/<st>/<county>/` (`apps/research/services/gov_agencies.py`) reads
     `funding_authorities_v`, `funding_authority_areas_v`, `funding_authority_channels_v`,
     `funding_authority_edges_v` and `funding_authority_coverage_v`, and the money trail
-    (`gov_agency_trail.py`) reads the authorities, areas and edges. Epic GS#3295 is open. `opportunity_tracker.py` has no live importer (L-GS-3).'
-  target_shape: hold
+    (`gov_agency_trail.py`) reads the authorities, areas and edges. On prod (2026-11-13): 2,061 bodies; 24 hold
+    a bids page, 627 a website only; 0 channel rows; 9 federal nodes and no national area; nothing records when
+    a body last funded. Epics GS#3295 (pass-through RFP tracker) and GS#3764 (the complete map) are open.
+    `opportunity_tracker.py` has no live importer (L-GS-3); `bids_page_url` is written only from hand seeds
+    (L-GS-4).'
+  target_shape: 'Every funder or potential funder visible (Nathan, 2026-11-13): a body is on the map when it
+    funded in the last two years, a live directory designation counting; one with nothing open is flagged "No
+    active RFP" where its notices or funding page are read and "No RFP source found yet" elsewhere; a measured
+    body with no funding seen in two years is hidden from every view and counted in the run report; lapsed
+    bodies are kept and re-checked, never deleted, and return when new funding lands. Each body
+    carries an area, the Grants.gov topics its money carries and an opportunity link; refreshed by one scheduled
+    run with a stage-health row (epic GS#3764).'
 - id: gs.data-quality
   kind: code
   purpose: 'Data quality: the write gate, nightly snapshots and drift scans, freshness SLAs, the stage-health
@@ -2583,6 +2633,11 @@ liabilities:
   capabilities: [gs.runtime, gs.outbound-http, gs.facsimiles, gs.federal-opportunities, gs.state-opportunities,
     gs.funder-discovery, gs.entity-resolution, gs.crawl, gs.page-triage, gs.enrichment, gs.metered-enrichment,
     gs.authority-map]
+- id: L-GS-4
+  text: '`bids_page_url` is written only from hand seeds, so a generated body cannot gain an opportunity link'
+  owner: grantspider
+  tracking: 'GS#3771 (E10 of epic GS#3764); 24 of 2,061 bodies hold one on prod (2026-11-13)'
+  capabilities: [gs.authority-map]
 - id: L-MKT-1
   text: 'The resource-page outreach pipeline, which sends live email on a weekday timer, is untracked
     files in the primary OverSteward checkout: no review, no tests, no history. Its user systemd units
