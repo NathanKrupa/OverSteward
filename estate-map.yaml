@@ -656,12 +656,14 @@ capabilities:
     - .github/workflows/ci.yml
     - .github/workflows/divergence-watchdog.yml
     - .github/workflows/bump-gs-pin.yml
-  invariants: [I-19, I-20, I-23]
+  invariants: [I-16, I-19, I-20, I-23]
   liabilities: [L-AG-3]
   current_shape: '7 modules, 1,251 lines, living in `apps/core/` beside product code; 4 feature PRs in 90
     days. `make verify` is the local gate; `divergence-watchdog.yml` runs on push and daily at 13:00 UTC (I-20).
-    `ci.yml` is a watchdog, not a required check: every job checks out the PR head SHA, the ratchets
-    compare against its merge-base, and a red or timed-out job on a PR into `staging` or `main` files a
+    `ci.yml` is a watchdog, not a required check (I-16): every job checks out the default ref, `github.sha`,
+    which on a PR is GitHub''s test merge; the ratchets compare against its first parent (`HEAD^1`), and
+    `HEAD_SHA` stays on the PR head only in `ci-red-alert`, where it names the run to `ci_red.py` (AG#2848).
+    A red or timed-out job on a PR into `staging` or `main` files a
     `ci-red` issue through the `ci-red-alert` job (`scripts/ci/ci_red_alert.py`, a byte-copy of GS''s).
     The promote guard `.claude/hooks/guard_promote_ci_red.py` is deployed and registered (I-23). All of this
     is on `staging` (AG#2701, AG#2705) and reaches `main` at the next promote.'
@@ -1903,8 +1905,11 @@ capabilities:
   - {type: workflow, ref: 'grantspider:.github/workflows/lock-drift.yml'}
   invariants: [I-16, I-19, I-20, I-23]
   current_shape: '15 modules, 3,439 lines; 15 feature PRs in 90 days, 13 of them on `dev/boy_scout.py`. GS
-    `ci` is a post-merge watchdog, not a required check (I-16): it checks out the PR head SHA, diffs from
-    its merge-base, and a red run on a PR into `staging` files a `ci-red` issue through the `ci-red-alert`
+    `ci` is a post-merge watchdog, not a required check (I-16): it checks out the default ref, `github.sha`,
+    which on a PR is GitHub''s test merge, and diffs from its first parent (`HEAD^1`) (GS#3707). `HEAD_SHA`
+    stays on the PR head only in `ci-red-alert`, where it names the run to `ci_red.py`, with `MERGE_SHA`
+    beside it. This is on `staging`; `main` carries the head-SHA, merge-base shape until the next promote.
+    A red run on a PR into `staging` files a `ci-red` issue through the `ci-red-alert`
     job (`scripts/ci/ci_red_alert.py`, canonical here; AG''s is its byte-copy). The promote guard
     `.claude/hooks/guard_promote_ci_red.py` is deployed and registered on `staging` (GS#3543), not yet on
     `main` (I-23). `notify-ag-on-main.yml`
@@ -2212,13 +2217,16 @@ seams:
   label: grantspider → aigranthelper (data)
   producer: [grantspider]
   consumer: [aigranthelper]
-  flows: AG reads the research DB through **`ag_research.*` views and functions** (26 unmanaged `_v` models,
-    plus search/match SQL functions), connecting with the read-only `ag_research_reader` role. Nine documented
+  flows: AG reads the research DB through **`ag_research.*` views and functions** (35 unmanaged `_v` models
+    on AG `staging`, 34 on `main`, of the 41 views GS's manifest exposes; plus search/match SQL functions),
+    connecting with the read-only `ag_research_reader` role. Nine documented
     base-table reads remain, each tagged `READS-BASE-TABLE:`. `grantspider.ontology` supplies one type
     (`NteeCode`) and is not the read path
   cite: GS `src/grantspider/ag_research_views/__init__.py`; AG `apps/research/models/_views.py`, `apps/core/grantspider_reads.py`,
     `docs/CROSS_REPO_SCHEMA.md` rule 1; OverSteward `documentation/data-contract-grantspider-aigranthelper.md`
-    v1.2
+    v1.2. Counted 2026-11-13 (OS#727), the GS views as `expected_view_columns()` imported from `origin/staging`
+    and `origin/main`, the AG models as the `db_table = '"ag_research"."<name>_v"'` classes in
+    `apps/research/models/__init__.py`, each referenced outside tests, with no `_v` view read by raw SQL alone
   invariants: [I-4, I-6]
 - id: S-2
   label: grantspider → aigranthelper (code)
@@ -2412,9 +2420,13 @@ invariants:
   status: live
   text: 'Required CI checks are mostly off, by design: null on AG main/staging, GS main/staging, OverSteward
     master, fiscus main. **Exception:** gaudi main requires lint/security/test. GS `ci` is a post-merge watchdog
-    (pinned head and base SHAs; a red run files a `ci-red` issue), not a gate'
-  cite: GitHub branch-protection API, 2026-10-31; GS main/staging re-read 2026-11-05 after the staging requirement was removed (GS#3525)
-  capabilities: [os.dispatch, gs.dev-gates]
+    and so is AG `ci.yml`, not a gate: on a PR each checks out the test merge (`github.sha`), diffs from its
+    first parent (`HEAD^1`), and keeps `HEAD_SHA` on the PR head only where `ci-red-alert` names the run
+    to `ci_red.py`; a red run files a `ci-red` issue. That shape is on `staging` in both repos (GS#3707,
+    AG#2848); `main` gets it at the next promote'
+  cite: GitHub branch-protection API, 2026-10-31; GS main/staging re-read 2026-11-05 after the staging requirement
+    was removed (GS#3525); GS and AG `origin/staging:.github/workflows/ci.yml`, read 2026-11-13
+  capabilities: [os.dispatch, gs.dev-gates, ag.dev-gates]
 - id: I-17
   status: live
   text: 'Long Neon writes reconnect and commit per batch: `with_reconnect()` invalidates a dropped pooler
