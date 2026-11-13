@@ -42,7 +42,17 @@ or 303 on a POST by re-issuing it as a bodiless GET — which the verdicts endpo
 refuses with a 405 (OS#633). The default address is therefore the apex, and the
 default opener stops at any 3xx answering a write, reporting where it was sent
 so the operator can point :data:`BASE_URL_ENV` there. Reads still follow a
-redirect: a GET survives one intact.
+same-origin redirect: a GET survives one intact.
+
+**A read is never followed to another origin.** urllib copies every header but
+``Content-Length`` and ``Content-Type`` onto a followed request, the bearer
+token included, so following a GET off the configured origin (scheme, host and
+port) would hand the token to whatever the ``Location`` names (OS#719). The
+default opener follows a same-origin redirect and refuses a cross-origin one,
+reporting the location and :data:`BASE_URL_ENV` as a refused write is
+reported. It refuses rather than following with the header stripped: a strip
+would turn a misconfigured base URL into a 401 from the other host, which reads
+as a rejected credential, where the refusal names the setting to change.
 """
 
 from __future__ import annotations
@@ -90,6 +100,7 @@ _GET = "GET"
 _POST = "POST"
 
 _HTTP_REDIRECTS = range(300, 400)
+_DEFAULT_PORTS = {"http": 80, "https": 443}
 _HTTP_UNAUTHORIZED = 401
 _HTTP_FORBIDDEN = 403
 _HTTP_NOT_FOUND = 404
@@ -197,24 +208,37 @@ class AgOpsClient:
         return _decode(body, where)
 
 
-class _WriteRedirectRefusal(urllib.request.HTTPRedirectHandler):
-    """Follows a redirect for a read; for any other method, lets the 3xx surface as an error.
+class _RedirectPolicy(urllib.request.HTTPRedirectHandler):
+    """Follows a same-origin redirect for a read; any other lets the 3xx surface as an error.
 
     Returning ``None`` from :meth:`redirect_request` declines the redirect; no
     other handler takes it, so urllib's default error handler raises the 3xx as
     an :class:`urllib.error.HTTPError` carrying the ``Location`` header instead
-    of re-issuing it as a GET. The loopback tests in ``tests/ag_ops`` pin this.
+    of re-issuing it — as a bodiless GET for a write, or with the bearer token
+    to another origin for a read. The loopback tests in ``tests/ag_ops`` pin this.
     """
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        if req.get_method() != _GET:
+        if req.get_method() != _GET or not _same_origin(req.full_url, newurl):
             return None
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
+def _same_origin(current: str, target: str) -> bool:
+    """Whether ``target`` (absolute, or relative to ``current``) shares its scheme, host and port."""
+    return _origin(current) == _origin(urllib.parse.urljoin(current, target))
+
+
+def _origin(url: str) -> tuple[str, str, int | None]:
+    """A URL's origin, with the scheme's default port written out so ``:80`` matches its absence."""
+    parts = urllib.parse.urlsplit(url)
+    scheme = parts.scheme.lower()
+    return scheme, (parts.hostname or ""), parts.port or _DEFAULT_PORTS.get(scheme)
+
+
 def _default_opener() -> Callable:
-    """urllib's opener with :class:`_WriteRedirectRefusal` in place of its redirect handler."""
-    return urllib.request.build_opener(_WriteRedirectRefusal()).open
+    """urllib's opener with :class:`_RedirectPolicy` in place of its redirect handler."""
+    return urllib.request.build_opener(_RedirectPolicy()).open
 
 
 def _query_string(since: str, limit: int) -> str:
@@ -259,13 +283,17 @@ def _from_http_error(
 def _unfollowed_redirect(exc: urllib.error.HTTPError, where: str, method: str) -> AgOpsUnavailableError:
     """A 3xx that reached us: say where it pointed, and which setting to change.
 
-    On a write it is :class:`_WriteRedirectRefusal` declining. On a read urllib
-    itself gave up — a redirect loop, more redirects than it follows, or no
-    ``Location`` — so the message must not claim a write was refused.
+    On a write, or a read sent to another origin, it is :class:`_RedirectPolicy`
+    declining. On a same-origin read urllib itself gave up — a redirect loop,
+    more redirects than it follows, or no ``Location`` — so the message must not
+    claim a refusal.
     """
     headers = getattr(exc, "headers", None)
-    location = (headers.get("Location", "") if headers else "") or "an unnamed location"
-    if method == _GET:
+    named = headers.get("Location", "") if headers else ""
+    location = named or "an unnamed location"
+    if method == _GET and not _same_origin(exc.url, named):
+        why = "a read is never followed to another origin: urllib would re-send the bearer token there."
+    elif method == _GET:
         why = "the redirect chain never reached an answer (a loop, too many hops, or no location)."
     else:
         why = "a write is never re-sent to a redirect: urllib would re-issue it as a bodiless GET."

@@ -2303,7 +2303,7 @@ seams:
   producer: [aigranthelper]
   consumer: [oversteward]
   flows: '`/internal/ops/reports/` read and `/internal/ops/verdicts/` write, bearer tokens'
-  cite: '`src/oversteward/ag_ops/client.py:79-81`; AG `apps/ops/urls_internal.py`'
+  cite: '`src/oversteward/ag_ops/client.py:89-91`; AG `apps/ops/urls_internal.py`'
 - id: S-13
   label: Railway, Sentry → oversteward
   producer: ['ext:Railway', 'ext:Sentry']

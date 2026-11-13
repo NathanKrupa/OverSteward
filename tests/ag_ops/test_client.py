@@ -7,9 +7,13 @@ import email.message
 import http.server
 import io
 import json
+import os
+import subprocess
+import sys
 import threading
 import urllib.error
 import urllib.parse
+import urllib.request
 from pathlib import Path
 
 import pytest
@@ -24,6 +28,7 @@ from oversteward.ag_ops.client import (
     AgOpsConfigError,
     AgOpsNotFoundError,
     AgOpsUnavailableError,
+    _RedirectPolicy,
     client_from_env,
 )
 
@@ -514,3 +519,172 @@ def test_a_non_json_405_is_not_blamed_on_the_edge() -> None:
     assert "405" in message
     assert "text/html" in message
     assert "edge" not in message
+
+
+# --- a read is never followed to another origin (OS#719) ----------------------
+#
+# urllib copies every header but the content ones onto a followed request, so
+# following a GET to another origin hands it ``Authorization: Bearer <token>``.
+# Two loopback servers on different ports are two origins: the first redirects,
+# the second records whatever reaches it, the bearer header included.
+
+_VIA_PREFIX = "/via"
+
+
+class _OffsiteRedirector(http.server.BaseHTTPRequestHandler):
+    """Answers every GET with ``redirect_status`` to the same path on ``offsite``.
+
+    With ``via_same_origin`` set, the first hop is a 301 to ``/via<path>`` on
+    this server, so the cross-origin hop is the second one in the chain.
+    """
+
+    seen: list[tuple[str, str]] = []
+    redirect_status = 302
+    offsite = ""
+    via_same_origin = False
+
+    def do_GET(self) -> None:  # noqa: N802 — the stdlib's handler naming
+        type(self).seen.append(("GET", self.path))
+        if type(self).via_same_origin and not self.path.startswith(_VIA_PREFIX):
+            self._redirect(301, f"http://{self.headers['Host']}{_VIA_PREFIX}{self.path}")
+            return
+        path = self.path.removeprefix(_VIA_PREFIX)
+        self._redirect(type(self).redirect_status, f"{type(self).offsite}{path}")
+
+    def _redirect(self, status: int, location: str) -> None:
+        self.send_response(status)
+        self.send_header("Location", location)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def log_message(self, *_args) -> None:
+        """Keep the test output pristine."""
+
+
+class _Offsite(http.server.BaseHTTPRequestHandler):
+    """Another origin: records each request with the bearer header it carried, answers a manifest."""
+
+    seen: list[tuple[str, str, str]] = []
+
+    def do_GET(self) -> None:  # noqa: N802 — the stdlib's handler naming
+        type(self).seen.append(("GET", self.path, self.headers.get("Authorization", "")))
+        body = json.dumps(manifest(entries=[])).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *_args) -> None:
+        """Keep the test output pristine."""
+
+
+def _origin_of(server) -> str:
+    host, port = server.server_address[:2]
+    return f"http://{host}:{port}"
+
+
+@pytest.fixture
+def two_origins():
+    """A redirecting server and an offsite one on another port; yields both handler classes."""
+    offsite_handler = type("Offsite", (_Offsite,), {"seen": []})
+    offsite = http.server.ThreadingHTTPServer(("127.0.0.1", 0), offsite_handler)
+    origin_handler = type(
+        "Origin", (_OffsiteRedirector,), {"seen": [], "offsite": _origin_of(offsite)}
+    )
+    origin = http.server.ThreadingHTTPServer(("127.0.0.1", 0), origin_handler)
+    threads = [threading.Thread(target=s.serve_forever, daemon=True) for s in (offsite, origin)]
+    for thread in threads:
+        thread.start()
+    try:
+        yield origin, origin_handler, offsite, offsite_handler
+    finally:
+        for server in (origin, offsite):
+            server.shutdown()
+            server.server_close()
+        for thread in threads:
+            thread.join()
+
+
+@pytest.mark.parametrize("status", [301, 302, 303, 307, 308])
+def test_a_read_redirected_to_another_origin_is_refused_and_the_token_never_leaves(two_origins, status) -> None:
+    origin, origin_handler, offsite, offsite_handler = two_origins
+    origin_handler.redirect_status = status
+
+    with pytest.raises(AgOpsUnavailableError) as caught:
+        _default_opener_client(origin).manifest()
+
+    assert offsite_handler.seen == [], "the bearer token was carried to another origin"
+    assert origin_handler.seen == [("GET", "/internal/ops/reports/")]
+    message = str(caught.value)
+    assert f"HTTP {status}" in message
+    assert f"redirected to {_origin_of(offsite)}/internal/ops/reports/" in message
+    assert BASE_URL_ENV in message
+    assert "a read is never followed to another origin" in message
+    assert "loop" not in message
+    assert "write" not in message
+    assert READ_TOKEN not in message
+
+
+def test_a_same_origin_hop_is_followed_and_the_cross_origin_hop_after_it_refused(two_origins) -> None:
+    origin, origin_handler, _offsite, offsite_handler = two_origins
+    origin_handler.via_same_origin = True
+
+    with pytest.raises(AgOpsUnavailableError) as caught:
+        _default_opener_client(origin).manifest()
+
+    assert offsite_handler.seen == [], "the bearer token was carried to another origin"
+    assert origin_handler.seen == [("GET", "/internal/ops/reports/"), ("GET", "/via/internal/ops/reports/")]
+    assert "a read is never followed to another origin" in str(caught.value)
+
+
+def test_the_sweep_reports_a_cross_origin_redirect_without_a_traceback_or_a_leak(two_origins) -> None:
+    """The operator's view: the CLI names the location and the setting, and exits 1, not a crash."""
+    origin, _origin_handler, offsite, offsite_handler = two_origins
+    worktree = Path(__file__).resolve().parents[2]
+    env = {
+        **os.environ,
+        "PYTHONPATH": str(worktree / "src"),
+        BASE_URL_ENV: _origin_of(origin),
+        REPORTS_TOKEN_ENV: READ_TOKEN,
+        VERDICTS_TOKEN_ENV: WRITE_TOKEN,
+    }
+
+    done = subprocess.run(
+        [sys.executable, str(worktree / "scripts" / "ag_ops_triage.py"), "sweep"],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+
+    output = done.stdout + done.stderr
+    assert offsite_handler.seen == [], "the bearer token was carried to another origin"
+    assert "Traceback" not in output
+    assert done.stderr.startswith("ERROR: could not look — ")
+    assert f"redirected to {_origin_of(offsite)}/internal/ops/reports/" in done.stderr
+    assert BASE_URL_ENV in done.stderr
+    assert "a read is never followed to another origin" in done.stderr
+    assert READ_TOKEN not in output
+    assert done.returncode == 1
+
+
+@pytest.mark.parametrize(
+    ("current", "location", "followed"),
+    [
+        ("http://ag.test/a", "http://AG.test:80/b", True),
+        ("https://ag.test/a", "https://ag.test:443/b", True),
+        ("http://ag.test:8000/a", "/b", True),
+        ("http://ag.test:8000/a", "https://ag.test:8000/b", False),
+        ("http://ag.test:8000/a", "http://ag.test:8001/b", False),
+        ("http://ag.test/a", "http://evil.test/b", False),
+    ],
+)
+def test_the_redirect_policy_compares_scheme_host_and_effective_port(current, location, followed) -> None:
+    request = urllib.request.Request(current, headers={"Authorization": f"Bearer {READ_TOKEN}"})
+    newurl = urllib.parse.urljoin(current, location)
+
+    answer = _RedirectPolicy().redirect_request(request, io.BytesIO(), 302, "Found", email.message.Message(), newurl)
+
+    assert (answer is not None) is followed
