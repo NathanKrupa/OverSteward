@@ -1748,6 +1748,8 @@ capabilities:
     - src/grantspider/config/service_categories.py
     - src/grantspider/connectors/careeronestop.py
     - src/grantspider/connectors/usaspending_obligations.py
+    - src/grantspider/connectors/shapefile.py
+    - src/grantspider/connectors/r2_inbox.py
     - src/grantspider/services/authority_channel_discovery.py
     - src/grantspider/services/authority_display_names.py
     - src/grantspider/services/authority_listing.py
@@ -1768,6 +1770,11 @@ capabilities:
     - src/grantspider/services/pass_through_poll.py
     - src/grantspider/services/pass_through_record.py
     - src/grantspider/services/pass_through_recall.py
+    - src/grantspider/services/county_overlay.py
+    - src/grantspider/services/email_intake.py
+    - src/grantspider/services/email_message.py
+    - src/grantspider/services/email_canary.py
+    - src/grantspider/services/cloudflare_email_setup.py
     - src/grantspider/cli/authorities.py
     - src/grantspider/cli/authorities_email.py
     - src/grantspider/cli/authorities_generate.py
@@ -1777,7 +1784,7 @@ capabilities:
     - src/grantspider/cli/authorities_presence.py
     - src/grantspider/cli/authorities_subscribe.py
   liabilities: [L-GS-3, L-GS-4]
-  current_shape: '44 modules, 13,980 lines at GS main de6df3ee; 55 first-parent merges on `origin/staging`
+  current_shape: '51 modules, 15,616 lines at GS main de6df3ee; 59 first-parent merges on `origin/staging`
     touched them in the 90 days to 2026-11-13. CLI only: no Dagster asset yet. AG reads
     it through five `ag_research` views and the `funding_authority_id` of `gov_opportunities_v`: the county
     agency ladder at `/gov/agencies/<st>/<county>/` (`apps/research/services/gov_agencies.py`) reads
