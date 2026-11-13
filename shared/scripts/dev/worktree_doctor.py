@@ -84,6 +84,9 @@ so a push landing between that re-check and the DELETE is not caught. One line
 per step, then a verdict: exit 0 clean (already-gone included), 1 refused, 2 could not look,
 3 a database its teardown could not confirm dropping. The worktree is gone by
 then, so that one is a finding like the sweep's: the branch steps still run.
+When findings meet, 3 outranks 2 and 1: it is the one outcome that left
+something behind after a step nothing can undo, and its remedy (``sweep``,
+once docker answers) is the one the operator must not miss.
 """
 
 from __future__ import annotations
@@ -1303,7 +1306,9 @@ VERDICTS = {
     0: "clean",
     1: "refused",
     2: "could not look",
-    DROP_UNCONFIRMED: "a database was not dropped — run `worktree_doctor.py sweep`",
+    DROP_UNCONFIRMED: (
+        "a database was not dropped — run `worktree_doctor.py sweep` once docker answers"
+    ),
 }
 
 

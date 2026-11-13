@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import shutil
 import subprocess
 import sys
@@ -12,6 +13,8 @@ from unittest.mock import Mock
 import pytest
 
 from oversteward.review_capture import (
+    DOCTOR,
+    DOCTOR_DROP_UNCONFIRMED,
     EXIT_BLIND,
     EXIT_SECOND_BLIND,
     EXIT_STOP,
@@ -184,6 +187,29 @@ class TestABlindRoundIsRecordedRestoredAndTornDown:
         )
         assert outcome.code == EXIT_STOP
         assert "worktree_doctor" in outcome.message
+
+    def test_a_removed_copy_with_an_undropped_database_is_not_called_refused(
+        self, author: Path
+    ) -> None:
+        """OS#717: exit 3 means the copy is gone and its database may not be."""
+        _leave_a_mutant(author)
+        outcome = check_capture(
+            _capture(author, BLIND_RESULT),
+            git=run_git,
+            teardown=_teardown(code=DOCTOR_DROP_UNCONFIRMED),
+        )
+        assert outcome.code == EXIT_STOP
+        assert "refused" not in outcome.message
+        assert "removed" in outcome.message
+        assert "worktree_doctor.py sweep" in outcome.message
+
+    def test_the_undropped_exit_is_the_doctors_own(self) -> None:
+        spec = importlib.util.spec_from_file_location("worktree_doctor_exit", DOCTOR)
+        assert spec and spec.loader
+        doctor = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = doctor
+        spec.loader.exec_module(doctor)
+        assert doctor.DROP_UNCONFIRMED == DOCTOR_DROP_UNCONFIRMED
 
     def test_a_link_the_reviewer_added_is_removed_and_its_target_kept(
         self, author: Path, tmp_path: Path

@@ -2014,6 +2014,42 @@ def test_cleanup_surfaces_a_drop_docker_did_not_confirm(doctor, tmp_path, gh, ca
     assert not _has_branch(repo)
 
 
+def test_an_undropped_database_outranks_a_stray_sibling(doctor, tmp_path, gh, capsys):
+    """Exit 3 wins over the stray's 1: the module docstring's ranking, pinned."""
+    repo, worktree = _merged_repo(tmp_path)
+    stray = tmp_path / "repo" / ".claude" / "worktrees" / "gone.baseline"
+    _git(repo, "worktree", "add", "-q", "--detach", str(stray), "main")
+    docker = _unconfirmed_drops(_bench_docker("repo_test_demo"), [])
+
+    rc = doctor.cleanup_merged(repo, 7, docker)
+
+    out, _ = _drop_outcome(doctor, capsys, rc)
+    assert f"{stray} outlived its worktree" in out
+    assert out.splitlines()[-1] == f"cleanup-merged #7: {doctor.VERDICTS[3]}"
+
+
+def test_an_undropped_database_outranks_a_sweep_that_could_not_look(
+    doctor, tmp_path, gh, capsys
+):
+    """Docker dies between the naming and the drop: the sweep's 2 must not hide the 3."""
+    repo, _ = _merged_repo(tmp_path)
+    bench = _bench_docker("repo_test_demo")
+    dead: list[str] = []
+
+    def dies_at_the_drop(args: list[str]) -> str | None:
+        if dead or "dropdb" in args:
+            dead.append(" ".join(args))
+            return None
+        return bench(args)
+
+    rc = doctor.cleanup_merged(repo, 7, dies_at_the_drop)
+
+    out, err = _drop_outcome(doctor, capsys, rc)
+    assert "sweep: could not look" in out
+    assert "NOT dropped repo_test_demo (grantspider-test-pg)" in err
+    assert out.splitlines()[-1] == f"cleanup-merged #7: {doctor.VERDICTS[3]}"
+
+
 def test_cleanup_removes_everything_a_merged_pr_left(doctor, tmp_path, gh, capsys):
     repo, worktree = _merged_repo(tmp_path, siblings=True)
 

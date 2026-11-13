@@ -59,6 +59,10 @@ Teardown = Callable[[Path, Path], int]
 
 DOCTOR = Path(__file__).resolve().parents[2] / "scripts" / "dev" / "worktree_doctor.py"
 
+#: The doctor's ``DROP_UNCONFIRMED``: ``teardown`` removed the worktree but docker
+#: did not confirm dropping a database it owned (OS#717). A test pins the two equal.
+DOCTOR_DROP_UNCONFIRMED = 3
+
 
 @dataclass(frozen=True)
 class Outcome:
@@ -230,6 +234,11 @@ def _restore_and_tear_down(
     if primary is None:
         return f"could not name the primary checkout of {scratch}."
     code = teardown(scratch, primary)
+    if code == DOCTOR_DROP_UNCONFIRMED:
+        return (
+            f"worktree_doctor.py teardown removed {scratch} but could not confirm dropping "
+            f"its database (exit {code}); run `worktree_doctor.py sweep` to find it."
+        )
     if code != 0:
         return f"worktree_doctor.py teardown {scratch} refused (exit {code})."
     return None
