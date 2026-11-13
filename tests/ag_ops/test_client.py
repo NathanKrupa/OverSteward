@@ -688,3 +688,18 @@ def test_the_redirect_policy_compares_scheme_host_and_effective_port(current, lo
     answer = _RedirectPolicy().redirect_request(request, io.BytesIO(), 302, "Found", email.message.Message(), newurl)
 
     assert (answer is not None) is followed
+
+
+def test_a_relative_location_urllib_gave_up_on_is_a_loop_not_another_origin() -> None:
+    """A ``Location`` may be relative; it resolves against the hop's own URL, so it is same-origin."""
+    headers = email.message.Message()
+    headers["Location"] = "/internal/ops/reports/"
+    looped = urllib.error.HTTPError(MANIFEST_URL, 302, "Found", headers, io.BytesIO(b""))
+
+    with pytest.raises(AgOpsUnavailableError) as caught:
+        _client(_Failing(looped)).manifest()
+
+    message = str(caught.value)
+    assert "redirected to /internal/ops/reports/" in message
+    assert "the redirect chain never reached an answer" in message
+    assert "another origin" not in message
