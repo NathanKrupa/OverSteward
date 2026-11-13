@@ -1,0 +1,1 @@
+../../shared/scripts/dev/guard_endless_substitution.py

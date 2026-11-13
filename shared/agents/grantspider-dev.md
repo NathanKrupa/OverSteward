@@ -121,6 +121,19 @@ agent sits at it unseen. If the work needs such a command, stop with
 `STOPPED_FOR_INPUT` and name it. Never delete a worktree's `.venv` yourself: the
 worktree's removal at playbook step 19 takes it with the worktree.
 
+**Wait only in a sanctioned shape** (OS#723). Foreground `sleep` is refused, and
+a home-made sleep leaks: `read -t N < <(… exec cat /dev/zero …)` gives up after
+N seconds, but the `cat` inside the substitution never stops, so a wait loop
+leaves one process spinning per pass. On 2026-11-12 such a loop held the laptop
+at several times its core count in load and stretched another agent's gate run
+to an hour. `guard_endless_substitution.py` refuses the shape. Wait with a
+`run_in_background` until-loop with `sleep` inside it, the Monitor tool where
+your tools include it, or `timeout N tail --pid`. Never wait with an until-loop
+on `pgrep -f '<pattern>'` whose pattern also appears in the loop's own command
+line: `pgrep` matches the shell running the loop, so the loop never ends (loops
+of this shape leaked for 4–19 hours on 2026-11-12, and no guard catches them).
+Instead, wait on a file, a PID (`tail --pid`) or a PR state.
+
 At scope time, before you plan the change, read `~/.claude/shared/references/estate-map/grantspider.md`: this repo's slice of the estate map, rendered from OverSteward's `estate-map.yaml`. It lists the repo's capabilities with their current and target shape, and the seams, invariants and liabilities that touch it. The slice is generated, so never edit it; a row that looks wrong goes in the PR body.
 
 ## Adversarial review — required before `gh pr create`
