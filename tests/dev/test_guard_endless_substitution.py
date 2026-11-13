@@ -81,6 +81,10 @@ BLOCKED = [
     "read -t 5 < <(:\nyes)",
     # A `<<-` heredoc ends at its tab-indented delimiter, not at the end of the text.
     "cat <<-EOF > notes.md\n\tprose\n\tEOF\nread -t 5 < <(yes)",
+    # A leading assignment does not hide the command it prefixes.
+    "read -t 5 < <(X=1 yes)",
+    # A body whose quotes do not balance is still read.
+    "read -t 5 < <(yes 'x)",
 ]
 
 ALLOWED = [
@@ -103,6 +107,8 @@ ALLOWED = [
     "cat <(yes | head -3)",
     "cat <(timeout 5 tail -f build.log)",
     "cat <(timeout 5 cat /dev/zero)",
+    # A redirect stays in its stage, so the head that bounds it is the one reading it.
+    "cat <(head -c 5 < /dev/zero)",
     "cat <(tail -f --pid=4242 build.log)",
     # Never-ending readers outside any substitution are not this guard's business.
     "cat /dev/zero | head -c 10",
@@ -204,6 +210,15 @@ def _registered_bash_hooks() -> list[Path]:
         for hook in entry["hooks"]:
             scripts.extend(_HOOK_SCRIPT.findall(hook["command"]))
     return [REPO_ROOT / ".claude" / "hooks" / script for script in scripts]
+
+
+class TestOverrideValue:
+    def test_an_override_other_than_one_does_not_disarm_the_guard(self):
+        result = _run(
+            HOOK, ISSUE_COMMAND, env_extra={"CLAUDE_ALLOW_ENDLESS_SUBSTITUTION": "0"}
+        )
+        assert result.returncode == 2
+        assert REFUSAL in result.stderr
 
 
 class TestRegisteredHookSet:
