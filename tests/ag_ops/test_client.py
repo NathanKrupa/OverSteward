@@ -638,9 +638,8 @@ def test_a_same_origin_hop_is_followed_and_the_cross_origin_hop_after_it_refused
     assert "a read is never followed to another origin" in str(caught.value)
 
 
-def test_the_sweep_reports_a_cross_origin_redirect_without_a_traceback_or_a_leak(two_origins) -> None:
-    """The operator's view: the CLI names the location and the setting, and exits 1, not a crash."""
-    origin, _origin_handler, offsite, offsite_handler = two_origins
+def _run_sweep(origin) -> subprocess.CompletedProcess:
+    """``scripts/ag_ops_triage.py sweep`` against ``origin``, with test tokens and this tree's source."""
     worktree = Path(__file__).resolve().parents[2]
     env = {
         **os.environ,
@@ -650,7 +649,7 @@ def test_the_sweep_reports_a_cross_origin_redirect_without_a_traceback_or_a_leak
         VERDICTS_TOKEN_ENV: WRITE_TOKEN,
     }
 
-    done = subprocess.run(
+    return subprocess.run(
         [sys.executable, str(worktree / "scripts" / "ag_ops_triage.py"), "sweep"],
         env=env,
         capture_output=True,
@@ -658,6 +657,13 @@ def test_the_sweep_reports_a_cross_origin_redirect_without_a_traceback_or_a_leak
         timeout=60,
         check=False,
     )
+
+
+def test_the_sweep_reports_a_cross_origin_redirect_without_a_traceback_or_a_leak(two_origins) -> None:
+    """The operator's view: the CLI names the location and the setting, and exits 1, not a crash."""
+    origin, _origin_handler, offsite, offsite_handler = two_origins
+
+    done = _run_sweep(origin)
 
     output = done.stdout + done.stderr
     assert offsite_handler.seen == [], "the bearer token was carried to another origin"
@@ -679,6 +685,8 @@ def test_the_sweep_reports_a_cross_origin_redirect_without_a_traceback_or_a_leak
         ("http://ag.test:8000/a", "https://ag.test:8000/b", False),
         ("http://ag.test:8000/a", "http://ag.test:8001/b", False),
         ("http://ag.test/a", "http://evil.test/b", False),
+        ("http://ag.test/a", "http://ag.test:99999/b", False),
+        ("http://ag.test/a", "http://ag.test:abc/b", False),
     ],
 )
 def test_the_redirect_policy_compares_scheme_host_and_effective_port(current, location, followed) -> None:
@@ -703,3 +711,20 @@ def test_a_relative_location_urllib_gave_up_on_is_a_loop_not_another_origin() ->
     assert "redirected to /internal/ops/reports/" in message
     assert "the redirect chain never reached an answer" in message
     assert "another origin" not in message
+
+
+@pytest.mark.parametrize("port", ["99999", "abc"])
+def test_the_sweep_refuses_a_redirect_to_an_unparseable_port_without_a_traceback(two_origins, port) -> None:
+    """``urlsplit().port`` raises on a bad port; the policy must refuse that hop, not crash the sweep."""
+    origin, origin_handler, _offsite, _offsite_handler = two_origins
+    origin_handler.offsite = f"http://127.0.0.1:{port}"
+
+    done = _run_sweep(origin)
+
+    output = done.stdout + done.stderr
+    assert "Traceback" not in output
+    assert done.stderr.startswith("ERROR: could not look — ")
+    assert f"redirected to http://127.0.0.1:{port}/internal/ops/reports/" in done.stderr
+    assert "a read is never followed to another origin" in done.stderr
+    assert READ_TOKEN not in output
+    assert done.returncode == 1

@@ -225,8 +225,15 @@ class _RedirectPolicy(urllib.request.HTTPRedirectHandler):
 
 
 def _same_origin(current: str, target: str) -> bool:
-    """Whether ``target`` (absolute, or relative to ``current``) shares its scheme, host and port."""
-    return _origin(current) == _origin(urllib.parse.urljoin(current, target))
+    """Whether ``target`` (absolute, or relative to ``current``) shares its scheme, host and port.
+
+    A port ``urlsplit`` cannot read (out of range, not a number) raises
+    ``ValueError``; such a URL is not provably this origin, so it is another one.
+    """
+    try:
+        return _origin(current) == _origin(urllib.parse.urljoin(current, target))
+    except ValueError:
+        return False
 
 
 def _origin(url: str) -> tuple[str, str, int | None]:
