@@ -82,7 +82,12 @@ step nothing can undo. It clears only the `.venv` symlink and `.envrc` that
 `new-session.sh` wrote, never `--force`, so a worktree holding real uncommitted
 work refuses and keeps its databases. A docker that cannot say what the bench
 holds (no answer, no running Postgres) is exit 2 before anything is removed
-(OS#502): start docker and run it again. A repo with no bench of its own says so
+(OS#502): start docker and run it again. A drop docker does not confirm, after
+the worktree is gone, prints `NOT dropped <name>` on stderr instead of
+`dropped <name>` and exits **3** — not 1 (refused, nothing changed) and not 2
+(could not look, nothing changed): the worktree is removed and its name with it,
+so run `sweep` to find the database (OS#717). `sweep --drop` uses the same exit.
+A repo with no bench of its own says so
 in `.worktree-bench` at its root (one line, `none`; `#` lines are comments), and
 there a docker that answers but runs no Postgres means the worktree owns nothing,
 so `teardown` and `cleanup-merged` proceed and say the repo declares no bench
@@ -134,7 +139,8 @@ doctor, sweeps (report only), deletes the local branch with `git branch -d`
 (never `-D`), and deletes the remote ref through the refs API only if it
 survived, after re-checking that origin still holds the proven sha.
 Already-gone reads as done, so a clean PR exits 0; 1 is a refusal, 2 is
-"could not look". The steps, their existence tests and the `-d` tracking-ref
+"could not look", 3 a teardown that removed a worktree but could not confirm
+dropping its database (the branch steps still run; `sweep` finds the database). The steps, their existence tests and the `-d` tracking-ref
 recipe are `.claude/skills/dispatch/SKILL.md` §5, which also rules that **a stack is cleaned up by its last PR to merge**: a
 child's session runs the command again for each ancestor PR. A repo whose
 doctor does not carry the verb yet runs OverSteward's copy with

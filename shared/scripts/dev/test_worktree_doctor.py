@@ -1373,8 +1373,13 @@ CLI_SILENCES = {
 }
 
 
-def _logging_docker(tmp_path: Path, names: str, env: str, listing: str) -> Path:
-    """A ``docker`` on PATH that logs every argv, so a test can prove no drop was made."""
+def _logging_docker(
+    tmp_path: Path, names: str, env: str, listing: str, drop: str = ":"
+) -> Path:
+    """A ``docker`` on PATH that logs every argv, so a test can prove no drop was made.
+
+    ``drop`` is what ``dropdb`` does; the default succeeds silently, as dropdb does.
+    """
     log = tmp_path / "docker-calls"
     script = tmp_path / "docker"
     script.write_text(
@@ -1384,6 +1389,7 @@ def _logging_docker(tmp_path: Path, names: str, env: str, listing: str) -> Path:
         f'  *"--format {{{{.Names}}}}"*) {names} ;;\n'
         f'  *"{{{{range .Config.Env}}}}"*) {env} ;;\n'
         f"  *pg_database*) {listing} ;;\n"
+        f"  *dropdb*) {drop} ;;\n"
         "esac\n",
         encoding="utf-8",
     )
@@ -1448,6 +1454,111 @@ def test_the_cli_teardown_still_drops_what_a_live_bench_holds(tmp_path, monkeypa
     assert result.returncode == 0, result.stderr
     assert f"removed {worktree}" in result.stdout
     assert "dropped repo_test_demo (repo-test-pg)" in result.stdout
+    assert not worktree.exists()
+    drops = [line for line in log.read_text(encoding="utf-8").splitlines() if "dropdb" in line]
+    assert len(drops) == 1 and drops[0].endswith(" repo_test_demo")
+
+
+# ---------------------------------------------------------------------------
+# a drop docker did not confirm is not a drop (OS#717)
+# ---------------------------------------------------------------------------
+#
+# ``drop_held`` used to append every database it had *asked* docker to drop, so a
+# dropdb that failed printed ``dropped <name>`` and exited 0 — the OS#502 shape
+# on the drop side. The worktree is already gone by then, so the name can no
+# longer be derived: the operator has to be told, on stderr, to run ``sweep``.
+
+
+def _unconfirmed_drops(bench: ScriptedDocker, events: list[str]) -> Callable:
+    """``bench`` for every read; ``None`` — docker's "did not happen" — for each dropdb."""
+
+    def answer(args: list[str]) -> str | None:
+        if "dropdb" in args:
+            bench.calls.append(args)
+            events.append(f"drop attempted {args[-1]}")
+            return None
+        return bench(args)
+
+    return answer
+
+
+def _drop_outcome(doctor, capsys, rc: int) -> tuple[str, str]:
+    out, err = capsys.readouterr()
+    assert rc == 3, (out, err)
+    assert doctor.DROP_UNCONFIRMED == 3
+    assert "Traceback" not in err
+    return out, err
+
+
+def test_teardown_reports_a_drop_docker_did_not_confirm(doctor, tmp_path, capsys):
+    repo, worktree = _make_repo(tmp_path, captured=False)
+    events: list[str] = []
+    docker = _unconfirmed_drops(_bench_docker("repo_test_demo"), events)
+
+    rc = doctor.teardown(
+        worktree,
+        [doctor.venv_of(repo)],
+        docker=docker,
+        remove=lambda path: events.append(f"removed {path}"),
+        name="repo_test_demo",
+    )
+
+    out, err = _drop_outcome(doctor, capsys, rc)
+    assert events == [f"removed {worktree}", "drop attempted repo_test_demo"]
+    assert "dropped repo_test_demo" not in out
+    assert "NOT dropped repo_test_demo (grantspider-test-pg)" in err
+    assert "worktree_doctor.py sweep" in err
+
+
+def test_sweep_drop_reports_each_database_on_its_own_answer(doctor, tmp_path, capsys):
+    """One drop refused, then one confirmed: each is reported by its own result.
+
+    The refused one comes first, so a drop loop that gave up at the first
+    failure would leave the second unattempted.
+    """
+    repo, _ = _make_git_repo(tmp_path)
+    bench = _bench_docker("repo_test_ghost", "repo_test_wraith")
+
+    def answer(args: list[str]) -> str | None:
+        if "dropdb" in args and args[-1] == "repo_test_ghost":
+            bench.calls.append(args)
+            return None
+        return bench(args)
+
+    rc = doctor.sweep(repo, answer, drop=True)
+
+    out, err = _drop_outcome(doctor, capsys, rc)
+    assert [call[-1] for call in bench.calls if "dropdb" in call] == [
+        "repo_test_ghost",
+        "repo_test_wraith",
+    ]
+    assert "dropped repo_test_wraith (grantspider-test-pg)" in out
+    assert "dropped repo_test_ghost" not in out
+    assert "NOT dropped repo_test_ghost (grantspider-test-pg)" in err
+    assert "repo_test_wraith" not in err
+    assert "worktree_doctor.py sweep" in err
+
+
+def test_the_cli_teardown_reports_a_dropdb_that_exited_non_zero(tmp_path, monkeypatch):
+    """The real seam: ``docker_output`` turns dropdb's non-zero exit into the refusal."""
+    repo, worktree = _make_git_repo(tmp_path)
+    log = _logging_docker(
+        tmp_path,
+        "echo repo-test-pg",
+        "echo POSTGRES_USER=repo",
+        "echo postgres; echo repo_test; echo repo_test_demo",
+        drop='echo "dropdb: error: database removal failed" >&2; exit 1',
+    )
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+
+    result = _run("teardown", str(worktree), "--repo", str(repo))
+
+    assert result.returncode == 3, (result.stdout, result.stderr)
+    assert "Traceback" not in result.stderr
+    assert f"removed {worktree}" in result.stdout
+    assert "dropped repo_test_demo" not in result.stdout
+    assert "NOT dropped repo_test_demo (repo-test-pg)" in result.stderr
+    assert "worktree_doctor.py sweep" in result.stderr
     assert not worktree.exists()
     drops = [line for line in log.read_text(encoding="utf-8").splitlines() if "dropdb" in line]
     assert len(drops) == 1 and drops[0].endswith(" repo_test_demo")
@@ -1878,6 +1989,29 @@ def test_cleanup_reports_an_orphan_and_never_drops_it(doctor, tmp_path, gh, caps
     assert "repo_test_ghost" in out
     assert not any("dropdb" in call for call in docker.calls)
     assert not _has_branch(repo), "an orphan elsewhere must not stop this PR's own cleanup"
+
+
+def test_cleanup_surfaces_a_drop_docker_did_not_confirm(doctor, tmp_path, gh, capsys):
+    """OS#717: a teardown whose drop failed must not end in "clean".
+
+    The worktree is gone, so the branch steps still run; the verdict carries the
+    undropped database and the sweep that follows names it as the orphan it now is.
+    """
+    repo, worktree = _merged_repo(tmp_path)
+    events: list[str] = []
+    docker = _unconfirmed_drops(_bench_docker("repo_test_demo"), events)
+
+    rc = doctor.cleanup_merged(repo, 7, docker)
+
+    out, err = _drop_outcome(doctor, capsys, rc)
+    assert events == ["drop attempted repo_test_demo"]
+    assert not worktree.exists()
+    assert "dropped repo_test_demo" not in out
+    assert "NOT dropped repo_test_demo (grantspider-test-pg)" in err
+    assert not out.splitlines()[-1].endswith(": clean")
+    assert out.splitlines()[-1] == f"cleanup-merged #7: {doctor.VERDICTS[3]}"
+    assert "orphaned repo_test_demo" in out
+    assert not _has_branch(repo)
 
 
 def test_cleanup_removes_everything_a_merged_pr_left(doctor, tmp_path, gh, capsys):
