@@ -182,6 +182,20 @@ answers (delivery trial, 2026-09-16 — the parent saw 0 ticks and so did the
 subagent). Foreground polling is the only shape that observes anything, which is
 why `watch` is foreground and carries no Monitor tool.
 
+**Whatever waits, waits in a sanctioned shape** (OS#723). The rule above counts a
+wait's notifications; this one is about the processes a wait leaves behind, and
+it binds the session, `watch` and every dispatch agent alike. Foreground `sleep`
+is refused, and the home-made substitute `read -t N < <(… exec cat /dev/zero …)`
+leaks one spinning process per call: on 2026-11-12 a dispatch agent's wait loop
+left 115 of them and held the laptop at load ~127.
+`guard_endless_substitution.py` refuses the shape. The sanctioned waits are a
+`run_in_background` until-loop with `sleep` inside it, the Monitor tool (subject
+to the count above), and `timeout N tail --pid`. Never wait with an until-loop
+on `pgrep -f '<pattern>'` whose pattern also appears in the loop's own command
+line: `pgrep` matches the shell running the loop, so the loop never ends (loops
+of this shape leaked for 4–19 hours the same day, and no guard catches them).
+Instead, wait on a file, a PID (`tail --pid`) or a PR state.
+
 ### 4. Return to user
 
 When the agent returns, read its YAML report and relay the terminal state directly (no verification round-trip is needed — foreground returns the genuine final output):

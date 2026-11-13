@@ -33,6 +33,7 @@ HOOK_MEMBERS = frozenset(
         "guard_promote_cadence.py",
         "guard_promote_ci_red.py",
         "guard_gate_pipe.py",
+        "guard_endless_substitution.py",
         "guard_architect_readonly.py",
     }
 )

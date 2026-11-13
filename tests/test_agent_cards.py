@@ -1181,3 +1181,46 @@ def test_the_architect_reads_the_full_map_and_the_slices(card: Path) -> None:
     prose = _unwrapped(card.read_text(encoding="utf-8"))
     assert "`estate-map.yaml`" in prose
     assert "~/.claude/shared/references/estate-map/<repo>.md" in prose
+
+
+#: OS#723. Each phrase names the forbidden wait or a sanctioned one; a document
+#: that a dispatch agent works from must carry every one of them.
+WAIT_DOCTRINE = (
+    # The forbidden shape: a sleep built from a timed read on an endless substitution.
+    "`read -t N < <(… exec cat /dev/zero …)`",
+    "`guard_endless_substitution.py`",
+    # The sanctioned waits.
+    "a `run_in_background` until-loop with `sleep` inside it",
+    "the Monitor tool",
+    "`timeout N tail --pid`",
+    # The self-matching pgrep loop (2026-11-12), and what to wait on instead.
+    "an until-loop on `pgrep -f '<pattern>'` whose pattern also appears in the loop's own"
+    " command line",
+    "wait on a file, a PID (`tail --pid`) or a PR state",
+)
+
+DISPATCH_SKILL_DIRS = (
+    REPO_ROOT / "shared" / "skills" / "dispatch",
+    REPO_ROOT / ".claude" / "skills" / "dispatch",
+)
+WAIT_DOCTRINE_DOCUMENTS = _dev_cards() + [
+    directory / name for directory in DISPATCH_SKILL_DIRS for name in ("SKILL.md", "playbook.md")
+]
+
+
+def test_the_wait_doctrine_has_documents_to_check() -> None:
+    """A parametrized guard over an empty list passes vacuously."""
+    assert len(WAIT_DOCTRINE_DOCUMENTS) > len(_dev_cards())
+    assert all(path.is_file() for path in WAIT_DOCTRINE_DOCUMENTS)
+
+
+@pytest.mark.parametrize("document", WAIT_DOCTRINE_DOCUMENTS, ids=_card_id)
+def test_every_dispatch_document_forbids_the_endless_wait_and_names_the_sanctioned_ones(
+    document: Path,
+) -> None:
+    prose = _unwrapped(document.read_text(encoding="utf-8"))
+    missing = [phrase for phrase in WAIT_DOCTRINE if phrase not in prose]
+    assert not missing, (
+        f"{_card_id(document)} does not carry the OS#723 wait doctrine: {missing}. A wait "
+        f"built from `read -t` on an endless substitution leaks a spinning process per call."
+    )
