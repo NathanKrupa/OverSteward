@@ -56,7 +56,7 @@ Each current shape is its first sentence; the full measurement is in the map.
   - 7 modules, 1,251 lines, living in `apps/core/` beside product code; 4 feature PRs in 90 days. → hold
 - `ag.search-acquisition` · live · Google Search as AG's first customer: the indexable funder-page corpus, offered by sitemap and judged by Search Console.
   - Last measured for epic OS#421 (2026-08-31): indexed pages fell from 66,010 (Jun 11) to 1,605 (Aug 20), and 30 of 40 sampled pages among the 7,108 enriched pages then in the sitemap were unknown to Google. → Every enriched funder page fetched by Google and its indexation read weekly; the indexable set grows by fixing the crawl, never by shrinking it (Nathan, 2026-10-30).
-- `ag.search-measurement` · live · Judging shipped pages by Search Console and GA4 through the CLIs: indexation sweeps, per-arm reads, funnel events.
+- `ag.search-measurement` · live · Judging shipped pages by Search Console, Bing Webmaster and GA4 through the CLIs: indexation sweeps, per-arm reads, funnel events.
   - Sessions read GSC and GA4 through `wphelper gsc` and `wphelper analytics`, never an MCP server (cli-connection-standard.md). → hold
 - `ag.page-red-teaming` · building · Gemini red-teams a page shape before it is built, on static design-bench renders judged under the rater and seeker rubrics.
   - OverSteward's half shipped (#422, #423, #427). → AG#1858 closed, so every page-shape PR publishes a bench render and carries a judge verdict before it ships.

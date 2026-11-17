@@ -31,7 +31,7 @@
 - `ag.help-centre` · live · The help centre: DB-backed articles written as PR-gated drafts by the docs-author agent, with captured screenshots and drift checks.
 - `ag.dev-gates` · live · AG's gates and release tooling: make verify, test settings, CI ratchet counters, the promotion check, the GS pin bump.
 - `ag.search-acquisition` · live · Google Search as AG's first customer: the indexable funder-page corpus, offered by sitemap and judged by Search Console.
-- `ag.search-measurement` · live · Judging shipped pages by Search Console and GA4 through the CLIs: indexation sweeps, per-arm reads, funnel events.
+- `ag.search-measurement` · live · Judging shipped pages by Search Console, Bing Webmaster and GA4 through the CLIs: indexation sweeps, per-arm reads, funnel events.
 - `ag.page-red-teaming` · building · Gemini red-teams a page shape before it is built, on static design-bench renders judged under the rater and seeker rubrics.
 - `ag.resource-outreach` · live · Resource-page outreach: monthly Brave discovery of grant-resource sites, reviewed drafts, and weekday listing-request emails.
 - `gs.research-schema` · live · Research schema: the ORM models and Alembic history GS alone writes, and the `ag_research` view manifest that is AG's read surface.
@@ -66,7 +66,7 @@
 - `gs.safety` · live · Database safety: operator-armed prod migrations, pre-migration and weekly B2 backups, the restore drill, wipe canaries, the Neon budget canary.
 - `gs.dagster-runtime` · live · Dagster runtime: definitions, schedules, sensors and run guards; zombie and orphan reapers; the out-of-band daemon watchdog; cron check-ins.
 - `gs.dev-gates` · live · Dev gates: the gaudi boy-scout ratchet, migration and reader-privilege drift, Dagster lints, the pin-bump notice to AG, the divergence watchdog.
-- `wp.connectors` · live · WordPress client toolkit; canonical home for external connectors (WP REST, Kit, GA4, GSC, FTP, IndexNow).
+- `wp.connectors` · live · WordPress client toolkit; canonical home for external connectors (WP REST, Kit, GA4, GSC, Bing Webmaster, FTP, IndexNow).
 - `wp.nathankrupa-hub` · planned · nathankrupa.com as a hub for all of Nathan's work: the Substack, The Almoner, the AG community and Golden Harvest.
 - `aa.almoner` · live · `almoner` package — content authoring, CRM, ingestion, WP integration. No CI.
 - `gaudi.linter` · live · Architecture linter, open source (PyPI `gaudi-linter`); gates AG and OverSteward.

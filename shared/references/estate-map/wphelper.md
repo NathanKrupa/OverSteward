@@ -10,7 +10,7 @@ This repo's share of OverSteward's `estate-map.yaml`. A wrong row is fixed in th
 
 Each current shape is its first sentence; the full measurement is in the map.
 
-- `wp.connectors` · live · WordPress client toolkit; canonical home for external connectors (WP REST, Kit, GA4, GSC, FTP, IndexNow).
+- `wp.connectors` · live · WordPress client toolkit; canonical home for external connectors (WP REST, Kit, GA4, GSC, Bing Webmaster, FTP, IndexNow).
   - Unclaimed stub: wphelper is not seeded in this map. → hold
 - `wp.nathankrupa-hub` · planned · nathankrupa.com as a hub for all of Nathan's work: the Substack, The Almoner, the AG community and Golden Harvest.
   - No build is scoped and nothing is in git. → The Rule of Life front page built on the existing theme, the blog moved to /journal, and each calling linking to its work.
