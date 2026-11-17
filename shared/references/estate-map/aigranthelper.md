@@ -39,7 +39,7 @@ Each current shape is its first sentence; the full measurement is in the map.
 - `ag.platform` · live · Request plumbing every app shares: tenancy middleware, role and lapsed-access enforcement, internal auth, abuse guards, storage.
   - 30 modules, 3,048 lines; 29 feature PRs in 90 days. → One cron check-in helper here that the 11 commands call (L-AG-4); the tables in `models.py` move to the apps whose capabilities own them.
 - `ag.notifications` · live · Notifications and mail: routed notification channels, the staging allowlist, and the mail outbox with its drain.
-  - 4 modules, 811 lines; 1 feature PR in 90 days. → hold
+  - 10 modules, 1,494 lines on main (2026-11-16): the outbox and its drain, Resend open and click tracking (AG#2664), the stepped-sequence proofs (AG#2708), and the consultant's per-client email switch. → hold
 - `ag.ops` · live · Operator surface: the ops dashboard and experiment tracker, `/internal/ops/` reports and verdicts, the load test, DB backup and scratch.
   - 24 modules, 2,523 lines; 10 feature PRs in 90 days. → hold
 - `ag.acquisition-analytics` · live · Acquisition measurement: GA4 server-side events, first-touch attribution, the signups-from-funder-pages KPI, the GEO probe.
