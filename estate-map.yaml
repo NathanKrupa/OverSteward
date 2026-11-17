@@ -158,6 +158,7 @@ capabilities:
     - apps/core/grantspider_reads.py
     - scripts/tools/check_research_drift.py
     - research_schema.lock
+    - apps/research/concurrent_reads.py
   invariants: [I-4, I-6]
   liabilities: [G1]
   current_shape: '40 modules, 8,457 lines; 72 feature PRs touched them in 90 days. Two modules hold logic that
@@ -244,6 +245,11 @@ capabilities:
     - apps/research/services/sector_treemap.py
     - apps/research/services/shared_recipients.py
     - apps/research/services/unsolicited_access.py
+    - apps/research/directory_views.py
+    - apps/research/services/directory_layout.py
+    - apps/research/services/foundation_directory.py
+    - apps/research/services/gov_program_seo.py
+    - apps/research/management/commands/refresh_press_stats.py
   liabilities: [L-AG-5]
   current_shape: '44 modules, 12,128 lines; 63 feature PRs in 90 days. `views.py` is 2,156 lines (1,128 code
     lines) and was touched by 36 feature PRs, 56 counting promotions to main. It assembles the profile context
@@ -291,6 +297,9 @@ capabilities:
     - apps/seo/management/commands/monitor_indexation.py
     - apps/seo/templatetags/__init__.py
     - apps/seo/templatetags/seo_tags.py
+    - apps/research/services/cohort_store.py
+    - apps/research/services/snippet_text.py
+    - apps/seo/inspection_pass.py
   invariants: [I-9]
   liabilities: [L-AG-4]
   current_shape: '29 modules, 5,726 lines; 30 feature PRs in 90 days. Railway crons: `render_sitemaps` every 6
@@ -355,6 +364,7 @@ capabilities:
     - apps/seo/lead_views.py
     - apps/seo/urls.py
     - apps/seo/templatetags/lead_links.py
+    - apps/seo/lead_index_views.py
   liabilities: [L-AG-5]
   current_shape: '21 modules, 5,506 lines; 18 feature PRs in 90 days. Home-page copy is LandingBlock rows
     edited in the CMS, not in a PR. `walkthrough_service.py` (1,283 lines) is the largest module and was
@@ -460,7 +470,11 @@ capabilities:
   status: live
   depends_on: [ag.billing]
   claims:
-    aigranthelper: [apps/accounts/]
+    aigranthelper:
+    - apps/accounts/
+    - apps/ops/org_merge.py
+    - apps/ops/management/commands/merge_organization.py
+    - apps/ops/management/commands/attach_member.py
   invariants: [I-22]
   liabilities: [L-AG-4]
   current_shape: '57 modules, 10,871 lines; 56 feature PRs in 90 days. `views.py` is 1,391 lines (856 code
@@ -533,8 +547,16 @@ capabilities:
     - apps/core/email_backends.py
     - apps/core/outbox_drain.py
     - apps/core/management/commands/drain_email_outbox.py
+    - apps/core/email_tracking.py
+    - apps/core/email_webhooks.py
+    - apps/core/management/commands/email_report.py
+    - apps/ops/email_proofs.py
+    - apps/ops/management/commands/send_email_proofs.py
+    - apps/pipeline/views_client_notifications.py
   invariants: [I-22]
-  current_shape: '4 modules, 811 lines; 1 feature PR in 90 days.'
+  current_shape: '10 modules, 1,494 lines on main (2026-11-16): the outbox and its drain, Resend open and
+    click tracking (AG#2664), the stepped-sequence proofs (AG#2708), and the consultant''s per-client email
+    switch.'
   target_shape: hold
 - id: ag.ops
   kind: code
@@ -695,6 +717,14 @@ capabilities:
   status: live
   serves: [ag.search-acquisition, ag.home-ab-testing]
   depends_on: [ag.search-indexing, ag.acquisition-analytics, wp.connectors]
+  claims:
+    aigranthelper:
+    - apps/seo/cloudflare_analytics.py
+    - apps/seo/google_fetch_service.py
+    - apps/seo/crawl_models.py
+    - apps/seo/crawl_panel_service.py
+    - apps/seo/management/commands/load_crawl_panel.py
+    - apps/seo/management/commands/monitor_crawl.py
   locations:
   - {type: path, ref: 'oversteward:shared/references/cli-connection-standard.md'}
   - {type: path, ref: 'wphelper:src/wphelper/search_console.py'}
