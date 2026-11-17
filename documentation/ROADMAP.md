@@ -2456,6 +2456,113 @@ Every §3.14 watch-list row, in order:
 | Find past grants spinner | AG#2830 | Nathan's 11-10 ask; dispatched |
 | Help articles over 1,400 words | AG help drafts | the coherent split was approved 11-10; dispatched |
 
+## §3.23 Mid-November 2026 — AG goes after Google's attention with a crawl monitor, two hubs and an experiment, and the dream cycle learns to check its own laws (reconciled 2026-11-17)
+
+> A dream-cycle pass, seven days after §3.22. Three through-lines.
+> **AG treats Google's indifference as something to measure.** The 11-15
+> crawl audit found Google reading about three foundation pages a day. In
+> response, the estate built `monitor_crawl` (AG#2948–#2951), which reads what
+> Googlebot fetched at the Cloudflare edge and what Search Console decided.
+> It shipped `/foundations/` and `/grants-for/` as linked hubs, made the thin
+> `/data/` page real, and started a pre-registered 40-page Request Indexing
+> experiment (AG#2952). **Both repos promoted on Monday 11-16**, on Nathan's
+> express word, through the Tuesday sequence. **The dream cycle took on
+> governance of its own store**: a run lock, store health against a ceiling,
+> and a correction pass that re-checks Laws and Habits against the code.
+
+### Shipped (2026-11-10 → 11-17)
+
+- **OverSteward.**
+  - Dream: an exclusive run lock so the timer and a session's `/dream`
+    never write the store at once (#694). `store-health` added the
+    dangling-link queue and the store-size ceiling (#697). The correction
+    pass shipped in three parts: a read-only worklist (#698), worklist
+    evidence (#701), and verdicts with a closing-row ledger (#704).
+    Finalize now commits `MEMORY_FULL.md` beside `MEMORY.md` (#721).
+  - Review loop: a headless reviewer that exits with no verdict is caught,
+    and its blind round's scratch copy is recovered (#688, #689).
+  - Lite gates run bandit as each repo's full gate does (#684). AG's lite
+    gate runs pytest on the worktree bench and the gaudi ratchets (#683).
+  - CI red: a `fixed-in-place` verdict for a red PR fixed by a later head
+    (#687), and `ci_red.py rerun` for an orphaned run (#707).
+  - `worktree_doctor`: teardown refuses when docker cannot list the bench
+    (#718). A repo may declare it has no bench (#722). An unconfirmed
+    database drop exits 3 (#726). `is_tracked` reads only git's exit 1 as
+    untracked (#715).
+  - `ag_ops`: defaults to the apex and refuses to follow a redirect on a
+    write (#720) or across origins on a read (#724).
+  - Dispatch: `/stepping-away` loads the queue and takes Nathan's word
+    before he leaves (#686). Endless process-substitution waits are refused
+    (#725, after OS#723's 115 spinning processes).
+  - Estate map: memory cites are checked against the store (#706). The CI
+    checkout shape and S-1 view count are corrected (#728). What AG reads of
+    `gs.authority-map` is named (#710), and its target is set to the complete
+    government-funder map (#729). AG's 25 orphan modules are claimed, 0
+    orphans (#731).
+- **GS — promote #3887 (11-16, 13:42Z).** It shipped about 33 PRs of
+  government-funder-map work. Four additive migrations were applied under
+  the delegated arm about a minute after the merge, and all seven services,
+  both Dagster ones included, reached the promoted commit. The detached
+  crawl checkout was re-pinned, and the back-merge was #3889. The promote
+  went in off-cadence and over an open `ci-red` issue (#3886, an unmerged
+  Dependabot PR), with both overrides recorded.
+- **AG — promote #2973 (11-16, 14:14Z), back-merge #2975.**
+  - The `/foundations/` directory hub, with per-state counts behind a count
+    cache. Every breadcrumb is now rooted at `/foundations/` (#2963–#2965,
+    AG#2953). A fix to the nationwide count lowers the home page map's
+    totals.
+  - `monitor_crawl` part 1: the Cloudflare analytics connector (#2962) and
+    the command (#2967). Its first live read matched the audit's seven daily
+    counts. Part 3's first half, the experiment panel table with its
+    pre-registered arms (#2971), also shipped.
+  - `/data/` is noindex and unlisted until it has figures (#2968).
+    `refresh_press_stats` now runs in production's `daily_lifecycle` chain,
+    a Railway config change on Nathan's word, so the page shows its figures.
+  - Sitemap rows dated only by the March ProPublica load publish no
+    `lastmod` (#2970, 1,204 entries).
+  - 13 Grant Studio PRs: Open Items, answer history, revise by instruction,
+    letters of inquiry, the fact sheet and packet, tables, copy and
+    replace, and the Reference documents pane.
+  - After the promote: 9,779 indexable funder pages were sent to Bing
+    through IndexNow. The `/grants-for/` hub shipped as hotfix #2981
+    (back-merge #2983), judged by Gemini before review and at 4.7 in round 2.
+- **AG — on staging for the next promote.** `monitor_crawl` parts 2–4: the
+  Search Console inspection ledger (#2986),
+  the stored Googlebot fetch ledger and schedule (#2987, #2988), and
+  inspection targets and `--report` (#2989, #2990). Three help-centre PRs:
+  the directory reconcile (#2976), the Studio corrections (#2978), and a
+  new "Letters, Fact Sheets and Tables" article with its screenshot rows
+  (#2984).
+
+### Corrections to earlier sections
+
+- §3.22 listed AG#2829's three missing `daily_lifecycle` commands. A fourth,
+  `refresh_press_stats`, was found missing and added on 11-16. That pass
+  added only it, and AG#2829 is still open for the original three.
+
+### Started, not landed
+
+| Item | Where | State |
+|---|---|---|
+| Request Indexing experiment | AG#2952 | 9 request pages submitted 11-16, the rest 11-17/18 at about 10 a day; day-7 and day-14 readings about 11-25 and 12-02 |
+| `monitor_crawl` live | AG#2948–#2951 | on staging; needs the next promote, the Railway service (`0 4 * * 4`, its token on that service only), and one forced failure seen red |
+| Estate-map claims for the new `apps/seo` modules | estate-map.yaml | owed after the promote; GS has 47 unclaimed files from the government-funder map, and who claims them is open |
+| GS pin bump | AG#2972 | draft by design; needs a look at the GS changelog before the next AG promote |
+| Standing Orders 200-line cap | OS#730 | the gate checks bytes, not the loader's line cap |
+| Smoke flake at 390px | AG#2985 | the request-intercepting helper hangs on a reset; filed |
+| Product gaps found by the docs agent | AG#2979 (`tribe`), AG#2980 | a letter's funding period always reads "[not set]"; a help line claims the AI checks the application page |
+
+### Intent not yet filed (flagged by the dream cycle)
+
+- **Deterministic estate-map upkeep.** Generated size lines, a nightly check
+  with one rolling issue, staging-aware claims, coverage for the other four
+  repos, and a `claim --suggest` verb. Nathan set it for scoping on
+  Wednesday 11-18, so it is not filed yet.
+- **AG Pro allowance.** Nathan is weighing cutting Pro's 20 applications a
+  month after a costly Claudian session. The proposed order is to measure
+  with `generation_costs` and add a per-org generation budget before
+  changing the allowance. No ruling yet.
+
 ## §4 In flight
 
 Active or partially-shipped items as of 2026-05-07.
@@ -2561,4 +2668,4 @@ Captured in `IDEA_STORE.md` from gstack research and conversational drift. None 
 - If §2-§3 grow past readable length, extract to a `documentation/changelog.md` and keep this doc thin.
 - This doc is the single answer to "what are we trying to do, what's done, what's next?" If it can't answer that in under 60 seconds of reading, it's grown past its purpose — restructure rather than expand.
 
-*Last updated: 2026-11-10 (Tuesday promotion reconciliation — §3.22 added: the ci-red line (OS#657), GS promotes #3554–#3672 with the funding-authority views, AG promotes #2732 and #2825 with Consultant Builder shipped dark). Previously 2026-11-05 (early-November reconciliation — §3.21 added: AG's crawl-recovery promote #2656, GS's website consolidation and judge-only re-verify through promotes #3427, #3495 and #3520, the estate map replacing architecture.md, and Nathan's 11-04 express-word rule for GS promotes). Previously 2026-10-29 (late-October reconciliation — §3.20 added: AG's promotes #2535 and #2566 for the Pro trial, passes and consultants, GS's held-funder crawl and website-accuracy epic GS#3407, and OverSteward's GS promote-cadence guard). Previously 2026-10-22 (late-October reconciliation — §3.18 added: AG's signup-surge build and promote #2477, GS's claim-queue enrich drain and segment drains, the IRS keep-current fixes, and OverSteward's backup sweep going live; §3.19 added: the Railway breach, GS's funding-authority map, and the Estate Brief and intake split).*
+*Last updated: 2026-11-17 (dream-cycle reconciliation — §3.23 added: AG's crawl monitor, `/foundations/` and `/grants-for/` hubs and the Request Indexing experiment, the Monday 11-16 promotes GS #3887 and AG #2973, and the dream cycle's run lock, store health and correction pass). Previously 2026-11-10 (Tuesday promotion reconciliation — §3.22 added: the ci-red line (OS#657), GS promotes #3554–#3672 with the funding-authority views, AG promotes #2732 and #2825 with Consultant Builder shipped dark). Previously 2026-11-05 (early-November reconciliation — §3.21 added: AG's crawl-recovery promote #2656, GS's website consolidation and judge-only re-verify through promotes #3427, #3495 and #3520, the estate map replacing architecture.md, and Nathan's 11-04 express-word rule for GS promotes). Previously 2026-10-29 (late-October reconciliation — §3.20 added: AG's promotes #2535 and #2566 for the Pro trial, passes and consultants, GS's held-funder crawl and website-accuracy epic GS#3407, and OverSteward's GS promote-cadence guard). Previously 2026-10-22 (late-October reconciliation — §3.18 added: AG's signup-surge build and promote #2477, GS's claim-queue enrich drain and segment drains, the IRS keep-current fixes, and OverSteward's backup sweep going live; §3.19 added: the Railway breach, GS's funding-authority map, and the Estate Brief and intake split).*
