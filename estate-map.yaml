@@ -712,8 +712,8 @@ capabilities:
     set grows by fixing the crawl, never by shrinking it (Nathan, 2026-10-30).'
 - id: ag.search-measurement
   kind: process
-  purpose: 'Judging shipped pages by Search Console and GA4 through the CLIs: indexation sweeps, per-arm
-    reads, funnel events.'
+  purpose: 'Judging shipped pages by Search Console, Bing Webmaster and GA4 through the CLIs: indexation
+    sweeps, per-arm reads, funnel events.'
   status: live
   serves: [ag.search-acquisition, ag.home-ab-testing]
   depends_on: [ag.search-indexing, ag.acquisition-analytics, wp.connectors]
@@ -1997,8 +1997,8 @@ capabilities:
   target_shape: hold
 - id: wp.connectors
   kind: code
-  purpose: WordPress client toolkit; canonical home for external connectors (WP REST, Kit, GA4, GSC, FTP,
-    IndexNow).
+  purpose: WordPress client toolkit; canonical home for external connectors (WP REST, Kit, GA4, GSC, Bing
+    Webmaster, FTP, IndexNow).
   status: live
   claims: {}
   invariants: [I-9, I-10]

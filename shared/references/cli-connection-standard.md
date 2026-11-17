@@ -79,6 +79,17 @@ write and is deliberate.
 - `wphelper gsc submit-sitemap <url>` — (write) submit/re-submit a sitemap.
 - URL Inspection is rate-limited (~2000/day/property); sample and log the sample size.
 
+### Bing Webmaster Tools — `wphelper bing`
+Same wphelper CLI. Read-only. Key `BING_WEBMASTER_API_KEY` in wphelper's `.env`;
+the site is the client's GSC property (`sc-domain:<host>` → `https://<host>/`),
+else `BING_SITE_URL`, else `GSC_SITE_URL`. Every command takes `--client` and `--json`.
+
+- `wphelper bing traffic` — impressions and clicks by day (`--weekly` by ISO week).
+- `wphelper bing crawl` — per day: pages crawled, in index, inbound links, crawl errors, response codes.
+- `wphelper bing top-queries` / `top-pages` — aggregated impressions and clicks, by clicks.
+- `wphelper bing sitemaps` — registered feeds, status, URL count, last crawled.
+- Exit 0 is a measured answer, empty included; 1 is could-not-look (no key, no site, HTTP or network error).
+
 ### Sentry — `sentry-cli` (3.6.0)
 Installed to `~/.local/bin/sentry-cli`. Reproduce on a new machine with:
 
