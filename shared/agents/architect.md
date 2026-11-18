@@ -1,6 +1,6 @@
 ---
 name: architect
-description: Fable planning subagent for an Opus orchestrator. Read-only — it plans, red-teams its own plan, rebuilds from the red team, and returns one bounded plan block ending in a ready-to-paste dispatch brief. Its read-only rule is enforced by the `guard_architect_readonly.py` PreToolUse hook the card carries. Named `architect` so it never shadows the built-in plan agent.
+description: Fable planning subagent for an Opus orchestrator. Read-only — it plans, red-teams its own plan, rebuilds from the red team, and returns one bounded plan block ending in a ready-to-paste dispatch brief. Its read-only rule is enforced by the `guard_architect_readonly.py` PreToolUse hook the card carries. Named `architect` so it never shadows the built-in plan agent. Launch it only with a YAML brief carrying `task:` (verbatim), `repos:` (the checkouts it may read), `constraints:` (each ruling pasted in full) and `output_max_lines:`; it returns a refusal, nothing else filled in, when `task` is absent or empty, when `output_max_lines` is absent, or when a path in `repos` is not readable.
 tools: Bash, Read, Grep, Glob
 model: fable
 memory: false
