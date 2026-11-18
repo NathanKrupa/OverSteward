@@ -1183,6 +1183,35 @@ def test_the_architect_reads_the_full_map_and_the_slices(card: Path) -> None:
     assert "~/.claude/shared/references/estate-map/<repo>.md" in prose
 
 
+#: OS#734. The launching session reads only the card's `description:`, never its
+#: body, so the brief contract must be stated there or the card refuses a prose
+#: brief after the launch is paid for.
+ARCHITECT_BRIEF_FIELDS = ("`task:`", "`repos:`", "`constraints:`", "`output_max_lines:`")
+
+#: The refusal conditions in the body's own words. The description must quote
+#: them as the body states them, so the two cannot drift apart.
+ARCHITECT_REFUSALS = (
+    "`task` is absent or empty",
+    "`output_max_lines` is absent",
+    "a path in `repos` is not readable",
+)
+
+
+@pytest.mark.parametrize("card", _card_pair("architect.md"), ids=lambda p: p.parent.name)
+def test_the_architect_description_states_the_brief_contract(card: Path) -> None:
+    text = card.read_text(encoding="utf-8")
+    frontmatter = _FRONTMATTER.match(text)
+    assert frontmatter is not None, f"{card.name} has no frontmatter"
+    description = yaml.safe_load(frontmatter.group(1))["description"]
+    assert isinstance(description, str), "description must stay a single YAML scalar"
+    body = _unwrapped(text[frontmatter.end() :])
+    missing = [field for field in ARCHITECT_BRIEF_FIELDS if field not in description]
+    assert not missing, f"architect description does not name brief fields {missing}"
+    for refusal in ARCHITECT_REFUSALS:
+        assert refusal in body, f"architect body no longer states the refusal {refusal!r}"
+        assert refusal in description, f"architect description omits the refusal {refusal!r}"
+
+
 #: OS#723. Each phrase names the forbidden wait or a sanctioned one; a document
 #: that a dispatch agent works from must carry every one of them.
 WAIT_DOCTRINE = (
