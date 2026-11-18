@@ -259,7 +259,11 @@ capabilities:
     render. Profile and gov-detail context assembly moves into services; the copied cache-control helpers give
     way to one in `apps/core/cache_headers.py`. The county ladder opens on a focus question and lists every
     level, with the role chips kept as a second filter; county pages stay noindex until Nathan rules the ladder
-    filled out; state pages are the later indexing test (epic GS#3764).'
+    filled out; state pages are the later indexing test (epic GS#3764). Every funding body gets its own page
+    at `/gov/agency/<st>/<slug>/`, `us` for a federal body (Nathan, 2026-11-18): currently open and past
+    opportunities, who funds it, the area it serves and how to get its notices, later its verdict and profile.
+    The county ladder is the index that links to those pages, which stay noindex until Search Console and
+    Nathan rule otherwise.'
 - id: ag.search-indexing
   kind: code
   purpose: 'What Google may index and how it learns of it: sitemaps, the indexability tier, IndexNow,
@@ -1813,25 +1817,64 @@ capabilities:
     - src/grantspider/cli/authorities_obligations.py
     - src/grantspider/cli/authorities_presence.py
     - src/grantspider/cli/authorities_subscribe.py
+    - src/grantspider/cli/authorities_eda.py
+    - src/grantspider/cli/authorities_fac.py
+    - src/grantspider/cli/authorities_focus.py
+    - src/grantspider/cli/authorities_hud.py
+    - src/grantspider/cli/authorities_portals.py
+    - src/grantspider/cli/authorities_recency.py
+    - src/grantspider/cli/authorities_refresh.py
+    - src/grantspider/cli/authorities_tribal.py
+    - src/grantspider/config/appropriations.py
+    - src/grantspider/config/authority_focus.py
+    - src/grantspider/config/authority_refresh.py
+    - src/grantspider/config/state_time_zones.py
+    - src/grantspider/connectors/xlsx.py
+    - src/grantspider/orchestration/authority_refresh_assets.py
+    - src/grantspider/services/authority_focus.py
+    - src/grantspider/services/authority_recency.py
+    - src/grantspider/services/authority_refresh.py
+    - src/grantspider/services/authority_refresh_steps.py
+    - src/grantspider/services/eda_district_run.py
+    - src/grantspider/services/eda_districts.py
+    - src/grantspider/services/fac_year_load.py
+    - src/grantspider/services/federal_census.py
+    - src/grantspider/services/federal_links.py
+    - src/grantspider/services/hud_grantee_run.py
+    - src/grantspider/services/hud_grantees.py
+    - src/grantspider/services/portal_links.py
+    - src/grantspider/services/seed_listings.py
+    - src/grantspider/services/tribal_directory.py
+    - src/grantspider/services/tribal_directory_run.py
   liabilities: [L-GS-3, L-GS-4]
-  current_shape: '51 modules, 15,616 lines at GS main de6df3ee; 59 first-parent merges on `origin/staging`
-    touched them in the 90 days to 2026-11-13. CLI only: no Dagster asset yet. AG reads
-    it through five `ag_research` views and the `funding_authority_id` of `gov_opportunities_v`: the county
+  current_shape: '80 modules, 23,402 lines at GS main fd41ca2d; 98 first-parent merges on `origin/staging`
+    touched them in the 90 days to 2026-11-18. One Dagster asset wraps the keep-current run
+    (`orchestration/authority_refresh_assets.py`); its module header says its weekly schedule ships STOPPED
+    (whether production has since started it is unverified). AG reads
+    it through six `ag_research` views and the `funding_authority_id` of `gov_opportunities_v`: the county
     agency ladder at `/gov/agencies/<st>/<county>/` (`apps/research/services/gov_agencies.py`) reads
     `funding_authorities_v`, `funding_authority_areas_v`, `funding_authority_channels_v`,
-    `funding_authority_edges_v` and `funding_authority_coverage_v`, and the money trail
-    (`gov_agency_trail.py`) reads the authorities, areas and edges. On prod (2026-11-13): 2,061 bodies; 24 hold
-    a bids page, 627 a website only; 0 channel rows; 9 federal nodes and no national area; nothing records when
-    a body last funded. Epics GS#3295 (pass-through RFP tracker) and GS#3764 (the complete map) are open.
-    `opportunity_tracker.py` has no live importer (L-GS-3); `bids_page_url` is written only from hand seeds
-    (L-GS-4).'
+    `funding_authority_edges_v`, `funding_authority_coverage_v` and `funding_authority_listings_v`, and the
+    money trail (`gov_agency_trail.py`) is a second page over the same bodies, keyed by UUID. A seventh view,
+    `funding_authority_subrecipients_v`, has no AG reader. No body has a page of its own on AG. On prod
+    (2026-11-18): 2,296 bodies, 226 of them federal; 125 hold a bids page and none has been read
+    (`bids_page_polled_at` is NULL on every row); 651 of the 2,070 non-federal bodies hold a website; 125
+    channel rows; 226 `national` area rows, six of them on commissions that serve one region (GS#3806); 2,189
+    bodies carry a last-funded date; no pass-through RFP is recorded (`gov_opportunities` holds no
+    `authority_bids` row). The 2026-11-18 focus load gave 2,045 bodies a Grants.gov topic, 21 `other` and 230
+    none. Epics GS#3295 (pass-through RFP tracker) and GS#3764 (the complete map) are open.
+    `opportunity_tracker.py` has no live importer (L-GS-3); `config/authorities/refresh.yaml` holds `poll` out
+    of the keep-current run on `origin/main` and `origin/staging`, citing GS#3839, which is closed (L-GS-4).'
   target_shape: 'Every funder or potential funder visible (Nathan, 2026-11-13): a body is on the map when it
     funded in the last two years, a live directory designation counting; one with nothing open is flagged "No
     active RFP" where its notices or funding page are read and "No RFP source found yet" elsewhere; a measured
     body with no funding seen in two years is hidden from every view and counted in the run report; lapsed
     bodies are kept and re-checked, never deleted, and return when new funding lands. Each body
     carries an area, the Grants.gov topics its money carries and an opportunity link; refreshed by one scheduled
-    run with a stage-health row (epic GS#3764).'
+    run with a stage-health row (epic GS#3764). Each body (the administering entity) keys its own AG page
+    and takes one in-session enrichment pass per generation: verdict, profile, funding-page
+    and sign-up pointers (Nathan, 2026-11-18). One funding no outside organization is hidden, data kept; one
+    funding only governments shows, labelled. No model call per RFP.'
 - id: gs.data-quality
   kind: code
   purpose: 'Data quality: the write gate, nightly snapshots and drift scans, freshness SLAs, the stage-health
@@ -2664,9 +2707,9 @@ liabilities:
     gs.funder-discovery, gs.entity-resolution, gs.crawl, gs.page-triage, gs.enrichment, gs.metered-enrichment,
     gs.authority-map]
 - id: L-GS-4
-  text: '`bids_page_url` is written only from hand seeds, so a generated body cannot gain an opportunity link'
+  text: 'No bids page is polled (`refresh.yaml` holds `poll`), so no pass-through RFP is recorded'
   owner: grantspider
-  tracking: 'GS#3771 (E10 of epic GS#3764); 24 of 2,061 bodies hold one on prod (2026-11-13)'
+  tracking: 'GS#3856; 125 of 2,296 bodies hold one, none polled (2026-11-18)'
   capabilities: [gs.authority-map]
 - id: L-MKT-1
   text: 'The resource-page outreach pipeline, which sends live email on a weekday timer, is untracked
