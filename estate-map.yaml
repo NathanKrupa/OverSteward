@@ -547,7 +547,7 @@ capabilities:
     tables (SitemapSnapshot, StateHubMemberList, OutboundEmail, BlockedIP beside Activity and OrgDocument).
     13 management commands carry their own copy of the `_sentry_check_in_start/_finish` pair (L-AG-4, AG
     b160e9e); `cron_checkin.py` is its shared home, with `monitor_crawl` its one caller so far.'
-  target_shape: 'One cron check-in helper here that the 11 commands call (L-AG-4); the tables in `models.py`
+  target_shape: 'The 13 copied check-in pairs move onto `cron_checkin.py` (L-AG-4); the tables in `models.py`
     move to the apps whose capabilities own them.'
 - id: ag.notifications
   kind: code
@@ -2694,9 +2694,10 @@ liabilities:
   tracking: '`config/settings/test.py:25-65`, `tests/conftest.py`'
   capabilities: [ag.dev-gates]
 - id: L-AG-4
-  text: 'The `_sentry_check_in_start/_finish` pair is copied into 11 management commands across accounts,
-    ops, reporting, research, seo and studio; with docstrings and comments stripped the copies fall into
-    three variants. No shared helper exists'
+  text: 'The `_sentry_check_in_start/_finish` pair is copied into 13 management commands across accounts,
+    billing, ops, reporting, research, seo and studio (AG b160e9e); with docstrings and comments stripped,
+    the 11 copies read at f2a8d99 fell into three variants. The shared helper `apps/core/cron_checkin.py`
+    exists, and only `monitor_crawl` calls it'
   owner: aigranthelper
   tracking: '`git grep -l "def _sentry_check_in_start" origin/main -- apps/` (AG f2a8d99); OS#640 comment
     (SMELL-002 ratchet)'
