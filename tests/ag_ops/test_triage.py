@@ -526,6 +526,12 @@ def test_the_waiting_fixture_matches_the_producers_row_shape() -> None:
         "category",
         "status",
         "page_url",
-        "from_beta_org",
         "organization_id",
     }
+
+
+def test_the_correction_fixture_matches_the_producers_row_shape() -> None:
+    """A transcription of apps/feedback/export.py::_serialize on AG main."""
+    row = waiting_reports()[CORRECTIONS_QUEUE]["items"][0]
+
+    assert set(row) == {"id", "target_table", "target_id", "message", "page_url", "status", "created_at"}

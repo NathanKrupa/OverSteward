@@ -36,6 +36,16 @@ It pulls the manifest from `/internal/ops/reports/`, then every report the
 manifest names — no hardcoded report list, so a report AG adds appears here the
 day it ships.
 
+**Every waiting row prints in full**, so you can rule on it from the sweep
+alone: its id and date, then every field the producer sends (a feedback row's
+subject, category, page URL and organization id; a correction row's target
+table and id and page URL; any field this consumer does not know yet, by name),
+then the whole body or message, never truncated. The row text is written by the
+public, so it prints as data: every control character (ANSI escapes, carriage
+returns, C0/C1 bytes, line separators, bidi overrides) shows as a visible
+`\xNN` / `\uNNNN` escape, and every line of a body or message is prefixed
+`     | `, so nothing a submitter wrote can pass for one of the sweep's own lines.
+
 **Only a verdict queue is waiting on anyone** (OS#399). `feedback_queue` and
 `corrections_queue` are verdict queues: their rows count toward "awaiting a
 verdict", and every row must carry the `id` a verdict names. Everything else is
