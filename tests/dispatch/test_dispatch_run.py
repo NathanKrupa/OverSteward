@@ -140,8 +140,8 @@ def test_a_bad_line_mid_file_is_unreadable_not_clear(tmp_path):
 # --- a transcript is JSON Lines: split on \n only (OS#740) -------------------
 
 #: Characters ``str.splitlines()`` breaks on that a JSON string may hold raw.
-#: Claude Code writes them raw; each is given here by its escape, so this file
-#: holds none of them.
+#: Claude Code's transcripts on this machine held raw U+2028 and U+2029 (OS#740);
+#: each is given here by its escape, so this file holds none of them.
 RAW_SEPARATORS = ["\u2028", "\u2029", "\u0085"]
 
 
@@ -216,7 +216,8 @@ def test_a_line_that_is_not_json_is_named_by_its_newline_count(tmp_path, capsys,
     """Line 1 holds a raw U+2028, so a reader cutting there would blame line 1, not line 2.
 
     A raw form feed is a control character, which JSON does not allow inside a
-    string: such a line is not JSON, and no transcript holds one.
+    string: such a line is not JSON. None of the 22,603 transcripts scanned for
+    OS#740 held one.
     """
     path = tmp_path / "p" / "s" / "subagents" / "agent-c.jsonl"
     path.parent.mkdir(parents=True)
