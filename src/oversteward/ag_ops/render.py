@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import unicodedata
 
-from .triage import RecordResult, ReportResult, SweepResult
+from .triage import ROW_ID_KEY, RecordResult, ReportResult, SweepResult
 
 #: The headline a drained seam prints. It is followed, always, by the counts.
 QUEUES_CURRENT = "AG ops queues current — nothing awaiting a verdict."
@@ -21,7 +21,7 @@ QUEUES_CURRENT = "AG ops queues current — nothing awaiting a verdict."
 #: A queue row's fields, by where they print. The head line carries the id and
 #: date; the leading fields print first when present; every other field follows
 #: in the producer's order; the free text the submitter wrote prints last, whole.
-_ROW_HEAD_FIELDS = ("id", "created_at")
+_ROW_HEAD_FIELDS = (ROW_ID_KEY, "created_at")
 _ROW_LEADING_FIELDS = ("subject", "category", "target_table", "target_id", "page_url", "organization_id")
 _ROW_TEXT_FIELDS = ("body", "message")
 _ROW_INDENT = "     "
@@ -103,8 +103,8 @@ def _render_row(index: int, row: dict) -> str:
     text is prefixed line by line, so no line a submitter wrote can begin where
     the sweep's lines begin.
     """
-    head = f"{index:>3}. {_one_line(row.get('id', '?'))}  {_one_line(row.get('created_at', 'unknown'))}"
-    lines = [head]
+    item_id = _one_line(row.get(ROW_ID_KEY, "?"))
+    lines = [f"{index:>3}. {item_id}  {_one_line(row.get('created_at', 'unknown'))}"]
     lines.extend(
         f"{_ROW_INDENT}{_one_line(key)}: {_one_line(row[key])}" for key in _field_order(row)
     )

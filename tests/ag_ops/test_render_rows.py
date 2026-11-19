@@ -139,6 +139,38 @@ def test_a_control_character_in_a_one_line_field_is_escaped(raw: str, escaped: s
     assert raw not in text
 
 
+#: Every bidirectional control (U+202A–U+202E, U+2066–U+2069), both separators, and
+#: the edges of the C0 and C1 blocks — the boundaries of each escaped range.
+EVERY_EDGE = [
+    *(chr(code) for code in range(0x202A, 0x202F)),
+    *(chr(code) for code in range(0x2066, 0x206A)),
+    " ",
+    " ",
+    "\x00",
+    "\x1f",
+    "\x7f",
+    "\x80",
+    "\x9f",
+]
+
+
+@pytest.mark.parametrize("char", EVERY_EDGE, ids=lambda char: f"U+{ord(char):04X}")
+def test_each_escaped_range_is_escaped_to_its_edges(char: str) -> None:
+    text = _render(feedback=[_feedback_with(body=f"a{char}b", subject=f"c{char}d")])
+
+    assert char not in text
+    spelled = f"\\x{ord(char):02x}" if ord(char) <= 0xFF else f"\\u{ord(char):04x}"
+    assert f"{BODY_PREFIX}a{spelled}b" in text
+    assert f"subject: c{spelled}d" in text
+
+
+@pytest.mark.parametrize("char", [" ", "⁥", "⁪", " ", "~", "\xa0", "é"])
+def test_printable_neighbours_of_the_escaped_ranges_print_as_themselves(char: str) -> None:
+    text = _render(feedback=[_feedback_with(body=f"a{char}b")])
+
+    assert f"{BODY_PREFIX}a{char}b" in text
+
+
 def test_a_control_character_in_a_correction_message_is_escaped() -> None:
     text = _render(corrections=[_correction_with(message="\x1b]0;pwned\x07title")])
 
