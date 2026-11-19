@@ -790,11 +790,13 @@ capabilities:
     - src/grantspider/_migration_guards.py
     - src/grantspider/services/alembic_ledger.py
     - src/grantspider/services/research_schema_dump.py
+    - src/grantspider/services/place_load.py
+    - src/grantspider/cli/places.py
     - alembic/
     - schema/research.sql
   invariants: [I-6, I-7, I-8]
   liabilities: [L-GS-1]
-  current_shape: '89 modules, 15,425 lines; 76 feature PRs in 90 days, because nearly every feature adds a
+  current_shape: '92 modules, 16,321 lines; 76 feature PRs in 90 days, because nearly every feature adds a
     table. Two registration files take most of it: `ag_research_views/__init__.py` (AG''s read manifest, 923
     lines, 22 feature PRs) and `models/__init__.py` (21), which loads every model module by dotted path. Five
     models copy a `column IN (...)` CHECK renderer under two names (L-GS-1).'
@@ -836,10 +838,11 @@ capabilities:
     - src/grantspider/services/error_reporting.py
     - src/grantspider/services/operations_ledger.py
     - src/grantspider/services/data_licenses.py
+    - src/grantspider/services/secret_redaction.py
     - src/grantspider/cli/__init__.py
   invariants: [I-17]
   liabilities: [L-GS-3]
-  current_shape: '16 modules, 2,767 lines; 48 feature PRs in 90 days. `cli/__init__.py` registers every
+  current_shape: '17 modules, 3,062 lines; 48 feature PRs in 90 days. `cli/__init__.py` registers every
     command group and was touched by 37 feature PRs, more than any other GS module. `config/settings.py` (827
     lines) is the composition root for connectors. AG imports `connectors.b2_storage` at runtime (S-2).
     `connectors/storage.py`, the local-filesystem store, has no live importer (L-GS-3). depends_on is omitted:
@@ -1099,13 +1102,18 @@ capabilities:
     - src/grantspider/services/entity_cleanup.py
     - src/grantspider/services/sam_opportunities_sync.py
     - src/grantspider/services/state_program_watchlist.py
+    - src/grantspider/connectors/sam_obligations.py
+    - src/grantspider/services/awards_refresh.py
+    - src/grantspider/services/awards_resume.py
+    - src/grantspider/services/gov_fixture_removal.py
     - src/grantspider/cli/gov.py
+    - src/grantspider/cli/gov_fixtures.py
     - src/grantspider/orchestration/federal_assets.py
     - src/grantspider/orchestration/gov_detail_hydration_assets.py
     - src/grantspider/orchestration/agency_hydration_assets.py
     - src/grantspider/orchestration/classify_opportunities.py
   liabilities: [L-GS-1, L-GS-2, L-GS-3]
-  current_shape: '35 modules, 10,227 lines; 16 feature PRs in 90 days. `gov_pipeline.py` (939 lines) loads
+  current_shape: '40 modules, 11,468 lines; 16 feature PRs in 90 days. `gov_pipeline.py` (939 lines) loads
     federal and state rows alike. Only the NIH and NSF hydration lanes are assets (#2428); the DOE strategy
     has no discovery feed. NOFO summarisation (`nofo_enrichment.py`, `nofo_prompts.py`, `nofo_pdf_store.py`)
     and `connectors/hydration/doe_osti.py` have no live importer (L-GS-3).'
@@ -1265,14 +1273,17 @@ capabilities:
     - src/grantspider/services/beautify_pipeline.py
     - src/grantspider/services/address_backfill.py
     - src/grantspider/services/source_backfill.py
+    - src/grantspider/services/display_city.py
     - src/grantspider/cli/beautify_repair.py
     - src/grantspider/cli/cleanup_slugs.py
     - src/grantspider/cli/grants_filer_index.py
     - src/grantspider/cli/address_backfill.py
+    - src/grantspider/cli/hygiene_display_city.py
     - src/grantspider/orchestration/display_name_assets.py
+    - src/grantspider/orchestration/display_city_assets.py
     - src/grantspider/orchestration/filer_name_index_assets.py
   liabilities: [L-GS-2]
-  current_shape: '21 modules, 4,397 lines; 3 feature PRs in 90 days. Eight of the 21 are backfills or repairs.
+  current_shape: '24 modules, 4,989 lines; 3 feature PRs in 90 days. Eight of the 24 are backfills or repairs.
     Two filer-name backfills coexist: the 990 XML walk (#1581), reached only from `cli/grants.py`, and the
     index-CSV drain (#1602), which is scheduled.'
   target_shape: 'Repairs that have run are retired: each one-shot is deleted once `operations_ledger` shows
@@ -1400,9 +1411,13 @@ capabilities:
     - src/grantspider/services/verify_precision.py
     - src/grantspider/services/site_resolution.py
     - src/grantspider/services/excerpt_failure.py
+    - src/grantspider/services/website_reverify.py
+    - src/grantspider/services/website_reverify_apply.py
+    - src/grantspider/services/website_verify_run.py
     - src/grantspider/cli/website.py
     - src/grantspider/cli/website_find.py
     - src/grantspider/cli/website_verify.py
+    - src/grantspider/cli/website_reverify.py
     - src/grantspider/cli/website_directory_clear.py
     - src/grantspider/cli/cleanup_websites.py
     - src/grantspider/cli/cleanup_brave.py
@@ -1415,13 +1430,13 @@ capabilities:
   locations:
   - {type: workflow, ref: 'grantspider:.claude/workflows/find-websites.js'}
   liabilities: [L-GS-1, L-GS-2]
-  current_shape: '47 modules, 18,120 lines (GS main 7af44c0e, 2026-11-03). One confirm step (`website_find.py`,
-    1,869 lines) writes every provider''s candidate and the agent''s proposal: the finder (`website_finder.py`,
-    1,708 lines) turns IRS, Wikidata, Wikipedia, GiveFreely, Brave and DDG hits into candidates, so DDG top-1
+  current_shape: '51 modules, 19,978 lines (GS main fd41ca2d, 2026-11-19). One confirm step (`website_find.py`,
+    1,911 lines) writes every provider''s candidate and the agent''s proposal: the finder (`website_finder.py`,
+    1,545 lines) turns IRS, Wikidata, Wikipedia, GiveFreely, Brave and DDG hits into candidates, so DDG top-1
     is a candidate only, and a candidate that fails identity is recorded, not written. Its old write helpers
     are unreachable until GS#3481 deletes them. Three source writers still bypass the confirm step: the
     GiveFreely CSV import, the community-foundation directory import and the corporate-direct ingest
-    (GS#3482, GS#3493, GS#3494). The Haiku drain (`website_verification.py`, 2,627 lines) also judges
+    (GS#3482, GS#3493, GS#3494). The Haiku drain (`website_verification.py`, 2,858 lines) also judges
     unconfirmed candidates (`website_candidate_cohort.py`); `llm_judge.py` and the entity website path are
     retired. Three repairs still clear wrong websites behind two CLIs. Cohort helpers live in
     `funder_cohorts.py`.'
@@ -1698,13 +1713,15 @@ capabilities:
     - src/grantspider/services/funding_fingerprint.py
     - src/grantspider/services/foundation_distribution_stats.py
     - src/grantspider/services/area_funding_stats.py
+    - src/grantspider/services/area_crosswalk.py
+    - src/grantspider/services/census_city_seed.py
     - src/grantspider/services/sector_funding_stats.py
     - src/grantspider/services/sector_taxonomy.py
     - src/grantspider/cli/fingerprint.py
     - src/grantspider/cli/distribution_stats.py
     - src/grantspider/cli/sector_stats.py
     - src/grantspider/orchestration/funding_fingerprint_assets.py
-  current_shape: '9 modules, 3,040 lines; 8 feature PRs in 90 days. `sector_taxonomy.py` is the one definition
+  current_shape: '11 modules, 4,581 lines; 8 feature PRs in 90 days. `sector_taxonomy.py` is the one definition
     of a sector for GS and AG.'
   target_shape: hold
 - id: gs.deadlines
@@ -1804,6 +1821,7 @@ capabilities:
     - src/grantspider/services/pass_through_poll.py
     - src/grantspider/services/pass_through_record.py
     - src/grantspider/services/pass_through_recall.py
+    - src/grantspider/services/pdf_text.py
     - src/grantspider/services/county_overlay.py
     - src/grantspider/services/email_intake.py
     - src/grantspider/services/email_message.py
@@ -1847,7 +1865,7 @@ capabilities:
     - src/grantspider/services/tribal_directory.py
     - src/grantspider/services/tribal_directory_run.py
   liabilities: [L-GS-3, L-GS-4]
-  current_shape: '80 modules, 23,402 lines at GS main fd41ca2d; 98 first-parent merges on `origin/staging`
+  current_shape: '81 modules, 23,468 lines at GS main fd41ca2d; 98 first-parent merges on `origin/staging`
     touched them in the 90 days to 2026-11-18. One Dagster asset wraps the keep-current run
     (`orchestration/authority_refresh_assets.py`); its module header says its weekly schedule ships STOPPED
     (whether production has since started it is unverified). AG reads
@@ -2330,8 +2348,8 @@ capabilities:
   entry_points:
   - scripts/estate_map.py check
   - scripts/estate_map.py render --write
-  current_shape: OverSteward, AG and GS are seeded and their coverage floors measured (AG at 580 modules,
-    0 orphans, 0 overlaps; GS at 781 modules, 2 orphans, 0 overlaps, with services and connectors claimed
+  current_shape: OverSteward, AG and GS are seeded and their coverage floors measured (AG at 662 modules,
+    0 orphans, 0 overlaps; GS at 870 modules, 2 orphans, 0 overlaps, with services and connectors claimed
     file by file).
   target_shape: Per-repo slices deployed (PR 4), and in-flight work derived from GitHub (PR 5) — OS#640.
 

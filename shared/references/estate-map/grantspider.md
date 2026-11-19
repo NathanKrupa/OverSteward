@@ -11,11 +11,11 @@ This repo's share of OverSteward's `estate-map.yaml`. A wrong row is fixed in th
 Each current shape is its first sentence; the full measurement is in the map.
 
 - `gs.research-schema` · live · Research schema: the ORM models and Alembic history GS alone writes, and the `ag_research` view manifest that is AG's read surface.
-  - 89 modules, 15,425 lines; 76 feature PRs in 90 days, because nearly every feature adds a table. → hold
+  - 92 modules, 16,321 lines; 76 feature PRs in 90 days, because nearly every feature adds a table. → hold
 - `gs.ontology` · live · Ontology: typed entities (Foundation, Grant, NteeCode), semantic types and property lineage; the one GS package AG imports for types.
   - 24 modules, 4,479 lines; 11 feature PRs in 90 days. → hold
 - `gs.runtime` · live · Runtime: settings (the one env reader), Neon sessions with reconnect, B2 storage, logging, Sentry, the operations ledger and the CLI root.
-  - 16 modules, 2,767 lines; 48 feature PRs in 90 days. → hold
+  - 17 modules, 3,062 lines; 48 feature PRs in 90 days. → hold
 - `gs.outbound-http` · live · Outbound HTTP: one client factory composing bot identity, Web Bot Auth, robots, per-host limits and breaker; SSRF guard; the request audit log.
   - 26 modules, 6,310 lines; 14 feature PRs in 90 days. → hold
 - `gs.llm-access` · live · Model access: the Anthropic connector and the provider-neutral LlmClient, each Anthropic client built only behind the metered-key arm.
@@ -29,7 +29,7 @@ Each current shape is its first sentence; the full measurement is in the map.
 - `gs.fiscal-synopsis` · live · Fiscal synopsis: a two-page funder PDF (giving line, sector box plot) rendered by WeasyPrint and stored in B2.
   - 10 modules, 2,757 lines; 6 feature PRs in 90 days. → hold
 - `gs.federal-opportunities` · live · Federal openings: Grants.gov with detail hydration, SAM listings and contracts, USASpending, agency page hydration, NOFO PDFs.
-  - 35 modules, 10,227 lines; 16 feature PRs in 90 days. → hold
+  - 40 modules, 11,468 lines; 16 feature PRs in 90 days. → hold
 - `gs.state-opportunities` · live · State and local openings: state portals, municipal leagues, vendor tenants (Submittable, AmpliFund, WebGrants) and RSS feeds.
   - 41 modules, 8,172 lines; 4 feature PRs in 90 days. → hold
 - `gs.funder-discovery` · live · Grantmaker discovery beyond the BMF: candidate queue, corporate sweeps and giving-platform probes, corporate-direct programmes, diocesan foundations.
@@ -37,7 +37,7 @@ Each current shape is its first sentence; the full measurement is in the map.
 - `gs.community-foundations` · live · Community foundations: the COF locator and directory, ACF affiliates, site-platform detection, CFCSRA funds and scholarships.
   - 16 modules, 4,607 lines; 4 feature PRs in 90 days. → hold
 - `gs.funder-records` · live · Funder record fields: display names from filer names, acronym casing, slugs, addresses, source labels, Haiku-beautified IRS text.
-  - 21 modules, 4,397 lines; 3 feature PRs in 90 days. → Repairs that have run are retired: each one-shot is deleted once `operations_ledger` shows its apply and its target set measures empty, and a scheduled backfill is renamed as the producer it is (L-GS-2).
+  - 24 modules, 4,989 lines; 3 feature PRs in 90 days. → Repairs that have run are retired: each one-shot is deleted once `operations_ledger` shows its apply and its target set measures empty, and a scheduled backfill is renamed as the producer it is (L-GS-2).
 - `gs.entity-resolution` · live · Entity resolution: Splink, Jaro-Winkler/TF-IDF and name-cluster resolvers over an organization spine with exact-EIN edges.
   - 16 modules, 4,618 lines; 2 feature PRs in 90 days. → hold
 - `gs.grantmaker-status` · live · Grantmaker status: one versioned derivation over override, disposition, behaviour and classifier signals, kept fresh by a dirty-flag drain.
@@ -45,7 +45,7 @@ Each current shape is its first sentence; the full measurement is in the map.
 - `gs.corrections` · live · Corrections: AG visitor corrections pulled and promoted by a human into pinned overrides; operator one-field edits with lineage.
   - 7 modules, 1,970 lines; 9 feature PRs in 90 days. → hold
 - `gs.website-resolution` · live · Websites: finding each funder's site (IRS, Wikidata, Wikipedia, GiveFreely, Brave, DDG, agent proposals), verifying identity, clearing wrong ones.
-  - 47 modules, 18,120 lines (GS main 7af44c0e, 2026-11-03). → One resolver: the providers and the agent's proposal become candidate sources into one confirm step (fetch, identity rules, verdict), retiring the finder, find-and-confirm and CSV write paths. One verifier: the rule table and the Haiku judge as one ordered stage on the verification spine, retiring `llm_judge.py`. One evidence store: every verdict, write and clear lands in `verification_records`, and the three clearing repairs become one verb. The cohort helpers move out of `enrichment_apply.py` into a module both capabilities import.
+  - 51 modules, 19,978 lines (GS main fd41ca2d, 2026-11-19). → One resolver: the providers and the agent's proposal become candidate sources into one confirm step (fetch, identity rules, verdict), retiring the finder, find-and-confirm and CSV write paths. One verifier: the rule table and the Haiku judge as one ordered stage on the verification spine, retiring `llm_judge.py`. One evidence store: every verdict, write and clear lands in `verification_records`, and the three clearing repairs become one verb. The cohort helpers move out of `enrichment_apply.py` into a module both capabilities import.
 - `gs.crawl-frontier` · live · Crawl frontier: the crawl graph (`mine_urls` + links), tiered cadence, and URL sources (sitemaps, homepage links, Common Crawl, on demand).
   - 31 modules, 9,479 lines; 21 feature PRs in 90 days. → hold
 - `gs.crawl` · live · Capture: the Railway snapshot drain and the laptop crawler with its SQLite resume ledger; Wayback; markdown snapshots to B2.
@@ -59,13 +59,13 @@ Each current shape is its first sentence; the full measurement is in the map.
 - `gs.funding-profile` · live · Funding profiles: token-free facets and prose derived from a funder's grant set, refreshed only for funders whose grants moved.
   - 11 modules, 3,744 lines; 15 feature PRs in 90 days. → hold
 - `gs.giving-stats` · live · Giving statistics: per-funder fingerprints and distributions, top funders by state, city and sector, and the one sector taxonomy.
-  - 9 modules, 3,040 lines; 8 feature PRs in 90 days. → hold
+  - 11 modules, 4,581 lines; 8 feature PRs in 90 days. → hold
 - `gs.deadlines` · live · Deadlines: deterministic extraction from crawled pages and the 990-PF, rolling-cue classification, and the one open-to-applications predicate.
   - 8 modules, 2,493 lines; 5 feature PRs in 90 days. → hold
 - `gs.embeddings-search` · live · Embeddings and search: local all-MiniLM-L6-v2 (384-d) for funders, open opportunities and page chunks; Typesense reindexes.
   - 18 modules, 4,510 lines; 4 feature PRs in 90 days. → hold
 - `gs.authority-map` · building · The government-funder map: every public body that has funded in the last two years, federal to tribal, with the counties it serves, its focus and where it posts funding.
-  - 80 modules, 23,402 lines at GS main fd41ca2d; 98 first-parent merges on `origin/staging` touched them in the 90 days to 2026-11-18. → Every funder or potential funder visible (Nathan, 2026-11-13): a body is on the map when it funded in the last two years, a live directory designation counting; one with nothing open is flagged "No active RFP" where its notices or funding page are read and "No RFP source found yet" elsewhere; a measured body with no funding seen in two years is hidden from every view and counted in the run report; lapsed bodies are kept and re-checked, never deleted, and return when new funding lands. Each body carries an area, the Grants.gov topics its money carries and an opportunity link; refreshed by one scheduled run with a stage-health row (epic GS#3764). Each body (the administering entity) keys its own AG page and takes one in-session enrichment pass per generation: verdict, profile, funding-page and sign-up pointers (Nathan, 2026-11-18). One funding no outside organization is hidden, data kept; one funding only governments shows, labelled. No model call per RFP.
+  - 81 modules, 23,468 lines at GS main fd41ca2d; 98 first-parent merges on `origin/staging` touched them in the 90 days to 2026-11-18. → Every funder or potential funder visible (Nathan, 2026-11-13): a body is on the map when it funded in the last two years, a live directory designation counting; one with nothing open is flagged "No active RFP" where its notices or funding page are read and "No RFP source found yet" elsewhere; a measured body with no funding seen in two years is hidden from every view and counted in the run report; lapsed bodies are kept and re-checked, never deleted, and return when new funding lands. Each body carries an area, the Grants.gov topics its money carries and an opportunity link; refreshed by one scheduled run with a stage-health row (epic GS#3764). Each body (the administering entity) keys its own AG page and takes one in-session enrichment pass per generation: verdict, profile, funding-page and sign-up pointers (Nathan, 2026-11-18). One funding no outside organization is hidden, data kept; one funding only governments shows, labelled. No model call per RFP.
 - `gs.data-quality` · live · Data quality: the write gate, nightly snapshots and drift scans, freshness SLAs, the stage-health ledger, canaries, the Vintner funnel, operator stats.
   - 43 modules, 18,616 lines; 46 feature PRs in 90 days. → hold
 - `gs.safety` · live · Database safety: operator-armed prod migrations, pre-migration and weekly B2 backups, the restore drill, wipe canaries, the Neon budget canary.

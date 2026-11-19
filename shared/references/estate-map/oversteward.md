@@ -41,7 +41,7 @@ Each current shape is its first sentence; the full measurement is in the map.
 - `os.janitor` · live · Reclaims disk that sessions leave behind once nothing is using it.
   - 2 modules, 578 lines; prunes dead sessions' ~/.claude/tmp directories. → hold
 - `os.estate-map` · building · This map: what the estate builds, where each capability lives, and its current and target shape; checked by the seventh session-start sweep.
-  - OverSteward, AG and GS are seeded and their coverage floors measured (AG at 580 modules, 0 orphans, 0 overlaps; GS at 781 modules, 2 orphans, 0 overlaps, with services and connectors claimed file by file). → Per-repo slices deployed (PR 4), and in-flight work derived from GitHub (PR 5) — OS#640.
+  - OverSteward, AG and GS are seeded and their coverage floors measured (AG at 662 modules, 0 orphans, 0 overlaps; GS at 870 modules, 2 orphans, 0 overlaps, with services and connectors claimed file by file). → Per-repo slices deployed (PR 4), and in-flight work derived from GitHub (PR 5) — OS#640.
 
 ## Seams
 
