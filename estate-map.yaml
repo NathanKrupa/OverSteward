@@ -1431,12 +1431,12 @@ capabilities:
   - {type: workflow, ref: 'grantspider:.claude/workflows/find-websites.js'}
   liabilities: [L-GS-1, L-GS-2]
   current_shape: '51 modules, 19,978 lines (GS main fd41ca2d, 2026-11-19). One confirm step (`website_find.py`,
-    1,869 lines) writes every provider''s candidate and the agent''s proposal: the finder (`website_finder.py`,
-    1,708 lines) turns IRS, Wikidata, Wikipedia, GiveFreely, Brave and DDG hits into candidates, so DDG top-1
+    1,911 lines) writes every provider''s candidate and the agent''s proposal: the finder (`website_finder.py`,
+    1,545 lines) turns IRS, Wikidata, Wikipedia, GiveFreely, Brave and DDG hits into candidates, so DDG top-1
     is a candidate only, and a candidate that fails identity is recorded, not written. Its old write helpers
     are unreachable until GS#3481 deletes them. Three source writers still bypass the confirm step: the
     GiveFreely CSV import, the community-foundation directory import and the corporate-direct ingest
-    (GS#3482, GS#3493, GS#3494). The Haiku drain (`website_verification.py`, 2,627 lines) also judges
+    (GS#3482, GS#3493, GS#3494). The Haiku drain (`website_verification.py`, 2,858 lines) also judges
     unconfirmed candidates (`website_candidate_cohort.py`); `llm_judge.py` and the entity website path are
     retired. Three repairs still clear wrong websites behind two CLIs. Cohort helpers live in
     `funder_cohorts.py`.'
