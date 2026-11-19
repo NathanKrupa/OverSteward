@@ -66,14 +66,21 @@ def parse_stamp(text: str) -> datetime:
 def read_entries(path: Path) -> list[dict]:
     """Every JSON entry of a transcript, in order.
 
+    A transcript is JSON Lines, so it is split on ``\\n`` alone. Claude Code writes
+    U+2028 and U+2029 raw inside JSON strings, JSON allows U+0085 there too, and
+    ``str.splitlines()`` breaks on all three; the bytes are decoded without newline
+    translation, so a ``\\r`` is not a break either (OS#740).
+
     A transcript is appended while the agent runs, so a final line that does not
     parse is read as a write still in progress and dropped. A bad line anywhere else
     means the file is not a transcript, and raises.
     """
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        lines = path.read_bytes().decode("utf-8").split("\n")
     except OSError as error:
         raise TranscriptUnreadable(f"{path}: {error}") from error
+    if lines[-1] == "":
+        lines.pop()  # the newline ending the last line begins no line of its own
     entries = []
     for number, line in enumerate(lines, start=1):
         if not line.strip():

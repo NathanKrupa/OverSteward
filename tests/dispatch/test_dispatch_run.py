@@ -137,6 +137,124 @@ def test_a_bad_line_mid_file_is_unreadable_not_clear(tmp_path):
         dispatch_run.read_entries(path)
 
 
+# --- a transcript is JSON Lines: split on \n only (OS#740) -------------------
+
+#: Characters ``str.splitlines()`` breaks on that a JSON string may hold raw.
+#: Claude Code writes them raw; each is given here by its escape, so this file
+#: holds none of them.
+RAW_SEPARATORS = ["\u2028", "\u2029", "\u0085"]
+
+
+def _with_raw(entries: list[dict], char: str) -> list[dict]:
+    """``entries`` with a text entry holding ``char`` raw, placed before the last entry."""
+    note = {
+        "type": "user",
+        "timestamp": "2026-11-07T03:50:00.000Z",
+        "message": {"content": [{"type": "text", "text": f"before{char}after"}]},
+    }
+    return [*entries[:-1], note, entries[-1]]
+
+
+def _write_raw(path: Path, entries: list[dict]) -> Path:
+    """Write ``entries`` as JSON Lines with non-ASCII characters left raw, as Claude Code does."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = "".join(json.dumps(e, ensure_ascii=False) + "\n" for e in entries)
+    path.write_bytes(text.encode("utf-8"))
+    return path
+
+
+@pytest.mark.parametrize("char", RAW_SEPARATORS, ids=["U+2028", "U+2029", "U+0085"])
+def test_a_raw_separator_in_a_string_does_not_hide_a_held_prompt(tmp_path, capsys, char):
+    plain = _write(tmp_path / "plain.jsonl", _with_raw(_before_the_answer(), ""))
+    raw = _write_raw(tmp_path / "raw.jsonl", _with_raw(_before_the_answer(), char))
+    assert char in raw.read_bytes().decode("utf-8")
+
+    expected = cli.main(["prompts", "--transcript", str(plain), "--warn-min", "10"])
+    plain_out = capsys.readouterr().out
+    rc = cli.main(["prompts", "--transcript", str(raw), "--warn-min", "10"])
+    out = capsys.readouterr().out
+
+    assert expected == 3
+    assert f"BLOCKED {plain}: tool call {HELD_ID}" in plain_out
+    assert rc == expected
+    assert f"BLOCKED {raw}: tool call {HELD_ID}" in out
+    assert "1 held prompt(s) across 1 transcript(s) checked" in out
+
+
+@pytest.mark.parametrize("char", RAW_SEPARATORS, ids=["U+2028", "U+2029", "U+0085"])
+def test_the_cli_measures_a_report_against_a_transcript_holding_a_raw_separator(
+    tmp_path, capsys, char
+):
+    transcript = _write_raw(tmp_path / "t.jsonl", _with_raw(_entries(), char))
+    report = tmp_path / "report.md"
+    report.write_text(
+        "```yaml\nduration_seconds: 27048\nstarted_at: 2026-11-07T03:05:52Z\n"
+        "ended_at: 2026-11-07T10:36:40Z\n```\n",
+        encoding="utf-8",
+    )
+
+    rc = cli.main(["report", str(report), "--transcript", str(transcript)])
+
+    assert rc == 0
+    assert "measured: duration_seconds 27048" in capsys.readouterr().out
+
+
+def test_a_carriage_return_between_tokens_does_not_cut_the_line(tmp_path):
+    """JSON allows a raw \\r as whitespace; a universal-newline read would cut the line there."""
+    path = tmp_path / "t.jsonl"
+    path.write_bytes(b'{"type": "user",\r "n": 1}\n{"type": "user", "n": 2}\n')
+
+    assert [e["n"] for e in dispatch_run.read_entries(path)] == [1, 2]
+
+
+@pytest.mark.parametrize(
+    "bad",
+    ["not json", '{"text": "form\x0cfeed"}'],
+    ids=["not-json", "raw-form-feed"],
+)
+def test_a_line_that_is_not_json_is_named_by_its_newline_count(tmp_path, capsys, bad):
+    """Line 1 holds a raw U+2028, so a reader cutting there would blame line 1, not line 2.
+
+    A raw form feed is a control character, which JSON does not allow inside a
+    string: such a line is not JSON, and no transcript holds one.
+    """
+    path = tmp_path / "p" / "s" / "subagents" / "agent-c.jsonl"
+    path.parent.mkdir(parents=True)
+    first = json.dumps({"type": "user", "text": "one\u2028two"}, ensure_ascii=False)
+    path.write_bytes(f'{first}\n{bad}\n{{"type": "user"}}\n'.encode())
+
+    with pytest.raises(dispatch_run.TranscriptUnreadable, match=rf"agent-c\.jsonl:2: "):
+        dispatch_run.read_entries(path)
+    rc = cli.main(["prompts", "--root", str(tmp_path)])
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert f"could not read a transcript: {path}:2: " in out
+    assert "Traceback" not in out
+
+
+def test_a_half_written_last_line_is_dropped_after_a_raw_separator(tmp_path):
+    path = _write_raw(tmp_path / "t.jsonl", _with_raw(_before_the_answer(), "\u2028"))
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write('{"type": "user", "timest')
+
+    assert len(dispatch_run.read_entries(path)) == len(_before_the_answer()) + 1
+
+
+def test_a_bad_last_line_ending_in_a_newline_is_still_the_last_line(tmp_path):
+    """The newline that ends the file starts no line, so the bad line stays the final one."""
+    path = tmp_path / "t.jsonl"
+    path.write_bytes(b'{"n": 1}\nnot json\n')
+
+    assert dispatch_run.read_entries(path) == [{"n": 1}]
+
+
+def test_a_last_entry_whose_newline_has_not_landed_is_read(tmp_path):
+    path = tmp_path / "t.jsonl"
+    path.write_bytes(b'{"n": 1}\n{"n": 2}')
+
+    assert dispatch_run.read_entries(path) == [{"n": 1}, {"n": 2}]
+
+
 # --- the sweep and the CLI ---------------------------------------------------
 
 
