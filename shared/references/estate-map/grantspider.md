@@ -58,7 +58,7 @@ Each current shape is its first sentence; the full measurement is in the map.
   - 13 modules, 3,425 lines; 5 feature PRs in 90 days. → hold
 - `gs.funding-profile` · live · Funding profiles: token-free facets and prose derived from a funder's grant set, refreshed only for funders whose grants moved.
   - 11 modules, 3,744 lines; 15 feature PRs in 90 days. → hold
-- `gs.giving-stats` · live · Giving statistics: per-funder fingerprints and distributions, top funders by state, city and sector, and the one sector taxonomy.
+- `gs.giving-stats` · live · Giving statistics: funder fingerprints and distributions, top funders by state, city, county and sector, and the one sector taxonomy.
   - 11 modules, 4,581 lines; 8 feature PRs in 90 days. → hold
 - `gs.deadlines` · live · Deadlines: deterministic extraction from crawled pages and the 990-PF, rolling-cue classification, and the one open-to-applications predicate.
   - 8 modules, 2,493 lines; 5 feature PRs in 90 days. → hold
