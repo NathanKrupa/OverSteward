@@ -200,8 +200,8 @@ capabilities:
   target_shape: hold
 - id: ag.funder-pages
   kind: code
-  purpose: 'Funder pages: foundation and federal-grant profiles, the search pages, the county agency ladder,
-    and state, sector and city hubs.'
+  purpose: 'Funder pages: foundation and federal-grant profiles, the search pages, the county agency ladder
+    and agency pages, state, sector, city and county hubs, and each state''s city and county directories.'
   status: live
   depends_on: [ag.research, ag.funder-search]
   claims:
@@ -250,6 +250,12 @@ capabilities:
     - apps/research/services/foundation_directory.py
     - apps/research/services/gov_program_seo.py
     - apps/research/management/commands/refresh_press_stats.py
+    - apps/research/county_views.py
+    - apps/research/hub_directory_views.py
+    - apps/research/services/county_funders.py
+    - apps/research/services/hub_directory.py
+    - apps/research/services/hub_links.py
+    - apps/research/services/gov_agency_page.py
   liabilities: [L-AG-5]
   current_shape: '44 modules, 12,128 lines; 63 feature PRs in 90 days. `views.py` is 2,156 lines (1,128 code
     lines) and was touched by 36 feature PRs, 56 counting promotions to main. It assembles the profile context
@@ -308,7 +314,9 @@ capabilities:
   liabilities: [L-AG-4]
   current_shape: '29 modules, 5,726 lines; 30 feature PRs in 90 days. Railway crons: `render_sitemaps` every 6
     hours, `submit_seo_urls` daily, `monitor_indexation` (with `--cohort`) weekly on Monday
-    (`docs/operations/production-deploy.md`). Its stored data sits in other capabilities'' files:
+    (`docs/operations/production-deploy.md`). `sitemaps.py` offers the county hubs in the `counties` section
+    and each state''s city and county directories in `hub_directories` (AG#2999), beside `cities` and `states`.
+    Its stored data sits in other capabilities'' files:
     SitemapSnapshot and StateHubMemberList in `apps/core/models.py`, the cohort and hub logic in
     `apps/research/services/__init__.py`.'
   target_shape: hold
@@ -532,12 +540,13 @@ capabilities:
     - apps/core/management/__init__.py
     - apps/core/management/commands/__init__.py
     - apps/core/management/commands/honeypot_unblock.py
+    - apps/core/cron_checkin.py
   invariants: [I-22]
   liabilities: [L-AG-4]
   current_shape: '30 modules, 3,048 lines; 29 feature PRs in 90 days. `models.py` holds other capabilities''
     tables (SitemapSnapshot, StateHubMemberList, OutboundEmail, BlockedIP beside Activity and OrgDocument).
-    The `_sentry_check_in_start/_finish` pair has no shared home here, so 11 management commands carry their
-    own copy (L-AG-4).'
+    13 management commands carry their own copy of the `_sentry_check_in_start/_finish` pair (L-AG-4, AG
+    b160e9e); `cron_checkin.py` is its shared home, with `monitor_crawl` its one caller so far.'
   target_shape: 'One cron check-in helper here that the 11 commands call (L-AG-4); the tables in `models.py`
     move to the apps whose capabilities own them.'
 - id: ag.notifications
@@ -729,6 +738,10 @@ capabilities:
     - apps/seo/crawl_panel_service.py
     - apps/seo/management/commands/load_crawl_panel.py
     - apps/seo/management/commands/monitor_crawl.py
+    - apps/seo/google_fetch_ledger.py
+    - apps/seo/googlebot_fetches.py
+    - apps/seo/crawl_inspection_service.py
+    - apps/seo/crawl_report.py
   locations:
   - {type: path, ref: 'oversteward:shared/references/cli-connection-standard.md'}
   - {type: path, ref: 'wphelper:src/wphelper/search_console.py'}
@@ -1703,8 +1716,8 @@ capabilities:
   target_shape: hold
 - id: gs.giving-stats
   kind: code
-  purpose: 'Giving statistics: per-funder fingerprints and distributions, top funders by state, city and
-    sector, and the one sector taxonomy.'
+  purpose: 'Giving statistics: funder fingerprints and distributions, top funders by state, city,
+    county and sector, and the one sector taxonomy.'
   status: live
   serves: [ag.funder-pages]
   depends_on: [gs.funding-profile, gs.deadlines]

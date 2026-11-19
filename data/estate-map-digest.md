@@ -10,7 +10,7 @@
 
 - `ag.research` · live · Research reads: the read-only mirror of GS's research schema and the plumbing every research read goes through.
 - `ag.funder-search` · live · Funder search and match scoring: keyword, semantic and hybrid search, Typesense with a Postgres fallback, and funding-fit scoring.
-- `ag.funder-pages` · live · Funder pages: foundation and federal-grant profiles, the search pages, the county agency ladder, and state, sector and city hubs.
+- `ag.funder-pages` · live · Funder pages: foundation and federal-grant profiles, the search pages, the county agency ladder and agency pages, state, sector, city and county hubs, and each state's city and county directories.
 - `ag.search-indexing` · live · What Google may index and how it learns of it: sitemaps, the indexability tier, IndexNow, URL Inspection sweeps and the indexation experiments.
 - `ag.edge` · live · The Cloudflare edge: Cache-Control headers and cache rules, purges, the warmer, the origin lock and the Web Bot Auth key directory.
 - `ag.landing-pages` · live · Conversion pages: the CMS-edited home page, its try-it widget and walkthrough recorder, and the /grants-for/ lead pages.
@@ -58,7 +58,7 @@
 - `gs.enrichment` · live · Funder profiles: the enrich-drain pull and apply, the two-pass research bench, section and about passes, gates, generations and TTL.
 - `gs.metered-enrichment` · live · Metered-key enrichment: the `enrich` CLI, the on-demand SKIP LOCKED queue and worker, and LLM snapshot extraction.
 - `gs.funding-profile` · live · Funding profiles: token-free facets and prose derived from a funder's grant set, refreshed only for funders whose grants moved.
-- `gs.giving-stats` · live · Giving statistics: per-funder fingerprints and distributions, top funders by state, city and sector, and the one sector taxonomy.
+- `gs.giving-stats` · live · Giving statistics: funder fingerprints and distributions, top funders by state, city, county and sector, and the one sector taxonomy.
 - `gs.deadlines` · live · Deadlines: deterministic extraction from crawled pages and the 990-PF, rolling-cue classification, and the one open-to-applications predicate.
 - `gs.embeddings-search` · live · Embeddings and search: local all-MiniLM-L6-v2 (384-d) for funders, open opportunities and page chunks; Typesense reindexes.
 - `gs.authority-map` · building · The government-funder map: every public body that has funded in the last two years, federal to tribal, with the counties it serves, its focus and where it posts funding.
