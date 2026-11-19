@@ -1864,9 +1864,17 @@ capabilities:
     - src/grantspider/services/seed_listings.py
     - src/grantspider/services/tribal_directory.py
     - src/grantspider/services/tribal_directory_run.py
+    - src/grantspider/config/region_limited.py
+    - src/grantspider/services/agency_capture.py
+    - src/grantspider/services/agency_sitemap.py
+    - src/grantspider/services/agency_pull.py
+    - src/grantspider/services/agency_check.py
+    - src/grantspider/services/agency_bench.py
+    - src/grantspider/cli/enrichment_agency.py
   liabilities: [L-GS-3, L-GS-4]
-  current_shape: '81 modules, 23,468 lines at GS main fd41ca2d; 98 first-parent merges on `origin/staging`
-    touched them in the 90 days to 2026-11-18. One Dagster asset wraps the keep-current run
+  current_shape: '88 modules, 26,269 lines at GS main dbb102dd; 98 first-parent merges on `origin/staging`
+    touched them in the 90 days to 2026-11-18. The agency pass (capture, pull, check, bench) is on `main` and
+    has been benched once (2026-11-19, GS#3958). One Dagster asset wraps the keep-current run
     (`orchestration/authority_refresh_assets.py`); its module header says its weekly schedule ships STOPPED
     (whether production has since started it is unverified). AG reads
     it through six `ag_research` views and the `funding_authority_id` of `gov_opportunities_v`: the county
@@ -2359,7 +2367,7 @@ seams:
   producer: [grantspider]
   consumer: [aigranthelper]
   flows: AG reads the research DB through **`ag_research.*` views and functions** (35 unmanaged `_v` models
-    on AG `staging`, 34 on `main`, of the 41 views GS's manifest exposes; 28 of them, 27 on `main`, have a
+    on AG `staging`, 34 on `main`, of the 44 views GS's manifest exposes; 28 of them, 27 on `main`, have a
     runtime reader, and the other 7 are declared and migrated but read only by tests; plus search/match SQL
     functions), connecting with the read-only `ag_research_reader` role. Nine documented
     base-table reads remain, each tagged `READS-BASE-TABLE:`. `grantspider.ontology` supplies one type
@@ -2369,7 +2377,8 @@ seams:
     v1.2. Counted 2026-11-13 (OS#727), the GS views as `expected_view_columns()` imported from `origin/staging`
     and `origin/main`, the AG models as the `db_table = '"ag_research"."<name>_v"'` classes in
     `apps/research/models/__init__.py`, a model counted as read when its class is named in `apps/` outside
-    that module, migrations and tests, with no `_v` view read by raw SQL alone
+    that module, migrations and tests, with no `_v` view read by raw SQL alone. The GS views re-counted the
+    same way 2026-11-19 (OS#745), at GS `origin/main` dbb102dd and `origin/staging` e1820ba2
   invariants: [I-4, I-6]
 - id: S-2
   label: grantspider → aigranthelper (code)
