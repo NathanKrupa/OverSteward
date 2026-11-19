@@ -74,19 +74,20 @@ def feedback_row(item_id: str = FEEDBACK_ID) -> dict:
         "category": "bug",
         "status": "open",
         "page_url": "https://www.aigranthelper.com/grants/",
-        "from_beta_org": True,
         "organization_id": "1f4a3c2e-0000-4000-8000-00000000000a",
     }
 
 
 def correction_row(item_id: str = CORRECTION_ID) -> dict:
-    """One untriaged visitor-reported correction."""
+    """One untriaged visitor-reported correction, as ``apps/feedback/export.py::_serialize`` emits it."""
     return {
         "id": item_id,
-        "created_at": "2026-08-20T15:10:00+00:00",
-        "field_name": "website",
-        "status": "open",
+        "target_table": "foundations",
+        "target_id": "123456789",
+        "message": "The website listed is a different charity's.",
         "page_url": "https://www.aigranthelper.com/foundations/x/",
+        "status": "open",
+        "created_at": "2026-08-20T15:10:00+00:00",
     }
 
 
