@@ -256,6 +256,30 @@ def test_a_last_entry_whose_newline_has_not_landed_is_read(tmp_path):
     assert dispatch_run.read_entries(path) == [{"n": 1}, {"n": 2}]
 
 
+def test_a_last_line_cut_inside_a_character_is_a_write_in_progress(tmp_path, capsys):
+    """The write stopped after the first byte of a two-byte character."""
+    path = tmp_path / "t.jsonl"
+    path.write_bytes(b'{"n": 1}\n{"t": "caf\xc3')
+
+    assert dispatch_run.read_entries(path) == [{"n": 1}]
+    rc = cli.main(["prompts", "--transcript", str(path)])
+    assert rc == 0
+    assert "0 held prompt(s) across 1 transcript(s) checked" in capsys.readouterr().out
+
+
+def test_a_line_that_is_not_utf8_mid_file_is_named_and_unreadable(tmp_path, capsys):
+    path = tmp_path / "t.jsonl"
+    path.write_bytes(b'{"n": 1}\n{"t": "caf\xc3"}\n{"n": 3}\n')
+
+    with pytest.raises(dispatch_run.TranscriptUnreadable, match=r"t\.jsonl:2: "):
+        dispatch_run.read_entries(path)
+    rc = cli.main(["prompts", "--transcript", str(path)])
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert f"could not read a transcript: {path}:2: " in out
+    assert "Traceback" not in out
+
+
 # --- the sweep and the CLI ---------------------------------------------------
 
 

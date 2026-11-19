@@ -72,22 +72,23 @@ def read_entries(path: Path) -> list[dict]:
     translation, so a ``\\r`` is not a break either (OS#740).
 
     A transcript is appended while the agent runs, so a final line that does not
-    parse is read as a write still in progress and dropped. A bad line anywhere else
-    means the file is not a transcript, and raises.
+    decode or parse is read as a write still in progress and dropped; each line is
+    decoded on its own, so a write cut inside a character spoils only its own line.
+    A bad line anywhere else means the file is not a transcript, and raises.
     """
     try:
-        lines = path.read_bytes().decode("utf-8").split("\n")
+        lines = path.read_bytes().split(b"\n")
     except OSError as error:
         raise TranscriptUnreadable(f"{path}: {error}") from error
-    if lines[-1] == "":
+    if lines[-1] == b"":
         lines.pop()  # the newline ending the last line begins no line of its own
     entries = []
     for number, line in enumerate(lines, start=1):
         if not line.strip():
             continue
         try:
-            entries.append(json.loads(line))
-        except json.JSONDecodeError as error:
+            entries.append(json.loads(line.decode("utf-8")))
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
             if number == len(lines):
                 break
             raise TranscriptUnreadable(f"{path}:{number}: {error}") from error
