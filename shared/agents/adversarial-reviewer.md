@@ -180,6 +180,11 @@ is violated, that is a finding.
     upsert's `ON CONFLICT` swallows the replacement. Enumerate the states; do
     not stop at the delete. *(GS#2540 rounds 6–8: the two data-loss holes on
     that branch were here, not in the `WHERE`)*
+15. **A write that grants something.** For every write that grants access, a
+    plan, a seat, a role or credit: name the external fact that authorizes it
+    (a payment status, a verified signature, a role check), one negative
+    fixture in which that fact is absent, and the mutant that kills it. A
+    write that grants without that fact on its path is a `hole`.
 
 The catalogue is a floor, not a ceiling. A defect that is not on it is still a
 defect.
@@ -310,6 +315,7 @@ text beneath it), is where that shows.
   fourth look.
 
 The author runs the same failure catalogue before round 1 — the destructive
-path enumeration (#13, #14) and the mutation pass — and pastes the table into
+path enumeration (#13, #14), the grant enumeration (#15) and the mutation pass
+— and pastes the table into
 the PR body. Read it as a claim, not as evidence: your job is still to find
 what it missed.
