@@ -1,8 +1,8 @@
 #!/usr/bin/env python
-# ABOUTME: OUTER entrypoint for the backup health sweep — restic snapshot, verified restore, export, E: free.
-# ABOUTME: Thin: parse path overrides, run the service, print four rows; a crash exits 1, never 0.
+# ABOUTME: OUTER entrypoint for the backup health sweep — restic, export, E: free, AG and GS restore drills.
+# ABOUTME: Thin: parse path overrides, run the service, print six rows; a crash exits 1, never 0.
 
-"""Report whether the restic home backup and the full WSL export are current.
+"""Report whether the home backup and WSL export are current and the AG and GS restores proven.
 
 The sixth session-start sweep. The daily backup and the monthly export each
 write their own success marker, but nothing read those markers back: a backup
@@ -12,7 +12,8 @@ Exit codes carry meaning and must not be collapsed:
 
 * **0** — a measured answer, whether or not a row is RED.
 * **1** — something could not be read (the export drive not mounted, restic or
-  systemctl failed, unparseable output), or the sweep crashed.
+  systemctl failed, unparseable output, a restore marker that exists but cannot
+  be read), or the sweep crashed.
 * **2** — not configured: restic, the key or the repository is missing.
 """
 
@@ -36,6 +37,7 @@ def _parse(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--state-dir", type=Path, default=defaults.state_dir)
     parser.add_argument("--mirror-dir", type=Path, default=None)
     parser.add_argument("--export-dir", type=Path, default=defaults.export_dir)
+    parser.add_argument("--restore-marker-dir", type=Path, default=defaults.restore_marker_dir)
     return parser.parse_args(argv)
 
 
@@ -52,6 +54,7 @@ def main(argv: list[str] | None = None, run=None) -> int:
             state_dir=args.state_dir,
             mirror_dir=args.mirror_dir,
             export_dir=args.export_dir,
+            restore_marker_dir=args.restore_marker_dir,
         )
         report = health.check_health(config, run=run or health.run_command)
     except Exception as exc:  # noqa: BLE001 — a crash must read as could-not-read, never measured

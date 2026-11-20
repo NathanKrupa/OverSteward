@@ -1,4 +1,4 @@
-# ABOUTME: Tests for the backup health sweep — snapshot age, verified restore, export age, E: free space.
+# ABOUTME: Tests for the backup health sweep — snapshot, verified restore, export, E: free, AG/GS restores.
 # ABOUTME: A fake restic/systemctl runner, an injected clock and free-space reader drive every fixture.
 
 """Each RED row has a fixture on both sides of its edge, and each exit code its own case.
@@ -14,6 +14,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 from collections.abc import Sequence
@@ -40,6 +41,9 @@ OTHER_ID = "112625f1d6e6e77d3af8a95e50c88570e74ac01b9f1db18e1e24a29ffa50571b"
 DISTRO = "Ubuntu-24.04"
 KEY_TEXT = "correct horse battery staple"
 ARCHIVE_BYTES = 1000
+AG_MARKER = "aigranthelper.last-ok"
+GS_MARKER = "grantspider.last-ok"
+DUMP_KEY = "db-backups/research/20300101T030000Z_scheduled.dump"
 
 
 def _stamp(at: datetime) -> str:
@@ -48,6 +52,16 @@ def _stamp(at: datetime) -> str:
 
 def _marker_text(at: datetime, snapshot_id: str = LATEST_ID) -> str:
     return f"{_stamp(at)} {snapshot_id}\n"
+
+
+def _utc(at: datetime) -> str:
+    return at.astimezone(timezone.utc).isoformat(timespec="seconds")
+
+
+def _restore_text(restored: datetime, created: datetime | None = None, key: str = DUMP_KEY) -> str:
+    """A restore marker in the contract's form: restored-at, dump-created-at, dump key."""
+    created = created if created is not None else restored - timedelta(hours=5)
+    return f"{_utc(restored)} {_utc(created)} {key}\n"
 
 
 def _archive_name(day) -> str:
@@ -75,6 +89,10 @@ def _setup(tmp_path: Path) -> BackupHealthConfig:
     export_day = (NOW - timedelta(days=10)).date()
     (export_dir / _archive_name(export_day)).write_bytes(b"x" * ARCHIVE_BYTES)
     (key.parent / "export.last-ok").write_text(f"{export_day.isoformat()}\r\n")
+    restores = tmp_path / "estate-restore"
+    restores.mkdir()
+    for name in (AG_MARKER, GS_MARKER):
+        (restores / name).write_text(_restore_text(NOW - timedelta(days=3)))
     return BackupHealthConfig(
         repo=repo,
         key=key,
@@ -82,6 +100,7 @@ def _setup(tmp_path: Path) -> BackupHealthConfig:
         state_dir=state,
         export_dir=export_dir,
         distro=DISTRO,
+        restore_marker_dir=restores,
     )
 
 
@@ -131,8 +150,9 @@ def _check(config: BackupHealthConfig, runner: FakeRunner | None = None, *, free
 
 
 def _row(report, name: str):
-    (row,) = [row for row in report.rows if row.name == name]
-    return row
+    found = [row for row in report.rows if row.name == name]
+    assert len(found) == 1, f"expected one row named {name!r}, found {len(found)}:\n{render(report)}"
+    return found[0]
 
 
 def _red_names(report) -> list[str]:
@@ -140,14 +160,14 @@ def _red_names(report) -> list[str]:
 
 
 class TestHealthy:
-    def test_a_healthy_estate_measures_four_rows_none_red(self, tmp_path):
+    def test_a_healthy_estate_measures_six_rows_none_red(self, tmp_path):
         report = _check(_setup(tmp_path))
         assert report.exit_code == EXIT_MEASURED, render(report)
         assert [row.name for row in report.rows] == [
-            "snapshot", "verified restore", "export", "E: free",
+            "snapshot", "verified restore", "export", "E: free", "AG restore", "GS restore",
         ]
         assert _red_names(report) == []
-        assert render(report).splitlines()[0] == "4 backup checks measured — 0 RED"
+        assert render(report).splitlines()[0] == "6 backup checks measured — 0 RED"
 
     def test_snapshots_are_read_lock_free_with_the_repo_and_key(self, tmp_path):
         config = _setup(tmp_path)
@@ -176,7 +196,7 @@ class TestSnapshot:
     def test_49_hours_old_is_red(self, tmp_path):
         report = _check(_setup(tmp_path), FakeRunner(snapshot_age=timedelta(hours=49)))
         assert _row(report, "snapshot").status == "RED"
-        assert render(report).splitlines()[0] == "4 backup checks measured — 1 RED"
+        assert render(report).splitlines()[0] == "6 backup checks measured — 1 RED"
 
     @pytest.mark.parametrize("state", ["active", "activating"])
     def test_49_hours_old_with_the_backup_running_is_running_not_red(self, tmp_path, state):
@@ -285,6 +305,7 @@ class TestVerifiedRestore:
             repo=config.repo, key=config.key, restic=config.restic,
             state_dir=config.state_dir, mirror_dir=elsewhere,
             export_dir=config.export_dir, distro=DISTRO,
+            restore_marker_dir=config.restore_marker_dir,
         )
         assert _row(_check(moved), "verified restore").status == "OK"
 
@@ -417,6 +438,7 @@ class TestCouldNotRead:
         apart = BackupHealthConfig(
             repo=repo, key=config.key, restic=config.restic, state_dir=config.state_dir,
             export_dir=config.export_dir, distro=DISTRO,
+            restore_marker_dir=config.restore_marker_dir,
         )
         report = _check(apart)
         assert report.exit_code == EXIT_COULD_NOT_READ
@@ -429,6 +451,7 @@ class TestCouldNotRead:
             repo=tmp_path / "F" / "WSLBackups" / "restic", key=config.key,
             restic=config.restic, state_dir=config.state_dir,
             export_dir=config.export_dir, distro=DISTRO,
+            restore_marker_dir=config.restore_marker_dir,
         )
         assert _check(unmounted).exit_code == EXIT_COULD_NOT_READ
 
@@ -437,7 +460,7 @@ class TestCouldNotRead:
         report = _check(_setup(tmp_path), runner)
         assert report.exit_code == EXIT_COULD_NOT_READ
         assert "wrong password" in render(report)
-        assert not render(report).startswith("4 backup checks measured")
+        assert not render(report).startswith("6 backup checks measured")
 
     def test_a_check_that_cannot_read_never_stops_the_others(self, tmp_path):
         runner = FakeRunner(snapshots=RunResult(1, "", "Fatal: wrong password"))
@@ -447,9 +470,11 @@ class TestCouldNotRead:
             ("verified restore", "COULD NOT READ"),
             ("export", "OK"),
             ("E: free", "OK"),
+            ("AG restore", "OK"),
+            ("GS restore", "OK"),
         ]
         assert render(report).splitlines()[0] == (
-            "COULD NOT READ - 2 of 4 backup checks unreadable; 2 measured — 0 RED"
+            "COULD NOT READ - 2 of 6 backup checks unreadable; 4 measured — 0 RED"
         )
 
     def test_unparseable_snapshot_json_is_exit_1(self, tmp_path):
@@ -471,6 +496,201 @@ class TestCouldNotRead:
         assert "did not report ActiveState" in render(report)
 
 
+RESTORE_ROWS = [
+    ("AG restore", AG_MARKER, "python manage.py restore_drill"),
+    ("GS restore", GS_MARKER, "grantspider backup drill"),
+]
+
+
+@pytest.mark.parametrize(("row_name", "marker", "command"), RESTORE_ROWS)
+class TestRestoreRows:
+    def _write(self, config: BackupHealthConfig, marker: str, content: str | bytes) -> None:
+        path = config.restore_marker_dir / marker
+        if isinstance(content, bytes):
+            path.write_bytes(content)
+        else:
+            path.write_text(content)
+
+    def test_34_days_old_is_green(self, tmp_path, row_name, marker, command):
+        config = _setup(tmp_path)
+        self._write(config, marker, _restore_text(NOW - timedelta(days=34)))
+        assert _row(_check(config), row_name).status == "OK"
+
+    def test_exactly_35_days_old_is_still_green(self, tmp_path, row_name, marker, command):
+        config = _setup(tmp_path)
+        self._write(config, marker, _restore_text(NOW - timedelta(days=35)))
+        assert _row(_check(config), row_name).status == "OK"
+
+    def test_a_second_past_35_days_is_red_and_names_the_drill(
+        self, tmp_path, row_name, marker, command
+    ):
+        config = _setup(tmp_path)
+        self._write(config, marker, _restore_text(NOW - timedelta(days=35, seconds=1)))
+        row = _row(_check(config), row_name)
+        assert row.status == "RED"
+        assert "limit 35 days" in row.detail
+        assert command in row.detail
+
+    def test_a_marker_dated_in_the_future_is_red(self, tmp_path, row_name, marker, command):
+        config = _setup(tmp_path)
+        self._write(config, marker, _restore_text(NOW + timedelta(minutes=5)))
+        row = _row(_check(config), row_name)
+        assert row.status == "RED"
+        assert "in the future" in row.detail
+        assert command in row.detail
+
+    def test_no_marker_is_red_and_names_the_command_that_clears_it(
+        self, tmp_path, row_name, marker, command
+    ):
+        config = _setup(tmp_path)
+        (config.restore_marker_dir / marker).unlink()
+        report = _check(config)
+        row = _row(report, row_name)
+        assert row.status == "RED"
+        assert "no restore drill has passed" in row.detail
+        assert str(config.restore_marker_dir / marker) in row.detail
+        assert command in row.detail
+        assert row.notes == ()
+        assert command in render(report)
+
+    def test_a_dump_created_after_the_restore_is_red(self, tmp_path, row_name, marker, command):
+        config = _setup(tmp_path)
+        restored = NOW - timedelta(days=1)
+        self._write(config, marker, _restore_text(restored, restored + timedelta(seconds=1)))
+        row = _row(_check(config), row_name)
+        assert row.status == "RED"
+        assert "after the restore" in row.detail
+
+    @pytest.mark.parametrize(
+        "content",
+        [
+            pytest.param("garbage\n", id="garbage"),
+            pytest.param("", id="empty"),
+            pytest.param(f"{_utc(NOW - timedelta(days=1))} {DUMP_KEY}\n", id="missing-field"),
+            pytest.param(
+                _restore_text(NOW - timedelta(days=1), key="db backups/x.dump"),
+                id="key-with-a-space",
+            ),
+            pytest.param(
+                "2030-01-19T12:00:00 2030-01-19T07:00:00 " + DUMP_KEY + "\n",
+                id="no-utc-offset",
+            ),
+            pytest.param("2030-01-19 2030-01-18 " + DUMP_KEY + "\n", id="date-only"),
+            pytest.param(
+                _restore_text(NOW - timedelta(days=1)).replace(" ", "  ", 1), id="double-space"
+            ),
+            pytest.param(_restore_text(NOW - timedelta(days=1)) * 2, id="two-lines"),
+            pytest.param(_restore_text(NOW - timedelta(days=1)) + "extra\n", id="second-line"),
+            pytest.param(
+                _restore_text(NOW - timedelta(days=1), key="db-backups/x.dump\rjunk"),
+                id="carriage-return-in-key",
+            ),
+            pytest.param(
+                _restore_text(NOW - timedelta(days=1), key="db-backups/x\t.dump"), id="tab-in-key"
+            ),
+            pytest.param(_restore_text(NOW - timedelta(days=1), key=""), id="empty-key"),
+            pytest.param(
+                f"2030-01-19T12:00:00 {_utc(NOW - timedelta(days=2))} {DUMP_KEY}\n",
+                id="restored-at-without-offset",
+            ),
+            pytest.param(
+                f"{_utc(NOW - timedelta(days=1))} 2030-01-18T12:00:00 {DUMP_KEY}\n",
+                id="dump-created-at-without-offset",
+            ),
+            pytest.param(_restore_text(NOW - timedelta(days=1)) + "\n", id="trailing-blank-line"),
+            pytest.param(" " + _restore_text(NOW - timedelta(days=1)), id="leading-space"),
+            pytest.param(
+                _restore_text(NOW - timedelta(days=1)).replace("\n", "\r"), id="lone-final-cr"
+            ),
+            pytest.param(b"\xff\xfe" + _restore_text(NOW).encode(), id="not-utf8"),
+        ],
+    )
+    def test_an_unparseable_marker_is_red(self, tmp_path, row_name, marker, command, content):
+        config = _setup(tmp_path)
+        self._write(config, marker, content)
+        row = _row(_check(config), row_name)
+        assert row.status == "RED"
+        assert "unparseable" in row.detail
+        assert command in row.detail
+
+    def test_a_dump_created_at_the_restore_moment_is_green(
+        self, tmp_path, row_name, marker, command
+    ):
+        config = _setup(tmp_path)
+        restored = NOW - timedelta(days=1)
+        self._write(config, marker, _restore_text(restored, restored))
+        assert _row(_check(config), row_name).status == "OK"
+
+    def test_a_restore_at_the_sweeps_own_moment_is_green(
+        self, tmp_path, row_name, marker, command
+    ):
+        config = _setup(tmp_path)
+        self._write(config, marker, _restore_text(NOW))
+        assert _row(_check(config), row_name).status == "OK"
+
+    def test_a_crlf_ending_is_accepted(self, tmp_path, row_name, marker, command):
+        config = _setup(tmp_path)
+        self._write(config, marker, _restore_text(NOW - timedelta(days=1)).replace("\n", "\r\n"))
+        assert _row(_check(config), row_name).status == "OK"
+
+    def test_each_row_reads_its_own_repos_marker(self, tmp_path, row_name, marker, command):
+        config = _setup(tmp_path)
+        self._write(config, marker, _restore_text(NOW - timedelta(days=40)))
+        report = _check(config)
+        assert [name for name in _red_names(report)] == [row_name]
+
+    def test_red_restore_rows_are_a_measured_answer(self, tmp_path, row_name, marker, command):
+        config = _setup(tmp_path)
+        (config.restore_marker_dir / marker).unlink()
+        report = _check(config)
+        assert report.exit_code == EXIT_MEASURED
+        assert render(report).splitlines()[0] == "6 backup checks measured — 1 RED"
+
+    def test_a_marker_that_cannot_be_read_is_could_not_read(
+        self, tmp_path, row_name, marker, command
+    ):
+        config = _setup(tmp_path)
+        path = config.restore_marker_dir / marker
+        path.unlink()
+        path.mkdir()
+        report = _check(config)
+        assert _row(report, row_name).status == "COULD NOT READ"
+        assert report.exit_code == EXIT_COULD_NOT_READ
+
+
+class TestRestoreMarkerContract:
+    """The README is the contract the drills are written from; it must agree with the reader."""
+
+    README = REPO_ROOT / "ops" / "wsl" / "README.md"
+
+    def test_the_readme_names_each_marker_path_the_sweep_reads(self):
+        text = self.README.read_text(encoding="utf-8")
+        default = BackupHealthConfig().restore_marker_dir
+        assert default == Path.home() / ".local" / "state" / "estate-restore"
+        for marker in (AG_MARKER, GS_MARKER):
+            assert f"`~/.local/state/estate-restore/{marker}`" in text
+
+    def test_the_readme_example_file_reads_ok(self, tmp_path):
+        text = self.README.read_text(encoding="utf-8")
+        found = re.search(r"Example file, `[^`]*grantspider\.last-ok`:\n\n```text\n(.*?)```", text, re.S)
+        assert found, "the README's example marker file was not found"
+        example = found[1]
+        config = _setup(tmp_path)
+        (config.restore_marker_dir / GS_MARKER).write_text(example)
+        restored = datetime.fromisoformat(example.split(" ")[0])
+        report = check_health(
+            config, run=FakeRunner(), now=lambda: restored + timedelta(days=1),
+            free_bytes=_free(2.0),
+        )
+        assert _row(report, "GS restore").status == "OK", render(report)
+
+
+@pytest.mark.parametrize("doc", ["CLAUDE.md", "ops/wsl/README.md"])
+def test_each_document_pins_the_sweeps_own_row_count(doc):
+    text = (REPO_ROOT / doc).read_text(encoding="utf-8")
+    assert f"{len(health.CHECKS)} backup checks measured" in text
+
+
 # --- the entrypoint ----------------------------------------------------------
 
 
@@ -490,6 +710,7 @@ def _args(config: BackupHealthConfig) -> list[str]:
         "--restic", str(config.restic),
         "--state-dir", str(config.state_dir),
         "--export-dir", str(config.export_dir),
+        "--restore-marker-dir", str(config.restore_marker_dir),
     ]
 
 
@@ -504,15 +725,15 @@ class TestEntrypoint:
         assert out.startswith("COULD NOT READ - backup health sweep crashed")
         assert "bus vanished" in out
 
-    def test_a_measured_sweep_exits_0_and_prints_four_rows(self, tmp_path, capsys):
+    def test_a_measured_sweep_exits_0_and_prints_six_rows(self, tmp_path, capsys):
         config = _setup(tmp_path)
         code = _entrypoint().main(_args(config), run=FakeRunner())
         out = capsys.readouterr().out.splitlines()
         # The real clock reads this fixture as years old, so its rows may be RED;
         # a RED row is still a measured answer.
         assert code == EXIT_MEASURED
-        assert out[0].startswith("4 backup checks measured")
-        assert len(out) >= 5
+        assert out[0].startswith("6 backup checks measured")
+        assert len(out) >= 7
 
     def test_mirror_dir_is_passed_through_to_the_sweep(self, tmp_path, capsys):
         config = _setup(tmp_path)
@@ -578,14 +799,19 @@ class TestRealRestic:
             old.unlink()
         (config.export_dir / _archive_name(today)).write_bytes(b"x")
         (config.key.parent / "export.last-ok").write_text(today.isoformat())
+        for name in (AG_MARKER, GS_MARKER):
+            (config.restore_marker_dir / name).write_text(
+                _restore_text(datetime.now(timezone.utc) - timedelta(days=1))
+            )
         real = BackupHealthConfig(
             repo=config.repo, key=config.key, restic=Path(REAL_RESTIC),
             state_dir=config.state_dir, export_dir=config.export_dir, distro=DISTRO,
+            restore_marker_dir=config.restore_marker_dir,
         )
         report = check_health(real, run=FakeRunnerPassthrough())
         text = render(report)
         assert report.exit_code == EXIT_MEASURED, text
-        assert text.splitlines()[0] == "4 backup checks measured — 0 RED", text
+        assert text.splitlines()[0] == "6 backup checks measured — 0 RED", text
         assert KEY_TEXT not in text
 
 
