@@ -239,3 +239,47 @@ class TestIssueProbe:
     def test_a_gh_failure_answers_none(self, repo, monkeypatch):
         monkeypatch.setenv("PATH", "")
         assert ShellCollector(repo).issue_body("NathanKrupa/OverSteward", 428) is None
+
+
+def _fake_gh(tmp_path, script: str):
+    """A `gh` on PATH that answers as ``script`` says, so no test reaches GitHub."""
+    bindir = tmp_path / "fakebin"
+    bindir.mkdir()
+    gh = bindir / "gh"
+    gh.write_text("#!/bin/sh\n" + script + "\n", encoding="utf-8")
+    gh.chmod(0o755)
+    return str(bindir)
+
+
+class TestVisibilityProbe:
+    """OS#765: whether the reviewed repo is public, as GitHub says it — or None."""
+
+    @pytest.mark.parametrize("answer", ["public", "private"])
+    def test_github_s_answer_is_returned_as_given(self, repo, tmp_path, monkeypatch, answer):
+        monkeypatch.setenv("PATH", _fake_gh(tmp_path, f"echo '{{\"visibility\": \"{answer}\"}}'"))
+        assert ShellCollector(repo).repo_visibility("NathanKrupa/OverSteward") == answer
+
+    def test_the_repo_asked_about_is_the_one_named(self, repo, tmp_path, monkeypatch):
+        log = tmp_path / "argv"
+        monkeypatch.setenv(
+            "PATH", _fake_gh(tmp_path, f'echo "$@" > {log}; echo \'{{"visibility": "public"}}\'')
+        )
+        ShellCollector(repo).repo_visibility("NathanKrupa/gaudi")
+        assert log.read_text(encoding="utf-8").split() == ["api", "repos/NathanKrupa/gaudi"]
+
+    def test_a_gh_that_cannot_run_answers_none(self, repo, monkeypatch):
+        monkeypatch.setenv("PATH", "")
+        assert ShellCollector(repo).repo_visibility("NathanKrupa/OverSteward") is None
+
+    def test_a_gh_that_fails_answers_none(self, repo, tmp_path, monkeypatch):
+        monkeypatch.setenv("PATH", _fake_gh(tmp_path, "echo '{\"visibility\": \"private\"}'; exit 1"))
+        assert ShellCollector(repo).repo_visibility("NathanKrupa/OverSteward") is None
+
+    @pytest.mark.parametrize(
+        "output", ["not json", "[]", '{"private": true}', '{"visibility": null}', '{"visibility": 1}']
+    )
+    def test_an_answer_without_a_visibility_string_answers_none(
+        self, repo, tmp_path, monkeypatch, output
+    ):
+        monkeypatch.setenv("PATH", _fake_gh(tmp_path, f"echo '{output}'"))
+        assert ShellCollector(repo).repo_visibility("NathanKrupa/OverSteward") is None

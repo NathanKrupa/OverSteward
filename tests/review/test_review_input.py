@@ -15,8 +15,10 @@ from oversteward.review_input import (
     EXIT_OK,
     GAUDI_SECTION,
     PREVIOUS_VERDICT_SECTION,
+    PUBLIC_REPO_RULE,
     SECTION_ORDER,
     TEST_FILES_SECTION,
+    VISIBILITY_UNREAD,
     AssembledInput,
     CouldNotLookError,
     RoundCapError,
@@ -86,8 +88,13 @@ class _Collector:
         base_bodies: dict[str, str] | None = None,
         claude_md: str | None = "# CLAUDE.md\n",
         gaudi: str | None | object = _CLEAN_GAUDI,
+        visibility: str | None = "public",
     ) -> None:
         self._diff = diff
+        # `visibility=None` is "GitHub did not answer", which must never be
+        # rendered the way an answer of "private" is.
+        self._visibility = visibility
+        self.visibility_calls: list[str] = []
         self._changed = ["src/x.py", "tests/test_x.py"] if changed is None else changed
         # `deleted=None` is "the deletion list could not be read", which is a
         # different state from "nothing was deleted" and must stay expressible.
@@ -145,6 +152,10 @@ class _Collector:
         if self._gaudi is _CLEAN_GAUDI:
             return _gaudi_report({path: [] for path in relpaths})
         return self._gaudi
+
+    def repo_visibility(self, repo: str) -> str | None:
+        self.visibility_calls.append(repo)
+        return self._visibility
 
 
 def _assemble(**kwargs) -> AssembledInput:
@@ -761,3 +772,63 @@ class TestTheRoundIsDerivedFromTheLedgerNotDeclared:
             )
             == "round=4 branch=feat/x base=origin/master base_sha=aaa since=def override"
         )
+
+
+def _header(document: str) -> str:
+    """The rendered header: everything before the first section marker."""
+    return document.split("<!-- review-input:", 1)[0]
+
+
+class TestTheInputIsStampedWithWhetherTheRepoIsPublic:
+    """OS#765: the reviewer's narrative can reach a public PR body, so the input says when.
+
+    The reviewer can read private repos' issues. Whether its narrative may
+    restate one depends on where the narrative is pasted, and that is a fact
+    about the reviewed repo that GitHub holds — so the assembler reads it and
+    stamps it, and the brief's rule is triggered by data rather than memory.
+    """
+
+    def test_the_visibility_is_read_for_the_repo_under_review(self):
+        collector = _Collector()
+        _assemble(collector=collector, repo="NathanKrupa/gaudi")
+        assert collector.visibility_calls == ["NathanKrupa/gaudi"]
+
+    def test_a_public_repo_is_stamped_public_and_carries_the_rule(self):
+        header = _header(render(_assemble(collector=_Collector(visibility="public"))))
+        assert "visibility: public" in header
+        assert PUBLIC_REPO_RULE in header
+
+    def test_a_private_repo_is_stamped_private_without_the_rule(self):
+        header = _header(render(_assemble(collector=_Collector(visibility="private"))))
+        assert "visibility: private" in header
+        assert PUBLIC_REPO_RULE not in header
+
+    def test_an_unreadable_visibility_is_treated_as_public(self):
+        # The negative fixture: an assembler that reads "could not ask GitHub"
+        # as "private" turns the rule off exactly when nobody checked.
+        header = _header(render(_assemble(collector=_Collector(visibility=None))))
+        assert PUBLIC_REPO_RULE in header
+        assert "visibility: private" not in header
+
+    def test_an_unreadable_visibility_says_the_read_failed(self):
+        header = _header(render(_assemble(collector=_Collector(visibility=None))))
+        assert VISIBILITY_UNREAD in header
+        assert "visibility: public" not in header
+
+    def test_unread_public_and_private_render_three_different_headers(self):
+        headers = {
+            _header(render(_assemble(collector=_Collector(visibility=value))))
+            for value in ("public", "private", None)
+        }
+        assert len(headers) == 3
+
+    @pytest.mark.parametrize("value", ["internal", "PRIVATE", "", "privat"])
+    def test_any_answer_but_exactly_private_keeps_the_rule(self, value):
+        header = _header(render(_assemble(collector=_Collector(visibility=value))))
+        assert PUBLIC_REPO_RULE in header
+        assert "visibility: private" not in header
+
+    def test_the_stamp_does_not_change_whether_the_inputs_were_measured(self):
+        # The stamp fails closed by applying the stricter rule; the review
+        # material itself is unaffected, so the exit code is the sections'.
+        assert exit_code_for(_assemble(collector=_Collector(visibility=None))) == EXIT_OK

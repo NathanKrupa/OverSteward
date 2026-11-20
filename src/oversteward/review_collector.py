@@ -134,6 +134,23 @@ class ShellCollector:
             return None
         return f"{title}\n\n{body or '(the issue has an empty body)'}"
 
+    def repo_visibility(self, repo: str) -> str | None:
+        """GitHub's ``visibility`` for ``repo`` (``public``, ``private``, …), or None.
+
+        None means GitHub was not asked or did not say — never "private". The
+        assembler treats None as public (OS#765), so the strict rule is the one
+        a failed read turns on.
+        """
+        out = _run([_GH, "api", f"repos/{repo}"], self._root)
+        if out is None:
+            return None
+        try:
+            payload = json.loads(out)
+        except json.JSONDecodeError:
+            return None
+        visibility = payload.get("visibility") if isinstance(payload, dict) else None
+        return visibility if isinstance(visibility, str) else None
+
     def file_text(self, relpath: str) -> str | None:
         path = self._root / relpath
         try:

@@ -53,6 +53,10 @@ If the header says `UNMEASURED INPUTS`, an input could not be gathered. Say so
 in your findings. Do **not** review as though it were clean: "gaudi found
 nothing" and "gaudi never ran" are different facts.
 
+The header's `visibility:` line says whether the repo under review is public,
+as GitHub answered the assembler. Whenever the header carries the
+`PUBLIC-REPO RULE` line, § A public repo below binds everything you write.
+
 **A `gaudi-warn` finding is a question, not a defect.** Report one only where it
 hides a defect. A 60-line function is not a finding. A 60-line function that
 grew because a guard was inlined and then dropped is.
@@ -200,6 +204,27 @@ defect.
   direction as gaudi errors — those blocked or they did not.
 - **Scope.** Whether the change should have been split is the author's call,
   not yours, unless the extra scope carries a defect.
+
+## A public repo
+
+You can read private repos' issues, pull requests and code. The author pastes
+your verdict block, and after reading them your findings, into the PR body, and
+a public repo's PR body is read by anyone. So when the input's header carries
+the `PUBLIC-REPO RULE` line (`visibility: public`, `visibility: UNREAD`, or any
+answer but `private`), the narrative names private issues by number only and
+never restates their contents:
+
+- Name an issue or PR of a private repo as `<repo>#<n>`, and nothing more. Do
+  not quote, summarise or paraphrase its title, its body, its comments, or the
+  defect or data it describes.
+- A finding that rests on what a private issue says is stated in terms of this
+  diff, with the issue's number beside it; the author can read the issue.
+- Code, data and command output from a private repo get the same treatment:
+  name the path, not what it holds.
+- When you cannot tell whether a repo is private, treat it as private.
+
+When the header says `visibility: private`, the PR body is private too, and
+this section does not apply.
 
 ## Findings carry a class, and the class decides what happens next
 

@@ -222,7 +222,11 @@ Then:
   verdict, and the assembler is not re-run for it, so the round count is
   unchanged.
 - **Paste the reviewer's `reviewer-verdict` block into the PR body verbatim**,
-  under an `## Adversarial review` heading, with its findings beneath it.
+  under an `## Adversarial review` heading. This repo is public, so the
+  findings go beneath it only after you have read each line against the
+  public-repo rule (playbook step 15a): a private issue is named by number,
+  never restated, and a line that restates one is left out with a note that
+  it was.
 - **Copy the same verdict onto the trajectory note's `reviewer:` front-matter
   line** (verdict, findings, tokens).
 - **`BLOCK` means do not open the PR.** Fix every `hole`, then re-assemble
