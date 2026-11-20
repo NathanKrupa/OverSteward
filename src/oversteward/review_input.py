@@ -656,22 +656,15 @@ def assemble(
     )
 
 
-def public_rule_applies(visibility: str | None) -> bool:
-    """Whether the narrative must keep private issues to their numbers.
-
-    Fails closed: only GitHub's exact answer ``private`` turns the rule off.
-    """
-    return visibility != VISIBILITY_PRIVATE
-
-
 def _visibility_lines(visibility: str | None) -> list[str]:
-    """The header's stamp: the answer GitHub gave, or that it gave none, and the rule."""
-    if visibility is None:
-        stamp = VISIBILITY_UNREAD
-    elif public_rule_applies(visibility):
-        stamp = f"visibility: {visibility}"
-    else:
+    """The header's stamp: the answer GitHub gave, or that it gave none, and the rule.
+
+    Fails closed: only GitHub's exact answer ``private`` turns the rule off, and
+    no answer at all is stamped as unread, never as private.
+    """
+    if visibility == VISIBILITY_PRIVATE:
         return [f"visibility: {visibility} — the public-repo rule does not apply"]
+    stamp = VISIBILITY_UNREAD if visibility is None else f"visibility: {visibility}"
     return [stamp, PUBLIC_REPO_RULE]
 
 
