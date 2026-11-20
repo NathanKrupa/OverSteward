@@ -245,11 +245,14 @@ Then:
 - **`PASS-WITH-FINDINGS` gets no re-review.** Address each `defect`, `pin` and
   `doc` finding, record its fix and the red mutant that proves it in the PR
   body under the verdict, then run the full gate below and open the PR.
-- **Before round 1, run the reviewer's catalogue yourself** (brief entries 13
-  and 14): for every destructive statement in the diff, one negative fixture
+- **Before round 1, run the reviewer's catalogue yourself** (brief entries 13,
+  14 and 15): for every destructive statement in the diff, one negative fixture
   per `WHERE` conjunct, per key element, per window edge, per row state at an
-  insert's key — with the mutant that kills each. Paste the table into the PR
-  body. Half of one branch's eleven rounds were that table, one row per round.
+  insert's key — with the mutant that kills each; and for every write that
+  grants access, a plan, a seat, a role or credit, the external fact that
+  authorizes it, one negative fixture in which that fact is absent, and the
+  mutant that kills it. Paste the table into the PR body. Half of one branch's
+  eleven rounds were that table, one row per round.
 
 **After the findings: one full `make verify`, then push.** Once the last round's
 findings are fixed, run the full gate once, from the worktree. It is the only
