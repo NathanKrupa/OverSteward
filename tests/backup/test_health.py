@@ -580,6 +580,15 @@ class TestRestoreRows:
                 _restore_text(NOW - timedelta(days=1)).replace(" ", "  ", 1), id="double-space"
             ),
             pytest.param(_restore_text(NOW - timedelta(days=1)) * 2, id="two-lines"),
+            pytest.param(_restore_text(NOW - timedelta(days=1)) + "extra\n", id="second-line"),
+            pytest.param(
+                _restore_text(NOW - timedelta(days=1), key="db-backups/x.dump\rjunk"),
+                id="carriage-return-in-key",
+            ),
+            pytest.param(
+                _restore_text(NOW - timedelta(days=1), key="db-backups/x\t.dump"), id="tab-in-key"
+            ),
+            pytest.param(_restore_text(NOW - timedelta(days=1), key=""), id="empty-key"),
             pytest.param(b"\xff\xfe" + _restore_text(NOW).encode(), id="not-utf8"),
         ],
     )

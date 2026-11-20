@@ -424,7 +424,7 @@ def _parse_restore_marker(raw: bytes) -> tuple[datetime, datetime, str]:
     """``<restored_at> <dump_created_at> <dump_key>`` on one line; ValueError otherwise."""
     line = raw.decode("utf-8").removesuffix("\n").removesuffix("\r")
     fields = line.split(" ")
-    if "\n" in line or "\r" in line or len(fields) != 3 or not all(fields):
+    if len(fields) != 3 or not all(fields) or any(ch.isspace() for ch in "".join(fields)):
         raise ValueError("expected one line of three fields separated by single spaces")
     restored, created = (datetime.fromisoformat(field) for field in fields[:2])
     if restored.tzinfo is None or created.tzinfo is None:

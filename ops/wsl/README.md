@@ -256,7 +256,7 @@ dump asserts that itself and fails.
 |---|---|
 | absent | **RED**, "no restore drill has passed" |
 | present but cannot be read (permissions, a directory in its place) | **COULD NOT READ**, and the sweep exits 1 |
-| not UTF-8; more than one line (one final LF or CRLF is allowed); not exactly three non-empty fields separated by single spaces; a timestamp `datetime.fromisoformat` rejects or one with no UTC offset | **RED**, "marker unparseable" |
+| not UTF-8; once one final LF or CRLF is removed, not exactly three non-empty fields separated by single spaces, or any other whitespace left (a tab, a CR, a second line); a timestamp `datetime.fromisoformat` rejects or one with no UTC offset | **RED**, "marker unparseable" |
 | `dump_created_at` later than `restored_at` | **RED**, the dump is dated after the restore |
 | `restored_at` later than the sweep's clock | **RED**, in the future |
 | `restored_at` more than 35 days before the sweep's clock | **RED**; exactly 35 days is still OK |
