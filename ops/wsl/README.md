@@ -170,8 +170,8 @@ the only way back after a Windows rebuild.
 
 `scripts/backup_health.py` (service `oversteward.backup.health`) is the sixth
 session-start sweep in `CLAUDE.md`. It runs inside the distro, writes nothing,
-and prints four named rows under a headline that names the count,
-`4 backup checks measured — N RED`:
+and prints six named rows under a headline that names the count,
+`6 backup checks measured — N RED`:
 
 | Row | RED when |
 |---|---|
@@ -179,6 +179,7 @@ and prints four named rows under a headline that names the count,
 | `verified restore` | `restic.last-ok` is absent, unparseable, older than 48 h or in the future; it names a snapshot other than the repository's latest; or its C: mirror is absent or differs ("logon canary blind"). |
 | `export` | no `Ubuntu-24.04_YYYY-MM-DD.tar` in `E:\WSLBackups` (newest chosen by the date in its name), the newest is zero bytes, or it is older than 45 days. |
 | `E: free` | free space on E: is below 1.1 times the newest archive (the next export is written before the old one is pruned), or there is no archive to size it against, or the newest is zero bytes. |
+| `AG restore`, `GS restore` | that product database's restore marker (contract below) is absent, unparseable, dated in the future, records a dump dated after its restore, or is older than 35 days. Absent is RED, not a note: a restore is proven only by a drill that passed. Every RED names the drill command that clears it. |
 
 A **NOTE** beneath the export row is not RED: `export.last-ok` absent, or naming
 a date other than the newest archive's. `Backup-Wsl.ps1` writes that marker on
@@ -194,9 +195,83 @@ pinned equal by `tests/backup/test_test_wsl_integrity_ps1.py`. Free space on
 E: is the sweep's alone.
 
 Exit codes: **0** measured, RED rows included; **1** could not read (E: not
-mounted, restic or systemctl exited non-zero, unparseable output, or the sweep
-crashed); **2** not configured (restic, the key, or the repository with its
-parent present, missing).
+mounted, restic or systemctl exited non-zero, unparseable output, a restore
+marker that exists but cannot be read, or the sweep crashed); **2** not
+configured (restic, the key, or the repository with its parent present,
+missing). A not-configured or unmounted sweep prints no rows at all, the restore
+rows included.
+
+### The restore marker: the contract a product-database drill writes
+
+aigranthelper and grantspider each prove their production database restores
+with a drill: it restores the newest dump into a throwaway local database and
+asserts what it finds. A drill that passes writes one marker, and the
+`AG restore` and `GS restore` rows read it. This section is the whole
+interface; a drill implements it from this text alone.
+
+**Path.** One file per repo, in one directory:
+
+| Row | Repo | Marker | Drill command the row names |
+|---|---|---|---|
+| `AG restore` | aigranthelper | `~/.local/state/estate-restore/aigranthelper.last-ok` | `python manage.py restore_drill` |
+| `GS restore` | grantspider | `~/.local/state/estate-restore/grantspider.last-ok` | `grantspider backup drill` |
+
+`~` is the home directory of the user who runs the sweep, `/home/natha` on
+this laptop. The drill must therefore run in this WSL distro as that user. A
+drill run anywhere else (a cloud scheduler, a container with its own home)
+writes nothing the sweep can see and clears nothing. The drill creates the
+directory if it is missing (`mkdir -p`).
+
+**When.** Only on a pass: after every assertion the drill makes has passed,
+its own clean-up checks included, as the drill's last act. On any failure,
+skip or crash it writes nothing, and it never deletes or edits a marker that
+is already there: the marker records the last restore that passed.
+
+**Format.** UTF-8 text, exactly one line, ending in a single LF (`\n`), holding
+three fields separated by single ASCII spaces, in this order:
+
+| # | Field | Type and meaning |
+|---|---|---|
+| 1 | `restored_at` | When the drill passed: the moment the marker is written. An ISO-8601 datetime in UTC, to the second, written `YYYY-MM-DDTHH:MM:SS+00:00` (Python: `datetime.now(timezone.utc).isoformat(timespec="seconds")`). |
+| 2 | `dump_created_at` | The dump's creation time: the dump object's `LastModified` as reported by the same S3-compatible bucket listing the drill chose the dump from, converted to UTC and truncated to whole seconds. Same format as field 1. |
+| 3 | `dump_key` | The dump's key: the object key within its bucket, exactly as that listing reports it. No bucket name, no `s3://` or `b2://` scheme, no leading `/`. It must hold no whitespace; a drill whose dump key does contain whitespace fails rather than write the marker. |
+
+**Atomic write.** Write the whole line to `<repo>.last-ok.partial` in the
+same directory, then rename it over `<repo>.last-ok` (`os.replace`,
+`Path.replace`). Never write the marker in place: a reader must see the old
+marker or the new one, never half of one. There is no C: mirror, because the
+logon canary does not read these markers.
+
+Example file, `~/.local/state/estate-restore/grantspider.last-ok`:
+
+```text
+2026-11-20T15:42:07+00:00 2026-11-15T03:00:41+00:00 db-backups/research/20261115T030000Z_scheduled.dump
+```
+
+**How the sweep reads it.** Freshness is judged on `restored_at` alone, held to
+35 days. The dump's own age is not judged here: a drill that needs a recent
+dump asserts that itself and fails.
+
+| The marker | The row |
+|---|---|
+| absent | **RED**, "no restore drill has passed" |
+| present but cannot be read (permissions, a directory in its place) | **COULD NOT READ**, and the sweep exits 1 |
+| not UTF-8; more than one line (one final LF or CRLF is allowed); not exactly three non-empty fields separated by single spaces; a timestamp `datetime.fromisoformat` rejects or one with no UTC offset | **RED**, "marker unparseable" |
+| `dump_created_at` later than `restored_at` | **RED**, the dump is dated after the restore |
+| `restored_at` later than the sweep's clock | **RED**, in the future |
+| `restored_at` more than 35 days before the sweep's clock | **RED**; exactly 35 days is still OK |
+| anything else | **OK**, naming the key, the dump time, the restore time and its age |
+
+Every RED restore row ends by naming the drill command that clears it. The
+reader accepts any explicit UTC offset; the writer always writes `+00:00`.
+
+The format follows `restic.last-ok`: one line, space-separated fields, the
+timestamp first, written through a `.partial` file renamed into place. It
+differs in fixing the zone to UTC, because two repos write it, from hosts and
+containers whose local zones need not agree.
+
+**A RED restore row is cleared by a session running that repo's drill, never
+by an operator step.** Running a drill is not something only Nathan can do.
 
 ## The scratchpad janitor
 

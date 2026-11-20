@@ -43,7 +43,7 @@ KEY_TEXT = "correct horse battery staple"
 ARCHIVE_BYTES = 1000
 AG_MARKER = "aigranthelper.last-ok"
 GS_MARKER = "grantspider.last-ok"
-DUMP_KEY = "db-backups/research/20300101T030000Z_weekly.dump"
+DUMP_KEY = "db-backups/research/20300101T030000Z_scheduled.dump"
 
 
 def _stamp(at: datetime) -> str:
