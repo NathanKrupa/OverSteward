@@ -229,7 +229,7 @@ A deployed hook does nothing until something registers it, and a registration do
 | Status | Meaning | Report severity |
 |---|---|---|
 | `registered` | present and registered | not reported |
-| `registered-absent` | registered, not a file at the ref: the interpreter exits 2, the guards' refusal code, so every matching tool call is refused | `missing` |
+| `registered-absent` | registered, not a file at the ref: the interpreter exits 2 each time the event fires, and under `PreToolUse` 2 is the guards' refusal code, so every matching tool call is refused | `missing` |
 | `present-unregistered` | a hook file nothing runs, which reads as coverage | `drift` |
 
 A repo whose ref is absent, whose requested fetch failed, whose `settings.json` is not a JSON object or whose card frontmatter is not YAML is `unreadable`, never "nothing registered": it prints under `COULD NOT READ`, suppresses "In lockstep", and makes `/sync-status` exit 2, outranking 1. The surface always closes with an `info` line counting the contexts read, scripts present, registrations and contexts not read; zero contexts read is itself `unreadable`. Global `~/.claude/settings.json` and `settings.local.json` are on no ref and are out of scope (#182).

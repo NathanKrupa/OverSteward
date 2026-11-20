@@ -124,6 +124,13 @@ def _diff_canonical_family(rows: list[RepoFamilyStatus]) -> list[Finding]:
     return findings
 
 
+def _absent_consequence(event: str) -> str:
+    """What exit 2 from a missing script does: a PreToolUse hook refuses the tool call."""
+    if event == "PreToolUse":
+        return "before every matching tool call, refusing each one"
+    return f"each time {event} fires"
+
+
 def _hook_findings(row: RepoHooks) -> list[Finding]:
     """One repo's hook findings: each absent registration, each unregistered script."""
     cid, ref = row.context_id, f"origin/{row.branch}"
@@ -133,7 +140,7 @@ def _hook_findings(row: RepoHooks) -> list[Finding]:
             "missing",
             HOOK_SURFACE,
             f"{HOOKS_DIR}/{reg.script} is registered by {reg.source} ({reg.event}) and is not a "
-            f"file at {ref}: the interpreter exits 2 on it, refusing every matching tool call",
+            f"file at {ref}: the interpreter exits 2 on it {_absent_consequence(reg.event)}",
             cid,
         )
         for reg in row.registrations

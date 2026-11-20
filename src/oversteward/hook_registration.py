@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -172,25 +172,29 @@ def _read(git: GitRepo, row: RepoFamilyStatus, ref: str) -> RepoHooks:
     )
 
 
-def _audit(row: RepoFamilyStatus, root: Path, fetch_requested: bool) -> RepoHooks:
+def _audit(row: RepoFamilyStatus, git: GitRepo, fetch_requested: bool) -> RepoHooks:
     ref = f"origin/{row.branch}"
     if not row.available:
         return RepoHooks(row.context_id, row.branch, unreadable=f"{ref} absent")
     if fetch_requested and not row.fetched:
         return RepoHooks(row.context_id, row.branch, unreadable=f"fetch of {ref} failed")
     try:
-        return _read(GitRepo(root), row, ref)
+        return _read(git, row, ref)
     except _Unreadable as exc:
         return RepoHooks(row.context_id, row.branch, unreadable=str(exc))
 
 
 def gather_hook_registration(
-    registry: dict[str, Any], family_rows: list[RepoFamilyStatus], fetch_requested: bool
+    registry: dict[str, Any],
+    family_rows: list[RepoFamilyStatus],
+    fetch_requested: bool,
+    repo_factory: Callable[[Path], GitRepo] = GitRepo,
 ) -> list[RepoHooks]:
     """Audit each context the family audit read, on the ref it fetched. No second fetch."""
     local_paths = {ctx["id"]: ctx.get("local_path") for ctx in registry.get("contexts", [])}
     return [
-        _audit(row, Path(local_paths[row.context_id]), fetch_requested) for row in family_rows
+        _audit(row, repo_factory(Path(local_paths[row.context_id])), fetch_requested)
+        for row in family_rows
     ]
 
 

@@ -9,7 +9,7 @@ import sys
 
 import pytest
 
-from oversteward.dev_family import gather_family_status
+from oversteward.dev_family import GitRepo, gather_family_status
 from oversteward.diff import diff_state, exit_code, format_report
 from oversteward.hook_registration import (
     PRESENT_UNREGISTERED,
@@ -85,6 +85,20 @@ class TestRegisteredAbsent:
         assert _severities([row]) == []
         assert exit_code(_findings([row])) == 0
 
+    @pytest.mark.parametrize(
+        ("event", "consequence"),
+        [
+            ("PreToolUse", "before every matching tool call, refusing each one"),
+            ("Stop", "each time Stop fires"),
+        ],
+    )
+    def test_the_message_names_what_exit_2_does_under_its_event(
+        self, tmp_path, event, consequence
+    ):
+        row = _one(tmp_path, {SETTINGS: _settings(_cmd("ghost.py"), event=event)})
+        (missing,) = [f for f in _findings([row]) if f["severity"] == "missing"]
+        assert missing["message"].endswith(consequence)
+
     def test_the_interpreter_exits_2_on_an_absent_script(self, tmp_path):
         """2 is the code the family's guards return to refuse a tool call."""
         absent = tmp_path / ".claude" / "hooks" / "ghost.py"
@@ -120,6 +134,16 @@ class TestPresence:
         assert row.unreadable is None
         assert (row.present, row.registrations) == (frozenset(), ())
         assert exit_code(_findings([row])) == 0
+
+
+class TestEntries:
+    def test_an_absent_directory_is_an_empty_listing(self, tmp_path):
+        root = _init_repo(tmp_path / "repo", {"README.md": "x\n"})
+        assert GitRepo(root).entries("origin/main", ".claude/hooks") == {}
+
+    def test_a_ref_git_cannot_read_is_none_not_empty(self, tmp_path):
+        root = _init_repo(tmp_path / "repo", {".claude/hooks/x.py": SCRIPT})
+        assert GitRepo(root).entries("origin/nowhere", ".claude/hooks") is None
 
 
 class TestPresentUnregistered:
@@ -190,6 +214,8 @@ class TestShapeBoundary:
             "python3 /srv/elsewhere/.claude/hooks/x.py",
             "python3 '$CLAUDE_PROJECT_DIR/.claude/hooks/x.py'",
             'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/x.py.bak"',
+            "python3 $CLAUDE_PROJECT_DIR/.claude/hooks/x.py.bak",
+            "python3 /opt$CLAUDE_PROJECT_DIR/.claude/hooks/x.py",
         ],
     )
     def test_any_other_mention_registers_nothing_and_is_an_info_line(self, tmp_path, command):
@@ -216,10 +242,30 @@ class TestCouldNotRead:
         assert not any("In lockstep" in line for line in format_report(findings))
         assert exit_code(findings) == 2
 
-    def test_card_frontmatter_that_is_not_yaml_makes_the_context_unreadable(self, tmp_path):
-        card = "---\nname: x\nhooks: [unclosed\n---\n"
+    @pytest.mark.parametrize(
+        "card", ["---\nname: x\nhooks: [unclosed\n---\n", "---\n- a\n---\n"]
+    )
+    def test_card_frontmatter_that_is_not_a_yaml_mapping_makes_the_context_unreadable(
+        self, tmp_path, card
+    ):
         row = _one(tmp_path, {".claude/hooks/x.py": SCRIPT, ".claude/agents/c.md": card})
         assert row.unreadable is not None
+        assert ".claude/agents/c.md" in row.unreadable
+        assert row.statuses() == {}
+
+    @pytest.mark.parametrize("directory", [".claude/hooks", ".claude/agents"])
+    def test_a_directory_git_cannot_list_makes_the_context_unreadable(self, tmp_path, directory):
+        class Unlistable(GitRepo):
+            def entries(self, ref, path):
+                return None if path == directory else super().entries(ref, path)
+
+        root = _init_repo(tmp_path / "repo", {".claude/hooks/x.py": SCRIPT, SETTINGS: "{}"})
+        registry = {"contexts": [{"id": "demo", "branch": "main", "local_path": str(root)}]}
+        family = gather_family_status(registry, tmp_path / "no-canon", fetch=False)
+        (row,) = gather_hook_registration(
+            registry, family, fetch_requested=False, repo_factory=Unlistable
+        )
+        assert row.unreadable == f"could not list {directory}/ at origin/main"
         assert row.statuses() == {}
 
     def test_an_absent_ref_is_unreadable(self, tmp_path):

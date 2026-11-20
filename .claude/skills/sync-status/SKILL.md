@@ -45,9 +45,9 @@ in, never a clean one. Then the DRIFT section grouped by surface, worst first:
 - **hook-registration `missing` (registered-absent)** — a hook command in
   `.claude/settings.json` or an agent card's frontmatter names a script that is
   not a file at `origin/<branch>`. The interpreter exits 2 on a script it cannot
-  open, and 2 is the code the guards return to refuse, so every matching tool
-  call in a session launched from that tree is refused, the repair included.
-  Lead with it.
+  open, each time the event fires. Under `PreToolUse`, 2 is the code the guards
+  return to refuse, so every matching tool call in a session launched from that
+  tree is refused, the repair included. Lead with it.
 - **hook-registration `drift` (present-unregistered)** — a `.claude/hooks/*.py`
   file nothing registers: it reads as coverage and runs on nothing. A command
   registers a script only as `$CLAUDE_PROJECT_DIR/.claude/hooks/<name>.py`;
