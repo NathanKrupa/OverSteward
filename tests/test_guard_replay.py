@@ -313,6 +313,34 @@ def test_a_hook_that_exits_non_zero_is_an_error():
     assert guard_replay.run_hook(main, "anything").outcome == "error"
 
 
+def test_hook_output_that_is_not_a_decision_is_an_error():
+    assert guard_replay.read_output("not json", 0).outcome == "error"
+    assert guard_replay.read_output(json.dumps({"other": 1}), 0).outcome == "error"
+
+
+def test_an_unknown_permission_decision_is_an_error():
+    output = json.dumps({"hookSpecificOutput": {"permissionDecision": "maybe"}})
+
+    assert guard_replay.read_output(output, 0).outcome == "error"
+
+
+def test_the_hook_sees_the_command_and_the_streams_are_restored():
+    seen = []
+
+    def main():
+        seen.append(json.load(sys.stdin)["tool_input"]["command"])
+        print('{"hookSpecificOutput": {"permissionDecision": "ask", '
+              '"permissionDecisionReason": "Pattern: p"}}')
+        return 0
+
+    stdin, stdout = sys.stdin, sys.stdout
+    decision = guard_replay.run_hook(main, "echo hi")
+
+    assert decision == guard_replay.Decision("ask", pattern="p")
+    assert seen == ["echo hi"]
+    assert (sys.stdin, sys.stdout) == (stdin, stdout)
+
+
 # --- attribution has an edge -----------------------------------------------------------
 
 
@@ -322,6 +350,7 @@ def test_cwd_and_named_paths_attribute_and_a_sibling_name_is_other(capsys, root,
         [
             bash("rm -rf /work/beta/cache", "t1", cwd="/work/alpha/sub"),
             bash("rm -rf /work/alphabet/cache", "t2", cwd="/work/alpha-old"),
+            bash("rm -rf /mnt/work/beta/cache", "t3", cwd="/elsewhere"),
         ],
     )
     out_rows = tmp_path / "rows.jsonl"
@@ -329,11 +358,12 @@ def test_cwd_and_named_paths_attribute_and_a_sibling_name_is_other(capsys, root,
     code, out, _ = run(capsys, root, registry, "--rows", str(out_rows))
 
     assert code == 0
-    assert line(out, "asks by context:") == "asks by context: alpha 1, beta 1, other 1"
+    assert line(out, "asks by context:") == "asks by context: other 2, alpha 1, beta 1"
     contexts = {row["command"]: row["contexts"] for row in rows(out_rows)}
     assert contexts == {
         "rm -rf /work/beta/cache": ["alpha", "beta"],
         "rm -rf /work/alphabet/cache": ["other"],
+        "rm -rf /mnt/work/beta/cache": ["other"],
     }
 
 
