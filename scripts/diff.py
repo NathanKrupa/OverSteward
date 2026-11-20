@@ -13,8 +13,9 @@ from pathlib import Path
 import yaml
 
 from oversteward.dev_family import format_family_table, gather_family_status
-from oversteward.diff import diff_state
+from oversteward.diff import diff_state, exit_code, format_report
 from oversteward.gather import default_paths, gather_state
+from oversteward.hook_registration import format_hook_table, gather_hook_registration
 
 SESSION_DATE_RE = re.compile(r"^session_date:\s*(\S+)", re.MULTILINE)
 
@@ -35,40 +36,31 @@ def _freshness(repo_root: Path) -> dict[str, str] | None:
     return {"session_state_date": match.group(1), "last_merge_date": last_merge}
 
 
-def _print_report(findings: list[dict]) -> None:
-    problems = [f for f in findings if f["severity"] in ("missing", "drift")]
-    infos = [f for f in findings if f["severity"] == "info"]
-    if not problems:
-        print("In lockstep — no drift detected.")
-    for group, title in ((problems, "DRIFT"), (infos, "INFO")):
-        if not group:
-            continue
-        print(f"\n## {title}")
-        for f in sorted(group, key=lambda f: (f["surface"], f["context"] or "")):
-            where = f" [{f['context']}]" if f["context"] else ""
-            print(f"- {f['severity']:7s} {f['surface']}{where}: {f['message']}")
-
-
 def main(argv: list[str]) -> int:
     paths = default_paths()
     registry_text = (paths["repo_root"] / "registry.yaml").read_text(encoding="utf-8")
     registry = yaml.safe_load(registry_text)
     snapshot = gather_state(registry, paths["canonical_shared"], paths["deploy_targets"])
-    family_rows = gather_family_status(
-        registry, paths["canonical_shared"], fetch="--no-fetch" not in argv
-    )
+    fetch = "--no-fetch" not in argv
+    family_rows = gather_family_status(registry, paths["canonical_shared"], fetch=fetch)
+    hook_rows = gather_hook_registration(registry, family_rows, fetch_requested=fetch)
     findings = diff_state(
-        snapshot, freshness=_freshness(paths["repo_root"]), family_rows=family_rows
+        snapshot,
+        freshness=_freshness(paths["repo_root"]),
+        family_rows=family_rows,
+        hook_rows=hook_rows,
     )
     if "--family" in argv:
         header = "## CANONICAL FAMILY (shared/scripts/dev/ vs each repo's origin ref)"
         print("\n".join([header, *format_family_table(family_rows)]))
+    if "--hooks" in argv:
+        print("\n".join(format_hook_table(hook_rows, fetch_requested=fetch)))
     if "--json" in argv:
         json.dump(findings, sys.stdout, indent=2)
         sys.stdout.write("\n")
     else:
-        _print_report(findings)
-    return 1 if any(f["severity"] in ("missing", "drift") for f in findings) else 0
+        print("\n".join(format_report(findings)))
+    return exit_code(findings)
 
 
 if __name__ == "__main__":

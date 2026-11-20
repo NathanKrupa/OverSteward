@@ -10,7 +10,8 @@ from oversteward.dev_family import (
     PRESENT,
     RepoFamilyStatus,
 )
-from oversteward.diff import diff_state
+from oversteward.diff import diff_state, exit_code, format_report
+from oversteward.hook_registration import Registration, RepoHooks
 
 
 def _context(**overrides):
@@ -201,6 +202,61 @@ class TestCanonicalFamily:
 
     def test_family_is_skipped_when_no_rows_supplied(self):
         assert _by_surface(diff_state(_snapshot()), "canonical-family") == []
+
+
+class TestHookRegistration:
+    CLEAN = RepoHooks(
+        context_id="clean",
+        branch="main",
+        present=frozenset({"a.py"}),
+        registrations=(Registration("a.py", ".claude/settings.json", "PreToolUse"),),
+    )
+    DRIFTING = RepoHooks(context_id="drifting", branch="main", present=frozenset({"b.py"}))
+    UNREAD = RepoHooks(context_id="unread", branch="staging", unreadable="origin/staging absent")
+
+    def _surface(self, rows):
+        return _by_surface(diff_state(_snapshot(), hook_rows=rows), "hook-registration")
+
+    def test_a_clean_audit_names_its_count_and_is_in_lockstep(self):
+        findings = diff_state(_snapshot(), hook_rows=[self.CLEAN])
+        (count,) = _by_surface(findings, "hook-registration")
+        assert count["severity"] == "info"
+        assert count["message"] == (
+            "checked 1 contexts: 1 scripts present, 1 registrations; 0 contexts not read"
+        )
+        assert format_report(findings)[0] == "In lockstep — no drift detected."
+        assert exit_code(findings) == 0
+
+    def test_zero_contexts_read_is_unreadable_not_lockstep(self):
+        findings = diff_state(_snapshot(), hook_rows=[])
+        assert [f["severity"] for f in _by_surface(findings, "hook-registration")] == [
+            "info",
+            "unreadable",
+        ]
+        assert not any("In lockstep" in line for line in format_report(findings))
+        assert exit_code(findings) == 2
+
+    def test_unreadable_outranks_drift_and_both_print(self):
+        findings = diff_state(_snapshot(), hook_rows=[self.UNREAD, self.DRIFTING])
+        report = format_report(findings)
+        assert "\n## COULD NOT READ" in report
+        assert "\n## DRIFT" in report
+        assert any("[unread]" in line and "unreadable" in line for line in report)
+        assert any("[drifting]" in line and "b.py" in line for line in report)
+        assert not any("In lockstep" in line for line in report)
+        assert exit_code(findings) == 2
+
+    def test_drift_alone_exits_1(self):
+        assert exit_code(diff_state(_snapshot(), hook_rows=[self.DRIFTING])) == 1
+
+    def test_the_audit_is_skipped_when_no_rows_supplied(self):
+        assert _by_surface(diff_state(_snapshot()), "hook-registration") == []
+
+    def test_an_unreadable_family_ref_stays_informational_beside_the_hook_audit(self):
+        family = [RepoFamilyStatus(context_id="x", branch="main", available=False, fetched=False)]
+        findings = diff_state(_snapshot(), family_rows=family, hook_rows=[self.CLEAN])
+        assert [f["severity"] for f in _by_surface(findings, "canonical-family")] == ["info"]
+        assert exit_code(findings) == 0
 
 
 class TestSharedDeploy:

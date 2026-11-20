@@ -1,5 +1,5 @@
 # ABOUTME: Pure comparison of a gather snapshot against registry expectations (H2-4).
-# ABOUTME: Emits structured findings (severity drift/missing/info). No filesystem access, no writes.
+# ABOUTME: Emits findings (drift/missing/info/unreadable) and the report. No filesystem access.
 
 from __future__ import annotations
 
@@ -12,8 +12,21 @@ from oversteward.dev_family import (
     RepoFamilyStatus,
     deployed_relpath,
 )
+from oversteward.hook_registration import (
+    HOOKS_DIR,
+    PRESENT_UNREGISTERED,
+    REGISTERED_ABSENT,
+    RepoHooks,
+)
 
 Finding = dict[str, Any]
+
+HOOK_SURFACE = "hook-registration"
+
+#: Problem severities: they print under DRIFT and exit 1.
+PROBLEM_SEVERITIES = ("missing", "drift")
+#: Could-not-read severity: prints under COULD NOT READ and exits 2, outranking 1.
+UNREADABLE = "unreadable"
 
 #: How a managed block loads a file under canonical `shared/references/`.
 REFERENCE_IMPORT = "@~/.claude/shared/references/{path}"
@@ -111,6 +124,53 @@ def _diff_canonical_family(rows: list[RepoFamilyStatus]) -> list[Finding]:
     return findings
 
 
+def _hook_findings(row: RepoHooks) -> list[Finding]:
+    """One repo's hook findings: each absent registration, each unregistered script."""
+    cid, ref = row.context_id, f"origin/{row.branch}"
+    statuses = row.statuses()
+    findings = [
+        _finding(
+            "missing",
+            HOOK_SURFACE,
+            f"{HOOKS_DIR}/{reg.script} is registered by {reg.source} ({reg.event}) and is not a "
+            f"file at {ref}: the interpreter exits 2 on it, refusing every matching tool call",
+            cid,
+        )
+        for reg in row.registrations
+        if statuses.get(reg.script) == REGISTERED_ABSENT
+    ]
+    findings.extend(
+        _finding("drift", HOOK_SURFACE, f"{HOOKS_DIR}/{script} at {ref}: nothing registers it", cid)
+        for script, status in statuses.items()
+        if status == PRESENT_UNREGISTERED
+    )
+    findings.extend(_finding("info", HOOK_SURFACE, line, cid) for line in row.unshaped)
+    return findings
+
+
+def _diff_hook_registration(rows: list[RepoHooks]) -> list[Finding]:
+    """Hook findings per repo, a could-not-read per unread repo, and the count checked."""
+    findings: list[Finding] = []
+    read = [row for row in rows if row.unreadable is None]
+    for row in rows:
+        if row.unreadable is not None:
+            findings.append(_finding(UNREADABLE, HOOK_SURFACE, row.unreadable, row.context_id))
+        else:
+            findings.extend(_hook_findings(row))
+    findings.append(
+        _finding(
+            "info",
+            HOOK_SURFACE,
+            f"checked {len(read)} contexts: {sum(len(r.present) for r in read)} scripts present, "
+            f"{sum(len(r.registrations) for r in read)} registrations; "
+            f"{len(rows) - len(read)} contexts not read",
+        )
+    )
+    if not read:
+        findings.append(_finding(UNREADABLE, HOOK_SURFACE, "no context's hooks were read"))
+    return findings
+
+
 def _diff_deploy_target(
     name: str, target: dict[str, str] | None, canonical: dict[str, str]
 ) -> list[Finding]:
@@ -190,8 +250,13 @@ def diff_state(
     snapshot: dict[str, Any],
     freshness: dict[str, str] | None = None,
     family_rows: list[RepoFamilyStatus] | None = None,
+    hook_rows: list[RepoHooks] | None = None,
 ) -> list[Finding]:
-    """Compare a gather snapshot against expectations; return structured findings."""
+    """Compare a gather snapshot against expectations; return structured findings.
+
+    ``hook_rows`` of None means the hook audit did not run; an empty list means it
+    ran and read nothing, which is a could-not-read finding.
+    """
     findings: list[Finding] = []
     for ctx in snapshot.get("contexts", []):
         if not ctx.get("reachable"):
@@ -200,9 +265,39 @@ def diff_state(
         findings.extend(_diff_managed_block(ctx))
         findings.extend(_diff_security_gate(ctx))
     findings.extend(_diff_canonical_family(family_rows or []))
+    if hook_rows is not None:
+        findings.extend(_diff_hook_registration(hook_rows))
     canonical = snapshot.get("canonical_shared", {})
     for name, target in snapshot.get("deploy_targets", {}).items():
         findings.extend(_diff_deploy_target(name, target, canonical))
     findings.extend(_diff_settings(snapshot.get("contexts", [])))
     findings.extend(_diff_freshness(freshness))
     return findings
+
+
+def exit_code(findings: list[Finding]) -> int:
+    """2 when anything could not be read, else 1 on any problem, else 0. 2 outranks 1."""
+    if any(f["severity"] == UNREADABLE for f in findings):
+        return 2
+    return 1 if any(f["severity"] in PROBLEM_SEVERITIES for f in findings) else 0
+
+
+def format_report(findings: list[Finding]) -> list[str]:
+    """The text report: could-not-read first, then drift, then info.
+
+    "In lockstep" prints only when nothing is a problem and nothing went unread.
+    """
+    unread = [f for f in findings if f["severity"] == UNREADABLE]
+    problems = [f for f in findings if f["severity"] in PROBLEM_SEVERITIES]
+    infos = [f for f in findings if f["severity"] == "info"]
+    lines: list[str] = []
+    if not problems and not unread:
+        lines.append("In lockstep — no drift detected.")
+    for group, title in ((unread, "COULD NOT READ"), (problems, "DRIFT"), (infos, "INFO")):
+        if not group:
+            continue
+        lines.append(f"\n## {title}")
+        for f in sorted(group, key=lambda f: (f["surface"], f["context"] or "")):
+            where = f" [{f['context']}]" if f["context"] else ""
+            lines.append(f"- {f['severity']:7s} {f['surface']}{where}: {f['message']}")
+    return lines
