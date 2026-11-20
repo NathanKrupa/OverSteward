@@ -96,6 +96,27 @@ MAX_ROUNDS = 3
 #: word: dropping ``--round`` cannot turn a fourth round into a first.
 ROUND_LEDGER = ".review-rounds"
 
+#: The one visibility answer under which a narrative may restate a private
+#: issue: the PR body it is pasted into is itself private. Every other answer,
+#: and no answer, keeps the public-repo rule on (OS#765).
+VISIBILITY_PRIVATE = "private"
+
+#: The reviewer brief's public-repo rule, as the header states it. The input
+#: carries it whenever the repo is not known to be private, so the rule is
+#: triggered by data rather than by the reviewer remembering it.
+PUBLIC_REPO_RULE = (
+    "PUBLIC-REPO RULE: your narrative may be pasted into a public PR body. Name an "
+    "issue or PR of any private repo by number only (`<repo>#<n>`), and never restate, "
+    "quote or paraphrase what it says (reviewer brief § A public repo)."
+)
+
+#: Stamped when GitHub did not say whether the repo is public. It must never
+#: read like an answer of "private": the rule stays on and the header says why.
+VISIBILITY_UNREAD = (
+    "visibility: UNREAD — GitHub did not say whether this repo is public, so it is "
+    "treated as public."
+)
+
 _TEST_FILENAME_PREFIX = "test_"
 _TEST_FILENAME_SUFFIX = "_test.py"
 _TEST_DIR_NAMES = frozenset({"tests", "test"})
@@ -144,6 +165,9 @@ class AssembledInput:
     since: str | None = None
     #: The operator's stated reason for reviewing past :data:`MAX_ROUNDS`.
     cap_override: str = ""
+    #: GitHub's visibility for ``repo``; None when it could not be read, which
+    #: renders as :data:`VISIBILITY_UNREAD` and keeps the public-repo rule on.
+    visibility: str | None = None
 
     @property
     def unmeasured(self) -> tuple[str, ...]:
@@ -176,6 +200,8 @@ class Collector(Protocol):
     def claude_md(self) -> str | None: ...
 
     def gaudi_json(self, relpaths: list[str]) -> str | None: ...
+
+    def repo_visibility(self, repo: str) -> str | None: ...
 
 
 def is_test_path(relpath: str) -> bool:
@@ -626,7 +652,27 @@ def assemble(
         round_number=round_number,
         since=since,
         cap_override=cap_override,
+        visibility=collector.repo_visibility(repo),
     )
+
+
+def public_rule_applies(visibility: str | None) -> bool:
+    """Whether the narrative must keep private issues to their numbers.
+
+    Fails closed: only GitHub's exact answer ``private`` turns the rule off.
+    """
+    return visibility != VISIBILITY_PRIVATE
+
+
+def _visibility_lines(visibility: str | None) -> list[str]:
+    """The header's stamp: the answer GitHub gave, or that it gave none, and the rule."""
+    if visibility is None:
+        stamp = VISIBILITY_UNREAD
+    elif public_rule_applies(visibility):
+        stamp = f"visibility: {visibility}"
+    else:
+        return [f"visibility: {visibility} — the public-repo rule does not apply"]
+    return [stamp, PUBLIC_REPO_RULE]
 
 
 def exit_code_for(assembled: AssembledInput) -> int:
@@ -655,6 +701,7 @@ def render(assembled: AssembledInput) -> str:
             else "since: (none — the diff below is the whole change from base)"
         ),
         f"sections: {', '.join(SECTION_ORDER)}",
+        *_visibility_lines(assembled.visibility),
     ]
     if assembled.cap_override:
         header.append(f"CAP OVERRIDDEN: {assembled.cap_override}")
