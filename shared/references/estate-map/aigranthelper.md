@@ -94,9 +94,20 @@ Each current shape is its first sentence; the full measurement is in the map.
 - G1 (aigranthelper; `scripts/tools/check_research_drift.py`; data contract §8.3): The drift check covers the `_generated.py` mirror, not `_views.py`, which is AG's real read surface. The check also exits 0 when the GS schema snapshot 404s
 - G5 (aigranthelper; `apps/pipeline/models.py:610`; data contract §12): User signals (UserFunderSignal saved/dismissed, match feedback) live in AG tables, but nothing exports them to GS
 - L-AG-2 (aigranthelper; `apps/ops/management/commands/backup_database.py`, `docs/CROSS_REPO_SCHEMA.md`): AG's primary-checkout `.env` was found 2026-08-05 to hold a `DATABASE_URL` for a deleted Neon project. **Unverified since**: the credential hook rightly blocks probing it. AG's `backup_database` ABOUTME and `docs/CROSS_REPO_SCHEMA.md` still describe a Neon tenant DB
-- L-AG-3 (aigranthelper; `config/settings/test.py:25-65`, `tests/conftest.py`): AG test settings accept any DB host, and a failed connect can render the password into a pytest traceback; no host guard, no redaction
+- L-AG-3 (aigranthelper; AG#2473 (open), under OS#750): The test settings have no database host guard
 - L-AG-4 (aigranthelper; `git grep -l "def _sentry_check_in_start" origin/main -- apps/` (AG f2a8d99); OS#640 comment (SMELL-002 ratchet)): The `_sentry_check_in_start/_finish` pair is copied into 13 management commands across accounts, billing, ops, reporting, research, seo and studio (AG b160e9e); with docstrings and comments stripped, the 11 copies read at f2a8d99 fell into three variants. The shared helper `apps/core/cron_checkin.py` exists, and only `monitor_crawl` calls it
 - L-AG-5 (aigranthelper; `git grep -n "def _apply_[a-z_]*cache_control" origin/main -- apps/` (AG f2a8d99)): `city_views.py`, `sector_views.py` and `seo/lead_views.py` each copy the anon-public / authed-no-store branch that `research/views.py`'s `_apply_detail_cache_control` reaches through `_apply_read_cache_control`, instead of calling one shared helper
+- L-AG-6 (aigranthelper; AG#3027 (open), under OS#750): No entitlement census, and no report-only reconciler against the payment processor's ledger
+- L-AG-7 (aigranthelper; AG#3028 (open), under OS#750): No database restore drill; a restore of AG's database is assumed, not proven
+- L-AG-8 (aigranthelper; AG#3029 (open), under OS#750): No webhook outcome ledger, and no replay
+- L-AG-9 (aigranthelper; AG#3030 (open), under OS#750): No load scenarios on the local bench; capacity under a surge is unmeasured
+- L-AG-10 (aigranthelper; AG#3031 (open), under OS#750): No capacity fix chosen yet; it waits on the load measurements and on Nathan's OK for one run in the isolated load-test environment
+- L-AG-11 (aigranthelper; AG#3032 (open), under OS#750): No tenancy sweep test
+- L-AG-12 (aigranthelper; AG#3033 (open), under OS#750): Not yet one writer for the plan field, with a log
+- L-AG-13 (aigranthelper; AG#3034 (open), under OS#750): No staging checkout test
+- L-AG-14 (aigranthelper; AG#3035 (open), under OS#750): No semgrep scan in the lite gate
+- L-AG-15 (aigranthelper; AG#3036 (open), under OS#750): No latency signal and no readiness check
+- L-AG-16 (aigranthelper; AG#3037 (open, needs-input), under OS#750): Four data-model questions under the resilience epic wait on Nathan's answer
 - L-MKT-1 (oversteward (ops); OS#644 (open); `reports/2026-10-29-resource-page-outreach/` (untracked); `systemctl --user list-timers ag-outreach*`): The resource-page outreach pipeline, which sends live email on a weekday timer, is untracked files in the primary OverSteward checkout: no review, no tests, no history. Its user systemd units point at that path, and the laptop backups (restic and the WSL export) are its only copies
 - L-AA-1 (ai-assistants; `src/almoner/wp/api.py` (363 lines), `src/almoner/wp/ftp.py`): ai-assistants keeps its own WP REST client and FTP module beside the wphelper dependency (I-9)
 - L-DEV-1 (oversteward; `/sync-status`; OS#572): Dev-family copies drift: `new-session.sh` is one version behind in every repo; exchequer's `guard_main_worktree.py` differs; `worktree_doctor.py` is absent in wphelper, ai-assistants, exchequer, gaudi and pre-#571 in AG, GS, fiscus

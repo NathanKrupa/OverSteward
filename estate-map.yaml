@@ -433,7 +433,7 @@ capabilities:
     - apps/pipeline/management/commands/refresh_foundation_names.py
     - apps/pipeline/management/commands/repair_funder_names.py
   invariants: [I-5]
-  liabilities: [G5]
+  liabilities: [G5, L-AG-16]
   current_shape: '44 modules, 10,420 lines; 54 feature PRs in 90 days. `views.py` is 2,475 lines (1,565 code
     lines) and was touched by 37 feature PRs, 48 counting promotions to main. It makes 25 `.objects.` ORM
     queries itself: business logic in views, against the thin-views rule. `views_context.py` (485 lines, 18
@@ -488,7 +488,7 @@ capabilities:
     - apps/ops/management/commands/merge_organization.py
     - apps/ops/management/commands/attach_member.py
   invariants: [I-22]
-  liabilities: [L-AG-4]
+  liabilities: [L-AG-4, L-AG-12, L-AG-16]
   current_shape: '57 modules, 10,871 lines; 56 feature PRs in 90 days. `views.py` is 1,391 lines (856 code
     lines, 12 PRs); `models.py` (14 PRs) and `services/organization.py` (13) are the hot files. Accounts and
     billing import each other: 18 `from apps.billing` lines one way, 26 `from apps.accounts` lines back.'
@@ -501,6 +501,7 @@ capabilities:
   depends_on: [ag.accounts]
   claims:
     aigranthelper: [apps/billing/]
+  liabilities: [L-AG-6, L-AG-8, L-AG-12, L-AG-13]
   current_shape: '33 modules, 8,353 lines; 50 feature PRs in 90 days. `services.py` is 1,551 lines (720 code
     lines) and was touched by 25 of them.'
   target_shape: hold
@@ -542,7 +543,7 @@ capabilities:
     - apps/core/management/commands/honeypot_unblock.py
     - apps/core/cron_checkin.py
   invariants: [I-22]
-  liabilities: [L-AG-4]
+  liabilities: [L-AG-4, L-AG-10, L-AG-11, L-AG-15]
   current_shape: '30 modules, 3,048 lines; 29 feature PRs in 90 days. `models.py` holds other capabilities''
     tables (SitemapSnapshot, StateHubMemberList, OutboundEmail, BlockedIP beside Activity and OrgDocument).
     13 management commands carry their own copy of the `_sentry_check_in_start/_finish` pair (L-AG-4, AG
@@ -602,7 +603,7 @@ capabilities:
     - apps/ops/management/commands/db_scratch.py
     - apps/ops/management/commands/loadtest_cohort.py
     - apps/ops/management/commands/refresh_platform_stats.py
-  liabilities: [L-AG-2, L-AG-4]
+  liabilities: [L-AG-2, L-AG-4, L-AG-6, L-AG-7, L-AG-9, L-AG-10]
   current_shape: '24 modules, 2,523 lines; 10 feature PRs in 90 days. `backup_database.py`''s ABOUTME still
     names a Neon tenant DB (L-AG-2); production''s tenant DB is Railway Postgres.'
   target_shape: hold
@@ -642,6 +643,7 @@ capabilities:
   feeds: [fiscus.kaizen-platform]
   claims:
     aigranthelper: [apps/telemetry/]
+  liabilities: [L-AG-15]
   current_shape: '19 modules, 1,659 lines; 5 feature PRs in 90 days. Fiscus''s subject contracts for it are
     still `status: stub` (S-7, L-FI-1).'
   target_shape: hold
@@ -694,7 +696,7 @@ capabilities:
     - .github/workflows/divergence-watchdog.yml
     - .github/workflows/bump-gs-pin.yml
   invariants: [I-16, I-19, I-20, I-23]
-  liabilities: [L-AG-3]
+  liabilities: [L-AG-3, L-AG-14]
   current_shape: '7 modules, 1,251 lines, living in `apps/core/` beside product code; 4 feature PRs in 90
     days. `make verify` is the local gate; `divergence-watchdog.yml` runs on push and daily at 13:00 UTC (I-20).
     `ci.yml` is a watchdog, not a required check (I-16): every job checks out the default ref, `github.sha`,
@@ -2007,6 +2009,7 @@ capabilities:
     - src/grantspider/orchestration/sentinel_checks.py
     - src/grantspider/orchestration/neon_consumption_assets.py
   invariants: [I-7, I-8]
+  liabilities: [L-GS-5]
   current_shape: '20 modules, 4,847 lines; 5 feature PRs in 90 days. Weekly backups cover the research and
     Dagster databases with 30-day retention; AG''s `backup_database` imports `services.db_backup` (S-2). The
     hourly row-count canary and the sentinel rows guard against silent wipes.'
@@ -2161,7 +2164,7 @@ capabilities:
   - scripts/dev/new-session.sh
   - scripts/dev/worktree_doctor.py
   invariants: [I-21]
-  liabilities: [L-DEV-1]
+  liabilities: [L-DEV-1, L-DEV-2]
   current_shape: sow (6 modules, 1,186 lines) plus dev_family.py (245) deploy the shared/scripts/dev/
     family as sync PRs. In OverSteward the deployed side is symlinks into shared/ (OS#576); every other
     repo carries copies, and they have drifted (L-DEV-1).
@@ -2277,6 +2280,7 @@ capabilities:
   - scripts/review/assemble_review_input.py
   - scripts/review/check_verdict_capture.py
   - scripts/lint/require_review_verdict.py
+  liabilities: [L-REV-1]
   current_shape: 6 modules, 1,617 lines; the assembler keeps a `.review-rounds` ledger, a captured result
     with no verdict fence is a blind round whose scratch copy is cleared, and CI's reviewer-verdict
     job reads the PR body. Which commits a verdict covers is doctrine, not tooling (OS#534, open).
@@ -2339,6 +2343,7 @@ capabilities:
     oversteward: [src/oversteward/judge/, src/oversteward/probe/, src/oversteward/bench/, scripts/page_judge.py,
       scripts/design_bench.py]
   entry_points: [scripts/page_judge.py, scripts/design_bench.py]
+  liabilities: [L-REV-1]
   current_shape: judge/ (9 modules, 1,699 lines), probe/ (5, 406) and bench/ (6, 514).
   target_shape: hold
 - id: os.railway-cron
@@ -2688,10 +2693,9 @@ liabilities:
   tracking: '`apps/ops/management/commands/backup_database.py`, `docs/CROSS_REPO_SCHEMA.md`'
   capabilities: [ag.ops]
 - id: L-AG-3
-  text: AG test settings accept any DB host, and a failed connect can render the password into a pytest
-    traceback; no host guard, no redaction
+  text: The test settings have no database host guard
   owner: aigranthelper
-  tracking: '`config/settings/test.py:25-65`, `tests/conftest.py`'
+  tracking: AG#2473 (open), under OS#750
   capabilities: [ag.dev-gates]
 - id: L-AG-4
   text: 'The `_sentry_check_in_start/_finish` pair is copied into 13 management commands across accounts,
@@ -2710,6 +2714,62 @@ liabilities:
   owner: aigranthelper
   tracking: '`git grep -n "def _apply_[a-z_]*cache_control" origin/main -- apps/` (AG f2a8d99)'
   capabilities: [ag.funder-pages, ag.landing-pages, ag.edge]
+- id: L-AG-6
+  text: No entitlement census, and no report-only reconciler against the payment processor's ledger
+  owner: aigranthelper
+  tracking: AG#3027 (open), under OS#750
+  capabilities: [ag.billing, ag.ops]
+- id: L-AG-7
+  text: No database restore drill; a restore of AG's database is assumed, not proven
+  owner: aigranthelper
+  tracking: AG#3028 (open), under OS#750
+  capabilities: [ag.ops]
+- id: L-AG-8
+  text: No webhook outcome ledger, and no replay
+  owner: aigranthelper
+  tracking: AG#3029 (open), under OS#750
+  capabilities: [ag.billing]
+- id: L-AG-9
+  text: No load scenarios on the local bench; capacity under a surge is unmeasured
+  owner: aigranthelper
+  tracking: AG#3030 (open), under OS#750
+  capabilities: [ag.ops]
+- id: L-AG-10
+  text: No capacity fix chosen yet; it waits on the load measurements and on Nathan's OK for one run in
+    the isolated load-test environment
+  owner: aigranthelper
+  tracking: AG#3031 (open), under OS#750
+  capabilities: [ag.ops, ag.platform]
+- id: L-AG-11
+  text: No tenancy sweep test
+  owner: aigranthelper
+  tracking: AG#3032 (open), under OS#750
+  capabilities: [ag.platform]
+- id: L-AG-12
+  text: Not yet one writer for the plan field, with a log
+  owner: aigranthelper
+  tracking: AG#3033 (open), under OS#750
+  capabilities: [ag.accounts, ag.billing]
+- id: L-AG-13
+  text: No staging checkout test
+  owner: aigranthelper
+  tracking: AG#3034 (open), under OS#750
+  capabilities: [ag.billing]
+- id: L-AG-14
+  text: No semgrep scan in the lite gate
+  owner: aigranthelper
+  tracking: AG#3035 (open), under OS#750
+  capabilities: [ag.dev-gates]
+- id: L-AG-15
+  text: No latency signal and no readiness check
+  owner: aigranthelper
+  tracking: AG#3036 (open), under OS#750
+  capabilities: [ag.platform, ag.telemetry]
+- id: L-AG-16
+  text: Four data-model questions under the resilience epic wait on Nathan's answer
+  owner: aigranthelper
+  tracking: AG#3037 (open, needs-input), under OS#750
+  capabilities: [ag.pipeline, ag.accounts]
 - id: L-GS-1
   text: 'Copied helpers, identical once docstrings are dropped: `_coerce_positive_int` in `enrichment_reaper.py`,
     `enrichment_ttl.py` and `opportunity_reaper.py`; `_base_url_for` in `homepage_fallback.py`, `sitemap_discovery.py`
@@ -2733,17 +2793,21 @@ liabilities:
   capabilities: [gs.irs-ingestion, gs.grant-records, gs.federal-opportunities, gs.funder-discovery, gs.funder-records,
     gs.grantmaker-status, gs.website-resolution, gs.crawl-frontier, gs.page-triage, gs.enrichment, gs.funding-profile,
     gs.data-quality]
+# L-GS-3's 23 modules, as read from GS's import graph at be9ed67 (2026-10-31) and not re-derived
+# since (no command reproduces the reading; a grep of importers does not). The 23:
+# `config/crawl_politeness.py`; `connectors/` `_rate_limiter`, `corporate_foundations/` (4),
+# `hydration/doe_osti`, `irs_stylesheets`, `nofo_pdf_store`, `storage`; `services/`
+# `contact_extractor`, `crawlee_bridge`, `csr_registry`, `enrichment_coverage`, `fetch_strategy_classifier`,
+# `matcher`, `nofo_enrichment`, `nofo_prompts`, `opportunity_tracker`, `page_triage`, `pdf_extractor`,
+# `peer_similarity`, `vendor_lifecycle`
 - id: L-GS-3
   text: '23 modules have no live importer: no CLI command, Dagster definition, script, Alembic file, AG import
     or dotted-path string reaches them, only tests. Among them are `page_triage.py`, a Haiku page labeller
     beside the standing rule of no LLM tokens on page classification, the NOFO summariser, the US Chamber
     connector package and the local-filesystem store'
   owner: grantspider
-  tracking: 'Import graph at GS be9ed67. The 23: `config/crawl_politeness.py`; `connectors/` `_rate_limiter`,
-    `corporate_foundations/` (4), `hydration/doe_osti`, `irs_stylesheets`, `nofo_pdf_store`, `storage`; `services/`
-    `contact_extractor`, `crawlee_bridge`, `csr_registry`, `enrichment_coverage`, `fetch_strategy_classifier`,
-    `matcher`, `nofo_enrichment`, `nofo_prompts`, `opportunity_tracker`, `page_triage`, `pdf_extractor`,
-    `peer_similarity`, `vendor_lifecycle`'
+  tracking: Import graph at GS be9ed67 (2026-10-31); the 23 modules are listed in a comment on this row
+    in estate-map.yaml
   capabilities: [gs.runtime, gs.outbound-http, gs.facsimiles, gs.federal-opportunities, gs.state-opportunities,
     gs.funder-discovery, gs.entity-resolution, gs.crawl, gs.page-triage, gs.enrichment, gs.metered-enrichment,
     gs.authority-map]
@@ -2752,6 +2816,11 @@ liabilities:
   owner: grantspider
   tracking: 'GS#3856; 125 of 2,296 bodies hold one, none polled (2026-11-18)'
   capabilities: [gs.authority-map]
+- id: L-GS-5
+  text: No restore of the research database has a recorded pass; the first drill run is owed
+  owner: grantspider
+  tracking: GS#3978 (open), under OS#750
+  capabilities: [gs.safety]
 - id: L-MKT-1
   text: 'The resource-page outreach pipeline, which sends live email on a weekday timer, is untracked
     files in the primary OverSteward checkout: no review, no tests, no history. Its user systemd units
@@ -2771,6 +2840,11 @@ liabilities:
     in AG, GS, fiscus'
   owner: oversteward
   tracking: '`/sync-status`; OS#572'
+  capabilities: [os.dev-family-sow]
+- id: L-DEV-2
+  text: The destructive-command gate is not yet registered in the product repos
+  owner: oversteward
+  tracking: OS#192 (open, needs-scoping), under OS#750
   capabilities: [os.dev-family-sow]
 - id: L-FI-1
   text: 'Fiscus andon aggregation is a Phase-0 stub, and the AG/dispatch subject contracts are `status:
@@ -2799,3 +2873,8 @@ liabilities:
   owner: oversteward
   tracking: '`documentation/ROADMAP.md:62,2282`, `shared/skills/dispatch/SKILL.md:3,79`'
   capabilities: [os.dispatch]
+- id: L-REV-1
+  text: No cross-model review of billing, accounts and tenancy diffs; it waits on Nathan
+  owner: oversteward
+  tracking: OS#758 (open, needs-input), under OS#750
+  capabilities: [os.review-loop, os.page-judging]
