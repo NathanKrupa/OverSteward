@@ -1886,6 +1886,10 @@ capabilities:
     - src/grantspider/services/agency_check.py
     - src/grantspider/services/agency_bench.py
     - src/grantspider/cli/enrichment_agency.py
+    - src/grantspider/services/authority_slugs.py
+    - src/grantspider/cli/authorities_reslug.py
+    - src/grantspider/services/anchor_panel.py
+    - src/grantspider/cli/authorities_anchor_panel.py
   liabilities: [L-GS-3, L-GS-4]
   current_shape: '88 modules, 26,269 lines at GS main dbb102dd; 98 first-parent merges on `origin/staging`
     touched them in the 90 days to 2026-11-18. The agency pass (capture, pull, check, bench) is on `main` and
