@@ -589,6 +589,19 @@ class TestRestoreRows:
                 _restore_text(NOW - timedelta(days=1), key="db-backups/x\t.dump"), id="tab-in-key"
             ),
             pytest.param(_restore_text(NOW - timedelta(days=1), key=""), id="empty-key"),
+            pytest.param(
+                f"2030-01-19T12:00:00 {_utc(NOW - timedelta(days=2))} {DUMP_KEY}\n",
+                id="restored-at-without-offset",
+            ),
+            pytest.param(
+                f"{_utc(NOW - timedelta(days=1))} 2030-01-18T12:00:00 {DUMP_KEY}\n",
+                id="dump-created-at-without-offset",
+            ),
+            pytest.param(_restore_text(NOW - timedelta(days=1)) + "\n", id="trailing-blank-line"),
+            pytest.param(" " + _restore_text(NOW - timedelta(days=1)), id="leading-space"),
+            pytest.param(
+                _restore_text(NOW - timedelta(days=1)).replace("\n", "\r"), id="lone-final-cr"
+            ),
             pytest.param(b"\xff\xfe" + _restore_text(NOW).encode(), id="not-utf8"),
         ],
     )
@@ -599,6 +612,21 @@ class TestRestoreRows:
         assert row.status == "RED"
         assert "unparseable" in row.detail
         assert command in row.detail
+
+    def test_a_dump_created_at_the_restore_moment_is_green(
+        self, tmp_path, row_name, marker, command
+    ):
+        config = _setup(tmp_path)
+        restored = NOW - timedelta(days=1)
+        self._write(config, marker, _restore_text(restored, restored))
+        assert _row(_check(config), row_name).status == "OK"
+
+    def test_a_restore_at_the_sweeps_own_moment_is_green(
+        self, tmp_path, row_name, marker, command
+    ):
+        config = _setup(tmp_path)
+        self._write(config, marker, _restore_text(NOW))
+        assert _row(_check(config), row_name).status == "OK"
 
     def test_a_crlf_ending_is_accepted(self, tmp_path, row_name, marker, command):
         config = _setup(tmp_path)
