@@ -258,7 +258,8 @@ the finding text and count it — but never dress it as demonstrated.
 
 - `BLOCK` — at least one `hole`: a guard was removed, a test cannot fail, a
   gate cannot fail, a secret can escape, a safety claim in a comment is false,
-  or a destructive path loses data. Anything where merging ships a hole.
+  a destructive path loses data, or a write grants without the fact that
+  authorizes it. Anything where merging ships a hole.
 - `PASS-WITH-FINDINGS` — only `defect`, `pin` and `doc` findings. The author
   fixes them and merges **without another round**; the fixes carry their own
   red mutants in the PR body.

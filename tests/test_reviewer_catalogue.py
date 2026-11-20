@@ -1,5 +1,5 @@
-# ABOUTME: Pins the reviewer catalogue's row for writes that grant something, in the brief and pr-workflow.
-# ABOUTME: Both the reviewer and the author's pre-round-1 pass must name the fact that authorizes a grant.
+# ABOUTME: Pins the reviewer catalogue's row for writes that grant something (brief, pr-workflow).
+# ABOUTME: The reviewer and the author's pre-round-1 pass both name the fact authorizing a grant.
 
 """The catalogue row for every write that grants access, a plan, a seat, a role or credit.
 
@@ -37,6 +37,11 @@ GRANT_ROW = (
 #: The brief's class for a grant that reaches its write without that fact.
 GRANT_HOLE = "A write that grants without that fact on its path is a `hole`."
 
+#: The same class, where the brief lists what earns a `BLOCK`.
+GRANT_BLOCK = (
+    "or a write grants without the fact that authorizes it. Anything where merging ships a hole."
+)
+
 #: The brief's closing note on the author's own pre-round-1 pass.
 AUTHOR_PASS = "the destructive path enumeration (#13, #14), the grant enumeration (#15)"
 
@@ -50,6 +55,7 @@ def test_the_reviewer_catalogue_carries_the_grant_row(brief: Path) -> None:
     prose = _prose(brief)
     assert GRANT_ROW in prose, f"{brief} lacks the catalogue row for writes that grant"
     assert GRANT_HOLE in prose, f"{brief} does not class an unauthorized grant as a hole"
+    assert GRANT_BLOCK in prose, f"{brief} does not list an unauthorized grant among BLOCKs"
 
 
 @pytest.mark.parametrize("brief", REVIEWER_BRIEFS, ids=lambda p: f"{p.parent.parent.name}/{p.name}")
