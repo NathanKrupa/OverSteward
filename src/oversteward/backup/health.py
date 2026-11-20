@@ -1,9 +1,9 @@
-# ABOUTME: MIDDLE service for the backup health sweep — four checks over the restic history and the export.
+# ABOUTME: MIDDLE service for the backup health sweep — restic, the export, and the AG/GS restore drills.
 # ABOUTME: Runner, clock and free-space reader are injected; "could not read" never prints as measured.
 
-"""Measure whether the estate's two backups are current, from inside the distro.
+"""Measure whether the estate's backups are current and its databases restorable, from the distro.
 
-Four rows, each OK or RED (the snapshot row may also read RUNNING):
+Six rows, each OK or RED (the snapshot row may also read RUNNING):
 
 1. **snapshot** — the restic repository's latest snapshot, read lock-free. RED
    when older than 48 hours, dated in the future, or absent; RUNNING instead of
@@ -22,12 +22,19 @@ Four rows, each OK or RED (the snapshot row may also read RUNNING):
    newest archive, because the next export is written before the old one is
    pruned. With no archive to size against, or a newest archive of zero bytes,
    it is RED too: unmeasured is not ok.
+5. **AG restore** and 6. **GS restore** — ``<repo>.last-ok`` in the restore
+   marker dir, which a product database's restore drill writes only on a pass
+   (the contract is in ops/wsl/README.md). RED when absent, unparseable, dated
+   in the future, recording a dump dated after its restore, or older than 35
+   days; each RED names the drill command that clears it. Absent is RED, not a
+   note: a restore is proven only by a drill that passed.
 
 Exit codes, the session-start contract:
 
-* **0** — measured: all four rows were read, whatever they say.
+* **0** — measured: all six rows were read, whatever they say.
 * **1** — could not read: the export drive or the repository's parent is not
-  mounted, restic or systemctl exited non-zero, or restic's JSON did not parse.
+  mounted, restic or systemctl exited non-zero, restic's JSON did not parse,
+  or a restore marker exists but cannot be read.
 * **2** — not configured: restic, the key, or the repository (with its parent
   present) is missing, so there was nothing to look with.
 """
@@ -64,6 +71,9 @@ BACKUP_UNIT = "home-backup.service"
 
 SNAPSHOT_MAX_AGE = timedelta(hours=48)
 EXPORT_MAX_AGE = timedelta(days=45)
+#: Where a product database's restore drill writes ``<repo>.last-ok`` (ops/wsl/README.md).
+DEFAULT_RESTORE_MARKER_DIR = Path.home() / ".local" / "state" / "estate-restore"
+RESTORE_MAX_AGE = timedelta(days=35)
 FREE_SPACE_FACTOR = 1.1
 
 OK = "OK"
@@ -90,6 +100,8 @@ class BackupHealthConfig:
     distro: str = DEFAULT_DISTRO
     snapshot_max_age: timedelta = SNAPSHOT_MAX_AGE
     export_max_age: timedelta = EXPORT_MAX_AGE
+    restore_marker_dir: Path = DEFAULT_RESTORE_MARKER_DIR
+    restore_max_age: timedelta = RESTORE_MAX_AGE
 
     @property
     def mirror(self) -> Path:
@@ -386,6 +398,76 @@ def check_free_space(sweep: _Sweep) -> Row:
     return Row("E: free", OK, detail)
 
 
+# --- 5, 6. product-database restores ----------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class RestoreDrill:
+    """One product database's restore drill: its row, its marker's repo name, its command."""
+
+    row: str
+    repo: str
+    command: str
+
+    @property
+    def marker_name(self) -> str:
+        return f"{self.repo}.last-ok"
+
+
+RESTORE_DRILLS = (
+    RestoreDrill("AG restore", "aigranthelper", "python manage.py restore_drill"),
+    RestoreDrill("GS restore", "grantspider", "grantspider backup drill"),
+)
+
+
+def _parse_restore_marker(raw: bytes) -> tuple[datetime, datetime, str]:
+    """``<restored_at> <dump_created_at> <dump_key>`` on one line; ValueError otherwise."""
+    line = raw.decode("utf-8").removesuffix("\n").removesuffix("\r")
+    fields = line.split(" ")
+    if "\n" in line or "\r" in line or len(fields) != 3 or not all(fields):
+        raise ValueError("expected one line of three fields separated by single spaces")
+    restored, created = (datetime.fromisoformat(field) for field in fields[:2])
+    if restored.tzinfo is None or created.tzinfo is None:
+        raise ValueError("a timestamp carries no UTC offset")
+    return restored, created, fields[2]
+
+
+def _restore_problem(sweep: _Sweep, raw: bytes) -> tuple[str | None, str]:
+    """The reason the marker is RED (``None`` when it is not), and what it records."""
+    try:
+        restored, created, key = _parse_restore_marker(raw)
+    except ValueError as exc:  # UnicodeDecodeError is a ValueError
+        return f"marker unparseable ({exc}): {raw[:120]!r}", ""
+    recorded = (
+        f"restored {key} (dumped {created.isoformat(timespec='seconds')}) "
+        f"at {restored.isoformat(timespec='seconds')}"
+    )
+    if created > restored:
+        return f"{recorded}: the dump is dated after the restore", recorded
+    if restored > sweep.now:
+        return f"{recorded}: in the future", recorded
+    limit = sweep.config.restore_max_age
+    if sweep.now - restored > limit:
+        return f"{recorded}, {_age(sweep.now, restored)} ago (limit {limit.days} days)", recorded
+    return None, f"{recorded}, {_age(sweep.now, restored)} ago"
+
+
+def check_restore(sweep: _Sweep, drill: RestoreDrill) -> Row:
+    marker = sweep.config.restore_marker_dir / drill.marker_name
+    clear = f" - clear it by running `{drill.command}` in {drill.repo}"
+    raw = _read_marker(marker)
+    if raw is None:
+        return Row(drill.row, RED, f"no restore drill has passed ({marker} absent){clear}")
+    problem, recorded = _restore_problem(sweep, raw)
+    if problem is not None:
+        return Row(drill.row, RED, f"{problem}{clear}")
+    return Row(drill.row, OK, recorded)
+
+
+def _restore_check(drill: RestoreDrill) -> Callable[[_Sweep], Row]:
+    return lambda sweep: check_restore(sweep, drill)
+
+
 # --- the sweep ---------------------------------------------------------------
 
 CHECKS: tuple[tuple[str, Callable[[_Sweep], Row]], ...] = (
@@ -393,6 +475,7 @@ CHECKS: tuple[tuple[str, Callable[[_Sweep], Row]], ...] = (
     ("verified restore", check_verified_restore),
     ("export", check_export),
     ("E: free", check_free_space),
+    *((drill.row, _restore_check(drill)) for drill in RESTORE_DRILLS),
 )
 
 
@@ -402,7 +485,7 @@ def check_health(
     now: Callable[[], datetime] = local_now,
     free_bytes: Callable[[Path], int] = disk_free,
 ) -> HealthReport:
-    """Run all four checks; one that cannot read is recorded and never stops the others."""
+    """Run every check; one that cannot read is recorded and never stops the others."""
     blocked = preflight(config)
     if blocked is not None:
         return blocked
@@ -458,8 +541,12 @@ __all__ = [
     "RED",
     "RUNNING",
     "SNAPSHOT_MAX_AGE",
+    "DEFAULT_RESTORE_MARKER_DIR",
+    "RESTORE_DRILLS",
+    "RESTORE_MAX_AGE",
     "BackupHealthConfig",
     "HealthReport",
+    "RestoreDrill",
     "Row",
     "check_health",
     "disk_free",
