@@ -66,6 +66,7 @@ _PARSER_MEMBERS = (
     "Promote",
     "_Context",
     "_pr_create_promote",
+    "_fill_placeholders",
     "_api_repo",
     "_api_promote",
     "_gh_promote",
