@@ -219,9 +219,9 @@ class TestHookRegistration:
 
     def test_a_clean_audit_names_its_count_and_is_in_lockstep(self):
         findings = diff_state(_snapshot(), hook_rows=[self.CLEAN])
-        (count,) = _by_surface(findings, "hook-registration")
-        assert count["severity"] == "info"
-        assert count["message"] == (
+        surface = _by_surface(findings, "hook-registration")
+        assert [f["severity"] for f in surface] == ["info"]
+        assert surface[0]["message"] == (
             "checked 1 contexts: 1 scripts present, 1 registrations; 0 contexts not read"
         )
         assert format_report(findings)[0] == "In lockstep — no drift detected."
