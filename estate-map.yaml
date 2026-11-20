@@ -2158,7 +2158,7 @@ capabilities:
   status: live
   claims:
     oversteward: [src/oversteward/sow/, src/oversteward/dev_family.py, scripts/sow.py, shared/scripts/dev/,
-      tests/test_deployed_links.py]
+      tests/test_deployed_links.py, src/oversteward/guard_replay.py, scripts/guard_replay.py]
   entry_points:
   - scripts/sow.py
   - scripts/dev/new-session.sh

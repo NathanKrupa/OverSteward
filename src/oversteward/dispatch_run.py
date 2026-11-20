@@ -23,7 +23,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -64,35 +64,55 @@ def parse_stamp(text: str) -> datetime:
 
 
 def read_entries(path: Path) -> list[dict]:
-    """Every JSON entry of a transcript, in order.
+    """Every JSON entry of a transcript, in order: :func:`iter_entries` as a list."""
+    return list(iter_entries(path))
+
+
+def iter_entries(path: Path) -> Iterator[dict]:
+    """Every JSON entry of a transcript, in order, read one line at a time.
 
     A transcript is JSON Lines, so it is split on ``\\n`` alone. Claude Code writes
     U+2028 and U+2029 raw inside JSON strings, JSON allows U+0085 there too, and
-    ``str.splitlines()`` breaks on all three; the bytes are decoded without newline
-    translation, so a ``\\r`` is not a break either (OS#740).
+    ``str.splitlines()`` breaks on all three; the bytes are read in binary, so a
+    ``\\r`` is not a break either (OS#740).
 
     A transcript is appended while the agent runs, so a final line that does not
     decode or parse is read as a write still in progress and dropped; each line is
     decoded on its own, so a write cut inside a character spoils only its own line.
-    A bad line anywhere else means the file is not a transcript, and raises.
+    A bad line anywhere else means the file is not a transcript, and raises, after
+    the entries before it have been yielded.
     """
     try:
-        lines = path.read_bytes().split(b"\n")
+        with path.open("rb") as stream:
+            held: tuple[int, bytes] | None = None
+            for number, raw in enumerate(stream, start=1):
+                if held is not None:
+                    entry = _parse_line(path, *held, last=False)
+                    if entry is not _NO_ENTRY:
+                        yield entry
+                held = (number, raw.removesuffix(b"\n"))
+            if held is not None:
+                entry = _parse_line(path, *held, last=True)
+                if entry is not _NO_ENTRY:
+                    yield entry
     except OSError as error:
         raise TranscriptUnreadable(f"{path}: {error}") from error
-    if lines[-1] == b"":
-        lines.pop()  # the newline ending the last line begins no line of its own
-    entries = []
-    for number, line in enumerate(lines, start=1):
-        if not line.strip():
-            continue
-        try:
-            entries.append(json.loads(line.decode("utf-8")))
-        except (UnicodeDecodeError, json.JSONDecodeError) as error:
-            if number == len(lines):
-                break
-            raise TranscriptUnreadable(f"{path}:{number}: {error}") from error
-    return entries
+
+
+#: What :func:`_parse_line` returns for a line that holds no entry; ``None`` is an entry.
+_NO_ENTRY = object()
+
+
+def _parse_line(path: Path, number: int, line: bytes, *, last: bool) -> object:
+    """The entry on one transcript line, or ``_NO_ENTRY`` for a blank or cut-off last line."""
+    if not line.strip():
+        return _NO_ENTRY
+    try:
+        return json.loads(line.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        if last:
+            return _NO_ENTRY
+        raise TranscriptUnreadable(f"{path}:{number}: {error}") from error
 
 
 def _ask_reason(entry: Mapping) -> tuple[str, str] | None:
