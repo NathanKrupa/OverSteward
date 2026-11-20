@@ -25,11 +25,17 @@ _PARSER_HOOKS = (
     "guard_promote_ci_red.py",
 )
 
+# Every Bash guard that lexes with ``shlex``: the six above, and the two with
+# lexers of their own. All eight carry the same ``_ShellLexer``.
+_SHELL_LEXER_HOOKS = (*_HOOKS, "guard_gate_pipe.py", "guard_endless_substitution.py")
+_SHELL_LEXER = "_ShellLexer"
+
 # The members of the duplicated block, in the order the guards declare them.
 _LEXER_MEMBERS = (
     "_SEPARATORS",
     "_BACKTICK",
     "_ASSIGNMENT",
+    "_ShellLexer",
     "_lex",
     "_token_runs",
     "_simple_commands",
@@ -227,6 +233,40 @@ def test_a_renamed_member_is_reported_not_skipped():
     without_lex = source.replace("def _lex(", "def _lex_renamed(", 1)
     with pytest.raises(LexerMemberMissing):
         lexer_signature(without_lex)
+
+
+def _shell_lexer_signatures(paths: list[Path]) -> dict[Path, str]:
+    return {
+        path: ast.dump(
+            _strip_docstrings(_member(ast.parse(path.read_text(encoding="utf-8")), _SHELL_LEXER))
+        )
+        for path in paths
+    }
+
+
+def test_the_shell_lexer_class_has_not_drifted():
+    """Eight guards, sixteen files, one comment rule."""
+    paths = _paths(_SHELL_LEXER_HOOKS)
+    assert len(paths) == 2 * 8
+    signatures = _shell_lexer_signatures(paths)
+    assert len(set(signatures.values())) == 1, (
+        "the DUPLICATE _ShellLexer has drifted between: "
+        + ", ".join(sorted(str(path) for path in signatures))
+    )
+
+
+def test_the_shell_lexer_check_detects_a_mutated_copy(tmp_path):
+    """The negative fixture: one copy offers the hash in every state, and the check sees it."""
+    paths = _paths(_SHELL_LEXER_HOOKS)
+    original = paths[-1].read_text(encoding="utf-8")
+    mutated = original.replace('return "#" if self.state == " " else ""', 'return "#"', 1)
+    assert mutated != original, "the mutation anchor is gone — the fixture is inert"
+    mutant = tmp_path / "guard_drifted.py"
+    mutant.write_text(mutated, encoding="utf-8")
+
+    signatures = _shell_lexer_signatures([*paths, mutant])
+    assert len(set(signatures.values())) == 2
+    assert signatures[mutant] != signatures[paths[0]]
 
 
 def test_every_guard_carrying_the_parser_is_present():
