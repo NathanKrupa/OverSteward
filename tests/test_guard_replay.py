@@ -9,7 +9,7 @@ import os
 import subprocess
 import sys
 import time
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 
@@ -53,10 +53,18 @@ def _load_cli():
 CLI = _load_cli()
 
 
-def bash(command: str, tool_id: str, *, cwd: str = "/work/alpha", sidechain: object = False) -> dict:
+def bash(
+    command: str,
+    tool_id: str,
+    *,
+    cwd: str = "/work/alpha",
+    sidechain: object = False,
+    entrypoint: str = "claude-vscode",
+) -> dict:
     entry = {
         "type": "assistant",
         "cwd": cwd,
+        "entrypoint": entrypoint,
         "message": {
             "content": [
                 {"type": "text", "text": "running it"},
@@ -367,6 +375,18 @@ def test_cwd_and_named_paths_attribute_and_a_sibling_name_is_other(capsys, root,
     }
 
 
+def test_a_launch_directory_is_its_longest_matching_root_at_a_dash_boundary():
+    alpha = guard_replay.Context("alpha", PurePosixPath("/work/alpha"))
+    nested = guard_replay.Context("nested", PurePosixPath("/work/alpha/bet"))
+    contexts = [alpha, nested]
+
+    assert guard_replay.launch_context("-work-alpha", contexts) == "alpha"
+    assert guard_replay.launch_context("-work-alpha--claude-worktrees-x", contexts) == "alpha"
+    assert guard_replay.launch_context("-work-alphabet", contexts) == "other"
+    assert guard_replay.launch_context("-work-alpha-bet-x", contexts) == "nested"
+    assert guard_replay.launch_context("-work-alpha-bet-x", [nested, alpha]) == "nested"
+
+
 # --- unattended split -------------------------------------------------------------------
 
 
@@ -379,6 +399,20 @@ def test_the_same_ask_in_a_sidechain_and_a_main_entry_splits_one_and_one(capsys,
     code, out, _ = run(capsys, root, registry)
 
     assert code == 0
+    assert line(out, "asks by attendance:") == "asks by attendance: attended 1, unattended 1, unknown 0"
+
+
+def test_a_headless_main_chain_session_is_unattended(capsys, root, registry):
+    write(
+        root / "-work-alpha" / "s1.jsonl",
+        [
+            bash(FLUSH, "t1", sidechain=False, entrypoint="sdk-cli"),
+            bash(FLUSH, "t2", sidechain=False, entrypoint="claude-vscode"),
+        ],
+    )
+
+    _, out, _ = run(capsys, root, registry)
+
     assert line(out, "asks by attendance:") == "asks by attendance: attended 1, unattended 1, unknown 0"
 
 
@@ -458,6 +492,38 @@ def test_only_this_hooks_recorded_decision_is_compared(capsys, root, registry, t
     key = guard_replay.command_key(LISTING)
     assert line(out, "  disagreement") == f"  disagreement {key}: replay pass, recorded ask"
     assert line(out, "recorded decisions of other hooks:") == "recorded decisions of other hooks: 1"
+
+
+def test_a_recorded_decision_whose_call_was_not_replayed_is_not_in_the_total(
+    capsys, root, registry
+):
+    write(root / "-work-alpha" / "s1.jsonl", [bash(LISTING, "t1"), recorded("gone", "ask")])
+
+    _, out, _ = run(capsys, root, registry)
+
+    assert line(out, "agreement:") == "agreement: 0 of 0 recorded decisions of this hook"
+    assert line(out, "recorded decisions with no replayed call:") == (
+        "recorded decisions with no replayed call: 1"
+    )
+
+
+def test_only_a_pretooluse_attachment_or_an_error_result_is_a_recorded_decision(
+    capsys, root, registry
+):
+    post = recorded("t1", "deny")
+    post["attachment"]["hookEvent"] = "PostToolUse"
+    quoted = hook_error("t2", f"[{HOOK_COMMAND}]: blocked")
+    quoted["message"]["content"][0]["is_error"] = False
+    write(
+        root / "-work-alpha" / "s1.jsonl",
+        [bash(SKIP_HOOKS, "t1"), post, bash(SKIP_HOOKS + " ", "t2"), quoted],
+    )
+
+    _, out, _ = run(capsys, root, registry)
+
+    assert line(out, "agreement:") == "agreement: 0 of 0 recorded decisions of this hook"
+    assert line(out, "recorded decisions of other hooks:") == "recorded decisions of other hooks: 0"
+    assert line(out, "recorded decisions naming no hook:").startswith("recorded decisions naming no hook: 0 ")
 
 
 def test_a_recorded_ask_the_replay_repeats_agrees(capsys, root, registry):

@@ -66,6 +66,8 @@ UNATTENDED = "unattended"
 #: An entry with no boolean ``isSidechain``: neither side is assumed.
 UNKNOWN = "unknown"
 ATTENDANCE = (ATTENDED, UNATTENDED, UNKNOWN)
+#: The ``entrypoint`` of a headless ``claude -p`` session, which nobody watches.
+HEADLESS_ENTRYPOINT = "sdk-cli"
 
 KEY_LENGTH = 12
 _PATTERN_PREFIX = "Pattern: "
@@ -277,15 +279,14 @@ def read_transcript(path: Path, hook_name: str) -> TranscriptRead:
 
 
 def bash_commands(entry: Mapping) -> list[Command]:
-    """Every Bash ``tool_use`` of an assistant entry, with the entry's cwd and sidechain flag."""
+    """Every Bash ``tool_use`` of an assistant entry, with the entry's cwd and attendance."""
     if entry.get("type") != "assistant":
         return []
     message = entry.get("message")
     content = message.get("content") if isinstance(message, Mapping) else None
     if not isinstance(content, list):
         return []
-    sidechain = entry.get("isSidechain")
-    attendance = UNKNOWN if not isinstance(sidechain, bool) else UNATTENDED if sidechain else ATTENDED
+    attendance = attendance_of(entry)
     commands = []
     for block in content:
         if not isinstance(block, Mapping) or block.get("type") != "tool_use":
@@ -297,6 +298,22 @@ def bash_commands(entry: Mapping) -> list[Command]:
                 Command(text, str(block.get("id", "")), str(entry.get("cwd") or ""), attendance)
             )
     return commands
+
+
+def attendance_of(entry: Mapping) -> str:
+    """Whether anyone could have answered a prompt raised by this entry's tool call.
+
+    A sidechain (a subagent) and a headless ``claude -p`` session are unattended;
+    any other main-chain entry is attended. Without a boolean ``isSidechain`` the
+    entry is ``unknown``. Whether an interactive session's subagent shows its
+    prompt to the person at that session is not measured here.
+    """
+    sidechain = entry.get("isSidechain")
+    if not isinstance(sidechain, bool):
+        return UNKNOWN
+    if sidechain or entry.get("entrypoint") == HEADLESS_ENTRYPOINT:
+        return UNATTENDED
+    return ATTENDED
 
 
 def recorded_decisions(entry: Mapping) -> list[tuple[str, str, str]]:
