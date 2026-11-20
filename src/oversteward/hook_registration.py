@@ -37,7 +37,7 @@ _FRONTMATTER = re.compile(r"\A---\r?\n(.*?)^---[ \t]*\r?$", re.MULTILINE | re.DO
 
 
 class _Unreadable(Exception):
-    """A source at the ref exists and cannot be parsed, so no verdict can be drawn."""
+    """A directory at the ref could not be listed, or a source on it could not be parsed."""
 
 
 @dataclass(frozen=True)
