@@ -12,8 +12,8 @@ often a recorded decision of the hook agrees with the replay.
   every ``<project>/<session>/subagents/**/agent-*.jsonl`` modified within the
   window. Each is read line by line through :func:`dispatch_run.iter_entries`;
   one it rejects is counted and named, contributes nothing, and the rest are
-  still measured. A tool call that appears in two transcripts (a resumed session
-  copies its history) is counted once, by its ``tool_use`` id.
+  still measured. A tool call that appears in more than one transcript is
+  counted once, by its ``tool_use`` id.
 * **Decision.** The hook file is loaded and its own ``main()`` is called on a
   PreToolUse event, with ``sys.stdin`` and ``sys.stdout`` swapped for the call
   and ``SystemExit`` caught. Its private matchers are never called, so the
@@ -23,9 +23,10 @@ often a recorded decision of the hook agrees with the replay.
   and whose ``stdout`` carries a ``permissionDecision`` is the hook's real
   decision for its ``toolUseID``. Another hook's decision on the same call is
   not this hook's, and is counted apart.
-* **Public by construction.** The summary prints counts, the hook's own
-  ``Pattern:`` names and 12-hex command keys, never a command, a path or a
-  project directory's name. The command text goes only to ``--rows``.
+* **Public by construction.** The summary prints counts, registry context ids,
+  the hook's own ``Pattern:`` names, the classes the labels file names and
+  12-hex command keys, never a command, a path or a project directory's name.
+  The command text goes only to ``--rows``.
 """
 
 from __future__ import annotations
@@ -301,12 +302,13 @@ def bash_commands(entry: Mapping) -> list[Command]:
 def recorded_decisions(entry: Mapping) -> list[tuple[str, str, str]]:
     """(tool_use id, decision, hook command) for each PreToolUse decision ``entry`` records.
 
-    Claude Code records the two tiers differently. An ``ask`` is an ``attachment``
+    Claude Code records the two tiers differently (read from transcripts written
+    in November 2026, not from a specification). An ``ask`` is an ``attachment``
     whose ``stdout`` carries the hook's ``permissionDecision``. A ``deny`` leaves
     no attachment: it is a ``tool_result`` error whose text begins
-    ``PreToolUse:Bash hook error:``, with the hook command in brackets after it
-    only when the hook blocked by exit code; a JSON deny's text is its reason
-    alone, which names no hook, so its hook command is empty.
+    ``PreToolUse:Bash hook error:``. The hooks seen there that block by exit
+    code have their command in brackets after it; a JSON deny's text is its
+    reason alone, which names no hook, so its hook command is empty.
     """
     attachment = entry.get("attachment")
     if isinstance(attachment, Mapping):
