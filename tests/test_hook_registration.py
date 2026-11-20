@@ -96,8 +96,9 @@ class TestRegisteredAbsent:
         self, tmp_path, event, consequence
     ):
         row = _one(tmp_path, {SETTINGS: _settings(_cmd("ghost.py"), event=event)})
-        (missing,) = [f for f in _findings([row]) if f["severity"] == "missing"]
-        assert missing["message"].endswith(consequence)
+        missing = [f["message"] for f in _findings([row]) if f["severity"] == "missing"]
+        assert len(missing) == 1
+        assert missing[0].endswith(consequence)
 
     def test_the_interpreter_exits_2_on_an_absent_script(self, tmp_path):
         """2 is the code the family's guards return to refuse a tool call."""

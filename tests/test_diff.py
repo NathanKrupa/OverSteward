@@ -239,7 +239,8 @@ class TestHookRegistration:
     def test_unreadable_outranks_drift_and_both_print(self):
         findings = diff_state(_snapshot(), hook_rows=[self.UNREAD, self.DRIFTING])
         report = format_report(findings)
-        assert report.index("\n## COULD NOT READ") < report.index("\n## DRIFT")
+        headings = [line for line in report if line.startswith("\n## ")]
+        assert headings == ["\n## COULD NOT READ", "\n## DRIFT", "\n## INFO"]
         assert any("[unread]" in line and "unreadable" in line for line in report)
         assert any("[drifting]" in line and "b.py" in line for line in report)
         assert not any("In lockstep" in line for line in report)
