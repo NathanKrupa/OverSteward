@@ -222,6 +222,18 @@ OverSteward is the one repo that holds both sides of every pair, so its own depl
 
 The doctrine split is the point of the check. A file the repo's own instructions tell agents to run, which does not exist on origin, is a broken instruction — that is how grantspider's `CLAUDE.md` came to point at a `scripts/dev/with_test_env.py` that had never been deployed, and how the `new-session.sh` unshallow guard sat canonically "done" while reaching no repo (OS#242).
 
+#### Hook registration is audited on the same ref (OS#772)
+
+A deployed hook does nothing until something registers it, and a registration does worse than nothing when its script is gone. `src/oversteward/hook_registration.py` reads, on the `origin/<branch>` the family audit just fetched (no second fetch), every `*.py` entry directly under `.claude/hooks/` and every hook `command` in `.claude/settings.json` and in the frontmatter of each `.claude/agents/*.md`. A script is present only when its entry, followed through `GitRepo.resolve`, is a regular file. A command registers a script only as `$CLAUDE_PROJECT_DIR/.claude/hooks/<name>.py`, bare or double-quoted, behind any interpreter; any other mention of `.claude/hooks/` is an `info` line. `scripts/diff.py --hooks` prints the matrix.
+
+| Status | Meaning | Report severity |
+|---|---|---|
+| `registered` | present and registered | not reported |
+| `registered-absent` | registered, not a file at the ref: the interpreter exits 2 each time the event fires, and under `PreToolUse` 2 is the guards' refusal code, so every matching tool call is refused | `missing` |
+| `present-unregistered` | a hook file nothing runs, which reads as coverage | `drift` |
+
+A repo whose ref is absent, whose requested fetch failed, whose `settings.json` is not a JSON object or whose card frontmatter is not YAML is `unreadable`, never "nothing registered": it prints under `COULD NOT READ`, suppresses "In lockstep", and makes `/sync-status` exit 2, outranking 1. The surface always closes with an `info` line counting the contexts read, scripts present, registrations and contexts not read; zero contexts read is itself `unreadable`. Global `~/.claude/settings.json` and `settings.local.json` are on no ref and are out of scope (#182).
+
 #### Byte-identity requires formatter exclusion (decision, OS#241)
 
 The estate rule was "author canonical scripts to the strictest linter across all deploy targets." That rule is unfollowable for a **normalizing formatter**. `ruff format` both wraps lines over the limit and re-joins wrapped lines that fit under it, and the targets disagree: aigranthelper `line-length = 120`, grantspider `99`, OverSteward `100`. Any line between 99 and 120 characters therefore has two incompatible correct forms — line-length is not a strictness ordering, it is two targets pulling opposite ways. Byte-identity across those repos is arithmetically impossible while each repo's formatter owns the file.
@@ -665,7 +677,7 @@ All 8 local + remote contexts migrated. Canonical souls and personas deployed. 1
 
 **Governance side:**
 - [x] `scripts/gather.py` — pull state from all repos
-- [x] `scripts/diff.py` — structured change list; `--family` audits the canonical family against each repo's `origin` ref
+- [x] `scripts/diff.py` — structured change list; `--family` audits the canonical family against each repo's `origin` ref; `--hooks` prints hook registration on the same ref
 - [x] `scripts/sow.py` — deploy the canonical `shared/scripts/dev/` family as one PR per repo, with the safety gates (OS#408). Managed-block / soul / persona / settings writing remains deferred
 - [ ] `reports/manifest.json` — **not built, and deliberately so.** Canon's git history is the deployment baseline; see § "Drift classification from canon history"
 - [ ] `scripts/sweep.py` — stale persona skill cleanup

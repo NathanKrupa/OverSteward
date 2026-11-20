@@ -119,6 +119,22 @@ class GitRepo:
                 return meta.split(b" ", 1)[0]
         return None
 
+    def entries(self, ref: str, directory: str) -> dict[str, bytes] | None:
+        """Each entry directly under ``directory`` at ``ref``, by name, with its tree mode.
+
+        An absent directory is an empty listing; None means git could not list the ref.
+        """
+        listing = _git(self._root, "ls-tree", "-z", ref, "--", f"{directory}/")
+        if listing is None:
+            return None
+        found: dict[str, bytes] = {}
+        for record in listing.split(b"\0"):
+            meta, _, path = record.partition(b"\t")
+            if path:
+                name = posixpath.basename(path.decode("utf-8", errors="replace"))
+                found[name] = meta.split(b" ", 1)[0]
+        return found
+
     def blob(self, ref: str, relpath: str) -> bytes | None:
         return _git(self._root, "cat-file", "blob", f"{ref}:{self.resolve(ref, relpath)}")
 
