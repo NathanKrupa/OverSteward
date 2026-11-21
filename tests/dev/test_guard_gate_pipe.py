@@ -330,6 +330,15 @@ class TestBlankedReadingKeepsOneLineQuotes:
         command = 'grep -E "ok|gaudi \\\n" log.txt | head -3'
         assert _refused(command)
 
+    def test_an_escaped_quote_character_outside_quotes_opens_no_span(self):
+        """The backslash makes the apostrophe literal; the pair after it still closes on its line."""
+        assert not _refused(f"{self.MQ}\necho it\\'s; {self.ALTERNATION}")
+
+    def test_a_quote_that_never_closes_is_suspect_through_a_character_of_the_other_kind(self):
+        """Only the quote's own character closes it, so this one runs to the end of the text."""
+        line = "pytest -q 'x \"y | tail -5"
+        assert _refused(f"{X}\n{line}")
+
     def test_the_whole_suspect_span_is_blanked_through_its_closing_quote(self):
         """Every quote character from the opening through the closing, both kinds."""
         text = "a 'b \"c\nd' \"e\" f"
