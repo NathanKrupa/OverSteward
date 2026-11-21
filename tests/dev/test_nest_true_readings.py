@@ -9,6 +9,11 @@ shell never opens: a phantom quote, which can hide a later command. Every guard
 also decides on ``_nest_true``'s text, where the scanner vouches for it, and
 holds if that reading holds. Today's readings are untouched and decided first,
 so nothing refused before passes. ``R`` is a command the guard refuses alone.
+
+The pipe guard is the exception (OS#791): where the scanner vouches for a
+command, it decides on the nest-true text alone and drops today's readings, so
+a command refused before only because the toggle lexer read quoted data as
+code passes there. Without a vouch it decides as before.
 """
 
 from __future__ import annotations
@@ -100,17 +105,23 @@ def test_a_later_line_after_a_phantom_quote_is_refused(guard, tmp_path):
     assert _decide(guard, '{MIS} "a\nb"\n{R} ; {MIS}', tmp_path) is True
 
 
-# --- row 2: today's readings stay, and are decided first --------------------
+# --- row 2: today's readings stay, and are decided first (not the pipe guard)
 
 
-@pytest.mark.parametrize("guard", GUARDS)
+@pytest.mark.parametrize("guard", [name for name in GUARDS if name != "gate-pipe"])
 def test_what_only_todays_reading_holds_is_still_refused(guard, tmp_path):
     """``R`` is quoted data to the shell, but the toggle lexer reads it unquoted.
 
     The nest-true reading alone would pass it; today's reading holds it, and a
-    reading is only ever added.
+    reading is only ever added. The pipe guard is the exception: it reads a
+    vouched command on the nest-true text alone.
     """
     assert _decide(guard, 'echo "$(echo "x ; {R} ; y")"', tmp_path) is True
+
+
+def test_the_pipe_guard_passes_what_only_todays_reading_holds(tmp_path):
+    """``R`` is quoted data to the shell, and the pipe guard reads it as the shell does."""
+    assert _decide("gate-pipe", 'echo "$(echo "x ; {R} ; y")"', tmp_path) is False
 
 
 # --- row 3: no vouch, no extra reading --------------------------------------
@@ -233,15 +244,23 @@ def test_the_drafts_constructs_are_refused_on_the_nest_true_text_alone(text):
     )
 
 
-def test_the_pipe_guard_names_todays_offender_first():
-    """Today's reading finds one pipeline in quoted data, the nest-true reading another
-    behind the phantom quote: both are refused, and the message names today's."""
+def test_the_pipe_guard_reads_a_vouched_command_on_the_nest_true_text_alone():
+    """The toggle reading finds a pipeline in quoted data, the nest-true reading another
+    behind the phantom quote: only the one the shell runs is named."""
     command = (
         'echo "$(echo "x ; pytest -q | tail -5 ; y")" ; '
         f"{MIS} ; ruff check | head -3 ; {MIS}"
     )
     found = [" ".join(" ".join(stage) for stage in p) for p in gate_pipe.offending_pipelines(command)]
-    assert found == ["pytest -q tail -5", "ruff check head -3"]
+    assert found == ["ruff check head -3"]
+
+
+def test_the_pipe_guard_reads_a_command_without_a_vouch_on_its_own_text():
+    """No vouch: the toggle reading decides, as it did before the nest-true text existed."""
+    command = f'echo "$(echo "x ; pytest -q | tail -5 ; y")" ; {UNMODELLED}'
+    assert gate_pipe._nest_true(command) is None
+    found = [" ".join(" ".join(stage) for stage in p) for p in gate_pipe.offending_pipelines(command)]
+    assert found == ["pytest -q tail -5"]
 
 
 # --- the readings not made: no double quote, or no dollar sign or backtick --

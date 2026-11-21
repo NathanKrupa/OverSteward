@@ -275,6 +275,157 @@ class TestQuotedSpans:
         assert not _refused("pytest -k 'a | tail'\necho done")
 
 
+class TestVouchedCommandKeepsOneLineQuotes:
+    """Where ``_nest_true`` vouches for a command, its readings run on the nest-true text alone,
+    and the blanked reading blanks only the quotes that text shows crossing a line end, never
+    closing, or opening on a line begun inside quotes. Without a vouch, every quote is blanked.
+
+    MQ, a quoted text spanning lines elsewhere in the command, is what brings the
+    blanked reading in. A quote that opens and closes on one line then reads as it
+    does in a single-line command.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _no_session_override(self, monkeypatch):
+        monkeypatch.delenv("CLAUDE_ALLOW_GATE_PIPE", raising=False)
+
+    MQ = "git commit -m 'one\ntwo'"
+    ALTERNATION = "grep -E 'ok|gaudi' log.txt | head -3"
+    QUOTED_COMMAND = ".venv/bin/python mut.py f.md 'pytest -q | tail -5'"
+    SUBSTITUTION = 'out="$(pytest -q | tail -5)"'
+    # The toggle lexer closes the outer string at the first inner quote and pairs
+    # the two apostrophes; the shell runs the pipeline between them.
+    NESTED = 'echo "$(echo "it\'s")"'
+    MISTRACKED_PAIR = f"{NESTED}; pytest -q | tail -5; {NESTED}"
+    # An ANSI-C quote, which the scanner does not model: no vouch.
+    UNMODELLED = "echo $'z'"
+
+    @staticmethod
+    def _vouched(command):
+        vouched = guard._nest_true(command)
+        assert vouched is not None, "the fixture must be one the scanner vouches for"
+        return vouched
+
+    def test_a_quoted_alternation_naming_a_gate_beside_a_multi_line_quote(self):
+        for command in (f"{self.MQ}\n{self.ALTERNATION}", f"{self.ALTERNATION}\n{self.MQ}"):
+            self._vouched(command)
+            assert not _refused(command)
+
+    def test_a_quoted_command_string_passed_as_an_argument_beside_a_multi_line_quote(self):
+        command = f"{self.MQ}\n{self.QUOTED_COMMAND}"
+        self._vouched(command)
+        assert not _refused(command)
+
+    def test_the_same_lines_alone_are_allowed(self):
+        """A pin: without a multi-line quote the blanked reading never runs."""
+        assert not _refused(self.ALTERNATION)
+        assert not _refused(self.QUOTED_COMMAND)
+
+    def test_without_a_vouch_every_quote_is_blanked_as_before(self):
+        """The unmodelled line takes the vouch away, and the alternation reads as a pipeline."""
+        command = f"{self.MQ}\n{self.ALTERNATION}\n{self.UNMODELLED}"
+        assert guard._nest_true(command) is None
+        assert _refused(command)
+
+    @pytest.mark.xfail(strict=True, reason="OS#815: a pipeline in a substitution is not read")
+    def test_a_quoted_substitution_is_refused_alone(self):
+        """The shell runs this pipeline into the filter, and the guard does not read it."""
+        assert _refused(self.SUBSTITUTION)
+
+    @pytest.mark.xfail(strict=True, reason="OS#815: a pipeline in a substitution is not read")
+    def test_a_quoted_substitution_is_refused_beside_a_multi_line_quote(self):
+        """Refused before only because full blanking read the substitution as code; a
+        vouched command now gets the verdict it gets alone."""
+        command = f"{self.MQ}\n{self.SUBSTITUTION}"
+        self._vouched(command)
+        assert _refused(command)
+
+    @pytest.mark.xfail(strict=True, reason="OS#815: a redirection before the gate is not read")
+    def test_a_gate_after_a_leading_redirection_is_refused(self):
+        assert _refused("2>&1 pytest -q | tail -5")
+
+    @pytest.mark.xfail(strict=True, reason="OS#815: an escaped parenthesis reads as a separator")
+    def test_a_gate_with_an_escaped_parenthesis_argument_is_refused(self):
+        assert _refused("pytest -q echo \\( x | tail -5")
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            MISTRACKED_PAIR,
+            f"{MISTRACKED_PAIR}\n{MQ}",
+            f"{MQ}\n{MISTRACKED_PAIR}",
+            f"{NESTED} 'start\nx' ; pytest -q | tail -5 ; echo 'y'\n{NESTED}",
+            f"{MQ}\n{NESTED} 'start\nx' ; pytest -q | tail -5 ; echo 'y' {NESTED}",
+            'pytest -k "$(echo "a\nb")" | tail -5',
+        ],
+    )
+    def test_a_pipeline_the_toggle_lexer_misplaces_among_nested_quotes_stays_refused(
+        self, command
+    ):
+        """The constructs the earlier drafts of this change stopped on: the shell runs each
+        pipeline, and the nest-true text, read alone, shows it."""
+        assert self._vouched(command) != command
+        assert _refused(command)
+
+    def test_a_gate_just_after_a_nested_quote_in_a_quote_held_across_lines_stays_refused(self):
+        """The backslash the scanner put before the nested quote is blanked with it, so the
+        gate's name is a word of its own, as blanking the original text left it."""
+        command = 'echo "$(\n"pytest" -q | tail -5)"'
+        assert self._vouched(command) != command
+        assert _refused(command)
+
+    def test_a_pair_on_a_line_begun_inside_quotes_is_suspect(self):
+        """Kept as quoted text, the pair would hide the separator that blanking it shows:
+        blanking the crossing quote alone glues the gate on the line to the filter."""
+        command = "echo 'a\npytest -q' \"b ; c\" | tail -5"
+        self._vouched(command)
+        assert not _refused(command)
+
+    def test_a_continued_line_is_still_the_line_begun_inside_quotes(self):
+        """Only a line end outside quotes starts a line the lexer can vouch for."""
+        command = "echo 'a\npytest -q' x \\\n \"b ; c\" | tail -5"
+        self._vouched(command)
+        assert not _refused(command)
+
+    def test_a_pattern_inside_a_quote_held_across_lines_stays_refused(self):
+        """A pin: a quote that crosses a line end is blanked, so its lines read as code."""
+        command = f"git commit -m 'one\n{self.ALTERNATION}\nthree'"
+        self._vouched(command)
+        assert _refused(command)
+
+    def test_a_double_quoted_pattern_continued_across_a_line_stays_refused(self):
+        """A backslash-newline inside double quotes is a line end the quote crossed."""
+        command = 'grep -E "ok|gaudi \\\n" log.txt | head -3'
+        self._vouched(command)
+        assert _refused(command)
+
+    def test_an_escaped_quote_character_outside_quotes_opens_no_span(self):
+        """The backslash makes the apostrophe literal; the pair after it still closes on its line."""
+        command = f"{self.MQ}\necho it\\'s; {self.ALTERNATION}"
+        self._vouched(command)
+        assert not _refused(command)
+
+    def test_a_quote_that_never_closes_is_suspect_through_a_character_of_the_other_kind(self):
+        """Only the quote's own character closes it, so this one runs to the end of the text."""
+        text = "x 'b \"c\nd\" | e"
+        reading = guard._read_lines(text, "\x1c", "\x1d")
+        assert guard._blank_suspect_quotes(text, reading.quote_spans) == "x  b  c\nd  | e"
+        [span] = guard._read_lines("x 'b \"c", "\x1c", "\x1d").quote_spans
+        assert (span.end, span.crossed, span.on_quoted_line) == (None, False, False)
+        assert span.is_suspect()
+
+    def test_the_whole_suspect_span_is_blanked_through_its_closing_quote(self):
+        """Every quote character from the opening through the closing, both kinds."""
+        text = "a 'b \"c\nd' x\n\"e\" f"
+        reading = guard._read_lines(text, "\x1c", "\x1d")
+        assert guard._blank_suspect_quotes(text, reading.quote_spans) == 'a  b  c\nd  x\n"e" f'
+
+    def test_the_backslashes_before_a_blanked_quote_are_blanked_with_it(self):
+        text = 'a "\\\\\\"b\nc"'
+        reading = guard._read_lines(text, "\x1c", "\x1d")
+        assert guard._blank_suspect_quotes(text, reading.quote_spans) == "a      b\nc "
+
+
 class TestLineReadingKeepsTodaysReading:
     @pytest.fixture(autouse=True)
     def _no_session_override(self, monkeypatch):
