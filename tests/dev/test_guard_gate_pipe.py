@@ -394,6 +394,9 @@ class TestVouchedCommandKeepsOneLineQuotes:
         text = "x 'b \"c\nd\" | e"
         reading = guard._read_lines(text, "\x1c", "\x1d")
         assert guard._blank_suspect_quotes(text, reading.quote_spans) == "x  b  c\nd  | e"
+        [span] = guard._read_lines("x 'b \"c", "\x1c", "\x1d").quote_spans
+        assert (span.end, span.crossed, span.on_quoted_line) == (None, False, False)
+        assert span.is_suspect()
 
     def test_the_whole_suspect_span_is_blanked_through_its_closing_quote(self):
         """Every quote character from the opening through the closing, both kinds."""
