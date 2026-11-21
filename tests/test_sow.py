@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
@@ -142,6 +143,17 @@ class FakeRuff:
 
 # --------------------------------------------------------------------------
 # git fixtures
+
+
+@pytest.fixture(autouse=True)
+def _scrub_git_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep a git hook's inherited ``GIT_*`` variables away from the scratch repos.
+
+    A hook exports its location variables to the suite it runs, and each one
+    re-points git away from the ``-C`` tree onto the hook's own repository (OS#807).
+    """
+    for name in [key for key in os.environ if key.startswith("GIT_")]:
+        monkeypatch.delenv(name)
 
 
 def _git(root: Path, *args: str) -> str:
@@ -878,6 +890,162 @@ def test_apply_never_passes_a_hook_bypass_flag(canon: Path, pickup: Path, tmp_pa
     assert "-n" not in flat
     assert "--force" not in flat
     assert "-A" not in flat
+
+
+# --------------------------------------------------------------------------
+# what a run leaves behind in the target (OS#803)
+
+
+def _registered_worktrees(root: Path) -> list[Path]:
+    listing = _git(root, "worktree", "list", "--porcelain").splitlines()
+    return [Path(line.split(" ", 1)[1]) for line in listing if line.startswith("worktree ")]
+
+
+def _local_sync_branches(root: Path) -> list[str]:
+    pattern = f"{SYNC_BRANCH_PREFIX}*"
+    return _git(root, "branch", "--list", pattern, "--format=%(refname:short)").split()
+
+
+def _pre_push_refusing(pickup_root: Path) -> None:
+    hook = pickup_root / ".git" / "hooks" / "pre-push"
+    hook.write_text("#!/bin/sh\necho 'push refused by the target' >&2\nexit 1\n", encoding="utf-8")
+    hook.chmod(0o755)
+
+
+class FailingGh(FakeGh):
+    """A gh whose `pr create` fails after the push has already landed."""
+
+    def create_pr(self, cwd: Path, base: str, head: str, title: str, body_path: Path) -> str:
+        raise SowError("gh pr create failed: fake refusal")
+
+
+def test_a_deploy_whose_verify_leaves_an_untracked_file_registers_no_worktree(
+    canon: Path, pickup: Path, tmp_path: Path
+):
+    # `git worktree remove` refuses a tree holding an untracked file, which a
+    # real `make verify` leaves as readily as this one does.
+    _commit_makefile(pickup, "verify:\n\ttouch verify-residue\n")
+    report, gh, _ruff, _reports = _apply(
+        canon, pickup, tmp_path, verify=True, verify_runner=MakeCommand()
+    )
+    assert report.outcomes[0].action == DEPLOYED, report.outcomes[0].detail
+    assert len(gh.created) == 1
+    assert _registered_worktrees(pickup) == [pickup]
+
+
+def test_a_deploy_on_a_clean_tree_registers_no_worktree(canon: Path, pickup: Path, tmp_path: Path):
+    report, _gh, _ruff, _reports = _apply(canon, pickup, tmp_path)
+    assert report.outcomes[0].action == DEPLOYED, report.outcomes[0].detail
+    assert _registered_worktrees(pickup) == [pickup]
+
+
+def test_an_abort_before_the_commit_registers_no_worktree(
+    canon: Path, pickup: Path, tmp_path: Path
+):
+    # G9 refuses after the copy and before the commit, so the tree is dirty.
+    ruff = FakeRuff(objections=("would reformat: scripts/dev/with_test_env.py",))
+    report, _gh, _ruff, _reports = _apply(canon, pickup, tmp_path, ruff=ruff)
+    assert report.outcomes[0].action == ABORTED
+    assert _registered_worktrees(pickup) == [pickup]
+
+
+def _abort_before_commit(pickup_root: Path) -> dict:
+    return {"ruff": FakeRuff(objections=("would reformat: scripts/dev/with_test_env.py",))}
+
+
+def _abort_at_verify(pickup_root: Path) -> dict:
+    return {"verify": True, "verify_runner": FakeVerify(ok=False)}
+
+
+def _abort_at_push(pickup_root: Path) -> dict:
+    _pre_push_refusing(pickup_root)
+    return {}
+
+
+@pytest.mark.parametrize(
+    "abort", [_abort_before_commit, _abort_at_verify, _abort_at_push], ids=lambda f: f.__name__
+)
+def test_an_aborted_run_leaves_no_sync_branch_it_created(
+    canon: Path, pickup: Path, tmp_path: Path, abort
+):
+    report, gh, _ruff, _reports = _apply(canon, pickup, tmp_path, **abort(pickup))
+    assert report.outcomes[0].action == ABORTED, report.outcomes[0].detail
+    assert gh.created == []
+    assert _local_sync_branches(pickup) == []
+    assert _registered_worktrees(pickup) == [pickup]
+    assert _git(pickup, "branch", "--list", "--remote", f"origin/{SYNC_BRANCH_PREFIX}*") == ""
+
+
+def test_a_deployed_run_keeps_the_sync_branch_it_pushed(canon: Path, pickup: Path, tmp_path: Path):
+    report, _gh, _ruff, _reports = _apply(canon, pickup, tmp_path)
+    assert report.outcomes[0].action == DEPLOYED
+    branch = sync_branch_for(TODAY)
+    assert _local_sync_branches(pickup) == [branch]
+    assert _git(pickup, "rev-parse", branch) == _git(pickup, "rev-parse", f"origin/{branch}")
+
+
+def test_an_abort_after_the_push_keeps_the_pushed_sync_branch(
+    canon: Path, pickup: Path, tmp_path: Path
+):
+    report, _gh, _ruff, _reports = _apply(canon, pickup, tmp_path, gh=FailingGh())
+    assert report.outcomes[0].action == ABORTED
+    assert "gh pr create failed" in report.outcomes[0].detail
+    branch = sync_branch_for(TODAY)
+    assert _local_sync_branches(pickup) == [branch]
+    assert _git(pickup, "rev-parse", branch) == _git(pickup, "rev-parse", f"origin/{branch}")
+    assert _registered_worktrees(pickup) == [pickup]
+
+
+def test_a_stale_tracking_ref_of_the_same_name_does_not_read_as_pushed(
+    canon: Path, pickup: Path, tmp_path: Path
+):
+    # An earlier same-day sync, merged and deleted on GitHub, can leave its
+    # tracking ref behind at an older commit than this run's.
+    branch = sync_branch_for(TODAY)
+    _git(pickup, "update-ref", f"refs/remotes/origin/{branch}", _git(pickup, "rev-parse", "main"))
+    report, _gh, _ruff, _reports = _apply(
+        canon, pickup, tmp_path, verify=True, verify_runner=FakeVerify(ok=False)
+    )
+    assert report.outcomes[0].action == ABORTED
+    assert _local_sync_branches(pickup) == []
+
+
+def test_an_abort_leaves_a_sync_branch_that_existed_before_the_run(
+    canon: Path, pickup: Path, tmp_path: Path
+):
+    branch = sync_branch_for(TODAY)
+    _git(pickup, "branch", branch, "main")
+    report, _gh, _ruff, _reports = _apply(
+        canon, pickup, tmp_path, verify=True, verify_runner=FakeVerify(ok=False)
+    )
+    assert report.outcomes[0].action == ABORTED
+    assert _local_sync_branches(pickup) == [branch]
+    assert _registered_worktrees(pickup) == [pickup]
+
+
+def test_a_second_run_the_same_day_after_an_abort_deploys(
+    canon: Path, pickup: Path, tmp_path: Path
+):
+    first, _gh, _ruff, _reports = _apply(
+        canon, pickup, tmp_path, ruff=FakeRuff(objections=("would reformat: x.py",))
+    )
+    assert first.outcomes[0].action == ABORTED
+    second, gh, _ruff, _reports = _apply(canon, pickup, tmp_path)
+    assert second.outcomes[0].action == DEPLOYED, second.outcomes[0].detail
+    assert len(gh.created) == 1
+    assert _registered_worktrees(pickup) == [pickup]
+
+
+def test_a_second_run_the_same_day_after_a_committed_abort_deploys(
+    canon: Path, pickup: Path, tmp_path: Path
+):
+    first, _gh, _ruff, _reports = _apply(
+        canon, pickup, tmp_path, verify=True, verify_runner=FakeVerify(ok=False)
+    )
+    assert first.outcomes[0].action == ABORTED
+    second, gh, _ruff, _reports = _apply(canon, pickup, tmp_path, verify=True)
+    assert second.outcomes[0].action == DEPLOYED, second.outcomes[0].detail
+    assert len(gh.created) == 1
 
 
 # --------------------------------------------------------------------------
