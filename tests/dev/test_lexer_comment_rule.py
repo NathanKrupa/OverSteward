@@ -191,14 +191,9 @@ def test_a_comment_cannot_open_a_quote(guard, tmp_path):
     assert _decide(guard, "# it's a note\n{R}\n# that's all", tmp_path) is True
 
 
-# guard_gate_pipe reads a pipeline across a newline, so a refused pipeline on a
-# line of its own after another command is outside this rule's reach either way.
-_PER_LINE = [name for name in GUARDS if name != "gate-pipe"]
-
-
-@pytest.mark.parametrize("guard", _PER_LINE)
+@pytest.mark.parametrize("guard", GUARDS)
 def test_the_next_line_is_read(guard, tmp_path):
-    """A pin for the per-line guards: the loss was only ever the rest of one line."""
+    """The loss was only ever the rest of one line."""
     assert _decide(guard, "echo a#b\n{R}", tmp_path) is True
 
 

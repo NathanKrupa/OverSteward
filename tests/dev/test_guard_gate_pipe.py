@@ -109,6 +109,218 @@ class TestUnlexable:
         assert guard.should_block("pytest -q 'unclosed | tail -20")
 
 
+GF = "pytest -q | tail -5"
+X = "echo hi"
+
+
+def _refused(command):
+    return guard.should_block(command)
+
+
+class TestOwnLinePipeline:
+    """A pipeline refused alone is refused on its own line, whatever the other lines hold."""
+
+    @pytest.fixture(autouse=True)
+    def _no_session_override(self, monkeypatch):
+        monkeypatch.delenv("CLAUDE_ALLOW_GATE_PIPE", raising=False)
+
+    def test_the_refused_pipeline_is_refused_alone(self):
+        assert _refused(GF)
+
+    def test_a_pipeline_after_another_command_line(self):
+        assert _refused(f"{X}\n{GF}")
+
+    def test_a_pipeline_before_another_command_line(self):
+        """A pin: the first line's pipeline was refused before the change."""
+        assert _refused(f"{GF}\n{X}")
+
+    def test_a_crlf_line_end_ends_the_line(self):
+        assert _refused(f"{X}\r\n{GF}\r\n")
+
+    def test_a_line_ending_in_an_even_run_of_backslashes_is_not_continued(self):
+        assert _refused("echo a\\\\\n" + GF)
+
+    def test_a_trailing_comment_ends_at_its_own_line(self):
+        assert _refused(f"{X} # note\n{GF}")
+
+    def test_a_comment_ending_in_a_backslash_does_not_continue(self):
+        assert _refused(f"{X} # note \\\n{GF}")
+
+    def test_a_comment_ending_in_a_pipe_character_does_not_continue(self):
+        assert _refused(f"{X} # note |\n{GF}")
+
+    def test_a_reserved_word_ending_its_line(self):
+        assert _refused(f"if true; then\n{GF}\nfi")
+
+    def test_a_pipeline_after_an_unbalanced_quote(self):
+        assert _refused(f"echo 'unclosed\n{GF}")
+
+    def test_a_last_line_pipeline_holding_its_own_unbalanced_quote(self):
+        """Refused alone through the unlexable fallback; no line begins inside its quote."""
+        line = "pytest -q 'x | tail -5"
+        assert _refused(line)
+        assert _refused(f"{X}\n{line}")
+
+    def test_a_pipeline_before_a_lone_trailing_backslash(self):
+        assert _refused(f"{X}\n{GF}\\")
+        assert _refused(f"{X}\n{GF}\n\\")
+
+    def test_a_pipeline_after_an_and_operator_ending_its_line(self):
+        """A pin: an AND operator was a separator before the change."""
+        assert _refused(f"true &&\n{GF}")
+
+    def test_a_pipeline_inside_multi_line_groups(self):
+        """A pin: an opening parenthesis or brace was a separator before the change."""
+        assert _refused(f"(\n{GF}\n)")
+        assert _refused(f"{{\n{GF}\n}}")
+        assert _refused(f"x=$(\n{GF}\n)")
+        assert _refused(f"case $x in\na) {GF} ;;\nesac")
+
+
+class TestContinuedPipeline:
+    """A pipeline the shell continues across lines is read as one pipeline."""
+
+    @pytest.fixture(autouse=True)
+    def _no_session_override(self, monkeypatch):
+        monkeypatch.delenv("CLAUDE_ALLOW_GATE_PIPE", raising=False)
+
+    def test_a_gate_ending_its_line_with_a_pipe(self):
+        assert _refused(f"{X}\npytest -q |\ntail -5")
+
+    def test_a_gate_ending_its_line_with_a_stderr_pipe(self):
+        assert _refused(f"{X}\npytest -q |&\ntail -5")
+
+    def test_a_gate_ending_in_a_line_continuation_after_another_line(self):
+        assert _refused(f"{X}\npytest -q \\\n| tail -5")
+
+    def test_a_gate_ending_in_a_line_continuation_alone(self):
+        assert _refused("pytest -q \\\n| tail -5")
+
+    def test_a_gate_whose_name_a_continuation_splits(self):
+        assert _refused(f"{X}\npyt\\\nest -q | tail -5")
+
+    def test_a_pipe_then_a_trailing_comment(self):
+        assert _refused(f"{X}\npytest -q | # note\ntail -5")
+
+    def test_a_pipe_then_a_comment_only_line(self):
+        assert _refused(f"{X}\npytest -q |\n# note\ntail -5")
+
+    def test_a_continued_pipeline_and_a_comment_ending_in_a_pipe(self):
+        """Each line end decided on its own: two offenders, not one uniform choice."""
+        command = (
+            f"{X}\npytest -q | # note\ntail -5\n"
+            "echo x # trailing |\npytest -q | head -3"
+        )
+        found = guard.offending_pipelines(command)
+        filters = {pipeline[-1][0] for pipeline in found}
+        assert filters == {"tail", "head"}, found
+
+    def test_a_gate_with_a_quoted_lone_newline_argument(self):
+        assert _refused("pytest -k '\n' | tail -5")
+
+
+class TestQuotedSpans:
+    """Where the lexer reports a quote spanning lines, the lines are read again."""
+
+    @pytest.fixture(autouse=True)
+    def _no_session_override(self, monkeypatch):
+        monkeypatch.delenv("CLAUDE_ALLOW_GATE_PIPE", raising=False)
+
+    HEREDOC_ONE = "cat > a.md <<'EOF'\nit's one\nEOF\n"
+    HEREDOC_TWO = "\ncat > b.md <<'EOF'\nit's two\nEOF"
+
+    def test_a_pipeline_between_two_heredocs_holding_an_apostrophe(self):
+        assert _refused(self.HEREDOC_ONE + GF + self.HEREDOC_TWO)
+
+    def test_an_own_line_pipeline_whose_quoted_argument_starts_a_word_with_a_hash(self):
+        """Blanking the quotes would make the hash a comment; the line is lexed afresh."""
+        line = 'pytest -q -k "a #b" | tail -5'
+        assert _refused(line)
+        assert _refused(self.HEREDOC_ONE + line + self.HEREDOC_TWO)
+
+    def test_a_fresh_line_is_read_to_its_end_and_across_a_waiting_pipe(self):
+        line = 'echo hi; pytest -q -k "a #b" |\ntail -5'
+        assert _refused(line)
+        assert _refused(self.HEREDOC_ONE + line + self.HEREDOC_TWO)
+
+    def test_a_fresh_line_stops_at_its_own_end(self):
+        """A pipe on the next line must not become the fresh line's last stage."""
+        line = 'pytest -q -k "a #b" | tail -5\necho x | grep y'
+        assert _refused(self.HEREDOC_ONE + line + self.HEREDOC_TWO)
+
+    def test_the_blanked_reading_blanks_double_quotes_too(self):
+        """A double quote the lexer mis-tracks, in text that lexes, before a pipeline."""
+        command = "echo \"$(echo 'say \"hi')\"; pytest -q | tail -5\ncat <<'EOF'\nit's\nEOF"
+        assert guard._lex(command) is not None, "the text must lex, or today's degrade reads it"
+        assert _refused(command)
+
+    def test_a_line_after_a_continuation_inside_a_quoted_span(self):
+        """The heredoc's quote runs on through a comment's backslash, as the lexer reads it."""
+        line = 'pytest -q -k "a #b" | tail -5'
+        command = "cat > a.md <<'EOF'\nsay \"hi\nEOF\n# see C:\\\n" + line
+        assert _refused(command)
+
+    def test_a_pipeline_after_a_quote_mistracked_inside_a_substitution(self):
+        """Mid-line, after the mistracked quote: the blanked reading reads it."""
+        command = 'echo "$(echo "it\'s")"; pytest -q | tail -5' + self.HEREDOC_TWO
+        assert guard._lex(command) is not None, "the text must lex, or today's degrade reads it"
+        assert _refused(command)
+
+    def test_a_quoted_multi_line_text_with_a_line_reading_as_a_refused_pipeline(self):
+        """The recorded cost of reading quoted spans again: this is refused."""
+        assert _refused(f"git commit -m 'one\n{GF}\nthree'")
+
+    def test_quoted_text_without_such_a_line_is_allowed(self):
+        assert not _refused("git commit -m 'one\ntwo'\necho done")
+        assert not _refused("pytest -k 'a | tail'\necho done")
+
+
+class TestLineReadingKeepsTodaysReading:
+    @pytest.fixture(autouse=True)
+    def _no_session_override(self, monkeypatch):
+        monkeypatch.delenv("CLAUDE_ALLOW_GATE_PIPE", raising=False)
+
+    def test_a_continuation_into_an_indented_gate_is_still_refused(self):
+        """Refused before the change, though the shell runs no gate; kept."""
+        assert _refused(f"{X} \\\n  {GF}")
+
+    def test_a_filter_pipeline_after_a_gate_line_is_still_refused(self):
+        """Refused before the change through the neighbouring line; kept."""
+        assert _refused("pytest -q\ncat log.txt | tail -5")
+
+    def test_the_sanctioned_forms_on_separate_lines_are_allowed(self):
+        assert not _refused("pytest -q > out.txt 2>&1; rc=$?\ncat out.txt | tail -5")
+        assert not _refused("pytest -q | tee out.txt\necho done")
+
+    def test_a_pipe_continued_past_a_heredoc_body_is_outside_this_rule(self):
+        """A pin: the guard does not model heredocs, and this is not refused alone either."""
+        assert not _refused("pytest -q <<EOF |\nbody\nEOF\ntail -5")
+
+
+class TestMarkerCharacters:
+    @pytest.fixture(autouse=True)
+    def _no_session_override(self, monkeypatch):
+        monkeypatch.delenv("CLAUDE_ALLOW_GATE_PIPE", raising=False)
+
+    def test_text_holding_one_marker_candidate_is_still_read_by_line(self):
+        assert _refused(f"echo \x1e\n{GF}")
+
+    def test_text_holding_every_marker_candidate_is_read_line_by_line(self):
+        assert _refused(f"echo \x1c\x1d\x1e\x1f\n{GF}")
+
+
+class TestLineOverride:
+    @pytest.fixture(autouse=True)
+    def _no_session_override(self, monkeypatch):
+        monkeypatch.delenv("CLAUDE_ALLOW_GATE_PIPE", raising=False)
+
+    def test_the_pipelines_own_prefix_waves_it_through(self):
+        assert not _refused(f"{X}\nCLAUDE_ALLOW_GATE_PIPE=1 {GF}")
+
+    def test_an_override_on_another_line_does_not(self):
+        assert _refused(f"CLAUDE_ALLOW_GATE_PIPE=1 {X}\n{GF}")
+
+
 class TestHookProtocol:
     def _run(self, payload: dict, env_extra=None):
         import os
@@ -130,6 +342,21 @@ class TestHookProtocol:
     def test_an_allowed_command_exits_zero(self):
         result = self._run({"tool_name": "Bash", "tool_input": {"command": "pytest -q"}})
         assert result.returncode == 0
+
+    def test_an_own_line_pipeline_exits_two_naming_the_filter_and_the_pipeline(self, monkeypatch):
+        monkeypatch.delenv("CLAUDE_ALLOW_GATE_PIPE", raising=False)
+        result = self._run({"tool_name": "Bash", "tool_input": {"command": f"{X}\n{GF}"}})
+        assert result.returncode == 2
+        assert "swallowed by `tail`" in result.stderr
+        assert "    pytest -q | tail -5\n" in result.stderr
+        assert "Traceback" not in result.stderr
+
+    def test_allowed_multi_line_quoted_text_exits_zero_silently(self, monkeypatch):
+        monkeypatch.delenv("CLAUDE_ALLOW_GATE_PIPE", raising=False)
+        command = "pytest -k 'a | tail'\necho done"
+        result = self._run({"tool_name": "Bash", "tool_input": {"command": command}})
+        assert result.returncode == 0
+        assert result.stderr == ""
 
     def test_a_non_bash_tool_is_ignored(self):
         result = self._run({"tool_name": "Read", "tool_input": {"command": "pytest | tail"}})
