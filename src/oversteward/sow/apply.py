@@ -173,9 +173,11 @@ def _unlink_target_venv(link: Path | None) -> None:
 def _run_verify(verify_runner, worktree: Path, log_path: Path) -> tuple[bool, str]:
     """The target's own verify, output to a file: (may push, note for the report).
 
-    A target with no `verify` rule may push, because its pre-push hook is then
-    its full gate and runs on that push. Only make's own "No rule" answer counts
-    as absent, never the repo's name; any other failure aborts.
+    A target with no `verify` rule may push, and the report says its pre-push
+    hook is the full gate (the OS#800 ruling). sow does not check that the hook
+    exists; the push runs whatever hook the target has. Only make's own
+    "No rule" answer counts as absent, never the repo's name; any other failure
+    aborts.
     """
     if verify_runner.verify(worktree, log_path).ok:
         return True, ""
