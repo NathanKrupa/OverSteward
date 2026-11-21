@@ -639,6 +639,282 @@ def test_wrapper_stripping_does_not_invent_a_command(hook):
 
 
 # ---------------------------------------------------------------------------
+# A read of the hooks-path setting passes only in a command made of reads.
+# Each pass row is checked against the table with nothing withheld, which holds
+# it; each deny row must be held exactly as that table holds it.
+# ---------------------------------------------------------------------------
+
+
+_KEY = "core.hooksPath"
+_READ = f"git config {_KEY}"
+_SEARCH_PATH = "/usr/local/bin:/usr/bin:/bin"
+# One command for each listed word, made only of plain tokens.
+_NEIGHBOURS = (
+    "cd /tmp/work",
+    "ls .githooks",
+    "cat README.md",
+    "head -5 notes.txt",
+    "grep -n marker .githooks/pre-push",
+    "echo done",
+)
+_JOINS = (" ; ", " && ", " || ", " | ", "\n")
+
+
+def _today(hook, cmd):
+    """The table's verdict with nothing withheld: the gate before a read was withheld."""
+    for line_true in hook._readings(cmd):
+        argvs = hook._all_argvs(cmd, line_true)
+        for category, predicate, reason in hook._EVASION_RULES:
+            if predicate(argvs):
+                return (category, reason)
+    return None
+
+
+def _verdict(hook, cmd, search_path=_SEARCH_PATH):
+    return hook._match_hook_evasion(cmd, search_path)
+
+
+def _read_only_commands() -> list[str]:
+    """Row 1: the read alone in each of its grammar's forms, and beside each listed word."""
+    forms = [
+        _READ,
+        f"git config --get {_KEY}",
+        f"git config get --show-origin {_KEY}",
+        f"git -C /tmp/work config --global {_KEY}",
+    ]
+    for neighbour in _NEIGHBOURS:
+        for join in _JOINS:
+            forms += [f"{neighbour}{join}{_READ}", f"{_READ}{join}{neighbour}"]
+    return forms
+
+
+# Rows 7, 12 and 13: the listed redirections, quoted patterns and a comment.
+_ALSO_PASSING = (
+    f"ls .githooks 2>/dev/null ; {_READ}",
+    f"grep -rn marker .githooks 2>&1 | head -20 ; {_READ}",
+    f"echo checking >&2 && {_READ}",
+    f"ls .githooks >/dev/null || {_READ}",
+    f'grep -n "docs\\|\\.md\\|[A-Z]x" .githooks/pre-push ; {_READ}',
+    f"grep -n 'a|b' notes.txt | head -3 ; {_READ}",
+    f"{_READ}  # where do the hooks live? $(not run) `nor this`",
+)
+
+
+@pytest.mark.parametrize("cmd", [*_read_only_commands(), *_ALSO_PASSING])
+def test_a_read_among_listed_reads_passes(hook, cmd):
+    assert _today(hook, cmd) is not None, "the table with nothing withheld holds it"
+    assert _verdict(hook, cmd) is None
+    assert hook._all_argvs(cmd, False) == hook._all_argvs(cmd, True), "both readings agree"
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        # Row 3: the first attempt's review findings.
+        f"hooks=({_READ}) ; ls",
+        f"git -C $d config {_KEY}",
+        f"git -C ~ config {_KEY}",
+        f"git -C /tmp/* config {_KEY}",
+        f"git -C {{a,b}} config {_KEY}",
+        f"read PATH < f ; {_READ}",
+        f"printf -v PATH %s x ; {_READ}",
+        f"mapfile -t x < f ; {_READ}",
+        f"declare -n x=PATH ; {_READ}",
+        # Row 4: the lexer's blind spots, and a shell handed a script.
+        f"echo `{_READ}`",
+        f"{{ {_READ} ; }}",
+        f'ls ";" {_READ}',
+        f"ls \\; {_READ}",
+        f"ls \\&\\& {_READ}",
+        f"ls\r{_READ}",
+        f"{_READ} ; ls \\\n.githooks",
+        f"ls 'x ; {_READ}",
+        f"bash -c '{_READ}'",
+        # Row 5: a dollar sign or a backtick in a quoted argument.
+        f'echo "$HOME" ; {_READ}',
+        f"echo 'a$b' ; {_READ}",
+        f'echo "`id`" ; {_READ}',
+        f'echo "$(echo "a b")" ; {_READ}',
+        f'echo "x$(echo "a\nb")y" | head\n{_READ}',
+        # Row 6: an unquoted glob, brace or tilde.
+        f"ls *.md ; {_READ}",
+        f"ls [ab] ; {_READ}",
+        f"ls {{a,b}} ; {_READ}",
+        f"ls ~ ; {_READ}",
+        # Row 7: every other redirection, and one on the read itself.
+        f"ls > out.txt ; {_READ}",
+        f"ls >> /dev/null ; {_READ}",
+        f"cat < in.txt ; {_READ}",
+        f"cat <<EOF\nx\nEOF\n{_READ}",
+        f"cat <<< x ; {_READ}",
+        f"ls &> /dev/null ; {_READ}",
+        f"ls 2>&3 ; {_READ}",
+        f"{_READ} 2>/dev/null || {_READ}",
+        # Row 8: off-list words, wrappers, assignment prefixes, the background.
+        f"{_READ} | sed -n 1p",
+        f"{_READ} | tee out.txt",
+        f"env ls ; {_READ}",
+        f"LC_ALL=C ls ; {_READ}",
+        f"GIT_DIR=/tmp/x {_READ}",
+        f"ls & {_READ}",
+        f"git rev-parse --show-toplevel ; {_READ}",
+        f"git -C /tmp/work rev-parse --git-dir && {_READ}",
+        # Row 10: writes of the setting beside listed words.
+        f"ls ; git config --unset {_KEY}",
+        f"ls ; git config --unset-all {_KEY}",
+        f"ls ; git config unset {_KEY}",
+        f"ls ; git config unset --all {_KEY}",
+        f"ls ; git config --edit {_KEY}",
+        f"ls ; git config -e {_KEY}",
+        f"ls ; git config --add {_KEY}",
+        f"ls ; git config {_KEY} ''",
+        f"ls ; git config {_KEY} /dev/null",
+        f"ls && git -c {_KEY}=/dev/null commit -m x",
+        # The read with a quoted token, and an empty command beside it.
+        f"git config '{_KEY}' ; ls",
+        f"git -C --exec-path=/tmp config {_KEY}",
+        f"ls ; ; {_READ}",
+        f"; {_READ}",
+        f"{_READ} |",
+        # Row 11: a listed word beside a real evasion.
+        f"ls ; git commit --no-verify -m x ; {_READ}",
+        f"cd /tmp/work && git add -A && {_READ}",
+    ],
+)
+def test_a_read_beside_anything_unlisted_is_judged_as_today(hook, cmd):
+    expected = _today(hook, cmd)
+    assert expected is not None, "every row here is held by the table"
+    assert _verdict(hook, cmd) == expected
+
+
+_RELATIVE_PATHS = (".:/usr/bin", "/usr/bin::/bin", "bin:/usr/bin", "/usr/bin:", "")
+
+
+@pytest.mark.parametrize("search_path", _RELATIVE_PATHS)
+def test_a_relative_search_path_entry_withholds_nothing(hook, search_path):
+    """Row 9: after ``cd``, a relative entry would change what ``git`` names."""
+    cmd = f"cd /tmp/work && {_READ}"
+    assert _verdict(hook, cmd, search_path) == _today(hook, cmd) is not None
+
+
+def test_a_caller_naming_no_search_path_gets_todays_verdict(hook):
+    assert hook._match_hook_evasion(_READ) == _today(hook, _READ) is not None
+
+
+def _run_hook_with_path(cmd: str, search_path: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, str(_hook_path())],
+        input=json.dumps(_payload(_BASH, cmd)),
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+        env={"PATH": search_path},
+    )
+
+
+def test_a_read_among_reads_emits_no_decision():
+    """Row 14: both outcomes exit 0, so the pass is the empty output."""
+    proc = _run_hook_with_path(f"cd /tmp/work && {_READ} ; ls .githooks", _SEARCH_PATH)
+    assert proc.returncode == 0
+    assert proc.stdout == ""
+
+
+@pytest.mark.parametrize(
+    ("cmd", "search_path"),
+    [(f"hooks=({_READ}) ; ls", _SEARCH_PATH), (f"cd /tmp/work && {_READ}", ".:/usr/bin")],
+)
+def test_a_read_beside_an_unlisted_part_denies_end_to_end(cmd, search_path):
+    proc = _run_hook_with_path(cmd, search_path)
+    assert proc.returncode == 0
+    hso = _hso(proc)
+    assert hso[_DECISION] == _DENY
+    assert f"Pattern: {_HOOKSPATH}" in hso[_REASON]
+
+
+# Row 2: the sweep. Each allowlisted command below is crossed with one member
+# of every construct class at every place it can go, and the gate must judge
+# every crossed form exactly as the table with nothing withheld does.
+_SWEEP_BASES = (
+    _READ,
+    f"cd /tmp/work && {_READ}",
+    f"{_READ} ; ls .githooks",
+    f"ls .githooks 2>/dev/null ; git config --get {_KEY}",
+    f"{_READ} || echo none",
+    f"git -C /tmp/work config {_KEY} | head -1",
+    f"cat README.md | head -3\ngit config get --show-origin {_KEY}",
+    f'{_READ} && grep -n "marker\\|docs" .githooks/pre-push',
+    f"head -5 notes.txt ; git config --global {_KEY}",
+    f"grep -rn 'verify' .githooks 2>&1 | head -20 ; {_READ}",
+)
+# Where a member goes: where a command word goes, at every boundary between
+# words, inside an unquoted word, or inside a quoted one.
+_AT_COMMAND, _AT_WORD, _INSIDE, _IN_QUOTES = "command", "word", "inside", "quoted"
+_ANYWHERE = frozenset({_AT_WORD, _INSIDE, _IN_QUOTES})
+_UNQUOTED = frozenset({_AT_WORD, _INSIDE})
+_CONSTRUCTS = (
+    *((m, {_AT_COMMAND}) for m in ("X=1", "PATH=/tmp", "GIT_DIR=/tmp/x ;")),
+    *((m, {_AT_COMMAND, _AT_WORD}) for m in ("a=(git config x)", "f() { :; }", "( ls )", "{ ls; }")),
+    *((m, _ANYWHERE) for m in ("$X", "${X:-y}", "$(id)", "`id`", "$((1+1))", "$", "`")),
+    ('"$(echo "a b")"', {_AT_WORD}),
+    ('$(echo "a b")', {_IN_QUOTES}),
+    *((m, _UNQUOTED) for m in ("*", "?", "[ab]", "{a,b}", "~")),
+    # A hash inside a word is part of the word to the shell, never a comment.
+    *((m, {_INSIDE}) for m in ("#", "#;")),
+    *((m, {_AT_WORD}) for m in ("{", "& echo x", ";; echo x", "|& head", "> out", ">> /dev/null")),
+    *((m, {_AT_WORD}) for m in ("< in", "<< EOF", "<<< x", "&> /dev/null", ">| /dev/null")),
+    *((m, {_AT_WORD}) for m in ("2> out", ">&3", ">&-", "<> f", '";"', "'&&'", "\\;", "\\&")),
+    *((m, {_AT_WORD}) for m in ("\\\n",)),
+    *((m, _ANYWHERE) for m in ("\r", "\x0b", "\x0c", "\x1c", "\x85", " ")),
+    *((m, _ANYWHERE) for m in ("\x01", "\x1b", "\x7f", "é", " ")),
+    *(
+        (f"{word} ;", {_AT_COMMAND})
+        for word in (
+            "sed -n 1p f", "read PATH < f", "printf -v PATH %s x", "declare -n x=PATH",
+            "export PATH=.", "mapfile -t x < f", "env ls", "command ls", "exec ls",
+            "xargs ls", "bash -c 'ls'", "eval ls", "source f", ". f", "alias git=ls",
+            "hash -p /tmp/x git", "git rev-parse --show-toplevel", "tail -1 f", "tee f",
+        )
+    ),
+)
+
+
+def _crossings(base: str, member: str, places: set[str]) -> list[str]:
+    """``base`` with ``member`` put at each of ``places``."""
+    words = base.replace("\n", " \n ").split(" ")
+
+    def joined(parts: list[str]) -> str:
+        return " ".join(parts).replace(" \n ", "\n")
+
+    out: list[str] = []
+    starts = {0} | {i + 1 for i, w in enumerate(words) if w in {";", "&&", "||", "|", "\n"}}
+    for index in range(len(words) + 1):
+        if _AT_WORD in places or (_AT_COMMAND in places and index in starts):
+            out.append(joined([*words[:index], member, *words[index:]]))
+    for index, word in enumerate(words):
+        quoted = word[:1] in {"'", '"'}
+        place = _IN_QUOTES if quoted else _INSIDE
+        if place in places and len(word) > 1 and word != "\n":
+            middle = len(word) // 2
+            crossed = word[:middle] + member + word[middle:]
+            out.append(joined([*words[:index], crossed, *words[index + 1 :]]))
+    return out
+
+
+def test_every_construct_crossed_into_a_read_only_command_is_judged_as_today(hook):
+    for base in _SWEEP_BASES:
+        assert _verdict(hook, base) is None and _today(hook, base) is not None
+    forms = {c for b in _SWEEP_BASES for m, p in _CONSTRUCTS for c in _crossings(b, m, p)}
+    judged_otherwise = sorted(f for f in forms if _verdict(hook, f) != _today(hook, f))
+    assert judged_otherwise == []
+    held = [f for f in forms if _today(hook, f) is not None]
+    assert len(forms) > 4000 and len(held) > len(forms) // 2, (len(forms), len(held))
+    for base in _SWEEP_BASES:
+        for search_path in _RELATIVE_PATHS:
+            assert _verdict(hook, base, search_path) == _today(hook, base)
+
+
+# ---------------------------------------------------------------------------
 # Canonical byte-copy treaty — shared/ source and .claude/ deploy must match.
 # ---------------------------------------------------------------------------
 
