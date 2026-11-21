@@ -49,11 +49,15 @@ Operator steps are not rulings. A step only he can perform stays in Todoist (`sc
 
 Do this for every candidate **before the first pop-up**.
 
-- Read the issue's state, labels and last comments. Closed is dropped. A comment that records his answer after the question ("**Nathan, …**", "[answering …") means answered.
+- Read the issue's state, its labels and **every** comment that records an answer. Closed is dropped. An answer comment ("**Nathan, …**", "[answering …") at or after the place the question was asked means answered; read that comment in full before deciding.
   ```bash
   gh issue view <n> -R NathanKrupa/<repo> --json state,labels,comments \
-    -q '{state, labels: [.labels[].name], last: (.comments | map(.body[0:200]) | .[-3:])}'
+    -q '{state, labels: [.labels[].name], comments: (.comments | length),
+         answers: [.comments | to_entries[]
+           | select(.value.body | test("\\*\\*Nathan,|\\[answering"; "i"))
+           | {at: .key, on: .value.createdAt[0:10], says: .value.body[0:160]}]}'
   ```
+  It lists each answer comment with its position in the thread, so an answer given early in a long thread is still seen. A question asked in the issue body sits before comment 0.
 - Search `SESSION_STATE.md` for the issue number **below** the line that raised the question. A later `NATHAN (verbatim)` line may answer it.
 - If the session state shows another session appending today, its questions are its own. Put one to him only when nothing there answers it, and tell that session afterwards.
 - Check whether a standing law already answers it: search `~/.claude/projects/-home-natha-OverSteward/memory/MEMORY_FULL.md` for the subject.
