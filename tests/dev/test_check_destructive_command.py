@@ -728,6 +728,8 @@ def test_hookspath_write_flag_still_denies(hook, cmd):
         "git config >out.txt core.hooksPath",
         "git -c other.key=v config core.hooksPath",
         "git -C -x config core.hooksPath",
+        # A subcommand other than config, which an alias could expand to a write.
+        "git myalias core.hooksPath",
     ],
 )
 def test_hookspath_unknown_token_still_denies(hook, cmd):
@@ -781,6 +783,22 @@ def test_hookspath_quoted_separator_still_denies(hook, cmd):
 )
 def test_hookspath_foreign_line_break_still_denies(hook, cmd):
     """Mutant: the check for line breaks other than a newline dropped."""
+    _assert_hookspath_denied(hook, cmd)
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        # The array's words run where it is expanded, with what follows there.
+        'a=(git config core.hooksPath); "${a[@]}" /dev/null',
+        'a=(git config core.hooksPath)\n"${a[@]}" /dev/null',
+        'v=/dev/null; a=(git config core.hooksPath); "${a[@]}" "$v"',
+        "declare -a a=(git config core.hooksPath); \"${a[@]}\" ''",
+        'a+=(git config core.hooksPath); "${a[@]}" /dev/null',
+    ],
+)
+def test_hookspath_array_assignment_still_denies(hook, cmd):
+    """Mutant: the array-assignment check dropped."""
     _assert_hookspath_denied(hook, cmd)
 
 

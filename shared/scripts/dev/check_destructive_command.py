@@ -807,8 +807,12 @@ _HOOKSPATH_READ_OPTIONS = frozenset({
 # on it; after a command word the shell passes it as an argument), a line break
 # other than a newline (``str.splitlines`` ends a line there; the shell does
 # not), a separator token read from quoted or escaped text (see
-# :class:`_QuoteTrackingLexer`) and a backtick.
+# :class:`_QuoteTrackingLexer`), the parenthesis opening an array assignment
+# (``name=(`` or ``name+=(``: the lexer splits on it; the shell stores the words
+# and runs them wherever the array is later expanded, with whatever follows)
+# and a backtick.
 _LONE_BRACE = re.compile(r"(?<![^\s\"'])[{}](?![^\s\"'])")
+_ARRAY_ASSIGNMENT = re.compile(r"=\(")
 _FOREIGN_LINE_BREAKS = frozenset("\r\x0b\x0c\x1c\x1d\x1e\x85\u2028\u2029")
 
 
@@ -882,6 +886,7 @@ def _free_of_lexer_blind_spots(command: str, depth: int = 0) -> bool:
     if (
         _BACKTICK in command
         or _LONE_BRACE.search(command)
+        or _ARRAY_ASSIGNMENT.search(command)
         or _quoted_separator(command)
         or not _FOREIGN_LINE_BREAKS.isdisjoint(command)
     ):
