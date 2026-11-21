@@ -206,11 +206,12 @@ def _split_assignments(argv: list[str]) -> tuple[list[str], list[str]]:
 
 
 # The line-true reading. Once a line leaves a quote open, ``_token_runs`` lexes
-# the whole text as one unit, in which every later newline is whitespace. This
-# reading lexes the whole text once through a stream that decides each newline
-# from the lexer's own state. A guard decides under each reading on its own and
-# holds if either holds. Two marker characters stand in for newlines, taken
-# from candidates the text does not hold.
+# the whole text as one unit, in which a newline outside quotes is whitespace.
+# This reading lexes the whole text once through a stream that decides each
+# newline from the lexer's own state. A guard that decides under both readings
+# decides under each on its own and holds if either holds. Two marker
+# characters stand in for newlines, taken from candidates the text does not
+# hold; with fewer than two free, lines are joined until they lex.
 _LINE_MARKER_CANDIDATES = "\x1c\x1d\x1e\x1f"
 _DEFAULT_PUNCTUATION = shlex.shlex("", punctuation_chars=True).punctuation_chars
 

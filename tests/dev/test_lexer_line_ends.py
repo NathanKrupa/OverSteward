@@ -90,6 +90,26 @@ def test_a_command_after_a_quote_spanning_lines_is_read(guard, quoted, tmp_path)
     assert _decide(guard, quoted, tmp_path) is True
 
 
+_LINE_ENDS = [
+    "{QQ};\n{R}",
+    "{QQ} &&\n{R}",
+    "{QQ} |\n{R}",
+    "({QQ}\n{R})",
+    "{{ {QQ}\n{R}; }}",
+    "{QQ}\nif true; then\n{R}\nfi",
+    "{QQ}\nfor x in a; do\n{R}\ndone",
+    "{QQ}\n\n\n{R}",
+    "{QQ}\n  {R}",
+]
+
+
+@pytest.mark.parametrize("shape", _LINE_ENDS)
+@pytest.mark.parametrize("guard", GUARDS)
+def test_each_line_end_the_shell_acts_on_starts_a_command(guard, shape, tmp_path):
+    """The grammar table: separators, groups and reserved words ending a line, blank lines."""
+    assert _decide(guard, shape, tmp_path) is True
+
+
 @pytest.mark.parametrize("shape", ["{R}\n{QQ}", "{QQ}; {R}", "echo hi\n{R}"])
 @pytest.mark.parametrize("guard", GUARDS)
 def test_the_measured_controls_still_hold(guard, shape, tmp_path):
@@ -142,6 +162,13 @@ def test_a_script_handed_to_a_shell_is_read_under_the_same_reading(guard, tmp_pa
 def test_a_heredoc_body_line_is_held(guard, tmp_path):
     """Row 12, a recorded cost: an unquoted heredoc's body is read as lines."""
     assert _decide(guard, "{QQ}\ncat <<EOF\n{R}\nEOF", tmp_path) is True
+
+
+@pytest.mark.parametrize("guard", ["gate-deny", "gate-ask"])
+def test_a_body_line_the_lexer_holds_unquoted_is_held(guard, tmp_path):
+    """Row 12, a recorded cost: a body line between two of its own quote characters."""
+    body = "{QQ}\ncat <<'EOF'\nit's\nthat's\n{R}\nwon't\nEOF\necho '"
+    assert _decide(guard, body, tmp_path) is True
 
 
 # --- row 13: the line-true runs equal today's where each line lexes alone ---
