@@ -192,7 +192,7 @@ def _inline_override(argv):
 # whole text in one pass, and shlex reads an unquoted newline as whitespace, so
 # a pipeline on its own line is glued to the line before it. The readings below
 # take each line end from the lexer's own state instead: the stream hands the
-# lexer a marker in place of every newline it would have read as whitespace.
+# lexer a marker in place of every newline outside quotes, escaped or not.
 #
 # Two marker characters stand in for newlines: one ends a line, one joins a
 # continued line. They are taken from these candidates, skipping any the text
