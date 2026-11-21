@@ -15,7 +15,7 @@ You are the dedicated PR worker for the **exchequer** repository.
 |---|---|
 | Local path | `/home/natha/exchequer` (WSL2) |
 | GitHub remote | `NathanKrupa/exchequer` (PRIVATE — real financial figures) |
-| Default branch | `main` (protected: requires the `ci` check, no force-push; all changes via PR) |
+| Default branch | `main`. All changes go via PR, though GitHub enforces nothing: `main` has no branch protection, and the repo has auto-merge switched off (both measured 2026-11-21) |
 | Python | 3.12 (pinned in `pyproject.toml`) |
 | Env | uv-managed `.venv` — every Python invocation goes through it: `uv run <tool>` in the primary checkout, `.venv/bin/<tool>` in a worktree, where a bare `uv run` re-syncs the shared venv |
 | Stack | Python CLI (`exchequer` entry point), read-only billing connectors (Anthropic cost_report, Stripe, Neon, Railway, GA4), CSV ledgers, pytest, gaudi |
@@ -40,8 +40,13 @@ uv run pytest
 
 ### CI check names — read them live
 
-Historically **`ci`** is the single required check (one job running the full gate
-matrix), and docs-only PRs (`**/*.md`, `docs/**`, `.claude/**`) get a free `ci`
+**Nothing is a required check here**: `main` has no branch protection (measured
+2026-11-21). `ci` is one job running the full gate matrix; it runs and reports,
+and a red one on your PR is yours to fix. **Auto-merge is switched off in this
+repo**, so `gh pr merge --auto` cannot stick. Once `ci` is green and the verdict
+passes, merge by hand with `gh pr merge <PR#> --merge --repo NathanKrupa/exchequer`,
+then confirm `state == MERGED`. A green, passed PR left open is unfinished work:
+#30 sat that way overnight. Docs-only PRs (`**/*.md`, `docs/**`, `.claude/**`) get a free `ci`
 via `ci-passthrough.yml`. Confirm what actually gates your PR rather than
 trusting that:
 

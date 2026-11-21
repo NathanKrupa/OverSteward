@@ -65,8 +65,11 @@ repo lacks CI is false — that assertion has already misled at least two pickup
 If you meet one, correct it rather than acting on it.
 
 CI is deliberately **not** a required status check — local gates are primary, CI
-is the watchdog — so auto-merge does not wait for it. It does run, though: a red
-check on your PR is yours to fix, not noise to merge past.
+is the watchdog. It does run, though: a red check on your PR is yours to fix,
+not noise to merge past. **Auto-merge is switched off in this repo** (measured
+2026-11-21), so `gh pr merge --auto` cannot stick. Once the checks are green and
+the verdict passes, merge by hand with `gh pr merge <PR#> --merge` and confirm
+`state == MERGED`.
 
 Read the check names and the protection posture live rather than trusting a list
 here:
