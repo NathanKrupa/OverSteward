@@ -566,12 +566,22 @@ def _is_endless(pipeline):
 
 
 def endless_substitutions(command):
-    """Every process substitution body in ``command`` that would never end."""
+    """Every process substitution body in ``command`` that would never end.
+
+    A body is read as written, then as its nest-true text, where
+    :func:`_nest_true` vouches for it and it differs; either reading holds it.
+    """
     return [
         body
         for body in substitution_bodies(command)
-        if any(_is_endless(pipeline) for pipeline in _pipelines(body))
+        if any(_is_endless(pipeline) for text in _body_texts(body) for pipeline in _pipelines(text))
     ]
+
+
+def _body_texts(body):
+    """``body``, then its nest-true text where that is vouched for and differs."""
+    vouched = _nest_true(body)
+    return [body] if vouched in (None, body) else [body, vouched]
 
 
 _MESSAGE = """BLOCKED — a process substitution that never ends: <({body})

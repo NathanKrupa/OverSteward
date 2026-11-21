@@ -599,12 +599,17 @@ def offending_pipelines(command):
     """Every pipeline in ``command`` whose gate's status a trailing filter eats.
 
     The line-aware readings are searched first, then today's reading of the
-    whole text, which is kept as it is: nothing it refuses can pass.
+    whole text, which is kept as it is: nothing it refuses can pass. All of
+    them run again on the nest-true text, where :func:`_nest_true` vouches for
+    it and it differs.
     """
+    vouched = _nest_true(command)
+    texts = [command] if vouched in (None, command) else [command, vouched]
     found = []
-    for pipeline in _line_offenders(command) + _offenders(_lex_or_degrade(command)):
-        if pipeline not in found:
-            found.append(pipeline)
+    for text in texts:
+        for pipeline in _line_offenders(text) + _offenders(_lex_or_degrade(text)):
+            if pipeline not in found:
+                found.append(pipeline)
     return found
 
 

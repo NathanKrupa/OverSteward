@@ -547,18 +547,41 @@ def _readings(command: str) -> tuple[bool, ...]:
     return (False, True) if "\n" in command else (False,)
 
 
+def _reading_pairs(command: str) -> tuple[tuple[bool, bool], ...]:
+    """Every reading a guard decides under, as (line_true, nest_true), today's first.
+
+    Each of :func:`_readings` on today's text, then each again on the
+    nest-true text where :func:`_nest_true` vouches for it. A guard decides
+    each on its own and holds if any holds.
+
+    A double quote is escaped only inside a ``$( )``, ``${ }`` or backtick
+    region, so a text holding no double quote, or neither a dollar sign nor a
+    backtick, comes back from :func:`_nest_true` unchanged. So does every
+    script it hands a shell, since the lexer builds each token from the text's
+    own characters. Its nest-true readings would repeat today's, and are not
+    made.
+    """
+    nested = '"' in command and ("$" in command or "`" in command)
+    nests = (False, True) if nested and _nest_true(command) is not None else (False,)
+    return tuple((line, nest) for nest in nests for line in _readings(command))
+
+
 def _invocations(
-    command: str, line_true: bool = False
+    command: str, line_true: bool = False, nest_true: bool = False
 ) -> list[tuple[list[str], list[str]]] | None:
     """Every simple command in ``command`` as (env assignments, argv).
 
     ``line_true`` selects the line-true reading, :func:`_line_runs`;
-    today's reading, :func:`_token_runs`, is the default.
+    today's reading, :func:`_token_runs`, is the default. ``nest_true``
+    reads :func:`_nest_true`'s text in place of ``command`` where it vouches
+    for it, and ``command`` itself where it does not.
 
     None means the text could not be lexed, which callers treat as
     un-analysable rather than as safe.
     """
-    runs = _line_runs(command) if line_true else _token_runs(command)
+    vouched = _nest_true(command) if nest_true else None
+    text = command if vouched is None else vouched
+    runs = _line_runs(text) if line_true else _token_runs(text)
     if runs is None:
         return None
     return [
@@ -643,7 +666,9 @@ def _fallback_invocations(command: str) -> list[tuple[list[str], list[str]]]:
     ]
 
 
-def _expand(argvs: list[list[str]], depth: int, line_true: bool = False) -> list[list[str]]:
+def _expand(
+    argvs: list[list[str]], depth: int, line_true: bool = False, nest_true: bool = False
+) -> list[list[str]]:
     """``argvs`` unwrapped, plus the argv of any script handed to a shell.
 
     A script is read under the same reading as the command that carries it.
@@ -656,24 +681,25 @@ def _expand(argvs: list[list[str]], depth: int, line_true: bool = False) -> list
         expanded.append(argv)
         script = _shell_script(argv)
         if script is not None and depth < _MAX_SHELL_DEPTH:
-            expanded.extend(_expand(_argvs_of(script, line_true), depth + 1, line_true))
+            nested = _argvs_of(script, line_true, nest_true)
+            expanded.extend(_expand(nested, depth + 1, line_true, nest_true))
     return expanded
 
 
-def _argvs_of(command: str, line_true: bool = False) -> list[list[str]]:
+def _argvs_of(command: str, line_true: bool = False, nest_true: bool = False) -> list[list[str]]:
     """The argv of every simple command in ``command``, before expansion.
 
-    Text that does not lex goes to the fallback under either reading.
+    Text that does not lex goes to the fallback under every reading.
     """
-    invocations = _invocations(command, line_true)
+    invocations = _invocations(command, line_true, nest_true)
     if invocations is None:
         invocations = _fallback_invocations(command)
     return [argv for _assignments, argv in invocations]
 
 
-def _all_argvs(command: str, line_true: bool = False) -> list[list[str]]:
+def _all_argvs(command: str, line_true: bool = False, nest_true: bool = False) -> list[list[str]]:
     """Every command the shell would run, as argv the rules can inspect."""
-    return _expand(_argvs_of(command, line_true), 0, line_true)
+    return _expand(_argvs_of(command, line_true, nest_true), 0, line_true, nest_true)
 
 
 # ---------------------------------------------------------------------------
@@ -1038,14 +1064,14 @@ def _first_rule(
     rules: tuple[tuple[str, object, str], ...],
     withheld: Callable[[list[str]], bool] | None = None,
 ) -> tuple[str, str] | None:
-    """(category, text) of the first rule matched under today's reading, else the line-true one.
+    """(category, text) of the first rule matched under each reading in turn, today's first.
 
     Each reading's commands are matched on their own, never merged: a text-tool
-    line made visible by one reading must not stand down a rule the other holds.
+    line made visible by one reading must not stand down a rule another holds.
     An argv for which ``withheld`` holds is left out of every reading alike.
     """
-    for line_true in _readings(command):
-        argvs = _all_argvs(command, line_true)
+    for line_true, nest_true in _reading_pairs(command):
+        argvs = _all_argvs(command, line_true, nest_true)
         if withheld is not None:
             argvs = [argv for argv in argvs if not withheld(argv)]
         for category, predicate, text in rules:
