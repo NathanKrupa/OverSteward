@@ -284,9 +284,9 @@ class TestLineReadingKeepsTodaysReading:
         """Refused before the change, though the shell runs no gate; kept."""
         assert _refused(f"{X} \\\n  {GF}")
 
-    def test_a_filter_pipeline_after_a_gate_line_is_still_refused(self):
-        """Refused before the change through the neighbouring line; kept."""
-        assert _refused("pytest -q\ncat log.txt | tail -5")
+    def test_a_filter_pipeline_after_a_gate_line_is_allowed(self):
+        """Today's reading is applied between command ends, not across them."""
+        assert not _refused("pytest -q\ncat log.txt | tail -5")
 
     def test_the_sanctioned_forms_on_separate_lines_are_allowed(self):
         assert not _refused("pytest -q > out.txt 2>&1; rc=$?\ncat out.txt | tail -5")
