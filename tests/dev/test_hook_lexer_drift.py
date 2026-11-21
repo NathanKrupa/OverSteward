@@ -40,6 +40,12 @@ _LEXER_MEMBERS = (
     "_token_runs",
     "_simple_commands",
     "_split_assignments",
+    "_LINE_MARKER_CANDIDATES",
+    "_DEFAULT_PUNCTUATION",
+    "_LineStream",
+    "_joined_line_runs",
+    "_line_runs",
+    "_readings",
     "_invocations",
 )
 
@@ -206,6 +212,28 @@ def test_the_check_detects_a_mutated_copy(tmp_path):
     mutated = original.replace(
         "lexer.whitespace_split = True", "lexer.whitespace_split = False", 1
     )
+    assert mutated != original, "the mutation anchor is gone — the fixture is inert"
+    mutant = tmp_path / "guard_drifted.py"
+    mutant.write_text(mutated, encoding="utf-8")
+
+    signatures = _signatures([*paths, mutant])
+    assert len(set(signatures.values())) == 2
+    assert signatures[mutant] != signatures[paths[0]]
+
+
+@pytest.mark.parametrize(
+    "anchor",
+    [
+        "if self.lexer.state in self.lexer.escape:",
+        'return (False, True) if "\\n" in command',
+        "        if line_end not in token:",
+    ],
+)
+def test_the_check_detects_a_mutated_line_reading(tmp_path, anchor):
+    """The negative fixture for the line-true reading: one copy edited inside it goes red."""
+    paths = _lexer_paths()
+    original = paths[-1].read_text(encoding="utf-8")
+    mutated = original.replace(anchor, anchor.replace("if ", "if not ", 1), 1)
     assert mutated != original, "the mutation anchor is gone — the fixture is inert"
     mutant = tmp_path / "guard_drifted.py"
     mutant.write_text(mutated, encoding="utf-8")
