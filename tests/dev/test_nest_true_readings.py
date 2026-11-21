@@ -132,17 +132,45 @@ def test_a_script_handed_to_a_shell_is_read_under_the_nest_true_reading(guard, t
 # --- the promote guards: text the toggle lexer rejects ----------------------
 
 
-@pytest.mark.parametrize("template", ["{MIS} ; {R}", '{MIS} "a\nb"\n{R}'])
 @pytest.mark.parametrize("guard", ["promote-cadence", "promote-ci-red"])
-def test_text_the_lexer_rejects_is_read_as_parsed_nest_true_text(guard, template, tmp_path):
+def test_text_the_lexer_rejects_is_read_as_parsed_nest_true_text(guard, tmp_path):
     """The phantom quote never closes, so today's lexer rejects the text.
 
     The promote parser's reading of rejected text finds calls only in tokens
-    the lexer completed; the nest-true text parses and holds ``R``. In the
-    second text only its line-true reading does, which is made because the
-    nest-true text lexes, whatever today's text does.
+    the lexer completed; the nest-true text parses and holds ``R``.
     """
+    assert _decide(guard, "{MIS} ; {R}", tmp_path) is True
+
+
+@pytest.mark.parametrize("guard", ["promote-cadence", "promote-ci-red"])
+def test_a_script_in_text_both_texts_fail_to_lex_is_read_under_the_nest_true_reading(
+    guard, tmp_path
+):
+    """A backslash ending the text leaves nothing for it to escape, so the lexer rejects
+    today's text and the nest-true text alike; a script found in it is read on both."""
+    apostrophe = "'\"'\"'"
+    script = MIS.replace("'", apostrophe)
+    assert _decide(guard, f"bash -c '{script} ; {{R}} ; {script}' ; echo \\", tmp_path) is True
+
+
+# --- overrides: each reading is decided against its own ---------------------
+
+
+@pytest.mark.parametrize("guard", ["main-worktree", "trunk-pull", "shared-venv"])
+def test_an_override_todays_reading_sees_does_not_clear_a_nest_true_command(guard, tmp_path):
+    """Today's reading sees an overridden ``R`` in quoted data and a phantom quote over
+    the real ``R``; the nest-true reading sees only the real one, without an override."""
+    override = line_ends.OVERRIDE[guard]
+    template = 'echo "$(echo "x ; ' + override + '{R} ; y")" ; {MIS} ; {R} ; {MIS}'
     assert _decide(guard, template, tmp_path) is True
+
+
+def test_the_trunk_pull_entry_point_refuses_row_1(tmp_path):
+    """The entry point's cheap reject reads every reading before it asks git for the branch."""
+    command = f"{MIS} ; {GUARDS['trunk-pull'].refused} ; {MIS}"
+    proc = line_ends._hook("guard_trunk_pull", command, line_ends._git_repo(tmp_path))
+    assert proc.returncode == 2
+    assert "BLOCKED — this pull would rewrite a protected branch" in proc.stderr
 
 
 @pytest.mark.parametrize(
