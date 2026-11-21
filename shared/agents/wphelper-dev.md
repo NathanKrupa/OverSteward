@@ -36,17 +36,23 @@ bandit -r src/ -c pyproject.toml
 ### CI check names — read them live
 
 Historically `ci.yml` defines the lowercase jobs `lint`, `test` and `security`,
-and **none of them is a required status check** — `main` carries no branch
-protection at all. They run and report; nothing gates a merge on them. Do not
-describe them as required, and do not block waiting for one.
+and **none of them is a required status check**. `main` is protected (changes
+only by pull request, admins included, no force-push), but the protection
+requires no checks and no approvals (measured 2026-11-21). The jobs run and
+report; nothing gates a merge on them. Do not describe them as required, and do
+not block waiting for one. A red one on your PR is still yours to fix.
 
 Both halves of that are live configuration, so confirm rather than cite:
 
 ```bash
 gh pr checks <PR#> --repo NathanKrupa/wphelper
 gh api repos/NathanKrupa/wphelper/branches/main/protection \
-  --jq '.required_status_checks.contexts'    # 404 => no protection at all
+  --jq '.required_status_checks.contexts'    # null => no required checks; 404 => no protection
 ```
+
+`gh issue view <n> --repo NathanKrupa/wphelper` fails here with the
+Projects-classic GraphQL error. Read an issue through the REST API instead:
+`gh api repos/NathanKrupa/wphelper/issues/<n> --jq '.title, .body'`.
 
 ### Recent merged PRs (pattern reference)
 

@@ -59,7 +59,11 @@ uv run python scripts/promotion_lesson_check.py
 **`ci.yml` is `workflow_dispatch` only.** It does not fire on push or on
 pull_request, and `main` carries no required status checks. The workflow's own
 header says so: pre-push hooks are the gate, CI is the same checks re-run on
-demand. An agent that polls for a check here waits forever.
+demand. An agent that polls for a check here waits forever. **Auto-merge is
+switched off in this repo** (measured 2026-11-21), so `gh pr merge --auto`
+cannot stick. Once the verdict passes, merge by hand with
+`gh pr merge <PR#> --merge --repo NathanKrupa/fiscus` and confirm
+`state == MERGED`.
 
 The **pre-push hooks** are the real gate, and they run locally on every push:
 ruff + format, pyright, gaudi-errors, boy-scout, promotion-lesson, pytest. If a
