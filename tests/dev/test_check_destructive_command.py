@@ -790,11 +790,11 @@ def test_hookspath_foreign_line_break_still_denies(hook, cmd):
     "cmd",
     [
         # The array's words run where it is expanded, with what follows there.
-        'a=(git config core.hooksPath); "${a[@]}" /dev/null',
+        'a=(git config core.hooksPath) ; "${a[@]}" /dev/null',
         'a=(git config core.hooksPath)\n"${a[@]}" /dev/null',
-        'v=/dev/null; a=(git config core.hooksPath); "${a[@]}" "$v"',
-        "declare -a a=(git config core.hooksPath); \"${a[@]}\" ''",
-        'a+=(git config core.hooksPath); "${a[@]}" /dev/null',
+        'v=/dev/null; a=(git config core.hooksPath) ; "${a[@]}" "$v"',
+        "declare -a a=(git config core.hooksPath) && \"${a[@]}\" ''",
+        'a+=(git config core.hooksPath) ; "${a[@]}" /dev/null',
     ],
 )
 def test_hookspath_array_assignment_still_denies(hook, cmd):
