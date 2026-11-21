@@ -837,8 +837,9 @@ class _QuoteTrackingLexer(_ShellLexer):
 def _quoted_separator(text: str) -> bool:
     """True if a separator token of ``text`` was read from quoted or escaped text.
 
-    True as well when ``text`` cannot be lexed, so unlexable text is never
-    certified.
+    False when ``text`` cannot be lexed: refusing unlexable text is the job of
+    the lexability check in :func:`_free_of_lexer_blind_spots`, and one owner
+    keeps that refusal testable.
     """
     lexer = _QuoteTrackingLexer(text, posix=True, punctuation_chars=True)
     lexer.whitespace_split = True
@@ -851,7 +852,7 @@ def _quoted_separator(text: str) -> bool:
             if token in _SEPARATORS and lexer.token_quoted:
                 return True
     except ValueError:
-        return True
+        return False
 
 
 def _hookspath_read(argv: list[str]) -> bool:
