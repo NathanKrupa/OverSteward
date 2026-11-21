@@ -79,11 +79,14 @@ _PATH_SEPARATOR = "--"
 # ---------------------------------------------------------------------------
 # Shell lexing — a verb counts only where the shell would run it.
 #
-# DUPLICATE — ``guard_shared_venv.py`` carries a byte-identical copy of this
-# lexer (``_SEPARATORS``, ``_BACKTICK``, ``_ASSIGNMENT`` and the four functions
-# below). It is NOT shared: each hook is a standalone byte-copy deployed into
-# other repos' ``.claude/hooks/``, where a sibling import would not resolve. A
-# change here must be made in both files or only one guard gets it.
+# DUPLICATE — every guard in ``tests/dev/test_hook_lexer_drift.py``'s
+# ``_HOOKS``, this one among them, carries a byte-identical copy of this lexer
+# (``_SEPARATORS``, ``_BACKTICK``, ``_ASSIGNMENT``, ``_ShellLexer`` and the four
+# functions below); ``guard_gate_pipe.py`` and ``guard_endless_substitution.py``
+# carry ``_ShellLexer`` too. It is NOT shared: each hook is a standalone
+# byte-copy deployed into other repos' ``.claude/hooks/``, where a sibling
+# import would not resolve. A change here must be made in every copy —
+# ``tests/dev/test_hook_lexer_drift.py`` notices when one drifts.
 # ---------------------------------------------------------------------------
 
 # Tokens that end one simple command and start the next, so the token after
@@ -102,9 +105,27 @@ _BACKTICK = "`"
 _ASSIGNMENT = re.compile(r"[A-Za-z_]\w*=")
 
 
+# The shell's comment rule. A hash starts a comment only where a word could
+# start: between tokens, outside quotes. Inside a word (``a#b``, ``$#``, a URL
+# fragment) it is part of that word, and the shell runs the rest of the line.
+# ``shlex`` consults ``commenters`` both between tokens and inside a word, never
+# inside quotes, so the hash is offered only in its between-tokens state.
+# ``shlex.__init__`` assigns ``commenters``; the setter discards that value.
+# Identical in every Bash guard that lexes with ``shlex``:
+# ``tests/dev/test_hook_lexer_drift.py`` compares the copies.
+class _ShellLexer(shlex.shlex):
+    @property
+    def commenters(self) -> str:
+        return "#" if self.state == " " else ""
+
+    @commenters.setter
+    def commenters(self, value: str) -> None:
+        pass
+
+
 def _lex(text: str) -> list[str] | None:
     """``text`` as shell tokens, or None if a quote is left open."""
-    lexer = shlex.shlex(text, posix=True, punctuation_chars=True)
+    lexer = _ShellLexer(text, posix=True, punctuation_chars=True)
     lexer.whitespace_split = True
     try:
         return list(lexer)

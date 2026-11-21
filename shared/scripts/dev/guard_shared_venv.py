@@ -115,9 +115,27 @@ _MUTATING_VERBS: tuple[_Verb, ...] = (
 )
 
 
+# The shell's comment rule. A hash starts a comment only where a word could
+# start: between tokens, outside quotes. Inside a word (``a#b``, ``$#``, a URL
+# fragment) it is part of that word, and the shell runs the rest of the line.
+# ``shlex`` consults ``commenters`` both between tokens and inside a word, never
+# inside quotes, so the hash is offered only in its between-tokens state.
+# ``shlex.__init__`` assigns ``commenters``; the setter discards that value.
+# Identical in every Bash guard that lexes with ``shlex``:
+# ``tests/dev/test_hook_lexer_drift.py`` compares the copies.
+class _ShellLexer(shlex.shlex):
+    @property
+    def commenters(self) -> str:
+        return "#" if self.state == " " else ""
+
+    @commenters.setter
+    def commenters(self, value: str) -> None:
+        pass
+
+
 def _lex(text: str) -> list[str] | None:
     """``text`` as shell tokens, or None if a quote is left open."""
-    lexer = shlex.shlex(text, posix=True, punctuation_chars=True)
+    lexer = _ShellLexer(text, posix=True, punctuation_chars=True)
     lexer.whitespace_split = True
     try:
         return list(lexer)

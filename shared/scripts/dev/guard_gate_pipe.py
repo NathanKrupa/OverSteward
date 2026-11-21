@@ -72,9 +72,27 @@ _PIPELINE_SEPARATORS = frozenset({";", "&", "&&", "||", "(", ")", "{", "}", "\n"
 _PIPE_TOKENS = frozenset({"|", "|&"})
 
 
+# The shell's comment rule. A hash starts a comment only where a word could
+# start: between tokens, outside quotes. Inside a word (``a#b``, ``$#``, a URL
+# fragment) it is part of that word, and the shell runs the rest of the line.
+# ``shlex`` consults ``commenters`` both between tokens and inside a word, never
+# inside quotes, so the hash is offered only in its between-tokens state.
+# ``shlex.__init__`` assigns ``commenters``; the setter discards that value.
+# Identical in every Bash guard that lexes with ``shlex``:
+# ``tests/dev/test_hook_lexer_drift.py`` compares the copies.
+class _ShellLexer(shlex.shlex):
+    @property
+    def commenters(self) -> str:
+        return "#" if self.state == " " else ""
+
+    @commenters.setter
+    def commenters(self, value: str) -> None:
+        pass
+
+
 def _lex(text):
     """``text`` as shell tokens with pipe operators preserved, or None."""
-    lexer = shlex.shlex(text, posix=True, punctuation_chars=True)
+    lexer = _ShellLexer(text, posix=True, punctuation_chars=True)
     lexer.whitespace_split = True
     try:
         return list(lexer)
