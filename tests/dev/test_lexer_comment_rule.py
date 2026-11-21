@@ -206,6 +206,22 @@ def test_the_unlexable_fallback_reads_past_the_hash(guard, tmp_path):
     assert _decide(guard, "echo 'a#b; {R}", tmp_path) is True
 
 
+# The promote guards' fallback reads rejected text by the lexer's own rules, so
+# text inside a quote the lexer cannot close is not a command and the fallback
+# above is not theirs. A text rejected after the command keeps the comment rule.
+_REJECTED_AFTER = "\ncat <<EOF\nit's\nEOF"
+_PROMOTE_GUARDS = [name for name in GUARDS if name.startswith("promote-")]
+
+
+@pytest.mark.parametrize(
+    ("template", "refused"),
+    [("echo a#b; {R}" + _REJECTED_AFTER, True), ("echo a #b; {R}" + _REJECTED_AFTER, False)],
+)
+@pytest.mark.parametrize("guard", _PROMOTE_GUARDS)
+def test_the_promote_fallback_keeps_the_comment_rule(guard, template, refused, tmp_path):
+    assert _decide(guard, template, tmp_path) is refused
+
+
 def test_a_comment_in_a_substitution_body_ends_at_its_own_line():
     """The body's lines are joined before lexing; a comment must not run past its line."""
     assert endless.endless_substitutions("cat <(echo x #note\nyes)")

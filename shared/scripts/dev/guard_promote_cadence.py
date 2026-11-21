@@ -55,8 +55,17 @@ counts — its prefix, an ``env`` word before it, or the prefix of the
 ``bash -c`` running it. The variable in the session environment, or on
 another command, does not.
 
-**Unlexable text** (an unbalanced quote) is allowed: no shell would run it
-either, and it never reaches ``gh``.
+**Text the lexer rejects** (a quote it cannot close, a trailing backslash)
+is read with the lexer's own rules before deciding: everything up to where
+the lexer lost the thread, and each line it held to begin inside a quote,
+read again from that line's start. No quote character is removed to find a
+call or to read its own flags. For a call found that way, anything written
+anywhere in the text that would make it a promote does — a base naming
+``main``, a head carrying staging, a repo above, an API base field naming
+``main``, an API input flag; otherwise the rules above apply to what was read
+on the call's own command. Text in which no call is found is not a promote.
+A pull request whose text spells out a promote, in prose or a comment, can
+be refused.
 
 This is defence in depth, not the control. Hooks see only Claude Code's Bash
 tool — a terminal, the GitHub web UI or a script all bypass it.
@@ -599,6 +608,28 @@ class Promote:
     override: str | None
 
 
+@dataclass(frozen=True)
+class _Wide:
+    """What the wide reading found written anywhere in text the lexer rejects.
+
+    Each field can only make a found call a promote, never clear one; the empty
+    record, which text that parses gets, changes nothing.
+    """
+
+    base_main: bool = False
+    head_staging: bool = False
+    repos: frozenset[str] = frozenset()
+    api_base_main: bool = False
+    api_head_staging: bool = False
+    api_input: bool = False
+
+    def __or__(self, other: "_Wide") -> "_Wide":
+        return _Wide(*(a | b for a, b in zip(vars(self).values(), vars(other).values())))
+
+
+_NOTHING_WIDE = _Wide()
+
+
 @dataclass
 class _Context:
     """One invocation's surroundings: its env prefix, directory and the seams."""
@@ -608,6 +639,7 @@ class _Context:
     environ: Mapping[str, str]
     read_checkout: ReadCheckout
     line_true: bool = False
+    wide: _Wide = _NOTHING_WIDE
 
     def gh_repo(self) -> str | None:
         return _assigned(self.assignments, GH_REPO_VAR) or self.environ.get(GH_REPO_VAR)
@@ -622,20 +654,24 @@ class _Context:
 
 def _pr_create_promote(args: list[str], ctx: _Context) -> Promote | None:
     pairs, _ = _options(args, _PR_CREATE_VALUE_FLAGS)
-    base = _last(pairs, "-B", "--base")
+    wide = ctx.wide
+    base = TRUNK if wide.base_main else _last(pairs, "-B", "--base")
     if base is not None and _branch(base) != TRUNK:
         return None
-    repo = _last(pairs, "-R", "--repo") or ctx.gh_repo()
     checkout = None
-    if repo is None:
-        checkout = ctx.checkout()
-        repo = checkout.origin
-    slug = _slug(repo)
+    if wide.repos:  # one written is the repo; several could be any of them
+        slug = next(iter(wide.repos)) if len(wide.repos) == 1 else None
+    else:
+        repo = _last(pairs, "-R", "--repo") or ctx.gh_repo()
+        if repo is None:
+            checkout = ctx.checkout()
+            repo = checkout.origin
+        slug = _slug(repo)
     if slug is not None and slug not in PROMOTE_REPOS:
         return None  # None — could not read the repo — fails closed
     if base is None and not _defaults_to_trunk(slug):
         return None  # omitted: gh uses the repo's default branch, which is not main
-    head = _last(pairs, "-H", "--head")
+    head = SOURCE if wide.head_staging else _last(pairs, "-H", "--head")
     if head is None:
         head = (checkout or ctx.checkout()).branch
     if not _carries_staging(head):
@@ -659,13 +695,17 @@ def _api_promote(args: list[str], ctx: _Context) -> Promote | None:
     if slug is not None and slug not in PROMOTE_REPOS:
         return None  # None — could not resolve {owner}/{repo} — fails closed
     fields = dict(value.partition("=")[::2] for name, value in pairs if name in _API_FIELD_FLAGS)
-    has_body = bool(fields) or _last(pairs, "--input") is not None
+    wide = ctx.wide
+    has_input = _last(pairs, "--input") is not None or wide.api_input
+    has_body = bool(fields) or has_input
     method = _last(pairs, "-X", "--method") or ("POST" if has_body else "GET")
-    if method.upper() != "POST":
+    if method.upper() != "POST" and not (wide.api_base_main or wide.api_input):
         return None
-    if _last(pairs, "--input") is not None:
+    if has_input:
         return ctx.promote(slug)  # the body is in a file this guard does not read
-    return ctx.promote(slug) if _is_promote(fields.get("base"), fields.get("head")) else None
+    base = TRUNK if wide.api_base_main else fields.get("base")
+    head = SOURCE if wide.api_head_staging else fields.get("head")
+    return ctx.promote(slug) if _is_promote(base, head) else None
 
 
 def _gh_promote(argv: list[str], ctx: _Context) -> Promote | None:
@@ -690,8 +730,186 @@ def _promote_in(argv: list[str], ctx: _Context) -> Promote | None:
             read_checkout=ctx.read_checkout,
             inherited=ctx.assignments,
             line_true=ctx.line_true,
+            wide=ctx.wide,
         )
     return _gh_promote(argv, ctx)
+
+
+def _search(
+    invocations: list[tuple[list[str], list[str]]], cwd: str, template: _Context, visited: list[str]
+) -> Promote | None:
+    """The first promote among ``invocations``, run in order from ``cwd``.
+
+    ``template`` carries the seams, the reading and W; its ``assignments`` are
+    the inherited prefix. Each directory a ``cd`` reaches joins ``visited``.
+    """
+    for assignments, argv in invocations:
+        argv, run_assignments, run_cwd = _unwrap(argv, [*template.assignments, *assignments], cwd)
+        if not argv:
+            continue
+        seams = (template.environ, template.read_checkout, template.line_true, template.wide)
+        found = _promote_in(argv, _Context(run_assignments, run_cwd, *seams))
+        if found is not None:
+            return found
+        cwd = _next_cwd(argv, cwd)
+        if cwd not in visited:
+            visited.append(cwd)
+    return None
+
+
+# Text the lexer rejects is read by the lexer's own rules, through a stream that
+# takes each line end from the lexer's state, keeping every token produced
+# before the error. F1 reads the whole text; F2 reads again each line the lexer
+# began inside a quote; W, the wide reading, only collects values.
+class _RecordingLineStream(_LineStream):
+    """The lexer block's :class:`_LineStream`, also recording each line begun inside quotes.
+
+    The block's stream keeps no record, since text that parses needs none; F2
+    reads each recorded line again. An offset is that line's first character.
+    """
+
+    def __init__(self, text: str, line_end: str, continuation: str) -> None:
+        super().__init__(text, line_end, continuation)
+        self.quoted_line_starts: list[int] = []
+        self._state_before = " "
+
+    def read(self, size: int = 1) -> str:
+        assert self.lexer is not None
+        before, self._state_before = self._state_before, self.lexer.state
+        char = super().read(size)
+        # A quoted newline arrives as itself; an escaped one whose backslash was
+        # read inside quotes arrives as the continuation marker.
+        if char == "\n" or (char == self._continuation and before in self.lexer.quotes):
+            self.quoted_line_starts.append(self._position)
+        return char
+
+
+class _UncommentedLexer(_ShellLexer):
+    """``_ShellLexer`` with no comment rule, for W: nothing written is skipped."""
+
+    @property
+    def commenters(self) -> str:
+        return ""
+
+    @commenters.setter
+    def commenters(self, value: str) -> None:
+        pass
+
+
+def _lexer_over(source, lexer_class: type[shlex.shlex], punctuation: str | bool) -> shlex.shlex:
+    lexer = lexer_class(source, posix=True, punctuation_chars=punctuation)
+    lexer.whitespace_split = True
+    if isinstance(source, _RecordingLineStream):
+        source.lexer = lexer
+    return lexer
+
+
+def _tokens_until_error(lexer: shlex.shlex):
+    """The lexer's tokens up to its error: everything read before it lost the thread."""
+    try:
+        yield from lexer
+    except ValueError:
+        return
+
+
+def _read_rejected(text: str, lexer_class: type[shlex.shlex]) -> tuple[list[str], list[list[str]]]:
+    """(F1's tokens, F2's token runs) for ``text``, each line end a ``;``.
+
+    F1 is the whole text as far as the lexer got. F2 is each line the lexer
+    began inside a quote, read afresh from its start to its own line end. With
+    fewer than two marker characters free, F1 reads each physical line alone.
+    """
+    markers = [char for char in _LINE_MARKER_CANDIDATES if char not in text]
+    if len(markers) < 2:
+        lexers = [_lexer_over(line, lexer_class, True) for line in text.split("\n")]
+        return [t for lexer in lexers for t in [*_tokens_until_error(lexer), ";"]], []
+    line_end, continuation = markers[:2]
+
+    def read(start: int) -> tuple[list[str], list[int]]:
+        """Tokens from ``start``: to the end of the text, or for a line start to its line end."""
+        stream = _RecordingLineStream(text[start:], line_end, continuation)
+        lexer = _lexer_over(stream, lexer_class, _DEFAULT_PUNCTUATION + line_end)
+        found: list[str] = []
+        for token in _tokens_until_error(lexer):
+            if continuation in token:
+                token = token.replace(continuation, "")
+                if not token:
+                    continue
+            split = [part for part in re.split(f"({re.escape(line_end)})", token) if part]
+            for part in split if line_end in token else [token]:
+                if part == line_end and start:
+                    return found, []
+                found.append(";" if part == line_end else part)
+        return found, stream.quoted_line_starts
+
+    first, starts = read(0)
+    return first, [read(start)[0] for start in starts]
+
+
+def _flag_values(tokens: list[str], *names: str) -> list[str]:
+    """Every value written after one of ``names``, separate or attached, wherever it stands."""
+    values: list[str] = []
+    for index, token in enumerate(tokens):
+        for name in names:
+            if token == name:
+                values.extend(tokens[index + 1 : index + 2])
+            elif name.startswith("--") and token.startswith(name + "="):
+                values.append(token[len(name) + 1 :])
+            elif not name.startswith("--") and token.startswith(name) and len(token) > 2:
+                values.append(token[2:].removeprefix("="))
+    return values
+
+
+def _wide_reading(command: str) -> _Wide:
+    """W: ``command`` with every quote character deleted, read with no comment rule.
+
+    With no quotes and no comments nothing written is skipped, so W cannot lose
+    a written flag. It has no command boundaries, so it only ever adds: base,
+    head and repo values written as flags, API base and head fields, and
+    whether an API input flag occurs.
+    """
+    tokens, _ = _read_rejected(command.replace("'", "").replace('"', ""), _UncommentedLexer)
+    fields = [
+        value.partition("=")[::2]
+        for value in _flag_values(tokens, "-f", "--raw-field", "-F", "--field")
+    ]
+    return _Wide(
+        base_main=any(_branch(value) == TRUNK for value in _flag_values(tokens, "-B", "--base")),
+        head_staging=any(_carries_staging(value) for value in _flag_values(tokens, "-H", "--head")),
+        repos=frozenset(
+            slug
+            for slug in map(_slug, _flag_values(tokens, "-R", "--repo"))
+            if slug in PROMOTE_REPOS
+        ),
+        api_base_main=any(key == "base" and _branch(value) == TRUNK for key, value in fields),
+        api_head_staging=any(key == "head" and _carries_staging(value) for key, value in fields),
+        api_input=any(token == "--input" or token.startswith("--input=") for token in tokens),
+    )
+
+
+def _rejected_promote(command: str, template: _Context) -> Promote | None:
+    """The first promote in ``command``, text the lexer rejects, read by the lexer's rules.
+
+    Calls are found only by F1 and F2, and no quote character is removed to
+    find one or to read its own flags. For a call found, whatever W holds that
+    would make it a promote does; otherwise today's rule applies to what F1 or
+    F2 read on the call's own command. So ruling ``main`` out never rests on a
+    reading that may have lost text. An F2 line is read from every directory a
+    reading had reached, and a script inside is read under the line-true reading.
+    """
+    wide = template.wide | _wide_reading(command)
+    template = _Context(
+        template.assignments, template.cwd, template.environ, template.read_checkout, True, wide
+    )
+    first, fresh = _read_rejected(command, _ShellLexer)
+    visited = [template.cwd]
+    for index, tokens in enumerate([first, *fresh]):
+        invocations = [_split_assignments(argv) for argv in _simple_commands(tokens)]
+        for start in list(visited) if index else [template.cwd]:
+            found = _search(invocations, start, template, visited)
+            if found is not None:
+                return found
+    return None
 
 
 def find_promote(
@@ -702,31 +920,33 @@ def find_promote(
     read_checkout: ReadCheckout,
     inherited: list[str] | None = None,
     line_true: bool = False,
+    wide: _Wide = _NOTHING_WIDE,
 ) -> Promote | None:
     """The first staging→main promote on a ``PROMOTE_REPOS`` repo ``command`` would run.
 
     None when it runs none. ``inherited`` is the environment prefix of the
     shell running ``command``, which every command inside it receives.
     ``line_true`` selects the reading, and a nested script is read under it.
+    Text the lexer rejects is read by :func:`_rejected_promote`; ``wide`` is
+    what W found in a rejected text enclosing this one.
     """
-    for assignments, argv in _invocations(command, line_true) or []:
-        argv, run_assignments, run_cwd = _unwrap(argv, [*(inherited or []), *assignments], cwd)
-        if not argv:
-            continue
-        ctx = _Context(run_assignments, run_cwd, environ, read_checkout, line_true)
-        found = _promote_in(argv, ctx)
-        if found is not None:
-            return found
-        cwd = _next_cwd(argv, cwd)
-    return None
+    template = _Context(list(inherited or []), cwd, environ, read_checkout, line_true, wide)
+    invocations = _invocations(command, line_true)
+    if invocations is None:
+        return _rejected_promote(command, template)
+    return _search(invocations, cwd, template, [cwd])
 
 
 def find_promotes(
     command: str, cwd: str, *, environ: Mapping[str, str], read_checkout: ReadCheckout
 ) -> list[Promote]:
-    """The first promote under each reading, today's first, each from ``cwd``; distinct."""
+    """The first promote under each reading, today's first, each from ``cwd``; distinct.
+
+    Both readings reject exactly the text ``_lex`` rejects, which
+    :func:`_rejected_promote` therefore reads once, under today's reading's turn.
+    """
     found: list[Promote] = []
-    for line_true in _readings(command):
+    for line_true in _readings(command) if _lex(command) is not None else (False,):
         promote = find_promote(
             command, cwd, environ=environ, read_checkout=read_checkout, line_true=line_true
         )
