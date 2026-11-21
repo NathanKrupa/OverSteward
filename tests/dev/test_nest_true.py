@@ -252,6 +252,13 @@ def test_a_here_string_is_not_a_heredoc():
     assert nest_true('cat <<< "$(echo "a")"') == 'cat <<< "$(echo \\"a\\")"'
 
 
+def test_a_dollar_before_a_quote_inside_double_quotes_is_data(tmp_path):
+    text = "\"@1@ $'@2@\" \"@3@$\""
+    assert nest_true(text) == text
+    words = _assert_as_bash_reads_it(text, tmp_path)
+    assert len(words) == 2
+
+
 def test_case_is_unmodelled_only_as_a_word_inside_a_substitution():
     text = '"$(echo showcase)" ; case x in x) echo "a";; esac'
     assert nest_true(text) == text
@@ -270,6 +277,8 @@ def test_a_tab_stripped_heredoc_ends_at_its_indented_delimiter(tmp_path):
     "text",
     [
         'echo "$(echo a',
+        "echo $(echo a",
+        "x=$(cat <<'E'\nb\nE\n",
         'echo "$(echo "a)',
         "echo \"$(echo $'a')\"",
         "echo \"$(echo $\"a\")\"",
@@ -303,6 +312,8 @@ def test_a_tab_stripped_heredoc_ends_at_its_indented_delimiter(tmp_path):
     ],
     ids=[
         "unclosed-substitution",
+        "unclosed-unquoted-substitution",
+        "unclosed-unquoted-substitution-after-a-heredoc",
         "unclosed-nested-quote",
         "ansi-c",
         "locale",
