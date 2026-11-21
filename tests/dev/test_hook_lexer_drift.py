@@ -76,12 +76,23 @@ _PARSER_MEMBERS = (
     "_is_promote",
     "_defaults_to_trunk",
     "Promote",
+    "_Wide",
+    "_NOTHING_WIDE",
     "_Context",
     "_pr_create_promote",
     "_api_repo",
     "_api_promote",
     "_gh_promote",
     "_promote_in",
+    "_search",
+    "_RecordingLineStream",
+    "_UncommentedLexer",
+    "_lexer_over",
+    "_tokens_until_error",
+    "_read_rejected",
+    "_flag_values",
+    "_wide_reading",
+    "_rejected_promote",
     "find_promote",
     "find_promotes",
 )
@@ -323,6 +334,10 @@ def test_the_duplicated_promote_parser_has_not_drifted():
         ("if promote is not None and promote not in found:", "if promote is not None:"),
         # A decorator: Promote stops being a frozen dataclass.
         ("@dataclass(frozen=True)\nclass Promote:", "@dataclass\nclass Promote:"),
+        # Behaviour in the reading of rejected text: F2 stops recording lines
+        # begun inside quotes, and W's base stops counting.
+        ('if char == "\\n" or (', 'if char == "\\t" or ('),
+        ("base = TRUNK if wide.base_main else", "base = None if wide.base_main else"),
         # Prose: the parser is held byte-identical, docstrings included.
         (
             '"""The value of the last of ``names`` given — the one gh would use."""',

@@ -384,13 +384,11 @@ def test_text_that_does_not_lex_gives_neither_reading(stem):
     assert module._line_runs(text) is None
 
 
-@pytest.mark.parametrize(
-    ("guard", "held"),
-    [(name, not name.startswith("promote-")) for name in GUARDS],
-)
-def test_text_that_does_not_lex_keeps_the_fallback_verdict(guard, held, tmp_path):
-    """Row 14, a pin: each guard's fallback verdict; the promote guards read nothing."""
-    assert _decide(guard, _NOT_LEXED, tmp_path) is held
+@pytest.mark.parametrize("guard", GUARDS)
+def test_text_that_does_not_lex_keeps_the_fallback_verdict(guard, tmp_path):
+    """Row 14, a pin: each guard's fallback holds. The promote guards' fallback
+    reads again the line the lexer began inside the quote, and finds the promote."""
+    assert _decide(guard, _NOT_LEXED, tmp_path) is True
 
 
 def test_text_holding_the_marker_characters_is_still_read_by_line(tmp_path):
