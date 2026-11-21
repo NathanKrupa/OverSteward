@@ -42,6 +42,7 @@ import os
 import re
 import shlex
 import sys
+from typing import NamedTuple
 
 # Same escape-hatch shape as the sibling guards: an env var, or a genuine
 # leading assignment on the offending command itself.
@@ -179,10 +180,175 @@ def _inline_override(argv):
     return False
 
 
+# Line-aware readings of a multi-line command. Today's reading above lexes the
+# whole text in one pass, and shlex reads an unquoted newline as whitespace, so
+# a pipeline on its own line is glued to the line before it. The readings below
+# take each line end from the lexer's own state instead: the stream hands the
+# lexer a marker in place of every newline it would have read as whitespace.
+#
+# Two marker characters stand in for newlines: one ends a line, one joins a
+# continued line. They are taken from these candidates, skipping any the text
+# itself holds; text holding too many is read one physical line at a time.
+_MARKER_CANDIDATES = "\x1c\x1d\x1e\x1f"
+_DEFAULT_PUNCTUATION = shlex.shlex("", punctuation_chars=True).punctuation_chars
+# What a quoted lone newline is read as: a word, never the separator it equals.
+_QUOTED_NEWLINE = "''"
+
+
+class _LineStream:
+    """``text`` fed to a lexer one character at a time, each newline as the shell reads it.
+
+    An escaped newline is the continuation marker, a newline inside quotes stays
+    a newline, and any other is the line-end marker, which the lexer takes as
+    punctuation and so ends the word before it. A comment ends at its own line:
+    ``readline``, which shlex calls only to skip a comment, leaves the newline
+    unread. Lines that begin inside quotes are recorded by offset.
+    """
+
+    def __init__(self, text, line_end, continuation):
+        self._text = text
+        self._position = 0
+        self._line_end = line_end
+        self._continuation = continuation
+        self._state_before = " "
+        self.lexer = None
+        self.quoted_line_starts = []
+
+    def read(self, size=1):
+        if self._position >= len(self._text):
+            return ""
+        char = self._text[self._position]
+        self._position += 1
+        state, before = self.lexer.state, self._state_before
+        self._state_before = state
+        if char != "\n" or not isinstance(state, str):
+            return char
+        if state in self.lexer.escape:
+            # The backslash was read inside quotes: the next line is in them too.
+            if before in self.lexer.quotes:
+                self.quoted_line_starts.append(self._position)
+            return self._continuation
+        if state in self.lexer.quotes:
+            self.quoted_line_starts.append(self._position)
+            return char
+        return self._line_end
+
+    def readline(self, size=-1):
+        end = self._text.find("\n", self._position)
+        end = len(self._text) if end < 0 else end
+        rest = self._text[self._position:end]
+        self._position = end
+        return rest
+
+
+class _Reading(NamedTuple):
+    tokens: list
+    failed: bool
+    quoted_line_starts: list
+
+
+def _line_lexer(text, line_end, continuation):
+    """``_ShellLexer`` over ``text`` through a :class:`_LineStream`, and that stream."""
+    stream = _LineStream(text, line_end, continuation)
+    lexer = _ShellLexer(stream, posix=True, punctuation_chars=_DEFAULT_PUNCTUATION + line_end)
+    lexer.whitespace_split = True
+    stream.lexer = lexer
+    return lexer, stream
+
+
+def _tokens_until_error(lexer, failures):
+    """The lexer's tokens; on a lex error, the token it was building, then stop."""
+    try:
+        yield from lexer
+    except ValueError:
+        failures.append(True)
+        if lexer.token:
+            yield lexer.token
+
+
+def _line_tokens(raw, line_end, continuation):
+    """``raw`` with markers resolved: a line end is kept unless a pipe waits for a stage."""
+    marker = re.compile(f"({re.escape(line_end)})")
+    last = None
+    for token in raw:
+        for part in marker.split(token):
+            part = part.replace(continuation, "")
+            if not part:
+                continue
+            if part == "\n":
+                part = _QUOTED_NEWLINE
+            if part == line_end and last in _PIPE_TOKENS:
+                continue
+            last = part
+            yield part
+
+
+def _read_lines(text, line_end, continuation):
+    """``text`` read with line ends from the lexer's state, as a :class:`_Reading`."""
+    lexer, stream = _line_lexer(text, line_end, continuation)
+    failures = []
+    raw = _tokens_until_error(lexer, failures)
+    tokens = [";" if t == line_end else t for t in _line_tokens(raw, line_end, continuation)]
+    return _Reading(tokens, bool(failures), stream.quoted_line_starts)
+
+
+def _first_line(text, line_end, continuation):
+    """The tokens of ``text``'s first line, continued lines included, lexed afresh."""
+    lexer, _ = _line_lexer(text, line_end, continuation)
+    tokens = []
+    for token in _line_tokens(_tokens_until_error(lexer, []), line_end, continuation):
+        if token == line_end:
+            break
+        tokens.append(token)
+    return tokens
+
+
+def _line_offenders(command):
+    """Offenders found by reading ``command``'s lines as the shell does.
+
+    R1 reads the text with line ends from the lexer's state. Where the lexer
+    reports a quote spanning lines, or cannot lex the text, it may have
+    mis-tracked the quoting, so two more readings run: R2, the same reading
+    with every quote character blanked, and R3, each line that began inside
+    quotes lexed afresh from its own start to its own end.
+    """
+    if "\n" not in command:
+        return []
+    markers = [char for char in _MARKER_CANDIDATES if char not in command]
+    if len(markers) < 2:
+        return [
+            offender
+            for line in command.split("\n")
+            for offender in _offenders(_lex_or_degrade(line))
+        ]
+    line_end, continuation = markers[:2]
+    reading = _read_lines(command, line_end, continuation)
+    found = _offenders(reading.tokens)
+    if reading.failed or reading.quoted_line_starts:
+        blanked = command.replace("'", " ").replace('"', " ")
+        found += _offenders(_read_lines(blanked, line_end, continuation).tokens)
+        for start in reading.quoted_line_starts:
+            found += _offenders(_first_line(command[start:], line_end, continuation))
+    return found
+
+
 def offending_pipelines(command):
-    """Every pipeline in ``command`` whose gate's status a trailing filter eats."""
+    """Every pipeline in ``command`` whose gate's status a trailing filter eats.
+
+    The line-aware readings are searched first, then today's reading of the
+    whole text, which is kept as it is: nothing it refuses can pass.
+    """
+    found = []
+    for pipeline in _line_offenders(command) + _offenders(_lex_or_degrade(command)):
+        if pipeline not in found:
+            found.append(pipeline)
+    return found
+
+
+def _offenders(tokens):
+    """The pipelines in ``tokens`` whose gate's status a trailing filter eats."""
     offenders = []
-    for pipeline in _pipelines(_lex_or_degrade(command)):
+    for pipeline in _pipelines(tokens):
         if len(pipeline) < 2:
             continue
         if not is_swallowing_filter(pipeline[-1]):
