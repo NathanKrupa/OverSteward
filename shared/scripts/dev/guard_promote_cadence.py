@@ -62,8 +62,8 @@ read again from that line's start. No quote character is removed to find a
 call or to read its own flags. For a call found that way, anything written
 anywhere in the text that would make it a promote does — a base naming
 ``main``, a head carrying staging, a repo above, an API base field naming
-``main``, an API input flag; otherwise the rules above apply to what was read
-on the call's own command. Text in which no call is found is not a promote.
+``main``, an API input flag or POST method, a pulls endpoint; otherwise the
+rules above apply to what was read on the call's own command. Text in which no call is found is not a promote.
 A pull request whose text spells out a promote, in prose or a comment, can
 be refused.
 
@@ -622,6 +622,8 @@ class _Wide:
     api_base_main: bool = False
     api_head_staging: bool = False
     api_input: bool = False
+    api_post: bool = False
+    api_endpoints: frozenset[tuple[str, str]] = frozenset()
 
     def __or__(self, other: "_Wide") -> "_Wide":
         return _Wide(*(a | b for a, b in zip(vars(self).values(), vars(other).values())))
@@ -687,18 +689,21 @@ def _api_repo(owner: str, name: str, ctx: _Context) -> str | None:
 
 def _api_promote(args: list[str], ctx: _Context) -> Promote | None:
     pairs, positionals = _options(args, _API_VALUE_FLAGS)
+    wide = ctx.wide
     match = _PULLS_ENDPOINT.match(positionals[0].split("?")[0]) if positionals else None
-    if match is None:
+    # Any pulls endpoint W found written may be the one gh uses.
+    endpoints = sorted({*([match.groups()] if match else []), *wide.api_endpoints})
+    if not endpoints:
         return None
-    slug = _api_repo(*match.groups(), ctx)
+    slugs = {_api_repo(owner, name, ctx) for owner, name in endpoints}
+    slug = slugs.pop() if len(slugs) == 1 else None
     if slug is not None and slug not in PROMOTE_REPOS:
         return None  # None — could not resolve {owner}/{repo} — fails closed
     fields = dict(value.partition("=")[::2] for name, value in pairs if name in _API_FIELD_FLAGS)
-    wide = ctx.wide
     has_input = _last(pairs, "--input") is not None or wide.api_input
-    has_body = bool(fields) or has_input
+    has_body = bool(fields) or has_input or wide.api_base_main or wide.api_head_staging
     method = _last(pairs, "-X", "--method") or ("POST" if has_body else "GET")
-    if method.upper() != "POST" and not (wide.api_base_main or wide.api_input):
+    if method.upper() != "POST" and not wide.api_post:
         return None
     if has_input:
         return ctx.promote(slug)  # the body is in a file this guard does not read
@@ -866,8 +871,8 @@ def _wide_reading(command: str) -> _Wide:
     With no quotes and no comments it skips nothing written, but for a word cut
     by a backslash ending the text (or, with too few marker characters free, a
     line). It has no command boundaries, so it only ever adds: base, head and
-    repo values written as flags, API base and head fields, and whether an API
-    input flag occurs.
+    repo values written as flags, API base and head fields, whether an API
+    input flag or a POST method occurs, and every pulls endpoint written.
     """
     tokens, _ = _read_rejected(command.replace("'", "").replace('"', ""), _UncommentedLexer)
     fields = [
@@ -885,6 +890,12 @@ def _wide_reading(command: str) -> _Wide:
         api_base_main=any(key == "base" and _branch(value) == TRUNK for key, value in fields),
         api_head_staging=any(key == "head" and _carries_staging(value) for key, value in fields),
         api_input=any(token == "--input" or token.startswith("--input=") for token in tokens),
+        api_post=any(value.upper() == "POST" for value in _flag_values(tokens, "-X", "--method")),
+        api_endpoints=frozenset(
+            match.groups()
+            for match in (_PULLS_ENDPOINT.match(token.split("?")[0]) for token in tokens)
+            if match
+        ),
     )
 
 
@@ -895,22 +906,24 @@ def _rejected_promote(command: str, template: _Context) -> Promote | None:
     find one or to read its own flags. For a call found, whatever W holds that
     would make it a promote does; otherwise today's rule applies to what F1 or
     F2 read on the call's own command. So ruling ``main`` out rests on W, not on
-    a reading that may have lost text. An F2 line is read from every directory
-    F1 or an earlier F2 line reached, and a script inside is read under the
-    line-true reading.
+    a reading that may have lost text. Each run, F1 and every F2 line, is read
+    from every directory any run reached, until no new one appears; a script
+    inside is read under the line-true reading.
     """
     wide = template.wide | _wide_reading(command)
     template = _Context(
         template.assignments, template.cwd, template.environ, template.read_checkout, True, wide
     )
     first, fresh = _read_rejected(command, _ShellLexer)
-    visited = [template.cwd]
-    for index, tokens in enumerate([first, *fresh]):
-        invocations = [_split_assignments(argv) for argv in _simple_commands(tokens)]
-        for start in list(visited) if index else [template.cwd]:
-            found = _search(invocations, start, template, visited)
-            if found is not None:
-                return found
+    runs = [[_split_assignments(argv) for argv in _simple_commands(t)] for t in [first, *fresh]]
+    visited, searched = [template.cwd], set()
+    while len(searched) < len(runs) * len(visited):
+        for index, invocations in enumerate(runs):
+            for start in [cwd for cwd in visited if (index, cwd) not in searched]:
+                searched.add((index, start))
+                found = _search(invocations, start, template, visited)
+                if found is not None:
+                    return found
     return None
 
 

@@ -104,6 +104,17 @@ REFUSED = {
     "a1-base": (API + " -f base=staging -f head=staging" + API_BODY + " -f base=main", None),
     "a1-head": (API + " -f base=main -f head=fix/x" + API_BODY + " -f head=staging", None),
     "a1-input": (API + " -f base=staging -f head=fix/x" + API_BODY + " --input pr.json", None),
+    "a1-endpoint-after-break": ("gh api --method POST -f base=main -f head=staging" + API_BODY
+                                + " repos/NathanKrupa/grantspider/pulls", None),
+    "a1-post-after-break": (API + " -X GET -f base=main -f head=staging" + API_BODY + " -X POST",
+                            None),
+    "c4-cd-read-again-before-a-call": (
+        "cat <<EOF\nit's\nEOF\ncd /home/natha/grantspider\ncat <<EOF\nit's\nEOF\n"
+        "gh pr create --base main --head staging --title t\ncat <<EOF\nit's\nEOF\n",
+        seam(here=(OS_ORIGIN, "master"), gs=(GS_ORIGIN, "staging"))),
+    "nested-outer-text-names-base-cost": (
+        APOSTROPHE + 'bash -c "cat <<EOF\nit\'s\nEOF\n' + GS_CALL + ' --head staging --title t"'
+        "\n# later: --base main", None),
     "m1": ('echo "\x1c\x1d\x1e\x1f"\n' + APOSTROPHE + P, None),
     "mp": (GS_CALL + " --title t" + NESTED + " --base main --head staging", None),
 }
@@ -127,6 +138,11 @@ ALLOWED = {
                           seam(here=(GS_ORIGIN, "fix/x"))),
     "a1-ordinary": (API + " -f base=staging -f head=fix/x" + API_BODY + " -f title=t", None),
     "a1-own-base-read": (API + " -f base=staging -f head=staging" + API_BODY, None),
+    "a1-explicit-get": (API + " -X GET -f state=open" + API_BODY + " -f base=main", None),
+    "a1-other-endpoint-after-break": ("gh api --method POST -f base=main -f head=staging"
+                                      + API_BODY + " repos/NathanKrupa/grantspider/issues", None),
+    "w-unwatched-repo-written": (GS_CALL + " --head staging --title t --body \"$(cat <<'EOF'\n"
+                                 "See --repo NathanKrupa/OverSteward\nsay \" here\nEOF\n)\"", None),
     "mp-ordinary": (GS_CALL + " --title t" + NESTED + " --base staging --head fix/x", None),
 }
 
