@@ -61,10 +61,11 @@ def _import(name: str, path: Path):
 def _scrub_git_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Remove every inherited ``GIT_*`` variable from this test's environment.
 
-    A git hook exports ``GIT_DIR`` (and may export ``GIT_WORK_TREE``,
-    ``GIT_INDEX_FILE``, ``GIT_OBJECT_DIRECTORY``, ``GIT_COMMON_DIR``, ...) to the
-    suite it runs, and each one overrides ``git -C`` discovery: every scratch-repo
-    command would act on the hook's repository instead of ``tmp_path`` (OS#807).
+    A git hook passes its location variables to the suite it runs (measured:
+    pre-push from a linked worktree exports ``GIT_DIR``, pre-commit exports
+    ``GIT_INDEX_FILE``), and each one re-points git away from the ``-C`` tree:
+    every scratch-repo command would act on the hook's repository instead of
+    ``tmp_path`` (OS#807).
     """
     for name in [k for k in os.environ if k.startswith("GIT_")]:
         monkeypatch.delenv(name)
