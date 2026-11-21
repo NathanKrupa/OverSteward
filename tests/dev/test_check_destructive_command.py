@@ -763,6 +763,12 @@ def test_a_read_among_listed_reads_passes(hook, cmd):
         f"ls ; git config {_KEY} ''",
         f"ls ; git config {_KEY} /dev/null",
         f"ls && git -c {_KEY}=/dev/null commit -m x",
+        # The read with a quoted token, and an empty command beside it.
+        f"git config '{_KEY}' ; ls",
+        f"git -C --exec-path=/tmp config {_KEY}",
+        f"ls ; ; {_READ}",
+        f"; {_READ}",
+        f"{_READ} |",
         # Row 11: a listed word beside a real evasion.
         f"ls ; git commit --no-verify -m x ; {_READ}",
         f"cd /tmp/work && git add -A && {_READ}",

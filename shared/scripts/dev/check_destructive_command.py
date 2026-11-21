@@ -988,18 +988,17 @@ def _tagged_tokens(line: str) -> list[tuple[str, bool]] | None:
         return None
 
 
-def _plain_directory(text: str) -> bool:
-    """True if ``text`` is a ``-C`` operand made of plain characters and not an option."""
-    return bool(text) and set(text) <= _PLAIN_CHARS and not text.startswith("-")
-
-
 def _hookspath_read(argv: list[str]) -> bool:
-    """True if ``argv`` is a read of ``core.hooksPath`` in the grammar above."""
+    """True if ``argv`` is a read of ``core.hooksPath`` in the grammar above.
+
+    ``DIR`` must not read as an option. That it is a plain token is
+    :func:`_is_hookspath_read_command`'s test, which every withheld read passes.
+    """
     if not argv or argv[0] != _GIT or argv[-1].lower() != _HOOKSPATH_KEY:
         return False
     rest = argv[1:-1]
     if rest[:1] == ["-C"]:
-        if len(rest) < 2 or not _plain_directory(rest[1]):
+        if len(rest) < 2 or rest[1].startswith("-"):
             return False
         rest = rest[2:]
     if rest[:1] != ["config"]:
