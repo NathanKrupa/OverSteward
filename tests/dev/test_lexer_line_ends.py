@@ -271,6 +271,14 @@ def test_a_plain_promote_one_reading_finds_first_refuses_and_records_nothing():
     assert comments.attempted == []
 
 
+def test_a_plain_promote_one_reading_finds_first_is_too_soon():
+    """cadence: today's promote is overridden, the other reading's is not, and it refuses."""
+    promote = cadence_tests.GS_PROMOTE
+    command = QQ + "\n" + promote + " && GS_PROMOTE_HOTFIX=why " + promote
+    code, message = cadence_tests.run(command)
+    assert code == 2 and cadence_tests.TOO_SOON in message
+
+
 def test_a_promote_both_readings_find_is_looked_up_once():
     """The readings' promotes are distinct, so one allowed promote asks GitHub once."""
     github = cadence_tests.FakeGitHub(ago=timedelta(days=7))
