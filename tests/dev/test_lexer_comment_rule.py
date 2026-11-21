@@ -170,7 +170,9 @@ def test_no_separator_or_word_shape_hides_the_command(guard, shape, tmp_path):
     assert _decide(guard, shape, tmp_path) is True
 
 
-@pytest.mark.parametrize("comment", ["echo a #b; {R}", "echo a;# {R}", "(# {R}"])
+# A separator follows each hash, so were the hash not a comment the command
+# would sit in command position and be refused: each row can fail.
+@pytest.mark.parametrize("comment", ["echo a #b; {R}", "echo a;#; {R}", "(#; {R}"])
 @pytest.mark.parametrize("guard", GUARDS)
 def test_a_hash_at_the_start_of_a_word_still_ends_its_line(guard, comment, tmp_path):
     assert _decide(guard, comment, tmp_path) is False

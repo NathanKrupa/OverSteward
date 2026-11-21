@@ -79,12 +79,14 @@ _PATH_SEPARATOR = "--"
 # ---------------------------------------------------------------------------
 # Shell lexing — a verb counts only where the shell would run it.
 #
-# DUPLICATE — ``guard_shared_venv.py`` carries a byte-identical copy of this
-# lexer (``_SEPARATORS``, ``_BACKTICK``, ``_ASSIGNMENT`` and the four functions
-# below, with ``_ShellLexer``). It is NOT shared: each hook is a standalone
+# DUPLICATE — every guard in ``tests/dev/test_hook_lexer_drift.py``'s
+# ``_HOOKS``, this one among them, carries a byte-identical copy of this lexer
+# (``_SEPARATORS``, ``_BACKTICK``, ``_ASSIGNMENT``, ``_ShellLexer`` and the four
+# functions below); ``guard_gate_pipe.py`` and ``guard_endless_substitution.py``
+# carry ``_ShellLexer`` too. It is NOT shared: each hook is a standalone
 # byte-copy deployed into other repos' ``.claude/hooks/``, where a sibling
-# import would not resolve. A change here must be made in both files or only
-# one guard gets it.
+# import would not resolve. A change here must be made in every copy —
+# ``tests/dev/test_hook_lexer_drift.py`` notices when one drifts.
 # ---------------------------------------------------------------------------
 
 # Tokens that end one simple command and start the next, so the token after
