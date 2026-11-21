@@ -435,9 +435,9 @@ class TestLineReadingKeepsTodaysReading:
         """Refused before the change, though the shell runs no gate; kept."""
         assert _refused(f"{X} \\\n  {GF}")
 
-    def test_a_filter_pipeline_after_a_gate_line_is_still_refused(self):
-        """Refused before the change through the neighbouring line; kept."""
-        assert _refused("pytest -q\ncat log.txt | tail -5")
+    def test_a_filter_pipeline_after_a_gate_line_is_allowed(self):
+        """The whole-text reading of a vouched command stops at each command end."""
+        assert not _refused("pytest -q\ncat log.txt | tail -5")
 
     def test_the_sanctioned_forms_on_separate_lines_are_allowed(self):
         assert not _refused("pytest -q > out.txt 2>&1; rc=$?\ncat out.txt | tail -5")
@@ -446,6 +446,118 @@ class TestLineReadingKeepsTodaysReading:
     def test_a_pipe_continued_past_a_heredoc_body_is_outside_this_rule(self):
         """A pin: the guard does not model heredocs, and this is not refused alone either."""
         assert not _refused("pytest -q <<EOF |\nbody\nEOF\ntail -5")
+
+
+class TestVouchedCommandEnds:
+    """Where ``_nest_true`` vouches for a command, the reading of the whole text is applied to
+    each stretch of its nest-true text between the command ends the line reading kept, so a
+    gate on one line is not glued to a filter pipeline on a later one. Without a vouch, or
+    where the line reading cannot say, the whole text is read as one stretch, as before.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _no_session_override(self, monkeypatch):
+        monkeypatch.delenv("CLAUDE_ALLOW_GATE_PIPE", raising=False)
+
+    # A gate argument holding a newline inside a quote nested in a substitution: the toggle
+    # lexer closes the outer string at the inner quote and keeps that newline as a line end.
+    NESTED_ARG = '"$(echo "a\nb")"'
+    # A gate line whose nest-true text is longer than the line after it.
+    MANY_NESTED = 'pytest -k "$(printf "%s" ' + " ".join('"x"' for _ in range(13)) + ')"'
+
+    @staticmethod
+    def _vouched(command):
+        vouched = guard._nest_true(command)
+        assert vouched is not None, "the fixture must be one the scanner vouches for"
+        return vouched
+
+    @staticmethod
+    def _ends(text):
+        return guard._read_lines(text, "\x1c", "\x1d").command_ends
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "pytest -q > out.txt 2>&1\ncat out.txt | tail -5",
+            "pytest -q\n\ncat log.txt | tail -5",
+            "pytest -q\n# then\ncat log.txt | tail -5",
+            "pytest -q # run\ncat log.txt | tail -5",
+            "pytest -q\n| tail -5",
+            f"pytest -k {NESTED_ARG}\ncat o.txt | tail -5",
+        ],
+    )
+    def test_a_gate_line_and_a_later_filter_pipeline_are_read_apart(self, command):
+        """The shell runs the gate and the filter as separate commands."""
+        self._vouched(command)
+        assert not _refused(command)
+
+    def test_the_stretches_are_cut_from_the_nest_true_text(self):
+        """Its escapes move every offset after them: cut from the command's own text, the
+        stretch would run past the filter."""
+        command = f"{self.MANY_NESTED}\ncat a | tail -5"
+        assert len(self._vouched(command)) - len(command) > len("\ncat a | tail -5")
+        assert not _refused(command)
+
+    def test_the_command_ends_are_taken_from_the_nest_true_text(self):
+        """Taken from the command's own text, the ends fall short of the escapes, inside the
+        nested quotes, and the last stretch glues the gate to the filter again."""
+        line = self.MANY_NESTED.replace("pytest -k", "echo", 1)
+        command = f"{line}; pytest -q\ncat a | tail -5"
+        assert len(self._vouched(command)) - len(command) > len(" pytest -q\n")
+        assert not _refused(command)
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            f"pytest -k {NESTED_ARG} | tail -5",
+            'pytest -k "`echo "a\nb"`" | tail -5',
+            'pytest -k "${K:-"a\nb"}" | tail -5',
+            f'echo "$(echo "a\n")"; pytest -q {NESTED_ARG} | tail -5',
+            'pytest -k "$(echo "a\nb\nc")" | tail -5',
+            f"pytest -k {NESTED_ARG} |\ncat o.txt | tail -5",
+            f"pytest -k {NESTED_ARG} |\n# c\ntail -5",
+            f"pytest -k {NESTED_ARG} \\\n| tail -5",
+        ],
+    )
+    def test_a_newline_inside_a_nested_quote_is_no_command_end(self, command):
+        """The construct the first draft of this change stopped on: the shell runs one
+        pipeline across the newline, and the nest-true text shows it inside quotes."""
+        assert self._vouched(command) != command
+        assert _refused(command)
+
+    def test_without_a_vouch_the_whole_text_is_one_stretch(self):
+        command = "pytest -q\ncat log.txt | tail -5\necho $'z'"
+        assert guard._nest_true(command) is None
+        assert _refused(command)
+
+    def test_a_line_reading_that_fails_to_lex_keeps_the_whole_text(self):
+        """A trailing lone backslash: the line reading cannot say where its commands end."""
+        command = "pytest -q\ncat log.txt | tail -5\\"
+        self._vouched(command)
+        assert _refused(command)
+
+    def test_text_read_one_physical_line_at_a_time_keeps_the_whole_text(self):
+        """Holding every marker candidate, it has no line reading to take command ends from."""
+        command = "pytest -q \x1c\x1d\x1e\x1f\ncat log.txt | tail -5"
+        self._vouched(command)
+        assert _refused(command)
+
+    def test_a_pipeline_only_the_whole_text_reading_holds_in_the_first_or_last_stretch(self):
+        """A pin: the continuation into an indented gate, before and after a command end."""
+        assert _refused(f"{X} \\\n  {GF}\necho b")
+        assert _refused(f"echo a\n{X} \\\n  {GF}")
+
+    def test_a_line_end_after_a_pipe_is_no_command_end(self):
+        assert self._ends("a |\nb\nc") == [6]
+
+    def test_a_newline_inside_quotes_is_no_command_end(self):
+        assert self._ends("a 'b\nc'\nd") == [8]
+
+    def test_a_continued_line_is_no_command_end(self):
+        assert self._ends("a \\\nb\nc") == [6]
+
+    def test_a_line_end_after_a_comment_is_a_command_end(self):
+        assert self._ends("a # c |\nb\nc") == [8, 10]
 
 
 class TestMarkerCharacters:
