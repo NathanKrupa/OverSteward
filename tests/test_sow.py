@@ -765,6 +765,36 @@ def test_a_verify_rule_missing_a_prerequisite_aborts_rather_than_reading_as_abse
     assert gh.created == []
 
 
+def test_a_verify_rule_whose_sub_make_has_no_verify_aborts(
+    canon: Path, pickup: Path, tmp_path: Path
+):
+    _write(pickup, "sub/Makefile", "all:\n\ttrue\n")
+    _git(pickup, "add", "sub/Makefile")
+    _commit_makefile(pickup, "verify:\n\t$(MAKE) -C sub verify\n")
+    report, gh, _ruff, _reports = _apply(
+        canon, pickup, tmp_path, verify=True, verify_runner=MakeCommand()
+    )
+    assert report.outcomes[0].action == ABORTED, report.outcomes[0].detail
+    assert "make verify failed" in report.outcomes[0].detail
+    assert gh.created == []
+
+
+def test_a_passing_verify_is_never_dry_run(canon: Path, pickup: Path, tmp_path: Path):
+    # `+` lines execute even under `make -n`; this one touches its marker only then.
+    probed = tmp_path / "probed"
+    dry_run = "$(findstring n,$(firstword -$(MAKEFLAGS)))"
+    _commit_makefile(
+        pickup, f'verify:\n\t+@if [ -n "{dry_run}" ]; then touch "{probed}"; fi\n'
+    )
+    report, _gh, _ruff, _reports = _apply(
+        canon, pickup, tmp_path, verify=True, verify_runner=MakeCommand()
+    )
+    assert report.outcomes[0].action == DEPLOYED
+    assert not probed.exists()
+    assert MakeCommand().has_verify_rule(pickup) is True
+    assert probed.exists()
+
+
 def test_a_passing_verify_rule_pushes_without_the_no_verify_note(
     canon: Path, pickup: Path, tmp_path: Path
 ):
@@ -795,6 +825,15 @@ def test_a_failed_verify_with_a_rule_present_never_reads_as_absent(
         ("make: *** No rule to make target 'lint', needed by 'verify'.  Stop.", False),
         ("make: *** No rule to make target 'verify', needed by 'all'.  Stop.", False),
         ("make: *** No rule to make target 'verify-fast'.  Stop.", False),
+        (
+            "make[1]: *** No rule to make target 'verify'.  Stop.\n"
+            "make: *** [Makefile:2: verify] Error 2",
+            False,
+        ),
+        ("make[1]: *** No rule to make target 'verify'.  Stop.", False),
+        ("tool said: make: *** No rule to make target 'verify'.  Stop.", False),
+        ("/usr/bin/make: *** No rule to make target 'verify'.  Stop.", True),
+        ("make: Entering directory '/x'\nmake: *** No rule to make target 'verify'.  Stop.", True),
         ("Makefile:3: *** missing separator.  Stop.", False),
         ("", False),
     ],

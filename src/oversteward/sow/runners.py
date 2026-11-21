@@ -141,9 +141,13 @@ class MakeCommand:
         return result.ok or not names_no_verify_rule(result.text)
 
 
-#: GNU make's own message for a goal with no rule. "needed by" marks a missing
-#: prerequisite, which is a broken verify rule, not an absent one.
-_NO_VERIFY_RULE = re.compile(r"No rule to make target [`']verify'\.\s+Stop\.")
+#: The top-level make's own message for a goal with no rule. "needed by" marks a
+#: missing prerequisite, a broken verify rule rather than an absent one, and a
+#: `make[N]:` line is a sub-make's answer about its own directory, so neither
+#: matches.
+_NO_VERIFY_RULE = re.compile(
+    r"^\S*make: \*\*\* No rule to make target [`']verify'\.\s+Stop\.", re.MULTILINE
+)
 
 
 def names_no_verify_rule(text: str) -> bool:
