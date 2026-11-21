@@ -5,7 +5,10 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import re
+import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
@@ -28,6 +31,23 @@ def _load_scanner():
             spec.loader.exec_module(mod)
             return mod
     raise FileNotFoundError(f"could not locate {rel} above {__file__}")
+
+
+def _scrub_git_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Remove every inherited ``GIT_*`` variable from this test's environment.
+
+    A git hook passes its location variables to the suite it runs, and each one
+    re-points git away from the ``cwd`` tree: every scratch-repo command would
+    read and write the hook's repository instead of ``tmp_path`` (OS#809).
+    """
+    for name in [k for k in os.environ if k.startswith("GIT_")]:
+        monkeypatch.delenv(name)
+
+
+@pytest.fixture(autouse=True)
+def _no_inherited_git_env(monkeypatch):
+    """The one place this file's git calls are isolated from a hook's environment."""
+    _scrub_git_env(monkeypatch)
 
 
 @pytest.fixture(scope="module")
@@ -92,8 +112,6 @@ def test_range_command_is_detect_with_log_opts(scan):
 
 
 def _git(*args, cwd):
-    import subprocess
-
     subprocess.run(
         ["git", *args],
         cwd=cwd,
@@ -142,6 +160,66 @@ def test_worktree_mounts_common_git_dir(scan, tmp_path):
     assert f"{wt}:{wt}:ro" in cmd
     assert f"{common}:{common}:ro" in cmd
     assert f"--source={wt}" in cmd
+
+
+# --- a git hook's GIT_DIR must not reach the scratch repos (OS#809) ----------
+
+#: The location variables a git hook can export, each of which overrides ``cwd``.
+GIT_LOCATION_VARIABLES = (
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_COMMON_DIR",
+)
+
+
+def test_the_scrub_removes_every_git_location_variable(tmp_path, monkeypatch):
+    for name in GIT_LOCATION_VARIABLES:
+        monkeypatch.setenv(name, str(tmp_path / name))
+    monkeypatch.setenv("KEEP_ME", "1")
+
+    _scrub_git_env(monkeypatch)
+
+    assert [name for name in GIT_LOCATION_VARIABLES if name in os.environ] == []
+    assert os.environ["KEEP_ME"] == "1"
+
+
+def test_a_hooks_git_dir_does_not_reach_the_scratch_repos(tmp_path):
+    """Run this file's git tests the way a hook would, with GIT_DIR inherited.
+
+    The decoy is a repository of its own, so a test that leaked to it fails on
+    the decoy's state, and the decoy's config shows any write that leaked.
+    """
+    decoy = tmp_path / "decoy"
+    decoy.mkdir()
+    _git("init", "-q", cwd=decoy)
+    config = decoy / ".git" / "config"
+    before = config.read_bytes()
+    env = {**os.environ, "GIT_DIR": str(decoy / ".git")}
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            f"{__file__}::test_normal_repo_mounts_itself_at_host_path",
+            f"{__file__}::test_worktree_mounts_common_git_dir",
+            "-q",
+            "-p",
+            "no:cacheprovider",
+            f"--basetemp={tmp_path / 'child'}",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "2 passed" in result.stdout
+    assert config.read_bytes() == before
 
 
 # --- exit-code / fail-open-vs-closed logic ----------------------------------
