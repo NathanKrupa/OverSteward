@@ -71,9 +71,12 @@ redeploy; never edit the ``.claude/hooks/`` copy in isolation.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
+import string
 import sys
+from collections.abc import Callable
 
 # ---------------------------------------------------------------------------
 # Shell lexing — a command counts only where the shell would run it.
@@ -772,15 +775,20 @@ _RULES: tuple[tuple[str, object, str], ...] = (
 
 
 def _first_rule(
-    command: str, rules: tuple[tuple[str, object, str], ...]
+    command: str,
+    rules: tuple[tuple[str, object, str], ...],
+    withheld: Callable[[list[str]], bool] | None = None,
 ) -> tuple[str, str] | None:
     """(category, text) of the first rule matched under today's reading, else the line-true one.
 
     Each reading's commands are matched on their own, never merged: a text-tool
     line made visible by one reading must not stand down a rule the other holds.
+    An argv for which ``withheld`` holds is left out of every reading alike.
     """
     for line_true in _readings(command):
         argvs = _all_argvs(command, line_true)
+        if withheld is not None:
+            argvs = [argv for argv in argvs if not withheld(argv)]
         for category, predicate, text in rules:
             if predicate(argvs):  # type: ignore[operator]
                 return (category, text)
@@ -907,9 +915,187 @@ _EVASION_RULES: tuple[tuple[str, object, str], ...] = (
 )
 
 
-def _match_hook_evasion(command: str) -> tuple[str, str] | None:
-    """Return (category, reason) for the first hook-evasion pattern matched."""
-    return _first_rule(command, _EVASION_RULES)
+# A read of ``core.hooksPath`` changes nothing, so it is no evasion. It is
+# withheld from the table above only inside a command that consists of nothing
+# but reads, as :func:`_only_reads` defines them, and the read itself is
+# recognised in one grammar, token for token:
+# ``git [-C DIR] config [get] [READ_OPTION ...] core.hooksPath``, key last.
+_HOOKSPATH_READ_OPTIONS = frozenset({
+    "--get", "--get-all", "--all", "--local", "--global", "--system", "--worktree",
+    "--show-origin", "--show-scope", "--null", "-z", "--path", "--type=path",
+})
+
+# What a command made only of reads consists of. Each set is closed: a
+# character, token or word not listed here fails the test, and the command is
+# judged by the table exactly as any other.
+#
+# The characters of the whole command: printable ASCII, tabs and newlines.
+_READ_COMMAND_CHARS = frozenset(map(chr, range(0x20, 0x7F))) | frozenset("\t\n")
+# A plain token: read with no quote and no escape, and made only of these.
+# None of them is expanded or special to the shell inside a word.
+_PLAIN_CHARS = frozenset(string.ascii_letters + string.digits + "_-./,:=@%+")
+# A quoted argument: read with a quote or an escape, and made only of these.
+# The dollar sign and the backtick are not among them, quoted or not, so no
+# parameter, command or arithmetic expansion can appear in such a command.
+_QUOTED_CHARS = _PLAIN_CHARS | frozenset(" |\\[]()^*?")
+# The tokens that may separate two commands, each read with no quote and no
+# escape. A line end separates too.
+_READ_SEPARATORS = frozenset({";", "&&", "||", "|"})
+# The one redirection family: each operator token and the plain tokens it may
+# be followed by.
+_READ_REDIRECTIONS = {">": frozenset({"/dev/null"}), ">&": frozenset({"1", "2"})}
+# The first words a command beside the read may have. Each reads only the
+# files and text it is given: none, whatever its arguments, writes a file,
+# assigns a variable by name or runs another program.
+_READ_ONLY_WORDS = frozenset({"cd", "ls", "cat", "head", "grep", "echo"})
+
+
+class _QuoteTrackingLexer(_ShellLexer):
+    """``_ShellLexer`` noting whether the token being read entered a quote or an escape.
+
+    ``shlex`` assigns ``state`` the quote or escape character each time it
+    enters one, so the setter sees every such entry. ``_lex`` gives a quoted
+    ``";"`` or an escaped ``\\;`` as the token ``;``; the shell passes it on as
+    a word.
+    """
+
+    token_quoted = False
+
+    @property
+    def state(self) -> str | None:
+        return self._state
+
+    @state.setter
+    def state(self, value: str | None) -> None:
+        self._state = value
+        if value and (value in getattr(self, "quotes", "") or value in getattr(self, "escape", "")):
+            self.token_quoted = True
+
+
+def _tagged_tokens(line: str) -> list[tuple[str, bool]] | None:
+    """``line``'s tokens as (text, quoted), lexed as :func:`_lex` lexes; None if it does not lex."""
+    lexer = _QuoteTrackingLexer(line, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    tokens: list[tuple[str, bool]] = []
+    try:
+        while True:
+            lexer.token_quoted = False
+            token = lexer.get_token()
+            if token is None:
+                return tokens
+            tokens.append((token, lexer.token_quoted))
+    except ValueError:
+        return None
+
+
+def _plain_directory(text: str) -> bool:
+    """True if ``text`` is a ``-C`` operand made of plain characters and not an option."""
+    return bool(text) and set(text) <= _PLAIN_CHARS and not text.startswith("-")
+
+
+def _hookspath_read(argv: list[str]) -> bool:
+    """True if ``argv`` is a read of ``core.hooksPath`` in the grammar above."""
+    if not argv or argv[0] != _GIT or argv[-1].lower() != _HOOKSPATH_KEY:
+        return False
+    rest = argv[1:-1]
+    if rest[:1] == ["-C"]:
+        if len(rest) < 2 or not _plain_directory(rest[1]):
+            return False
+        rest = rest[2:]
+    if rest[:1] != ["config"]:
+        return False
+    rest = rest[1:]
+    if rest[:1] == ["get"]:
+        rest = rest[1:]
+    return all(token in _HOOKSPATH_READ_OPTIONS for token in rest)
+
+
+def _is_plain(token: tuple[str, bool]) -> bool:
+    text, quoted = token
+    return not quoted and bool(text) and set(text) <= _PLAIN_CHARS
+
+
+def _is_argument(token: tuple[str, bool]) -> bool:
+    """A plain token, or a quoted one made only of :data:`_QUOTED_CHARS`."""
+    text, quoted = token
+    return _is_plain(token) or (quoted and set(text) <= _QUOTED_CHARS)
+
+
+def _is_read_only_command(command: list[tuple[str, bool]]) -> bool:
+    """A listed first word, then arguments and the listed redirections only."""
+    if not command or not _is_plain(command[0]) or command[0][0] not in _READ_ONLY_WORDS:
+        return False
+    rest = command[1:]
+    index = 0
+    while index < len(rest):
+        text, quoted = rest[index]
+        targets = None if quoted else _READ_REDIRECTIONS.get(text)
+        if targets is not None:
+            following = rest[index + 1 : index + 2]
+            if not following or not _is_plain(following[0]) or following[0][0] not in targets:
+                return False
+            index += 2
+        elif _is_argument(rest[index]):
+            index += 1
+        else:
+            return False
+    return True
+
+
+def _is_hookspath_read_command(command: list[tuple[str, bool]]) -> bool:
+    """The read in its grammar, every token plain."""
+    return all(_is_plain(token) for token in command) and _hookspath_read(
+        [text for text, _quoted in command]
+    )
+
+
+def _line_only_reads(tokens: list[tuple[str, bool]]) -> bool:
+    """Every command of one line, split at :data:`_READ_SEPARATORS`, is non-empty and a read."""
+    if not tokens:
+        return True
+    commands: list[list[tuple[str, bool]]] = [[]]
+    for token in tokens:
+        if not token[1] and token[0] in _READ_SEPARATORS:
+            commands.append([])
+        else:
+            commands[-1].append(token)
+    return all(
+        _is_hookspath_read_command(command) or _is_read_only_command(command)
+        for command in commands
+    )
+
+
+def _only_reads(command: str, search_path: str) -> bool:
+    """True if ``command`` consists only of reads, by five tests in turn.
+
+    (a) Its characters are all in :data:`_READ_COMMAND_CHARS`. (b) Each line
+    lexes on its own, as :func:`_lex` lexes it, so no quote or escape runs
+    across a line end and both readings give the same commands. (c, d) Each
+    line's tokens are plain, quoted from :data:`_QUOTED_CHARS`, one of
+    :data:`_READ_SEPARATORS` or of :data:`_READ_REDIRECTIONS`, and its commands
+    are each the read in its grammar or a word of :data:`_READ_ONLY_WORDS`.
+    (e) Every entry of ``search_path``, the hook's own ``PATH``, is absolute,
+    so a ``cd`` cannot change what a program name runs.
+    """
+    if not set(command) <= _READ_COMMAND_CHARS:
+        return False
+    for line in command.split("\n"):
+        tokens = _tagged_tokens(line)
+        if tokens is None or not _line_only_reads(tokens):
+            return False
+    return all(os.path.isabs(entry) for entry in search_path.split(os.pathsep))
+
+
+def _match_hook_evasion(command: str, search_path: str = "") -> tuple[str, str] | None:
+    """Return (category, reason) for the first hook-evasion pattern matched.
+
+    A read of ``core.hooksPath`` is left out of the table only where the whole
+    command passes :func:`_only_reads` against ``search_path``; elsewhere it
+    is judged as every other argv is. The default, an empty ``PATH``, fails
+    that test, so a caller that names no ``PATH`` gets today's verdict.
+    """
+    withheld = _hookspath_read if _only_reads(command, search_path) else None
+    return _first_rule(command, _EVASION_RULES, withheld)
 
 
 def _deny_message(category: str, reason: str, command: str) -> str:
@@ -979,7 +1165,7 @@ def main() -> int:
 
     # Class 1 first — hook evasion is a hard ``deny`` and must never be
     # downgradable to a class-2 ``ask``.
-    evasion = _match_hook_evasion(command)
+    evasion = _match_hook_evasion(command, os.environ.get("PATH", ""))
     if evasion is not None:
         category, reason = evasion
         _emit_deny(_deny_message(category, reason, command))
