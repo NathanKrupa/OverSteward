@@ -31,10 +31,12 @@ reflexively:
 A multi-line command is also read line by line as the shell reads it: a newline
 outside quotes ends a line, a backslash-newline joins two, a comment ends at its
 own line, and a line ending in a pipe continues on the next. Where the lexer
-reports a quote spanning lines, the command is read again with its quote
-characters blanked, and each line that began inside quotes is read from its own
-start. The reading of the whole text is kept beside these, so a command it
-refuses is still refused.
+reports a quote spanning lines, the command is read again with the quote
+characters blanked from each quote the lexer cannot vouch for, and each line
+that began inside quotes is read from its own start. A quote that opens and
+closes on a line the lexer began outside quotes is read as quoted text, as in a
+single-line command. The reading of the whole text is kept beside these, so a
+command it refuses is still refused.
 
 Not a member of the ``guard_main_worktree`` / ``guard_trunk_pull`` lexer family,
 deliberately: that block splits on ``|`` as a separator and therefore destroys
@@ -203,6 +205,25 @@ _DEFAULT_PUNCTUATION = shlex.shlex("", punctuation_chars=True).punctuation_chars
 _QUOTED_NEWLINE = "''"
 
 
+class _QuoteSpan:
+    """A quote from its opening character to its closing one (``end`` None: never closed)."""
+
+    def __init__(self, start, on_quoted_line):
+        self.start = start
+        self.end = None
+        self.crossed = False
+        self.on_quoted_line = on_quoted_line
+
+    def is_suspect(self):
+        """True when the lexer cannot vouch for this quote.
+
+        It crossed a line end, never closed, or opened on a line the lexer
+        began inside quotes, where its pairing depends on the quote that ran
+        into the line.
+        """
+        return self.crossed or self.end is None or self.on_quoted_line
+
+
 class _LineStream:
     """``text`` fed to a lexer one character at a time, each newline as the shell reads it.
 
@@ -211,6 +232,13 @@ class _LineStream:
     punctuation and so ends the word before it. A comment ends at its own line:
     ``readline``, which shlex calls only to skip a comment, leaves the newline
     unread. Lines that begin inside quotes are recorded by offset.
+
+    Each quote span is recorded as the lexer's state shows it opening and
+    closing: a quote character read outside quote and escape states opens one,
+    and the same character read in its own quote state closes it. A span is
+    marked crossed when a line begins inside it, and marked as opened on a
+    quoted line when the line it opens on began inside a quote: from a line
+    start inside quotes to the next line end outside them.
     """
 
     def __init__(self, text, line_end, continuation):
@@ -221,6 +249,8 @@ class _LineStream:
         self._state_before = " "
         self.lexer = None
         self.quoted_line_starts = []
+        self.quote_spans = []
+        self._on_quoted_line = False
 
     def read(self, size=1):
         if self._position >= len(self._text):
@@ -229,17 +259,33 @@ class _LineStream:
         self._position += 1
         state, before = self.lexer.state, self._state_before
         self._state_before = state
+        if char in self.lexer.quotes:
+            self._note_quote(char, state)
         if char != "\n":
             return char
         if state in self.lexer.escape:
             # The backslash was read inside quotes: the next line is in them too.
             if before in self.lexer.quotes:
-                self.quoted_line_starts.append(self._position)
+                self._note_quoted_line_start()
             return self._continuation
         if state in self.lexer.quotes:
-            self.quoted_line_starts.append(self._position)
+            self._note_quoted_line_start()
             return char
+        self._on_quoted_line = False
         return self._line_end
+
+    def _note_quote(self, char, state):
+        index = self._position - 1
+        if state in self.lexer.quotes:
+            if char == state:
+                self.quote_spans[-1].end = index
+        elif state not in self.lexer.escape:
+            self.quote_spans.append(_QuoteSpan(index, self._on_quoted_line))
+
+    def _note_quoted_line_start(self):
+        self.quoted_line_starts.append(self._position)
+        self.quote_spans[-1].crossed = True
+        self._on_quoted_line = True
 
     def readline(self, size=-1):
         end = self._text.find("\n", self._position)
@@ -253,6 +299,7 @@ class _Reading(NamedTuple):
     tokens: list
     failed: bool
     quoted_line_starts: list
+    quote_spans: list
 
 
 def _line_lexer(text, line_end, continuation):
@@ -295,7 +342,25 @@ def _read_lines(text, line_end, continuation):
     failures = []
     raw = _tokens_until_error(lexer, failures)
     tokens = [";" if t == line_end else t for t in _line_tokens(raw, line_end, continuation)]
-    return _Reading(tokens, bool(failures), stream.quoted_line_starts)
+    return _Reading(tokens, bool(failures), stream.quoted_line_starts, stream.quote_spans)
+
+
+def _blank_suspect_quotes(text, spans):
+    """``text`` with every quote character of each suspect span blanked, opening through closing.
+
+    Both kinds are blanked inside such a span, so no quote character the lexer
+    read as literal text inside it comes alive on the re-read. Any other span
+    is left as it is.
+    """
+    chars = list(text)
+    for span in spans:
+        if not span.is_suspect():
+            continue
+        end = len(chars) - 1 if span.end is None else span.end
+        for index in range(span.start, end + 1):
+            if chars[index] in "'\"":
+                chars[index] = " "
+    return "".join(chars)
 
 
 def _first_line(text, line_end, continuation):
@@ -315,8 +380,10 @@ def _line_offenders(command):
     R1 reads the text with line ends from the lexer's state. Where the lexer
     reports a quote spanning lines, or cannot lex the text, it may have
     mis-tracked the quoting, so two more readings run: R2, the same reading
-    with every quote character blanked, and R3, each line that began inside
-    quotes lexed afresh from its own start to its own end.
+    with the quote characters of each quote the lexer cannot vouch for blanked
+    (one that crossed a line end, never closed, or opened on a line the lexer
+    began inside quotes), and R3, each line that began inside quotes lexed
+    afresh from its own start to its own end.
     """
     if "\n" not in command:
         return []
@@ -331,7 +398,7 @@ def _line_offenders(command):
     reading = _read_lines(command, line_end, continuation)
     found = _offenders(reading.tokens)
     if reading.failed or reading.quoted_line_starts:
-        blanked = command.replace("'", " ").replace('"', " ")
+        blanked = _blank_suspect_quotes(command, reading.quote_spans)
         found += _offenders(_read_lines(blanked, line_end, continuation).tokens)
         for start in reading.quoted_line_starts:
             found += _offenders(_first_line(command[start:], line_end, continuation))
