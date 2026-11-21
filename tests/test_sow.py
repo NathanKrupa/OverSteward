@@ -706,6 +706,21 @@ def test_git_removes_the_worktree_itself_because_the_link_is_gone_first(
     assert git.removals[0].ok, git.removals[0].text
 
 
+def test_a_worktree_that_already_holds_a_venv_is_neither_linked_nor_stripped(
+    canon: Path, pickup: Path, tmp_path: Path
+):
+    _write(pickup, ".venv/tracked.txt", "committed by the target\n")
+    _git(pickup, "add", "-f", ".venv/tracked.txt")
+    _git(pickup, "commit", "-qm", "tracked venv file")
+    _git(pickup, "push", "-q", "origin", "main")
+    git = RecordingGit()
+    report, _gh, _ruff, _reports = _apply(canon, pickup, tmp_path, git=git, verify=True)
+    assert report.outcomes[0].action == DEPLOYED, report.outcomes[0].detail
+    ref = f"origin/{sync_branch_for(TODAY)}"
+    assert _git(pickup, "show", f"{ref}:.venv/tracked.txt") == "committed by the target"
+    assert git.removals and git.removals[0].ok, git.removals[0].text
+
+
 def test_a_target_with_no_verify_rule_is_pushed_and_says_its_push_hook_gates(
     canon: Path, pickup: Path, tmp_path: Path
 ):
