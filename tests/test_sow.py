@@ -680,6 +680,32 @@ def test_the_worktree_link_is_gone_and_the_target_venv_untouched_after_the_run(
     assert (pickup / ".venv").is_dir() and not (pickup / ".venv").is_symlink()
 
 
+class RecordingGit(GitCommand):
+    """Real git that keeps the result of every `worktree remove`."""
+
+    def __init__(self) -> None:
+        self.removals: list[CommandResult] = []
+
+    def run(self, cwd: Path, *args: str) -> CommandResult:
+        result = super().run(cwd, *args)
+        if args[:2] == ("worktree", "remove"):
+            self.removals.append(result)
+        return result
+
+
+def test_git_removes_the_worktree_itself_because_the_link_is_gone_first(
+    canon: Path, pickup: Path, tmp_path: Path
+):
+    # The pickup ignores nothing, so a link left behind is an untracked file and
+    # a plain `git worktree remove` refuses it; only the temp-dir sweep would hide that.
+    _hooked_venv(pickup, tmp_path)
+    git = RecordingGit()
+    report, _gh, _ruff, _reports = _apply(canon, pickup, tmp_path, git=git, verify=True)
+    assert report.outcomes[0].action == DEPLOYED
+    assert len(git.removals) == 1
+    assert git.removals[0].ok, git.removals[0].text
+
+
 def test_a_target_with_no_verify_rule_is_pushed_and_says_its_push_hook_gates(
     canon: Path, pickup: Path, tmp_path: Path
 ):
