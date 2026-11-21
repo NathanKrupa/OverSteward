@@ -928,8 +928,10 @@ def _rejected_promote(command: str, template: _Context) -> Promote | None:
     would make it a promote does; otherwise today's rule applies to what F1 or
     F2 read on the call's own command. So ruling ``main`` out rests on W, not on
     a reading that may have lost text. Each run, F1 and every F2 line, is read
-    from every directory any run reached, until no new one appears; a script
-    inside is read under the line-true reading.
+    from the hook's directory and then from every directory a run reached from
+    there. Those second readings collect no further directory, so a relative
+    ``cd`` cannot nest without end. A script inside is read under the
+    line-true reading.
     """
     wide = template.wide | _wide_reading(command)
     template = _Context(
@@ -937,14 +939,16 @@ def _rejected_promote(command: str, template: _Context) -> Promote | None:
     )
     first, fresh = _read_rejected(command, _ShellLexer)
     runs = [[_split_assignments(argv) for argv in _simple_commands(t)] for t in [first, *fresh]]
-    visited, searched = [template.cwd], set()
-    while len(searched) < len(runs) * len(visited):
-        for index, invocations in enumerate(runs):
-            for start in [cwd for cwd in visited if (index, cwd) not in searched]:
-                searched.add((index, start))
-                found = _search(invocations, start, template, visited)
-                if found is not None:
-                    return found
+    visited = [template.cwd]
+    for invocations in runs:  # from the hook's directory, collecting where each cd goes
+        found = _search(invocations, template.cwd, template, visited)
+        if found is not None:
+            return found
+    for invocations in runs:  # then from each of those, collecting nothing more
+        for start in visited[1:]:
+            found = _search(invocations, start, template, [])
+            if found is not None:
+                return found
     return None
 
 

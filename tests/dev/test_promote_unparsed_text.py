@@ -14,6 +14,7 @@ handed-over table's rows; a row marked "cost" is a counted false refusal.
 
 from __future__ import annotations
 
+import signal
 from collections.abc import Callable
 from datetime import timedelta
 from typing import NamedTuple
@@ -296,6 +297,22 @@ def test_rejected_text_is_read_once(guard):
     command = "gh pr create --base main --head staging --title t" + BODY
     assert_refused(guard, decide(guard, command, checkouts=checkouts))
     assert checkouts.asked == [HERE]
+
+
+def test_a_relative_cd_in_rejected_text_ends(guard):
+    """Directories reached by re-reading a run are not followed further, so the
+    reading ends; an alarm turns a hang into a failure."""
+    def ring(*_):
+        raise TimeoutError("the reading of rejected text did not end")
+
+    previous = signal.signal(signal.SIGALRM, ring)
+    signal.alarm(5)
+    try:
+        outcome = decide(guard, "cd sub\n" + APOSTROPHE + "cd sub\necho done")
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, previous)
+    assert_allowed_unlooked(outcome)
 
 
 @pytest.mark.parametrize("row", ["row1", "c1", "row10", "m1"])
