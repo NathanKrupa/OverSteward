@@ -28,6 +28,14 @@ reflexively:
   this rule is about.
 * ``tee`` and a redirect are the sanctioned forms and are never refused.
 
+A multi-line command is also read line by line as the shell reads it: a newline
+outside quotes ends a line, a backslash-newline joins two, a comment ends at its
+own line, and a line ending in a pipe continues on the next. Where the lexer
+reports a quote spanning lines, the command is read again with its quote
+characters blanked, and each line that began inside quotes is read from its own
+start. The reading of the whole text is kept beside these, so a command it
+refuses is still refused.
+
 Not a member of the ``guard_main_worktree`` / ``guard_trunk_pull`` lexer family,
 deliberately: that block splits on ``|`` as a separator and therefore destroys
 the pipeline structure this guard has to see. It lexes with ``shlex`` directly
@@ -221,7 +229,7 @@ class _LineStream:
         self._position += 1
         state, before = self.lexer.state, self._state_before
         self._state_before = state
-        if char != "\n" or not isinstance(state, str):
+        if char != "\n":
             return char
         if state in self.lexer.escape:
             # The backslash was read inside quotes: the next line is in them too.
@@ -257,13 +265,11 @@ def _line_lexer(text, line_end, continuation):
 
 
 def _tokens_until_error(lexer, failures):
-    """The lexer's tokens; on a lex error, the token it was building, then stop."""
+    """The lexer's tokens up to a lex error, which is recorded in ``failures``."""
     try:
         yield from lexer
     except ValueError:
         failures.append(True)
-        if lexer.token:
-            yield lexer.token
 
 
 def _line_tokens(raw, line_end, continuation):

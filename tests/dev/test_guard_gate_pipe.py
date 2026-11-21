@@ -155,6 +155,12 @@ class TestOwnLinePipeline:
     def test_a_pipeline_after_an_unbalanced_quote(self):
         assert _refused(f"echo 'unclosed\n{GF}")
 
+    def test_a_last_line_pipeline_holding_its_own_unbalanced_quote(self):
+        """Refused alone through the unlexable fallback; no line begins inside its quote."""
+        line = "pytest -q 'x | tail -5"
+        assert _refused(line)
+        assert _refused(f"{X}\n{line}")
+
     def test_a_pipeline_before_a_lone_trailing_backslash(self):
         assert _refused(f"{X}\n{GF}\\")
         assert _refused(f"{X}\n{GF}\n\\")
@@ -180,6 +186,9 @@ class TestContinuedPipeline:
 
     def test_a_gate_ending_its_line_with_a_pipe(self):
         assert _refused(f"{X}\npytest -q |\ntail -5")
+
+    def test_a_gate_ending_its_line_with_a_stderr_pipe(self):
+        assert _refused(f"{X}\npytest -q |&\ntail -5")
 
     def test_a_gate_ending_in_a_line_continuation_after_another_line(self):
         assert _refused(f"{X}\npytest -q \\\n| tail -5")
@@ -269,7 +278,7 @@ class TestLineReadingKeepsTodaysReading:
         assert _refused("pytest -q\ncat log.txt | tail -5")
 
     def test_the_sanctioned_forms_on_separate_lines_are_allowed(self):
-        assert not _refused("pytest -q > out.txt 2>&1; rc=$?\ntail -5 out.txt")
+        assert not _refused("pytest -q > out.txt 2>&1; rc=$?\ncat out.txt | tail -5")
         assert not _refused("pytest -q | tee out.txt\necho done")
 
     def test_a_pipe_continued_past_a_heredoc_body_is_outside_this_rule(self):
