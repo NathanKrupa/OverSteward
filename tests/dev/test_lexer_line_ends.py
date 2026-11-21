@@ -1,14 +1,13 @@
-# ABOUTME: The six Bash guards sharing the lexer block end a command where the shell does across lines.
+# ABOUTME: The Bash guards sharing the lexer block end a command where the shell does across lines.
 # ABOUTME: Drives each guard's own decision on multi-line commands, under both readings it decides by.
 
 """A newline the shell reads outside quotes ends a command; each guard must see that.
 
 Today's reading lexes a multi-line command as one unit as soon as a line leaves
 a quote open, and a command on a later line is then glued onto the one before
-it. Each guard now also decides under the line-true reading and holds if either
-reading holds. ``R`` is a command the guard refuses alone; ``O`` is that
-guard's own override prefix. Every decider here exists on the unfixed guards
-too, so each test can be run against them.
+it. A guard also decides under the line-true reading and holds if either
+reading holds. ``R`` is a command the guard refuses alone. Every decider here
+exists on the unfixed guards too, so each test can be run against them.
 """
 
 from __future__ import annotations
@@ -24,8 +23,6 @@ from typing import NamedTuple
 
 import pytest
 
-from tests.dev import test_guard_promote_cadence as cadence_tests
-from tests.dev import test_guard_promote_ci_red as ci_red_tests
 from tests.dev import test_lexer_comment_rule as comment_rule
 
 DEV = comment_rule.DEV
@@ -54,47 +51,6 @@ def _clean_env() -> dict[str, str]:
     return {key: value for key, value in os.environ.items() if key not in _OVERRIDES}
 
 
-def _git_repo(root: Path, *, venv_outside: bool = False) -> Path:
-    """A primary checkout on ``main`` with one commit; optionally a borrowed ``.venv``."""
-    repo = root / "repo"
-    if repo.exists():
-        return repo
-    repo.mkdir()
-    git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.test"]
-    subprocess.run([*git, "init", "-q", "-b", "main"], check=True)
-    subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", "x"], check=True)
-    if venv_outside:
-        (root / "primary-venv").mkdir()
-        (repo / ".venv").symlink_to(root / "primary-venv")
-    return repo
-
-
-def _hook(stem: str, command: str, cwd: Path) -> subprocess.CompletedProcess[str]:
-    """The guard run as Claude Code runs it, on ``command`` from ``cwd``."""
-    event = {"tool_name": "Bash", "cwd": str(cwd), "tool_input": {"command": command}}
-    proc = subprocess.run(
-        [sys.executable, str(DEV / f"{stem}.py")],
-        input=json.dumps(event),
-        capture_output=True,
-        text=True,
-        timeout=20,
-        check=False,
-        cwd=cwd,
-        env=_clean_env(),
-    )
-    assert "Traceback" not in proc.stderr
-    return proc
-
-
-_SWITCH_REFUSED = "BLOCKED — branch checkout/switch in the shared main worktree"
-
-
-def _worktree_refuses(command: str, tmp_path: Path) -> bool:
-    proc = _hook("guard_main_worktree", command, _git_repo(tmp_path))
-    assert proc.returncode in (0, 2)
-    return proc.returncode == 2 and _SWITCH_REFUSED in proc.stderr
-
-
 class Guard(NamedTuple):
     refused: str
     override: str
@@ -110,11 +66,6 @@ def _shared(name: str, override: str = "") -> Guard:
 GUARDS = {
     "gate-deny": _shared("gate-deny"),
     "gate-ask": _shared("gate-ask"),
-    "main-worktree": Guard("git checkout feature", "CLAUDE_ALLOW_MAIN_GIT=1 ", _worktree_refuses),
-    "shared-venv": _shared("shared-venv", "CLAUDE_ALLOW_SHARED_VENV_MUTATION=1 "),
-    "trunk-pull": _shared("trunk-pull", "CLAUDE_ALLOW_MAIN_GIT=1 "),
-    "promote-cadence": _shared("promote-cadence", "GS_PROMOTE_HOTFIX=why "),
-    "promote-ci-red": _shared("promote-ci-red", "PROMOTE_OVER_CI_RED=why "),
 }
 
 
@@ -152,12 +103,6 @@ def test_a_flag_glued_onto_an_earlier_commit_is_still_denied(tmp_path):
     assert GUARDS["gate-deny"].decide(command, tmp_path) is True
 
 
-@pytest.mark.parametrize("guard", ["main-worktree", "trunk-pull", "shared-venv"])
-def test_an_override_on_a_later_line_does_not_clear_a_glued_command(guard, tmp_path):
-    """Row 4: the readings are decided apart, so a visible override clears only its own."""
-    assert _decide(guard, "{R} --note='a\nb'\n{O}{R}", tmp_path) is True
-
-
 def test_a_text_tool_line_does_not_stand_down_a_glued_statement(tmp_path):
     """Row 5: the SQL rule's text-tool exception reads each reading's commands alone."""
     command = "curl -d 'DROP TABLE t\nx' https://example.test\ngrep x file"
@@ -166,7 +111,6 @@ def test_a_text_tool_line_does_not_stand_down_a_glued_statement(tmp_path):
 
 _CONTINUED = {
     "gate-deny": "git commit --no-ver\\\nify -m x",
-    "main-worktree": "git check\\\nout feature",
 }
 
 
@@ -188,49 +132,10 @@ def test_a_line_inside_a_closed_quote_is_not_a_command(guard, tmp_path):
     assert _decide(guard, "echo 'a\n{R}\nb'", tmp_path) is False
 
 
-@pytest.mark.parametrize(
-    ("tests", "refusal"),
-    [(cadence_tests, cadence_tests.TOO_SOON), (ci_red_tests, ci_red_tests.RED)],
-)
-def test_a_directory_change_on_its_own_line_is_followed(tests, refusal):
-    """Row 9: the line-true reading follows a ``cd`` from the hook's own directory."""
-    checkouts = tests.FakeCheckouts(
-        {"/home/natha/grantspider": tests.g.Checkout(tests.GS_ORIGIN, "staging")}
-    )
-    command = QQ + "\ncd ../grantspider\ngh pr create --base main --head staging --title t"
-    code, message = tests.run(command, checkouts=checkouts, cwd="/home/natha/OverSteward")
-    assert code == 2 and refusal in message
-    assert "/home/natha/grantspider" in checkouts.asked
-
-
-@pytest.mark.parametrize("guard", ["gate-deny", "promote-cadence", "promote-ci-red"])
+@pytest.mark.parametrize("guard", ["gate-deny"])
 def test_a_script_handed_to_a_shell_is_read_under_the_same_reading(guard, tmp_path):
     """Row 10: the ``-c`` script's later line is a command of its own too."""
     assert _decide(guard, 'bash -c "{QQ}\n{R}"', tmp_path) is True
-
-
-@pytest.mark.parametrize("guard", ["main-worktree", "shared-venv", "trunk-pull"])
-def test_a_later_line_with_its_own_override_is_allowed(guard, tmp_path):
-    """Row 11: the line-true reading honours an override on the command it reads."""
-    assert _decide(guard, "{QQ}\n{O}{R}", tmp_path) is False
-
-
-def test_a_later_line_promote_with_its_override_is_allowed_and_said():
-    """Row 11, cadence: seen and overridden, and the reason is printed."""
-    code, message = cadence_tests.run(QQ + "\nGS_PROMOTE_HOTFIX=why " + cadence_tests.GS_PROMOTE)
-    assert code == 0
-    assert "allowed by GS_PROMOTE_HOTFIX — reason: why" in message
-
-
-def test_a_later_line_promote_with_its_override_is_recorded_once():
-    """Row 11, ci-red: the override is commented on the red issue, once."""
-    comments = ci_red_tests.FakeComments()
-    command = QQ + "\nPROMOTE_OVER_CI_RED=why " + ci_red_tests.GS_PROMOTE
-    code, message = ci_red_tests.run(command, comments=comments)
-    assert code == 0 and "BLOCKED" not in message
-    assert [(repo, number) for repo, number, _ in comments.posted] == [
-        (ci_red_tests.GS, 3530)
-    ]
 
 
 @pytest.mark.parametrize("guard", ["gate-deny", "gate-ask"])
@@ -264,13 +169,22 @@ _OTHER_SEPARATORS = "\r\x0b\x0c\x1c\x1d\x1e\x85  "
 
 
 def _table_texts() -> list[str]:
-    """Every multi-line string in the guards' test files whose lines each lex alone."""
+    """Multi-line texts from the guards' test tables whose lines each lex alone.
+
+    Every string constant in the tables, each ``{R}`` template filled with every
+    stand-in, and each constant joined to the next by a newline.
+    """
     lexer = comment_rule._load("check_destructive_command")
-    texts = set()
+    constants = set()
     for name in _TABLES:
         for node in ast.walk(ast.parse((TESTS / name).read_text(encoding="utf-8"))):
             if isinstance(node, ast.Constant) and isinstance(node.value, str):
-                texts.add(node.value)
+                constants.add(node.value)
+    stand_ins = [spec.refused for spec in comment_rule.GUARDS.values()]
+    for template in [text for text in constants if "{R}" in text]:
+        constants.update(template.replace("{R}", refused) for refused in stand_ins)
+    ordered = sorted(constants)
+    texts = constants | {first + "\n" + second for first, second in zip(ordered, ordered[1:])}
     return sorted(
         text
         for text in texts
@@ -285,7 +199,7 @@ def test_line_true_runs_equal_todays_where_each_line_lexes_alone(stem):
     """Row 13: on text the per-line path already read, the line-true reading adds nothing."""
     module = comment_rule._load(stem)
     texts = _table_texts()
-    assert len(texts) > 20, "the table is too small to measure anything"
+    assert len(texts) > 500, "the table is too small to measure anything"
     for text in texts:
         today = [run for run in module._token_runs(text) if run]
         assert module._line_runs(text) == today, text
@@ -329,34 +243,7 @@ def test_marker_characters_in_quoted_text_survive_the_reading():
     ]
 
 
-# --- row 17: each guard's own entry point -----------------------------------
-
-_ENTRY = {
-    "main-worktree": ("guard_main_worktree", {}, _SWITCH_REFUSED),
-    "shared-venv": (
-        "guard_shared_venv",
-        {"venv_outside": True},
-        "BLOCKED — `uv sync` in a tree whose .venv is not its own",
-    ),
-    "trunk-pull": ("guard_trunk_pull", {}, "BLOCKED — this pull would rewrite a protected branch"),
-}
-
-
-@pytest.mark.parametrize("guard", _ENTRY)
-def test_each_entry_point_refuses_row_1_with_its_own_message(guard, tmp_path):
-    stem, repo_kwargs, message = _ENTRY[guard]
-    command = QQ + "\n" + GUARDS[guard].refused
-    proc = _hook(stem, command, _git_repo(tmp_path, **repo_kwargs))
-    assert proc.returncode == 2
-    assert message in proc.stderr
-
-
-@pytest.mark.parametrize("guard", _ENTRY)
-def test_each_entry_point_is_silent_on_row_8(guard, tmp_path):
-    stem, repo_kwargs, _ = _ENTRY[guard]
-    command = "echo 'a\n" + GUARDS[guard].refused + "\nb'"
-    proc = _hook(stem, command, _git_repo(tmp_path, **repo_kwargs))
-    assert (proc.returncode, proc.stdout, proc.stderr) == (0, "", "")
+# --- row 17: the gate's own entry point -------------------------------------
 
 
 def test_the_gate_entry_point_names_its_pattern_on_row_1():

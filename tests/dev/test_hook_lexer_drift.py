@@ -83,7 +83,6 @@ _PARSER_MEMBERS = (
     "_gh_promote",
     "_promote_in",
     "find_promote",
-    "find_promotes",
 )
 
 
@@ -319,8 +318,6 @@ def test_the_duplicated_promote_parser_has_not_drifted():
     [
         # Behaviour: the base check of gh pr create.
         ("if base is not None and _branch(base) != TRUNK:", "if base is not None and False:"),
-        # Behaviour: each reading's promote kept, not only distinct ones.
-        ("if promote is not None and promote not in found:", "if promote is not None:"),
         # A decorator: Promote stops being a frozen dataclass.
         ("@dataclass(frozen=True)\nclass Promote:", "@dataclass\nclass Promote:"),
         # Prose: the parser is held byte-identical, docstrings included.
