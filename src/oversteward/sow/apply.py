@@ -62,6 +62,8 @@ CO_AUTHOR = "Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 SKIPPED_FILES = frozenset({"inbox.md"})
 SKIPPED_DIRS = frozenset({"__pycache__"})
 
+NO_VERIFY_RULE_NOTE = "the target has no `make verify`; its pre-push hook is the full gate"
+
 __all__ = [
     "ABORTED",
     "DEPLOYED",
@@ -148,13 +150,38 @@ def _commit(git: GitCommand, worktree: Path, ctx: ContextPlan, date: str, copied
     return git.run(worktree, "commit", "-m", subject, "-m", body)
 
 
-def _run_verify(verify_runner, repo_root: Path, worktree: Path, log_path: Path) -> CommandResult:
-    """Borrow the target's environment, then run its own verify. Output to a file."""
+def _link_target_venv(repo_root: Path, worktree: Path) -> Path | None:
+    """Lend the worktree the target's `.venv`, so its commit hooks and verify can run.
+
+    Returns the link this call made, or None when the target has no venv or the
+    worktree already holds one. Only a link made here is ever removed.
+    """
     venv = repo_root / ".venv"
     link = worktree / ".venv"
-    if venv.exists() and not link.exists():
-        link.symlink_to(venv)
-    return verify_runner.verify(worktree, log_path)
+    if not venv.exists() or link.exists() or link.is_symlink():
+        return None
+    link.symlink_to(venv)
+    return link
+
+
+def _unlink_target_venv(link: Path | None) -> None:
+    """Remove the borrowed link itself; never anything behind it."""
+    if link is not None and link.is_symlink():
+        link.unlink()
+
+
+def _run_verify(verify_runner, worktree: Path, log_path: Path) -> tuple[bool, str]:
+    """The target's own verify, output to a file: (may push, note for the report).
+
+    A target with no `verify` rule may push, because its pre-push hook is then
+    its full gate and runs on that push. Only make's own "No rule" answer counts
+    as absent, never the repo's name; any other failure aborts.
+    """
+    if verify_runner.verify(worktree, log_path).ok:
+        return True, ""
+    if not verify_runner.has_verify_rule(worktree):
+        return True, NO_VERIFY_RULE_NOTE
+    return False, f"make verify failed — full output in {log_path}"
 
 
 def _blocked_outcome(ctx: ContextPlan, blocking) -> ContextOutcome:
@@ -188,12 +215,12 @@ def _deploy(
     committed = _commit(runners.git, worktree, ctx, date, copied)
     if not committed.ok:
         return ContextOutcome(ctx.context_id, ABORTED, names, f"commit failed: {committed.text}")
+    verify_note = ""
     if verify:
         log_path = reports_dir / f"{date}-{ctx.context_id}-verify.log"
-        verified = _run_verify(runners.verify, repo_root, worktree, log_path)
-        if not verified.ok:
-            detail = f"make verify failed — full output in {log_path}"
-            return ContextOutcome(ctx.context_id, ABORTED, names, detail)
+        may_push, verify_note = _run_verify(runners.verify, worktree, log_path)
+        if not may_push:
+            return ContextOutcome(ctx.context_id, ABORTED, names, verify_note)
     pushed = push_sync_branch(runners.git, worktree, ctx.sync_branch, ctx.branch)
     if not pushed.ok:
         return ContextOutcome(ctx.context_id, ABORTED, names, f"push failed: {pushed.text}")
@@ -202,6 +229,8 @@ def _deploy(
     title = f"oversteward sync {date}: canonical shared/scripts/dev/ family"
     url = runners.gh.create_pr(worktree, ctx.branch, ctx.sync_branch, title, body_path)
     detail = f"{len(copied)} member(s) onto {ctx.sync_branch}"
+    if verify_note:
+        detail = f"{detail}; {verify_note}"
     return ContextOutcome(ctx.context_id, DEPLOYED, names, detail, pr_url=url, shas=_shas(ctx))
 
 
@@ -246,7 +275,9 @@ def apply_context(
     if isinstance(opened, CommandResult):
         return ContextOutcome(ctx.context_id, ABORTED, (), f"worktree setup failed: {opened.text}")
     holder, worktree = opened
+    venv_link = None
     try:
+        venv_link = _link_target_venv(repo_root, worktree)
         return _deploy(
             ctx,
             worktree,
@@ -259,6 +290,7 @@ def apply_context(
     except SowError as exc:
         return ContextOutcome(ctx.context_id, ABORTED, (), str(exc))
     finally:
+        _unlink_target_venv(venv_link)
         runners.git.run(repo_root, "worktree", "remove", str(worktree))
         runners.git.run(repo_root, "worktree", "prune")
         shutil.rmtree(holder, ignore_errors=True)

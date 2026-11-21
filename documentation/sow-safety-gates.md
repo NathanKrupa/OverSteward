@@ -137,13 +137,14 @@ sow is additive.
 |---|---|
 | Fetch | `git fetch origin <branch>` in the target checkout. Refs only |
 | Worktree | `git worktree add -B oversteward/sync-YYYY-MM-DD <tmpdir> origin/<branch>` — a throwaway worktree, **never** a branch checkout in the resident tree |
+| Environment | Symlink the target's `.venv` into the worktree once it is cut, before the copy, commit and push, so the target's commit and push hooks find `.venv/bin/<tool>`. sow writes nothing in the target's `.venv` |
 | Copy | Byte-copy each deployable member; compare the written bytes against the source |
 | Stage | `git add -- <explicit paths>`. Never `git add -A` |
 | Commit | `oversteward sync: N canonical family member(s) (<date>)`, with the per-context report as the message body and a `Co-Authored-By` trailer. Hooks run |
-| Verify (opt-in) | With `--verify`: symlink the target's `.venv` into the worktree and run its `make verify`, redirected to a file under `reports/sow/`. The file is read; a failure aborts the context and names the log. Never `\| tail` |
+| Verify (opt-in) | With `--verify`: run the target's `make verify`, redirected to a file under `reports/sow/`. The file is read; a failure aborts the context and names the log. Never `\| tail`. A target where `make -n verify` answers make's own "No rule to make target 'verify'" is not a failure: the report says it has no `make verify` and that its pre-push hook is the full gate, and the push (which runs that hook) goes ahead. Detected from make's answer, never the repo's name |
 | Push | `push_sync_branch()` — refuses any branch not matching `oversteward/sync-*`, and refuses the registry `branch:` outright |
 | PR | `gh pr create --base <registry branch> --body-file <report>` |
-| Teardown | `git worktree remove` then `git worktree prune`; the temp holder is removed |
+| Teardown | Remove the `.venv` link sow made, then `git worktree remove` and `git worktree prune`; the temp holder is removed |
 | Auto-merge | **Never.** sow prints the `gh pr merge` line; Nathan reviews and merges |
 
 **Why a worktree.** The pinned contract said `git checkout -b` on the target

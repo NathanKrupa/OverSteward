@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -128,6 +129,26 @@ class MakeCommand:
         proc = subprocess.run(["make", "verify"], cwd=str(worktree), check=False, **_CAPTURE)
         log_path.write_text(proc.stdout + proc.stderr, encoding="utf-8")
         return CommandResult(proc.returncode == 0, proc.stdout, proc.stderr)
+
+    def has_verify_rule(self, worktree: Path) -> bool:
+        """False only when make itself says the tree has no `verify` rule.
+
+        Any other answer, a broken Makefile or a missing prerequisite among
+        them, reads as "has one", so the real `make verify` runs and its
+        failure aborts the context.
+        """
+        result = _run(["make", "-n", "verify"], worktree)
+        return result.ok or not names_no_verify_rule(result.text)
+
+
+#: GNU make's own message for a goal with no rule. "needed by" marks a missing
+#: prerequisite, which is a broken verify rule, not an absent one.
+_NO_VERIFY_RULE = re.compile(r"No rule to make target [`']verify'\.\s+Stop\.")
+
+
+def names_no_verify_rule(text: str) -> bool:
+    """Whether make's output says there is no rule for the `verify` goal."""
+    return _NO_VERIFY_RULE.search(text) is not None
 
 
 class SowLock:

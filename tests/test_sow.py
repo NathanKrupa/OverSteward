@@ -53,7 +53,14 @@ from oversteward.sow.plan import (
     sync_branch_for,
 )
 from oversteward.sow.render import render_plan
-from oversteward.sow.runners import CommandResult, GitCommand, SowError, SowLock
+from oversteward.sow.runners import (
+    CommandResult,
+    GitCommand,
+    MakeCommand,
+    SowError,
+    SowLock,
+    names_no_verify_rule,
+)
 
 TODAY = "2026-08-28"
 NOW = datetime(2026, 8, 28, 9, 0, tzinfo=UTC)
@@ -102,8 +109,9 @@ class FakeGh:
 
 
 class FakeVerify:
-    def __init__(self, ok: bool = True) -> None:
+    def __init__(self, ok: bool = True, has_rule: bool = True) -> None:
         self.ok = ok
+        self.has_rule = has_rule
         self.logs: list[str] = []
 
     def verify(self, worktree: Path, log_path: Path) -> CommandResult:
@@ -111,6 +119,9 @@ class FakeVerify:
         log_path.write_text("fake verify output\n", encoding="utf-8")
         self.logs.append(str(log_path))
         return CommandResult(self.ok, "fake verify output", "" if self.ok else "verify failed")
+
+    def has_verify_rule(self, worktree: Path) -> bool:
+        return self.has_rule
 
 
 class FakeRuff:
@@ -598,6 +609,174 @@ def test_a_failed_verify_aborts_the_context_and_keeps_the_log(
     assert "verify" in report.outcomes[0].detail
     assert gh.created == []
     assert list(reports.glob("*verify*"))
+
+
+# --------------------------------------------------------------------------
+# the target's own environment and gates
+
+
+def _hooked_venv(pickup_root: Path, tmp_path: Path) -> Path:
+    """Give the pickup a `.venv` tool and a pre-commit hook that refuses without it.
+
+    The hook runs at the commit's worktree root, as a target's hook does, and
+    records where it ran and what its `.venv` pointed at into `hook-seen`.
+    """
+    seen = tmp_path / "hook-seen"
+    tool = pickup_root / ".venv" / "bin" / "gatetool"
+    tool.parent.mkdir(parents=True)
+    tool.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    tool.chmod(0o755)
+    hook = pickup_root / ".git" / "hooks" / "pre-commit"
+    hook.write_text(
+        "#!/bin/sh\n"
+        f'printf "%s\\n%s\\n" "$(pwd)" "$(readlink .venv)" > "{seen}"\n'
+        '[ -x .venv/bin/gatetool ] || { echo "no gate runner found" >&2; exit 1; }\n'
+        "exec .venv/bin/gatetool\n",
+        encoding="utf-8",
+    )
+    hook.chmod(0o755)
+    return seen
+
+
+def _tree_state(root: Path) -> dict[str, tuple[bytes, int]]:
+    return {
+        str(path.relative_to(root)): (path.read_bytes(), path.stat().st_mtime_ns)
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+    }
+
+
+def test_a_commit_hook_that_needs_the_target_venv_commits_under_sow(
+    canon: Path, pickup: Path, tmp_path: Path
+):
+    _hooked_venv(pickup, tmp_path)
+    report, gh, _ruff, _reports = _apply(canon, pickup, tmp_path)
+    outcome = report.outcomes[0]
+    assert outcome.action == DEPLOYED, outcome.detail
+    assert "no gate runner found" not in outcome.detail
+    assert len(gh.created) == 1
+
+
+def test_the_commit_hook_sees_the_target_venv_through_the_worktree_link(
+    canon: Path, pickup: Path, tmp_path: Path
+):
+    seen = _hooked_venv(pickup, tmp_path)
+    _apply(canon, pickup, tmp_path, verify=True)
+    ran_in, link_target = seen.read_text(encoding="utf-8").splitlines()
+    assert Path(ran_in) != pickup
+    assert Path(link_target) == pickup / ".venv"
+
+
+def test_the_worktree_link_is_gone_and_the_target_venv_untouched_after_the_run(
+    canon: Path, pickup: Path, tmp_path: Path
+):
+    seen = _hooked_venv(pickup, tmp_path)
+    before = _tree_state(pickup / ".venv")
+    _apply(canon, pickup, tmp_path, verify=True)
+    ran_in = Path(seen.read_text(encoding="utf-8").splitlines()[0])
+    assert not (ran_in / ".venv").is_symlink()
+    assert not (ran_in / ".venv").exists()
+    assert _tree_state(pickup / ".venv") == before
+    assert (pickup / ".venv").is_dir() and not (pickup / ".venv").is_symlink()
+
+
+def test_a_target_with_no_verify_rule_is_pushed_and_says_its_push_hook_gates(
+    canon: Path, pickup: Path, tmp_path: Path
+):
+    report, gh, _ruff, _reports = _apply(
+        canon, pickup, tmp_path, verify=True, verify_runner=MakeCommand()
+    )
+    outcome = report.outcomes[0]
+    assert outcome.action == DEPLOYED, outcome.detail
+    assert "has no `make verify`" in outcome.detail
+    assert "pre-push hook is the full gate" in outcome.detail
+    assert len(gh.created) == 1
+    assert sync_branch_for(TODAY) in _git(pickup, "branch", "--list", "--remote")
+
+
+def _commit_makefile(pickup_root: Path, text: str) -> None:
+    _write(pickup_root, "Makefile", text)
+    _git(pickup_root, "add", "Makefile")
+    _git(pickup_root, "commit", "-qm", "makefile")
+    _git(pickup_root, "push", "-q", "origin", "main")
+
+
+def test_a_failing_verify_rule_still_aborts(canon: Path, pickup: Path, tmp_path: Path):
+    _commit_makefile(pickup, "verify:\n\tfalse\n")
+    report, gh, _ruff, _reports = _apply(
+        canon, pickup, tmp_path, verify=True, verify_runner=MakeCommand()
+    )
+    assert report.outcomes[0].action == ABORTED
+    assert "make verify failed" in report.outcomes[0].detail
+    assert gh.created == []
+    assert "oversteward/sync" not in _git(pickup, "branch", "--list", "--remote")
+
+
+def test_a_verify_rule_missing_a_prerequisite_aborts_rather_than_reading_as_absent(
+    canon: Path, pickup: Path, tmp_path: Path
+):
+    _commit_makefile(pickup, "verify: lint\n\ttrue\n")
+    report, gh, _ruff, _reports = _apply(
+        canon, pickup, tmp_path, verify=True, verify_runner=MakeCommand()
+    )
+    assert report.outcomes[0].action == ABORTED
+    assert "make verify failed" in report.outcomes[0].detail
+    assert gh.created == []
+
+
+def test_a_passing_verify_rule_pushes_without_the_no_verify_note(
+    canon: Path, pickup: Path, tmp_path: Path
+):
+    _commit_makefile(pickup, "verify:\n\ttrue\n")
+    report, gh, _ruff, _reports = _apply(
+        canon, pickup, tmp_path, verify=True, verify_runner=MakeCommand()
+    )
+    assert report.outcomes[0].action == DEPLOYED
+    assert "make verify" not in report.outcomes[0].detail
+    assert len(gh.created) == 1
+
+
+def test_a_failed_verify_with_a_rule_present_never_reads_as_absent(
+    canon: Path, pickup: Path, tmp_path: Path
+):
+    report, gh, _ruff, _reports = _apply(
+        canon, pickup, tmp_path, verify=True, verify_runner=FakeVerify(ok=False, has_rule=True)
+    )
+    assert report.outcomes[0].action == ABORTED
+    assert gh.created == []
+
+
+@pytest.mark.parametrize(
+    ("text", "absent"),
+    [
+        ("make: *** No rule to make target 'verify'.  Stop.", True),
+        ("make: *** No rule to make target `verify'.  Stop.", True),
+        ("make: *** No rule to make target 'lint', needed by 'verify'.  Stop.", False),
+        ("make: *** No rule to make target 'verify', needed by 'all'.  Stop.", False),
+        ("make: *** No rule to make target 'verify-fast'.  Stop.", False),
+        ("Makefile:3: *** missing separator.  Stop.", False),
+        ("", False),
+    ],
+)
+def test_only_makes_own_no_rule_for_verify_reads_as_absent(text: str, absent: bool):
+    assert names_no_verify_rule(text) is absent
+
+
+def test_make_reports_no_verify_rule_only_where_there_is_none(tmp_path: Path):
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    other = tmp_path / "other"
+    _write(other, "Makefile", "all:\n\ttrue\n")
+    present = tmp_path / "present"
+    _write(present, "Makefile", "verify:\n\ttouch ran\n")
+    echoing = tmp_path / "echoing"
+    _write(echoing, "Makefile", "verify:\n\t@echo \"No rule to make target 'verify'.  Stop.\"\n")
+    make = MakeCommand()
+    assert make.has_verify_rule(bare) is False
+    assert make.has_verify_rule(other) is False
+    assert make.has_verify_rule(present) is True
+    assert make.has_verify_rule(echoing) is True
+    assert not (present / "ran").exists()
 
 
 def test_a_failed_push_aborts_the_context(canon: Path, pickup: Path, tmp_path: Path):
