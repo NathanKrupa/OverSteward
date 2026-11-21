@@ -243,6 +243,17 @@ class TestQuotedSpans:
         assert _refused(line)
         assert _refused(self.HEREDOC_ONE + line + self.HEREDOC_TWO)
 
+    def test_a_fresh_line_stops_at_its_own_end(self):
+        """A pipe on the next line must not become the fresh line's last stage."""
+        line = 'pytest -q -k "a #b" | tail -5\necho x | grep y'
+        assert _refused(self.HEREDOC_ONE + line + self.HEREDOC_TWO)
+
+    def test_the_blanked_reading_blanks_double_quotes_too(self):
+        """A double quote the lexer mis-tracks, in text that lexes, before a pipeline."""
+        command = "echo \"$(echo 'say \"hi')\"; pytest -q | tail -5\ncat <<'EOF'\nit's\nEOF"
+        assert guard._lex(command) is not None, "the text must lex, or today's degrade reads it"
+        assert _refused(command)
+
     def test_a_line_after_a_continuation_inside_a_quoted_span(self):
         """The heredoc's quote runs on through a comment's backslash, as the lexer reads it."""
         line = 'pytest -q -k "a #b" | tail -5'
