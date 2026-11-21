@@ -236,6 +236,12 @@ def _deploy(
     return ContextOutcome(ctx.context_id, DEPLOYED, names, detail, pr_url=url, shas=_shas(ctx))
 
 
+def _ref_sha(git: GitCommand, repo_root: Path, ref: str) -> str | None:
+    """The commit a ref names, or None when it does not exist."""
+    found = git.run(repo_root, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}")
+    return found.out.strip() if found.ok else None
+
+
 def _open_worktree(
     git: GitCommand, repo_root: Path, ctx: ContextPlan
 ) -> tuple[Path, Path] | CommandResult:
@@ -252,6 +258,33 @@ def _open_worktree(
         shutil.rmtree(holder, ignore_errors=True)
         return added
     return holder, worktree
+
+
+def _close_worktree(git: GitCommand, repo_root: Path, holder: Path, worktree: Path) -> None:
+    """Remove the worktree's directory and then git's registration of it.
+
+    `git worktree remove` refuses a tree holding uncommitted or untracked files,
+    which an abort before the commit or a verify's residue leaves. The directory
+    is throwaway either way, so it is deleted, and only then can `prune` drop the
+    registration: prune skips an entry whose directory still exists.
+    """
+    git.run(repo_root, "worktree", "remove", str(worktree))
+    shutil.rmtree(holder, ignore_errors=True)
+    git.run(repo_root, "worktree", "prune")
+
+
+def _drop_unpushed_sync_branch(git: GitCommand, repo_root: Path, branch: str) -> None:
+    """Delete the sync branch this run created, unless origin holds its tip.
+
+    A pushed branch stays for `cleanup-merged` to delete after its PR merges. A
+    tracking ref at any other commit, left by an earlier sync of the same name,
+    does not count as pushed. The delete names the tip it read, and update-ref
+    refuses it if the branch has moved since.
+    """
+    tip = _ref_sha(git, repo_root, f"refs/heads/{branch}")
+    if tip is None or tip == _ref_sha(git, repo_root, f"refs/remotes/origin/{branch}"):
+        return
+    git.run(repo_root, "update-ref", "-d", f"refs/heads/{branch}", tip)
 
 
 def apply_context(
@@ -273,6 +306,7 @@ def apply_context(
         )
     repo_root = Path(ctx.repo_root or ".")
     reports_dir.mkdir(parents=True, exist_ok=True)
+    branch_existed = _ref_sha(runners.git, repo_root, f"refs/heads/{ctx.sync_branch}") is not None
     opened = _open_worktree(runners.git, repo_root, ctx)
     if isinstance(opened, CommandResult):
         return ContextOutcome(ctx.context_id, ABORTED, (), f"worktree setup failed: {opened.text}")
@@ -293,9 +327,9 @@ def apply_context(
         return ContextOutcome(ctx.context_id, ABORTED, (), str(exc))
     finally:
         _unlink_target_venv(venv_link)
-        runners.git.run(repo_root, "worktree", "remove", str(worktree))
-        runners.git.run(repo_root, "worktree", "prune")
-        shutil.rmtree(holder, ignore_errors=True)
+        _close_worktree(runners.git, repo_root, holder, worktree)
+        if not branch_existed:
+            _drop_unpushed_sync_branch(runners.git, repo_root, ctx.sync_branch)
 
 
 def audit_entry(outcome: ContextOutcome, now: datetime) -> dict:
