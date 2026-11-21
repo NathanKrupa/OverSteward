@@ -1010,6 +1010,36 @@ def test_a_stale_tracking_ref_of_the_same_name_does_not_read_as_pushed(
     assert _local_sync_branches(pickup) == []
 
 
+class BranchMovingGit(GitCommand):
+    """Real git that moves the branch to `moved_to` just before sow deletes it."""
+
+    def __init__(self, moved_to: str) -> None:
+        self.moved_to = moved_to
+
+    def run(self, cwd: Path, *args: str) -> CommandResult:
+        if args[:2] == ("update-ref", "-d"):
+            super().run(cwd, "update-ref", args[2], self.moved_to)
+        return super().run(cwd, *args)
+
+
+def test_a_sync_branch_that_moved_after_sow_read_its_tip_is_not_deleted(
+    canon: Path, pickup: Path, tmp_path: Path
+):
+    branch = sync_branch_for(TODAY)
+    moved_to = _git(pickup, "rev-parse", "main")
+    report, _gh, _ruff, _reports = _apply(
+        canon,
+        pickup,
+        tmp_path,
+        git=BranchMovingGit(moved_to),
+        verify=True,
+        verify_runner=FakeVerify(ok=False),
+    )
+    assert report.outcomes[0].action == ABORTED
+    assert _local_sync_branches(pickup) == [branch]
+    assert _git(pickup, "rev-parse", branch) == moved_to
+
+
 def test_an_abort_leaves_a_sync_branch_that_existed_before_the_run(
     canon: Path, pickup: Path, tmp_path: Path
 ):
