@@ -127,6 +127,263 @@ class _ShellLexer(shlex.shlex):
         pass
 
 
+# The nest-true text. Inside a double-quoted string the shell opens a fresh
+# quoting context in ``$( )``, backticks and ``${ }``, but ``_ShellLexer``
+# toggles on every double quote and so closes the outer string at the first
+# inner one. ``_nest_true`` gives the text back with each double quote inside
+# such a nested region preceded by an odd run of backslashes: the unchanged
+# lexer reads that as a literal quote and stays in its double-quote state to
+# the real closing quote. It vouches only for text it walked to the end with
+# the constructs it models, every context closed, and returns None for the
+# rest. Text with no nested quote comes back unchanged. Identical in every
+# Bash guard that lexes with ``shlex``: ``tests/dev/test_hook_lexer_drift.py``
+# compares the copies.
+_NEST_WORD_BREAKS = " \t\n;&|()<>"
+_NEST_DELIMITER = re.compile(r"[\w.-]+")
+_NEST_MAX_DEPTH = 64
+
+
+class _Unmodelled(Exception):
+    """A construct the nest-true scanner does not model, or a context left open."""
+
+
+class _NestScanner:
+    """One walk over ``text``, building its nest-true form in ``out``.
+
+    ``nested`` is True inside a substitution or expansion that sits in a
+    double-quoted string, where every double quote read is escaped. A heredoc
+    waits in ``heredocs`` for the line end of the code frame that named it.
+    """
+
+    def __init__(self, text: str) -> None:
+        self.text, self.i, self.out = text, 0, []
+        self.depth = self.frames = self.heredoc_frame = 0
+        self.heredocs: list[tuple[str, bool]] = []
+
+    def peek(self, offset: int = 0) -> str:
+        return self.text[self.i + offset : self.i + offset + 1]
+
+    def take(self, count: int = 1) -> None:
+        self.out.append(self.text[self.i : self.i + count])
+        self.i += count
+
+    def data(self, nested: bool) -> None:
+        """One character, a double quote escaped when ``nested`` and not already."""
+        if nested and self.peek() == '"':
+            run = 0
+            while self.text[self.i - run - 1 : self.i - run] == "\\":
+                run += 1
+            if run % 2 == 0:
+                self.out.append("\\")
+        self.take()
+
+    def quoted(self, nested: bool) -> None:
+        """One character inside quotes or an expansion, which must not end there."""
+        if not self.peek():
+            raise _Unmodelled("unclosed")
+        if self.peek() == "\n" and self.heredocs:
+            raise _Unmodelled("heredoc-placement")
+        self.data(nested)
+
+    def enter(self) -> int:
+        self.depth += 1
+        self.frames += 1
+        if self.depth > _NEST_MAX_DEPTH:
+            raise _Unmodelled("depth")
+        return self.frames
+
+    def code(self, nested: bool, closing: bool) -> None:
+        """Shell code, to the ``)`` closing its ``$(`` or, without ``closing``, to the end."""
+        frame = self.enter()
+        parens, word_start = 0, True
+        while self.peek() and not (closing and self.peek() == ")" and not parens):
+            char, start, word_start = self.peek(), word_start, False
+            if char == "\\":
+                word_start = start if self.peek(1) == "\n" else False
+                self.take(2)
+            elif char == "'":
+                self.single(nested)
+            elif char == '"':
+                self.double(nested)
+            elif char == "`":
+                self.backtick(nested)
+            elif char == "$":
+                self.dollar(nested, False)
+            elif self.text.startswith("<<", self.i):
+                self.heredoc(nested, frame)
+            elif char in "<>" and self.peek(1) == "(":
+                raise _Unmodelled("process-substitution")
+            elif start and char == "#":
+                while self.peek() not in ("", "\n"):
+                    self.data(nested)
+            elif closing and start and self.text.startswith("case", self.i) and (
+                self.peek(4) in _NEST_WORD_BREAKS
+            ):
+                raise _Unmodelled("case")
+            elif char == "\n" and self.heredocs:
+                if self.heredoc_frame != frame:
+                    raise _Unmodelled("heredoc-placement")
+                self.take()
+                self.bodies(nested)
+                word_start = True
+            else:
+                if closing and char in "()":
+                    parens += 1 if char == "(" else -1
+                self.take()
+                word_start = char in _NEST_WORD_BREAKS
+        if closing:
+            if not self.peek():
+                raise _Unmodelled("unclosed")
+            self.take()
+        elif self.heredocs:
+            raise _Unmodelled("heredoc-placement")
+        self.depth -= 1
+
+    def single(self, nested: bool) -> None:
+        self.take()
+        while self.peek() != "'":
+            self.quoted(nested)
+        self.take()
+
+    def double(self, nested: bool) -> None:
+        """A double-quoted string; what it holds is nested, its own quotes only if it is."""
+        self.enter()
+        self.data(nested)
+        while self.peek() != '"':
+            char = self.peek()
+            if char == "\\":
+                self.take(2)
+            elif char == "`":
+                self.backtick(True)
+            elif char == "$":
+                self.dollar(True, True)
+            else:
+                self.quoted(nested)
+        self.data(nested)
+        self.depth -= 1
+
+    def dollar(self, nested: bool, in_double: bool) -> None:
+        after = self.peek(1)
+        if after == "(" and self.peek(2) != "(":
+            self.take(2)
+            self.code(nested, True)
+        elif after == "{":
+            self.take(2)
+            self.parameter(nested)
+        elif after in ("(", "[") or (not in_double and after in ("'", '"')):
+            raise _Unmodelled("arithmetic" if after in ("(", "[") else "ansi-c-or-locale")
+        else:
+            self.take()
+
+    def parameter(self, nested: bool) -> None:
+        self.enter()
+        while self.peek() != "}":
+            char = self.peek()
+            if char in ("'", "{"):
+                raise _Unmodelled("parameter")
+            if char == "\\":
+                self.take(2)
+            elif char == '"':
+                self.double(nested)
+            elif char == "`":
+                self.backtick(nested)
+            elif char == "$":
+                self.dollar(nested, False)
+            else:
+                self.quoted(nested)
+        self.take()
+        self.depth -= 1
+
+    def backtick(self, nested: bool) -> None:
+        """A backtick substitution holding no substitution, heredoc or open quote."""
+        self.enter()
+        self.take()
+        quote = ""
+        while self.peek() != "`" or quote:
+            char = self.peek()
+            if (
+                char == "`"
+                or (char == "\\" and nested and self.peek(1) == '"')
+                or (char == "$" and self.peek(1) in ("(", "{", "[", "'", '"'))
+                or self.text.startswith("<<", self.i)
+            ):
+                raise _Unmodelled("backtick")
+            if char == "\\":
+                self.take(2)
+                continue
+            if char == quote:
+                quote = ""
+            elif not quote and char in ("'", '"'):
+                quote = char
+            self.quoted(nested)
+        self.take()
+        self.depth -= 1
+
+    def heredoc(self, nested: bool, frame: int) -> None:
+        """A ``<<`` redirect: only a quoted delimiter, whose body is never expanded."""
+        if self.text.startswith("<<<", self.i):
+            self.take(3)
+            return
+        if self.heredocs and self.heredoc_frame != frame:
+            raise _Unmodelled("heredoc-placement")
+        self.take(2)
+        strip = self.peek() == "-"
+        if strip:
+            self.take()
+        while self.peek() in (" ", "\t"):
+            self.take()
+        word, quote, quoted = [], "", False
+        while self.peek() and (quote or self.peek() not in _NEST_WORD_BREAKS):
+            char = self.peek()
+            if (quote and char == "\\") or char == "\n":
+                raise _Unmodelled("heredoc")
+            if char == "\\":
+                quoted = True
+                self.take()
+                word.append(self.peek())
+            elif char == quote:
+                quote = ""
+            elif not quote and char in ("'", '"'):
+                quote, quoted = char, True
+            else:
+                word.append(char)
+            self.data(nested)
+        delimiter = "".join(word)
+        if quote or not quoted or not _NEST_DELIMITER.fullmatch(delimiter):
+            raise _Unmodelled("heredoc")
+        self.heredocs.append((delimiter, strip))
+        self.heredoc_frame = frame
+
+    def bodies(self, nested: bool) -> None:
+        """Each waiting heredoc's body, through its delimiter line."""
+        for delimiter, strip in self.heredocs:
+            line = None
+            while line != delimiter:
+                if not self.peek():
+                    raise _Unmodelled("heredoc")
+                end = self.text.find("\n", self.i)
+                end = len(self.text) if end < 0 else end
+                line = self.text[self.i : end]
+                if not nested and ("'" in line or '"' in line):
+                    raise _Unmodelled("heredoc-quote")
+                while self.i < end:
+                    self.data(nested)
+                if self.peek():
+                    self.take()
+                line = line.lstrip("\t") if strip else line
+        self.heredocs = []
+
+
+def _nest_true(text: str) -> str | None:
+    """``text`` with each double quote nested in a double-quoted string escaped, or None."""
+    scanner = _NestScanner(text)
+    try:
+        scanner.code(False, False)
+    except _Unmodelled:
+        return None
+    return "".join(scanner.out)
+
+
 def _lex(text: str) -> list[str] | None:
     """``text`` as shell tokens, or None if a quote is left open."""
     lexer = _ShellLexer(text, posix=True, punctuation_chars=True)

@@ -30,6 +30,17 @@ _PARSER_HOOKS = (
 _SHELL_LEXER_HOOKS = (*_HOOKS, "guard_gate_pipe.py", "guard_endless_substitution.py")
 _SHELL_LEXER = "_ShellLexer"
 
+# The nest-true scanner, which every guard carrying ``_ShellLexer`` carries
+# beside it, in declaration order. Held byte-identical, docstrings included.
+_NEST_MEMBERS = (
+    "_NEST_WORD_BREAKS",
+    "_NEST_DELIMITER",
+    "_NEST_MAX_DEPTH",
+    "_Unmodelled",
+    "_NestScanner",
+    "_nest_true",
+)
+
 # The members of the duplicated block, in the order the guards declare them.
 _LEXER_MEMBERS = (
     "_SEPARATORS",
@@ -307,6 +318,64 @@ def test_the_shell_lexer_check_detects_a_mutated_copy(tmp_path):
     signatures = _shell_lexer_signatures([*paths, mutant])
     assert len(set(signatures.values())) == 2
     assert signatures[mutant] != signatures[paths[0]]
+
+
+def nest_signature(source: str) -> str:
+    """The nest-true scanner's code, docstrings included; a missing member raises."""
+    tree = ast.parse(source)
+    return "\n".join(ast.dump(_member(tree, name)) for name in _NEST_MEMBERS)
+
+
+def _nest_signatures(paths: list[Path]) -> dict[Path, str]:
+    return {path: nest_signature(path.read_text(encoding="utf-8")) for path in paths}
+
+
+def test_the_nest_true_scanner_has_not_drifted():
+    """Eight guards, sixteen files, one scanner."""
+    paths = _paths(_SHELL_LEXER_HOOKS)
+    assert len(paths) == 2 * 8
+    signatures = _nest_signatures(paths)
+    assert len(set(signatures.values())) == 1, (
+        "the DUPLICATE nest-true scanner has drifted between: "
+        + ", ".join(sorted(str(path) for path in signatures))
+    )
+
+
+@pytest.mark.parametrize(
+    ("anchor", "edit"),
+    [
+        # Behaviour: the odd-run rule escapes on an odd run instead.
+        ("if run % 2 == 0:", "if run % 2 == 1:"),
+        # Behaviour: a double quote's contents stop counting as nested.
+        ("self.dollar(True, True)", "self.dollar(nested, True)"),
+        # A constant: the depth cap moves.
+        ("_NEST_MAX_DEPTH = 64", "_NEST_MAX_DEPTH = 65"),
+        # Prose: the scanner is held byte-identical, docstrings included.
+        (
+            '"""One character inside quotes or an expansion, which must not end there."""',
+            '"""Reworded."""',
+        ),
+    ],
+)
+def test_the_nest_true_check_detects_one_edited_copy(tmp_path, anchor, edit):
+    """The negative fixture: edit one scanner copy and watch the comparison stop agreeing."""
+    paths = _paths(_SHELL_LEXER_HOOKS)
+    original = paths[-1].read_text(encoding="utf-8")
+    mutated = original.replace(anchor, edit, 1)
+    assert mutated != original, "the mutation anchor is gone — the fixture is inert"
+    mutant = tmp_path / "guard_drifted.py"
+    mutant.write_text(mutated, encoding="utf-8")
+
+    signatures = _nest_signatures([*paths, mutant])
+    assert len(set(signatures.values())) == 2
+    assert signatures[mutant] != signatures[paths[0]]
+
+
+def test_a_renamed_nest_true_member_is_reported_not_skipped():
+    source = _paths(_SHELL_LEXER_HOOKS)[0].read_text(encoding="utf-8")
+    renamed = source.replace("def _nest_true(", "def _nest_renamed(", 1)
+    with pytest.raises(LexerMemberMissing):
+        nest_signature(renamed)
 
 
 def test_every_guard_carrying_the_parser_is_present():
