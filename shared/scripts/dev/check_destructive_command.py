@@ -804,13 +804,54 @@ _HOOKSPATH_READ_OPTIONS = frozenset({
 
 # Places where this lexer can end an argv that the shell goes on feeding, so a
 # value could follow the key unseen: a brace standing alone (the lexer splits
-# on it; after a command word the shell passes it as an argument), a separator
-# character after a quote or a backslash (quoted or escaped, the lexer still
-# splits on it), and a line break other than a newline (``str.splitlines`` ends
-# a line there; the shell does not). A backtick is the fourth, tested on its own.
+# on it; after a command word the shell passes it as an argument), a line break
+# other than a newline (``str.splitlines`` ends a line there; the shell does
+# not), a separator token read from quoted or escaped text (see
+# :class:`_QuoteTrackingLexer`) and a backtick.
 _LONE_BRACE = re.compile(r"(?<![^\s\"'])[{}](?![^\s\"'])")
-_QUOTED_SEPARATOR = re.compile(r"[\"'\\][;&|(){}]")
-_FOREIGN_LINE_BREAKS = frozenset("\r\x0b\x0c\x1c\x1d\x1e\x85  ")
+_FOREIGN_LINE_BREAKS = frozenset("\r\x0b\x0c\x1c\x1d\x1e\x85\u2028\u2029")
+
+
+class _QuoteTrackingLexer(_ShellLexer):
+    """``_ShellLexer`` noting whether the token being read entered a quote or an escape.
+
+    ``shlex`` assigns ``state`` the quote or escape character each time it
+    enters one, so the setter sees every such entry. ``_lex`` treats a quoted
+    ``";"`` or an escaped ``\\;`` as the separator ``;``; the shell passes it on
+    as a word.
+    """
+
+    token_quoted = False
+
+    @property
+    def state(self) -> str | None:
+        return self._state
+
+    @state.setter
+    def state(self, value: str | None) -> None:
+        self._state = value
+        if value and (value in getattr(self, "quotes", "") or value in getattr(self, "escape", "")):
+            self.token_quoted = True
+
+
+def _quoted_separator(text: str) -> bool:
+    """True if a separator token of ``text`` was read from quoted or escaped text.
+
+    True as well when ``text`` cannot be lexed, so unlexable text is never
+    certified.
+    """
+    lexer = _QuoteTrackingLexer(text, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    try:
+        while True:
+            lexer.token_quoted = False
+            token = lexer.get_token()
+            if token is None:
+                return False
+            if token in _SEPARATORS and lexer.token_quoted:
+                return True
+    except ValueError:
+        return True
 
 
 def _hookspath_read(argv: list[str]) -> bool:
@@ -840,7 +881,7 @@ def _free_of_lexer_blind_spots(command: str, depth: int = 0) -> bool:
     if (
         _BACKTICK in command
         or _LONE_BRACE.search(command)
-        or _QUOTED_SEPARATOR.search(command)
+        or _quoted_separator(command)
         or not _FOREIGN_LINE_BREAKS.isdisjoint(command)
     ):
         return False

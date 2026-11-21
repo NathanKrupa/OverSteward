@@ -654,6 +654,10 @@ def test_wrapper_stripping_does_not_invent_a_command(hook):
         # A read with company.
         "git config core.hooksPath; ls .githooks",
         "hp=$(git config core.hooksPath || echo .git/hooks)",
+        # A separator character inside a quoted word, or after a closing quote,
+        # is no separator token read from quoted text.
+        'git config core.hooksPath; grep -n "marker\\|docs" .githooks/pre-push',
+        "gh api repos/o/r/pulls --jq '.[].number'; git config core.hooksPath",
         # The read grammar's edges.
         "git -C /home/natha/repo config --local --get core.hooksPath",
         "git config get core.hooksPath",
@@ -772,7 +776,7 @@ def test_hookspath_quoted_separator_still_denies(hook, cmd):
     [
         "git config core.hooksPath \r/srv/hooks",
         "git config core.hooksPath \x1c/srv/hooks",
-        "git config core.hooksPath  /srv/hooks",
+        "git config core.hooksPath \u2028/srv/hooks",
     ],
 )
 def test_hookspath_foreign_line_break_still_denies(hook, cmd):
