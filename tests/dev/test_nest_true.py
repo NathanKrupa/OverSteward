@@ -103,6 +103,7 @@ def _assert_as_bash_reads_it(text: str, root: Path) -> list[str]:
     rewritten = nest_true(text)
     assert rewritten is not None, "no vouch"
     words = block._lex(rewritten)
+    assert words is not None, "the lexer rejects the nest-true text"
     expected = _bash_words(text, root)
     assert expected is not None, "bash rejected the fixture"
     assert [_markers(word) for word in words] == [_markers(word) for word in expected]
@@ -515,6 +516,7 @@ def test_bash_and_the_lexer_agree_on_every_vouched_text(tmp_path):
         if rewritten is not None:
             seen["compared"] += 1
             words = block._lex(rewritten)
+            assert words is not None, "the lexer rejects the nest-true text"
             assert [_markers(word) for word in words] == [_markers(word) for word in expected]
     assert seen["unclosed"] > 30 and seen["compared"] > 10, seen
 
