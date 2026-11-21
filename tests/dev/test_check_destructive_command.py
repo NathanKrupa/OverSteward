@@ -761,6 +761,12 @@ def test_a_read_among_listed_reads_passes(hook, cmd):
         f"git -C /tmp/work rev-parse --git-dir && {_READ}",
         # Row 10: writes of the setting beside listed words.
         f"ls ; git config --unset {_KEY}",
+        f"ls ; git config --unset-all {_KEY}",
+        f"ls ; git config unset {_KEY}",
+        f"ls ; git config unset --all {_KEY}",
+        f"ls ; git config --edit {_KEY}",
+        f"ls ; git config -e {_KEY}",
+        f"ls ; git config --add {_KEY}",
         f"ls ; git config {_KEY} ''",
         f"ls ; git config {_KEY} /dev/null",
         f"ls && git -c {_KEY}=/dev/null commit -m x",
@@ -853,6 +859,8 @@ _CONSTRUCTS = (
     ('"$(echo "a b")"', {_AT_WORD}),
     ('$(echo "a b")', {_IN_QUOTES}),
     *((m, _UNQUOTED) for m in ("*", "?", "[ab]", "{a,b}", "~")),
+    # A hash inside a word is part of the word to the shell, never a comment.
+    *((m, {_INSIDE}) for m in ("#", "#;")),
     *((m, {_AT_WORD}) for m in ("{", "& echo x", ";; echo x", "|& head", "> out", ">> /dev/null")),
     *((m, {_AT_WORD}) for m in ("< in", "<< EOF", "<<< x", "&> /dev/null", ">| /dev/null")),
     *((m, {_AT_WORD}) for m in ("2> out", ">&3", ">&-", "<> f", '";"', "'&&'", "\\;", "\\&")),
