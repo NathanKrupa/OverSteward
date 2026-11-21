@@ -16,6 +16,8 @@ Two decision classes, checked in this priority order:
    never soften the decision to ``ask``. Placeholder dotenv files
    (``.env.example`` / ``.env.sample`` / ``.env.template`` / ``.env.dist``)
    carry no real values and are legitimately committed — they are carved out.
+   A read of ``core.hooksPath`` is no evasion, and is left out of this class
+   where the whole command consists of reads (``_only_reads``).
 
 2. **Destructive-but-sometimes-legitimate (``ask`` — confirm gate).**
    Encodes the pattern table of ``shared/skills/careful.md``: file-system
@@ -932,11 +934,14 @@ _HOOKSPATH_READ_OPTIONS = frozenset({
 # The characters of the whole command: printable ASCII, tabs and newlines.
 _READ_COMMAND_CHARS = frozenset(map(chr, range(0x20, 0x7F))) | frozenset("\t\n")
 # A plain token: read with no quote and no escape, and made only of these.
-# None of them is expanded or special to the shell inside a word.
+# None of them starts an expansion, a quote, a glob or a separator.
 _PLAIN_CHARS = frozenset(string.ascii_letters + string.digits + "_-./,:=@%+")
 # A quoted argument: read with a quote or an escape, and made only of these.
 # The dollar sign and the backtick are not among them, quoted or not, so no
 # parameter, command or arithmetic expansion can appear in such a command.
+# The glob characters stay literal inside quotes; in a token quoted only in
+# part they may match file names, which become arguments of a word that only
+# reads. The read itself takes plain tokens only.
 _QUOTED_CHARS = _PLAIN_CHARS | frozenset(" |\\[]()^*?")
 # The tokens that may separate two commands, each read with no quote and no
 # escape. A line end separates too.
@@ -944,9 +949,11 @@ _READ_SEPARATORS = frozenset({";", "&&", "||", "|"})
 # The one redirection family: each operator token and the plain tokens it may
 # be followed by.
 _READ_REDIRECTIONS = {">": frozenset({"/dev/null"}), ">&": frozenset({"1", "2"})}
-# The first words a command beside the read may have. Each reads only the
-# files and text it is given: none, whatever its arguments, writes a file,
-# assigns a variable by name or runs another program.
+# The first words a command beside the read may have. Each only reads, prints
+# or changes the working directory: none, whatever its arguments, writes a
+# file, assigns a variable it is given the name of, or runs another program.
+# That is a reading of each program's options, not something a test shows.
+# ``git rev-parse`` is not here: ``--help`` makes git run ``man``.
 _READ_ONLY_WORDS = frozenset({"cd", "ls", "cat", "head", "grep", "echo"})
 
 
@@ -991,8 +998,9 @@ def _tagged_tokens(line: str) -> list[tuple[str, bool]] | None:
 def _hookspath_read(argv: list[str]) -> bool:
     """True if ``argv`` is a read of ``core.hooksPath`` in the grammar above.
 
-    ``DIR`` must not read as an option. That it is a plain token is
-    :func:`_is_hookspath_read_command`'s test, which every withheld read passes.
+    ``DIR`` must not read as an option. In a command that passes
+    :func:`_only_reads`, every read the shell runs is a command of plain
+    tokens (:func:`_is_hookspath_read_command`), ``DIR`` among them.
     """
     if not argv or argv[0] != _GIT or argv[-1].lower() != _HOOKSPATH_KEY:
         return False

@@ -704,6 +704,7 @@ _ALSO_PASSING = (
 def test_a_read_among_listed_reads_passes(hook, cmd):
     assert _today(hook, cmd) is not None, "the table with nothing withheld holds it"
     assert _verdict(hook, cmd) is None
+    assert hook._all_argvs(cmd, False) == hook._all_argvs(cmd, True), "both readings agree"
 
 
 @pytest.mark.parametrize(
