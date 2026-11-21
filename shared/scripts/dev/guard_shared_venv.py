@@ -385,9 +385,9 @@ def _unlexable_verb(command: str) -> str | None:
     return None
 
 
-def mutating_verb(command: str) -> str | None:
+def mutating_verb(command: str, line_true: bool = False) -> str | None:
     """The env-mutating uv verb ``command`` invokes, or None if it invokes none."""
-    invocations = _invocations(command)
+    invocations = _invocations(command, line_true)
     if invocations is None:
         return _unlexable_verb(command)
     for assignments, argv in invocations:
@@ -425,7 +425,7 @@ def venv_is_shared(tree_root: str) -> bool:
     return shared_venv_target(tree_root) is not None
 
 
-def has_override(command: str) -> bool:
+def has_override(command: str, line_true: bool = False) -> bool:
     """True if the override is exported, or set as a leading assignment on ``command``.
 
     Reading it off the invocation's own assignments — not as a substring — is
@@ -434,7 +434,7 @@ def has_override(command: str) -> bool:
     """
     if os.environ.get(_OVERRIDE_VAR) == "1":
         return True
-    for assignments, argv in _invocations(command) or []:
+    for assignments, argv in _invocations(command, line_true) or []:
         if argv[:1] == ["uv"] and f"{_OVERRIDE_VAR}=1" in assignments:
             return True
     return False
@@ -446,9 +446,22 @@ def blocked_venv(command: str, tree_root: str) -> str | None:
     Returning the venv rather than a bare verdict lets the refusal name the tree
     that actually owns the environment, which is the whole point of the message.
     """
-    if not is_env_mutating(command) or has_override(command):
+    if held_verb(command) is None:
         return None
     return shared_venv_target(tree_root)
+
+
+def held_verb(command: str) -> str | None:
+    """The first mutating verb some reading holds without that reading's override.
+
+    Each reading is decided on its own: an overridden verb one reading makes
+    visible must not clear a verb the other reading holds without one.
+    """
+    for line_true in _readings(command):
+        verb = mutating_verb(command, line_true)
+        if verb is not None and not has_override(command, line_true):
+            return verb
+    return None
 
 
 # Verb-specific remedy, shown when the same work has a cheaper route than the
@@ -506,10 +519,10 @@ def main() -> int:
     if event.get("tool_name") != "Bash":
         return 0
     command = (event.get("tool_input") or {}).get("command", "") or ""
-    verb = mutating_verb(command)
+    verb = held_verb(command)
     if verb is None:
         return 0  # the cheap check first — most commands never reach git
-    target = blocked_venv(command, _tree_root(event.get("cwd") or os.getcwd()))
+    target = shared_venv_target(_tree_root(event.get("cwd") or os.getcwd()))
     if target is None:
         return 0
     sys.stderr.write(refusal_message(verb, target))

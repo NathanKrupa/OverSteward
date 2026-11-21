@@ -628,6 +628,7 @@ class _Context:
     cwd: str
     environ: Mapping[str, str]
     read_checkout: ReadCheckout
+    line_true: bool = False
 
     def gh_repo(self) -> str | None:
         return _assigned(self.assignments, GH_REPO_VAR) or self.environ.get(GH_REPO_VAR)
@@ -709,6 +710,7 @@ def _promote_in(argv: list[str], ctx: _Context) -> Promote | None:
             environ=ctx.environ,
             read_checkout=ctx.read_checkout,
             inherited=ctx.assignments,
+            line_true=ctx.line_true,
         )
     return _gh_promote(argv, ctx)
 
@@ -720,21 +722,38 @@ def find_promote(
     environ: Mapping[str, str],
     read_checkout: ReadCheckout,
     inherited: list[str] | None = None,
+    line_true: bool = False,
 ) -> Promote | None:
     """The first staging→main promote on a ``PROMOTE_REPOS`` repo ``command`` would run.
 
     None when it runs none. ``inherited`` is the environment prefix of the
     shell running ``command``, which every command inside it receives.
+    ``line_true`` selects the reading, and a nested script is read under it.
     """
-    for assignments, argv in _invocations(command) or []:
+    for assignments, argv in _invocations(command, line_true) or []:
         argv, run_assignments, run_cwd = _unwrap(argv, [*(inherited or []), *assignments], cwd)
         if not argv:
             continue
-        found = _promote_in(argv, _Context(run_assignments, run_cwd, environ, read_checkout))
+        ctx = _Context(run_assignments, run_cwd, environ, read_checkout, line_true)
+        found = _promote_in(argv, ctx)
         if found is not None:
             return found
         cwd = _next_cwd(argv, cwd)
     return None
+
+
+def find_promotes(
+    command: str, cwd: str, *, environ: Mapping[str, str], read_checkout: ReadCheckout
+) -> list[Promote]:
+    """The first promote under each reading, today's first, each from ``cwd``; distinct."""
+    found: list[Promote] = []
+    for line_true in _readings(command):
+        promote = find_promote(
+            command, cwd, environ=environ, read_checkout=read_checkout, line_true=line_true
+        )
+        if promote is not None and promote not in found:
+            found.append(promote)
+    return found
 
 
 # ---------------------------------------------------------------------------
@@ -816,11 +835,31 @@ def evaluate(
     list_red_issues: ListRedIssues,
     post_comment: PostComment,
 ) -> tuple[int, str]:
-    """(exit code, stderr text) for ``command`` run from ``cwd``. 2 refuses, 0 allows."""
-    promote = find_promote(command, cwd, environ=environ, read_checkout=read_checkout)
-    if promote is None:
-        return 0, ""
-    repos = [promote.repo] if promote.repo is not None else sorted(PROMOTE_REPOS)
+    """(exit code, stderr text) for ``command`` run from ``cwd``. 2 refuses, 0 allows.
+
+    Each reading's first promote is decided on its own, those without a reason
+    first: a refusal of any stands, and the first with a reason decides the rest,
+    so an override is recorded at most once.
+    """
+    promotes = find_promotes(command, cwd, environ=environ, read_checkout=read_checkout)
+    for promote in sorted(promotes, key=_has_reason):
+        code, message = _verdict(
+            promote, list_red_issues=list_red_issues, post_comment=post_comment
+        )
+        if code or _has_reason(promote):
+            return code, message
+    return 0, ""
+
+
+def _has_reason(promote: Promote) -> bool:
+    return bool((promote.override or "").strip())
+
+
+def _verdict(
+    promote: Promote, *, list_red_issues: ListRedIssues, post_comment: PostComment
+) -> tuple[int, str]:
+    """(exit code, stderr text) for one promote."""
+    repos =[promote.repo] if promote.repo is not None else sorted(PROMOTE_REPOS)
     reason = (promote.override or "").strip()
     note = _EMPTY_OVERRIDE if promote.override is not None and not reason else ""
     try:

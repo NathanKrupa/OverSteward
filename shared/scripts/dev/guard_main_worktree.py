@@ -367,12 +367,24 @@ def _unlexable_branch_switch(command: str) -> bool:
     return not (_FILE_RESTORE.search(command) or _RESTORE.search(command))
 
 
-def is_branch_switch(command: str) -> bool:
+def is_branch_switch(command: str, line_true: bool = False) -> bool:
     """True if ``command`` switches or creates a branch (not a file restore)."""
-    invocations = _invocations(command)
+    invocations = _invocations(command, line_true)
     if invocations is None:
         return _unlexable_branch_switch(command)
     return any(_is_branch_op(argv) for _assignments, argv in invocations)
+
+
+def refuses(command: str) -> bool:
+    """True if some reading holds a branch switch without that reading's override.
+
+    Each reading is decided on its own: an overridden switch one reading makes
+    visible must not clear a switch the other reading holds without one.
+    """
+    return any(
+        is_branch_switch(command, line_true) and not has_override(command, line_true)
+        for line_true in _readings(command)
+    )
 
 
 def in_main_worktree(git_dir: str) -> bool:
@@ -404,7 +416,7 @@ def _inline_override(assignments: list[str]) -> bool:
     return False
 
 
-def has_override(command: str) -> bool:
+def has_override(command: str, line_true: bool = False) -> bool:
     """True if an override var is set — in the real environment or as a
     genuine leading assignment on the guarded git command.
 
@@ -415,7 +427,7 @@ def has_override(command: str) -> bool:
     """
     if any(os.environ.get(var) == "1" for var in _OVERRIDE_VARS):
         return True
-    invocations = _invocations(command)
+    invocations = _invocations(command, line_true)
     if invocations is None:
         return bool(_OVERRIDE_PREFIX.search(command))
     return any(
@@ -448,9 +460,7 @@ def main() -> int:
     if in_remote_container(os.environ):
         return 0
     command = (event.get("tool_input") or {}).get("command", "") or ""
-    if not is_branch_switch(command):
-        return 0
-    if has_override(command):
+    if not refuses(command):
         return 0
     cwd = event.get("cwd") or os.getcwd()
     if not in_main_worktree(_git_dir(cwd)):
