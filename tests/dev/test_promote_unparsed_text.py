@@ -126,6 +126,7 @@ ALLOWED = {
                           "Next time pass --base main\nsay \" here\nEOF\n)\"",
                           seam(here=(GS_ORIGIN, "fix/x"))),
     "a1-ordinary": (API + " -f base=staging -f head=fix/x" + API_BODY + " -f title=t", None),
+    "a1-own-base-read": (API + " -f base=staging -f head=staging" + API_BODY, None),
     "mp-ordinary": (GS_CALL + " --title t" + NESTED + " --base staging --head fix/x", None),
 }
 
@@ -203,6 +204,15 @@ def test_b2_an_unwritten_base_on_aigranthelper_is_its_default_main():
     command = "gh pr create --repo NathanKrupa/aigranthelper --head staging --title t" + BODY
     assert_refused(GUARDS["ci-red"], decide(GUARDS["ci-red"], command))
     assert_allowed_unlooked(decide(GUARDS["cadence"], command))
+
+
+def test_w_two_watched_repos_written_could_be_either():
+    """ci-red: W names both repos, so the call's repo is unread and both are looked up."""
+    command = ("gh pr create --head staging --title t --repo NathanKrupa/grantspider" + BODY
+               + " --repo NathanKrupa/aigranthelper")
+    outcome = decide(GUARDS["ci-red"], command, seam(here=(OS_ORIGIN, "master")))
+    assert_refused(GUARDS["ci-red"], outcome)
+    assert outcome.lookups == 2
 
 
 # --- row 12: the override, read from the promote's own prefix ------------------
