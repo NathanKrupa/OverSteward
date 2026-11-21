@@ -275,6 +275,68 @@ class TestQuotedSpans:
         assert not _refused("pytest -k 'a | tail'\necho done")
 
 
+class TestBlankedReadingKeepsOneLineQuotes:
+    """The blanked reading blanks only a quote the lexer saw cross a line end or never close.
+
+    MQ, a quoted text spanning lines elsewhere in the command, is what brings the
+    blanked reading in. A quote that opens and closes on one line then reads as it
+    does in a single-line command.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _no_session_override(self, monkeypatch):
+        monkeypatch.delenv("CLAUDE_ALLOW_GATE_PIPE", raising=False)
+
+    MQ = "git commit -m 'one\ntwo'"
+    ALTERNATION = "grep -E 'ok|gaudi' log.txt | head -3"
+    QUOTED_COMMAND = ".venv/bin/python mut.py f.md 'pytest -q | tail -5'"
+    SUBSTITUTION = 'out="$(pytest -q | tail -5)"'
+    MISTRACKED_PAIR = """echo "$(echo "it's")"; pytest -q | tail -5; echo "$(echo "it's")\""""
+
+    def test_a_quoted_alternation_naming_a_gate_beside_a_multi_line_quote(self):
+        assert not _refused(f"{self.MQ}\n{self.ALTERNATION}")
+        assert not _refused(f"{self.ALTERNATION}\n{self.MQ}")
+
+    def test_a_quoted_command_string_passed_as_an_argument_beside_a_multi_line_quote(self):
+        assert not _refused(f"{self.MQ}\n{self.QUOTED_COMMAND}")
+
+    def test_the_same_lines_alone_are_allowed(self):
+        """A pin: without a multi-line quote the blanked reading never runs."""
+        assert not _refused(self.ALTERNATION)
+        assert not _refused(self.QUOTED_COMMAND)
+
+    def test_a_pattern_inside_a_quote_held_across_lines_stays_refused(self):
+        """The heredocs' apostrophes make the pattern's quotes ends of spans that cross lines."""
+        heredoc_one = "cat > a.md <<'EOF'\nit's one\nEOF\n"
+        heredoc_two = "\ncat > b.md <<'EOF'\nit's two\nEOF"
+        assert _refused(heredoc_one + self.ALTERNATION + heredoc_two)
+
+    def test_a_quoted_substitution_reads_as_it_does_alone(self):
+        """The stated extent: the shell runs this pipeline, and the guard does not read it alone."""
+        assert not _refused(self.SUBSTITUTION)
+        assert not _refused(f"{self.MQ}\n{self.SUBSTITUTION}")
+
+    def test_a_pipeline_between_a_mistracked_pair_on_one_line_reads_as_it_does_alone(self):
+        """The stated extent: the lexer pairs the two apostrophes, on one line, as it does alone."""
+        assert not _refused(self.MISTRACKED_PAIR)
+        assert not _refused(f"{self.MISTRACKED_PAIR}\n{self.MQ}")
+
+    def test_a_mistracked_pair_after_a_multi_line_quote_is_still_read_by_the_fresh_line(self):
+        """A pin: the fresh reading of the quote's last line pairs its closing quote anew."""
+        assert _refused(f"{self.MQ}\n{self.MISTRACKED_PAIR}")
+
+    def test_a_double_quoted_pattern_continued_across_a_line_stays_refused(self):
+        """A backslash-newline inside double quotes is a line end the quote crossed."""
+        command = 'grep -E "ok|gaudi \\\n" log.txt | head -3'
+        assert _refused(command)
+
+    def test_the_whole_suspect_span_is_blanked_through_its_closing_quote(self):
+        """Every quote character from the opening through the closing, both kinds."""
+        text = "a 'b \"c\nd' \"e\" f"
+        reading = guard._read_lines(text, "\x1c", "\x1d")
+        assert guard._blank_suspect_quotes(text, reading.quote_spans) == 'a  b  c\nd  "e" f'
+
+
 class TestLineReadingKeepsTodaysReading:
     @pytest.fixture(autouse=True)
     def _no_session_override(self, monkeypatch):
