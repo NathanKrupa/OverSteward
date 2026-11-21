@@ -164,7 +164,9 @@ def test_quote_characters_as_nested_data_keep_the_string_whole(tmp_path, text):
 def test_a_newline_inside_a_nested_quote_ends_no_command():
     text = 'echo "$(echo "@1@\n@2@")" ; true'
     assert len(block._line_runs(text)) == 2, "today a command end sits at that newline"
-    runs = block._line_runs(nest_true(text))
+    rewritten = nest_true(text)
+    assert rewritten is not None, "no vouch"
+    runs = block._line_runs(rewritten)
     assert runs == [["echo", '$(echo "@1@\n@2@")', ";", "true"]]
 
 
@@ -176,7 +178,9 @@ def test_the_pipe_guard_sees_a_real_quote_cross_its_line():
     line_end, continuation = gate_pipe._MARKER_CANDIDATES[:2]
     today = gate_pipe._read_lines(text, line_end, continuation)
     assert today.quoted_line_starts == [], "today no line begins inside quotes"
-    reading = gate_pipe._read_lines(nest_true(text), line_end, continuation)
+    rewritten = nest_true(text)
+    assert rewritten is not None, "no vouch"
+    reading = gate_pipe._read_lines(rewritten, line_end, continuation)
     assert not reading.failed
     assert len(reading.quoted_line_starts) == 1
 
@@ -195,7 +199,9 @@ def test_a_double_quoted_string_in_an_unquoted_substitution_keeps_its_nesting(tm
     text = f"echo $(printf '%s' {inner})"
     alone = _assert_as_bash_reads_it(inner, tmp_path)
     assert alone[0] not in block._lex(text), "today the inner string is split"
-    assert alone[0] in block._lex(nest_true(text))
+    rewritten = nest_true(text)
+    assert rewritten is not None, "no vouch"
+    assert alone[0] in block._lex(rewritten)
 
 
 # -- Row 7: the commit-message shape -----------------------------------------
@@ -280,7 +286,7 @@ def test_a_tab_stripped_heredoc_ends_at_its_indented_delimiter(tmp_path):
         "echo \"$(cat <<'A' $(cat <<'B'\nA\nB\n)\n)\"",
         "echo \"$(cat <<'E\nF' a\nE\nF\n)\"",
         "echo \"$(cat <<'E/F'\na\nE/F\n)\"",
-        "echo \"$(cat <<'E\\F'\na\nE\\F\n)\"",
+        "echo \"$(cat <<'E\\F'\nEF\n)\"",
         "echo \"${U:-'a'}\"",
         'echo "${U:-{a}}"',
         'echo "${U:-a"',
