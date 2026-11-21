@@ -339,11 +339,32 @@ class TestBlankedReadingKeepsOneLineQuotes:
         line = "pytest -q 'x \"y | tail -5"
         assert _refused(f"{X}\n{line}")
 
+    def test_a_pair_on_a_line_the_lexer_began_inside_quotes_is_suspect(self):
+        """The pair's phase comes from the quote that ran into the line, so it is blanked too.
+
+        Kept, it would glue the redirected gate to the later filter pipeline: the
+        lexer pairs the quote that closes the marker expression with the one
+        that opens the pattern.
+        """
+        command = (
+            "cat <<'EOF'\nsay \"hi\nEOF\n"
+            "pytest -q -m \"not slow\" > out.txt 2>&1; grep -E \"^FAILED|passed\" out.txt | head -5"
+        )
+        assert not _refused(command)
+
+    def test_a_continued_line_is_still_the_line_the_lexer_began_inside_quotes(self):
+        """Only a line end outside quotes starts a line the lexer can vouch for, not a continuation."""
+        command = (
+            "cat <<'EOF'\nsay \"hi\nEOF\n"
+            "pytest -q -m \"not slow \\\n\" > out.txt 2>&1; grep -E \"^FAILED|passed\" out.txt | head -5"
+        )
+        assert not _refused(command)
+
     def test_the_whole_suspect_span_is_blanked_through_its_closing_quote(self):
         """Every quote character from the opening through the closing, both kinds."""
-        text = "a 'b \"c\nd' \"e\" f"
+        text = "a 'b \"c\nd' x\n\"e\" f"
         reading = guard._read_lines(text, "\x1c", "\x1d")
-        assert guard._blank_suspect_quotes(text, reading.quote_spans) == 'a  b  c\nd  "e" f'
+        assert guard._blank_suspect_quotes(text, reading.quote_spans) == 'a  b  c\nd  x\n"e" f'
 
 
 class TestLineReadingKeepsTodaysReading:
