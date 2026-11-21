@@ -850,7 +850,12 @@ def test_make_reports_no_verify_rule_only_where_there_is_none(tmp_path: Path):
     present = tmp_path / "present"
     _write(present, "Makefile", "verify:\n\ttouch ran\n")
     echoing = tmp_path / "echoing"
-    _write(echoing, "Makefile", "verify:\n\t@echo \"No rule to make target 'verify'.  Stop.\"\n")
+    # A `+` line runs even under -n, so a passing dry run prints make's exact words.
+    _write(
+        echoing,
+        "Makefile",
+        "verify:\n\t+@echo \"make: *** No rule to make target 'verify'.  Stop.\"\n",
+    )
     make = MakeCommand()
     assert make.has_verify_rule(bare) is False
     assert make.has_verify_rule(other) is False
