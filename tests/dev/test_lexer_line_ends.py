@@ -14,24 +14,106 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
+from tests.dev import test_guard_promote_cadence as cadence_tests
+from tests.dev import test_guard_promote_ci_red as ci_red_tests
 from tests.dev import test_lexer_comment_rule as comment_rule
 
 DEV = comment_rule.DEV
 TESTS = Path(__file__).resolve().parent
 QQ = "echo 'a\nb'"
-# The comment-rule table's stand-in and decider for each guard decided here.
-GUARDS = {name: comment_rule.GUARDS[name] for name in ("gate-deny", "gate-ask")}
+_OVERRIDES = (
+    "CLAUDE_ALLOW_MAIN_GIT",
+    "GS_ALLOW_MAIN_GIT",
+    "CLAUDE_ALLOW_SHARED_VENV_MUTATION",
+    "UV_NO_SYNC",
+    "CLAUDE_CODE_REMOTE_ENVIRONMENT_TYPE",
+)
+# Each guard's own override prefix, for the rows that put one on a later line.
+OVERRIDE = {
+    "main-worktree": "CLAUDE_ALLOW_MAIN_GIT=1 ",
+    "shared-venv": "CLAUDE_ALLOW_SHARED_VENV_MUTATION=1 ",
+    "trunk-pull": "CLAUDE_ALLOW_MAIN_GIT=1 ",
+}
+_SWITCH_REFUSED = "BLOCKED — branch checkout/switch in the shared main worktree"
+
+
+@pytest.fixture(autouse=True)
+def _no_overrides(monkeypatch):
+    """A session's own override must not decide a fixture."""
+    for name in _OVERRIDES:
+        monkeypatch.delenv(name, raising=False)
+
+
+def _clean_env() -> dict[str, str]:
+    return {key: value for key, value in os.environ.items() if key not in _OVERRIDES}
+
+
+def _git_repo(root: Path, *, venv_outside: bool = False) -> Path:
+    """A primary checkout on ``main`` with one commit; optionally a borrowed ``.venv``."""
+    repo = root / "repo"
+    if repo.exists():
+        return repo
+    repo.mkdir()
+    git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.test"]
+    subprocess.run([*git, "init", "-q", "-b", "main"], check=True)
+    subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", "x"], check=True)
+    if venv_outside:
+        (root / "primary-venv").mkdir()
+        (repo / ".venv").symlink_to(root / "primary-venv")
+    return repo
+
+
+def _hook(stem: str, command: str, cwd: Path) -> subprocess.CompletedProcess[str]:
+    """The guard run as Claude Code runs it, on ``command`` from ``cwd``."""
+    event = {"tool_name": "Bash", "cwd": str(cwd), "tool_input": {"command": command}}
+    proc = subprocess.run(
+        [sys.executable, str(DEV / f"{stem}.py")],
+        input=json.dumps(event),
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+        cwd=cwd,
+        env=_clean_env(),
+    )
+    assert "Traceback" not in proc.stderr
+    return proc
+
+
+def _worktree_refuses(command: str, tmp_path: Path) -> bool:
+    """The worktree guard end to end, from a primary checkout."""
+    proc = _hook("guard_main_worktree", command, _git_repo(tmp_path))
+    assert proc.returncode in (0, 2)
+    return proc.returncode == 2 and _SWITCH_REFUSED in proc.stderr
+
+
+# The comment-rule table's stand-in and decider for each guard; the worktree
+# guard is driven through its entry point, where its two readings are decided.
+GUARDS = {
+    name: comment_rule.GUARDS[name]
+    for name in (
+        "gate-deny",
+        "gate-ask",
+        "shared-venv",
+        "trunk-pull",
+        "promote-cadence",
+        "promote-ci-red",
+    )
+}
+GUARDS["main-worktree"] = comment_rule.Guard("git checkout feature", _worktree_refuses)
 
 
 def _decide(guard: str, template: str, tmp_path: Path) -> bool:
     spec = GUARDS[guard]
-    return spec.decide(template.format(R=spec.refused, QQ=QQ), tmp_path)
+    filled = template.format(R=spec.refused, O=OVERRIDE.get(guard, ""), QQ=QQ)
+    return spec.decide(filled, tmp_path)
 
 
 # --- row 1 and its controls -------------------------------------------------
@@ -91,6 +173,7 @@ def test_a_text_tool_line_does_not_stand_down_a_glued_statement(tmp_path):
 
 _CONTINUED = {
     "gate-deny": "git commit --no-ver\\\nify -m x",
+    "main-worktree": "git check\\\nout feature",
 }
 
 
@@ -112,7 +195,7 @@ def test_a_line_inside_a_closed_quote_is_not_a_command(guard, tmp_path):
     assert _decide(guard, "echo 'a\n{R}\nb'", tmp_path) is False
 
 
-@pytest.mark.parametrize("guard", ["gate-deny"])
+@pytest.mark.parametrize("guard", ["gate-deny", "promote-cadence", "promote-ci-red"])
 def test_a_script_handed_to_a_shell_is_read_under_the_same_reading(guard, tmp_path):
     """Row 10: the ``-c`` script's later line is a command of its own too."""
     assert _decide(guard, 'bash -c "{QQ}\n{R}"', tmp_path) is True
@@ -129,6 +212,62 @@ def test_a_body_line_the_lexer_holds_unquoted_is_held(guard, tmp_path):
     """Row 12, a recorded cost: a body line between two of its own quote characters."""
     body = "{QQ}\ncat <<'EOF'\nit's\nthat's\n{R}\nwon't\nEOF\necho '"
     assert _decide(guard, body, tmp_path) is True
+
+
+# --- rows 4, 9 and 11: overrides and directories, reading by reading --------
+
+
+@pytest.mark.parametrize("guard", ["main-worktree", "trunk-pull", "shared-venv"])
+def test_an_override_on_a_later_line_does_not_clear_a_glued_command(guard, tmp_path):
+    """Row 4: the readings are decided apart, so a visible override clears only its own."""
+    assert _decide(guard, "{R} --note='a\nb'\n{O}{R}", tmp_path) is True
+
+
+@pytest.mark.parametrize(
+    ("tests", "refusal"),
+    [(cadence_tests, cadence_tests.TOO_SOON), (ci_red_tests, ci_red_tests.RED)],
+)
+def test_a_directory_change_on_its_own_line_is_followed(tests, refusal):
+    """Row 9: the line-true reading follows a ``cd`` from the hook's own directory."""
+    checkouts = tests.FakeCheckouts(
+        {"/home/natha/grantspider": tests.g.Checkout(tests.GS_ORIGIN, "staging")}
+    )
+    command = QQ + "\ncd ../grantspider\ngh pr create --base main --head staging --title t"
+    code, message = tests.run(command, checkouts=checkouts, cwd="/home/natha/OverSteward")
+    assert code == 2 and refusal in message
+    assert checkouts.asked == ["/home/natha/grantspider"]
+
+
+@pytest.mark.parametrize("guard", ["main-worktree", "shared-venv", "trunk-pull"])
+def test_a_later_line_with_its_own_override_is_allowed(guard, tmp_path):
+    """Row 11: the line-true reading honours an override on the command it reads."""
+    assert _decide(guard, "{QQ}\n{O}{R}", tmp_path) is False
+
+
+def test_a_later_line_promote_with_its_override_is_allowed_and_said():
+    """Row 11, cadence: seen and overridden, and the reason is printed."""
+    code, message = cadence_tests.run(QQ + "\nGS_PROMOTE_HOTFIX=why " + cadence_tests.GS_PROMOTE)
+    assert code == 0
+    assert "allowed by GS_PROMOTE_HOTFIX — reason: why" in message
+
+
+def test_a_later_line_promote_with_its_override_is_recorded_once():
+    """Row 11, ci-red: the override is commented on the red issue, once."""
+    comments = ci_red_tests.FakeComments()
+    command = QQ + "\nPROMOTE_OVER_CI_RED=why " + ci_red_tests.GS_PROMOTE
+    code, message = ci_red_tests.run(command, comments=comments)
+    assert code == 0 and "BLOCKED" not in message
+    assert [(repo, number) for repo, number, _ in comments.posted] == [(ci_red_tests.GS, 3530)]
+
+
+def test_a_plain_promote_one_reading_finds_first_refuses_and_records_nothing():
+    """Each reading's first promote is decided: today's is overridden, the other's is not."""
+    comments = ci_red_tests.FakeComments()
+    promote = ci_red_tests.GS_PROMOTE
+    command = QQ + "\n" + promote + " && PROMOTE_OVER_CI_RED=why " + promote
+    code, message = ci_red_tests.run(command, comments=comments)
+    assert code == 2 and ci_red_tests.RED in message
+    assert comments.attempted == []
 
 
 # --- row 13: the line-true runs equal today's where each line lexes alone ---
@@ -206,10 +345,13 @@ def test_text_that_does_not_lex_gives_neither_reading(stem):
     assert module._line_runs(text) is None
 
 
-@pytest.mark.parametrize("guard", GUARDS)
-def test_text_that_does_not_lex_keeps_the_fallback_verdict(guard, tmp_path):
-    """Row 14, a pin: the gate's fallback drops the quotes and reads every line."""
-    assert _decide(guard, _NOT_LEXED, tmp_path) is True
+@pytest.mark.parametrize(
+    ("guard", "held"),
+    [(name, not name.startswith("promote-")) for name in GUARDS],
+)
+def test_text_that_does_not_lex_keeps_the_fallback_verdict(guard, held, tmp_path):
+    """Row 14, a pin: each guard's fallback verdict; the promote guards read nothing."""
+    assert _decide(guard, _NOT_LEXED, tmp_path) is held
 
 
 def test_text_holding_the_marker_characters_is_still_read_by_line(tmp_path):
@@ -244,3 +386,31 @@ def test_the_gate_entry_point_names_its_pattern_on_row_1():
     assert proc.returncode == 0 and proc.stdout, "the gate gave no decision"
     reason = json.loads(proc.stdout)["hookSpecificOutput"]["permissionDecisionReason"]
     assert "Pattern: git --no-verify" in reason
+
+
+_ENTRY = {
+    "main-worktree": ("guard_main_worktree", {}, _SWITCH_REFUSED),
+    "shared-venv": (
+        "guard_shared_venv",
+        {"venv_outside": True},
+        "BLOCKED — `uv sync` in a tree whose .venv is not its own",
+    ),
+    "trunk-pull": ("guard_trunk_pull", {}, "BLOCKED — this pull would rewrite a protected branch"),
+}
+
+
+@pytest.mark.parametrize("guard", _ENTRY)
+def test_each_entry_point_refuses_row_1_with_its_own_message(guard, tmp_path):
+    stem, repo_kwargs, message = _ENTRY[guard]
+    command = QQ + "\n" + GUARDS[guard].refused
+    proc = _hook(stem, command, _git_repo(tmp_path, **repo_kwargs))
+    assert proc.returncode == 2
+    assert message in proc.stderr
+
+
+@pytest.mark.parametrize("guard", _ENTRY)
+def test_each_entry_point_is_silent_on_row_8(guard, tmp_path):
+    stem, repo_kwargs, _ = _ENTRY[guard]
+    command = "echo 'a\n" + GUARDS[guard].refused + "\nb'"
+    proc = _hook(stem, command, _git_repo(tmp_path, **repo_kwargs))
+    assert (proc.returncode, proc.stdout, proc.stderr) == (0, "", "")
