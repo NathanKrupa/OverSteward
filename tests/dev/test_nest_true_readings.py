@@ -13,6 +13,7 @@ so nothing refused before passes. ``R`` is a command the guard refuses alone.
 
 from __future__ import annotations
 
+import shlex
 from types import MappingProxyType
 
 import pytest
@@ -28,6 +29,8 @@ gate_pipe = comment_rule.gate_pipe
 # The shell reads this as one word. The toggle lexer closes the outer string at
 # the first inner quote and opens a phantom single quote at the apostrophe.
 MIS = 'echo "$(echo "it\'s")"'
+# The same through a backtick substitution, which holds no dollar sign.
+MIS_BACKTICK = 'echo "`echo "it\'s"`"'
 # A construct the scanner does not model (an ANSI-C quote), so it vouches for
 # nothing in the text that holds it.
 UNMODELLED = "echo $'z'"
@@ -57,7 +60,8 @@ def _no_overrides(monkeypatch):
 
 def _decide(guard: str, template: str, tmp_path) -> bool:
     spec = GUARDS[guard]
-    return spec.decide(template.format(R=spec.refused, MIS=MIS, U=UNMODELLED), tmp_path)
+    filled = template.format(R=spec.refused, MIS=MIS, MISB=MIS_BACKTICK, U=UNMODELLED)
+    return spec.decide(filled, tmp_path)
 
 
 @pytest.mark.parametrize("guard", GUARDS)
@@ -77,6 +81,12 @@ def test_a_command_after_a_phantom_quote_is_refused(guard, tmp_path):
     nest-true reading reads it as the shell does.
     """
     assert _decide(guard, "{MIS} ; {R} ; {MIS}", tmp_path) is True
+
+
+@pytest.mark.parametrize("guard", GUARDS)
+def test_a_command_after_a_phantom_quote_from_a_backtick_is_refused(guard, tmp_path):
+    """Row 1 through backticks, in a text that holds no dollar sign."""
+    assert _decide(guard, "{MISB} ; {R} ; {MISB}", tmp_path) is True
 
 
 @pytest.mark.parametrize("guard", BLOCK_GUARDS)
@@ -127,6 +137,15 @@ def test_a_script_handed_to_a_shell_is_read_under_the_nest_true_reading(guard, t
     apostrophe = "'\"'\"'"
     script = MIS.replace("'", apostrophe)
     assert _decide(guard, f"bash -c '{script} ; {{R}} ; {script}'", tmp_path) is True
+
+
+@pytest.mark.parametrize("guard", SCRIPT_GUARDS)
+def test_a_script_inside_a_script_is_read_under_the_nest_true_reading(guard, tmp_path):
+    """Row 4 one shell deeper: the script's own script is row 1's text."""
+    refused = GUARDS[guard].refused
+    inner = shlex.quote(f"{MIS} ; {refused} ; {MIS}")
+    command = "bash -c " + shlex.quote("bash -c " + inner)
+    assert GUARDS[guard].decide(command, tmp_path) is True
 
 
 # --- the promote guards: text the toggle lexer rejects ----------------------
@@ -212,6 +231,17 @@ def test_the_drafts_constructs_are_refused_on_the_nest_true_text_alone(text):
     assert gate_pipe._line_offenders(vouched) or gate_pipe._offenders(
         gate_pipe._lex_or_degrade(vouched)
     )
+
+
+def test_the_pipe_guard_names_todays_offender_first():
+    """Today's reading finds one pipeline in quoted data, the nest-true reading another
+    behind the phantom quote: both are refused, and the message names today's."""
+    command = (
+        'echo "$(echo "x ; pytest -q | tail -5 ; y")" ; '
+        f"{MIS} ; ruff check | head -3 ; {MIS}"
+    )
+    found = [" ".join(" ".join(stage) for stage in p) for p in gate_pipe.offending_pipelines(command)]
+    assert found == ["pytest -q tail -5", "ruff check head -3"]
 
 
 # --- the readings not made: no double quote, or no dollar sign or backtick --
