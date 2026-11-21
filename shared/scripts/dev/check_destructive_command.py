@@ -793,9 +793,78 @@ _EVASION_RULES: tuple[tuple[str, object, str], ...] = (
 )
 
 
+# A read of ``core.hooksPath`` changes nothing, so it is no evasion. A read is
+# recognised only in the one grammar below, token for token:
+# ``git [-C DIR] config [get] [READ_OPTION ...] core.hooksPath``, key last. Any
+# other token makes the argv something else, judged by the rule table as before.
+_HOOKSPATH_READ_OPTIONS = frozenset({
+    "--get", "--get-all", "--all", "--local", "--global", "--system", "--worktree",
+    "--show-origin", "--show-scope", "--null", "-z", "--path", "--type=path",
+})
+
+# Places where this lexer can end an argv that the shell goes on feeding, so a
+# value could follow the key unseen: a brace standing alone (the lexer splits
+# on it; after a command word the shell passes it as an argument), a separator
+# character after a quote or a backslash (quoted or escaped, the lexer still
+# splits on it), and a line break other than a newline (``str.splitlines`` ends
+# a line there; the shell does not). A backtick is the fourth, tested on its own.
+_LONE_BRACE = re.compile(r"(?<![^\s\"'])[{}](?![^\s\"'])")
+_QUOTED_SEPARATOR = re.compile(r"[\"'\\][;&|(){}]")
+_FOREIGN_LINE_BREAKS = frozenset("\r\x0b\x0c\x1c\x1d\x1e\x85  ")
+
+
+def _hookspath_read(argv: list[str]) -> bool:
+    """True if ``argv`` is a read of ``core.hooksPath`` in the grammar above."""
+    if not argv or argv[0] != _GIT or argv[-1].lower() != _HOOKSPATH_KEY:
+        return False
+    rest = argv[1:-1]
+    if rest[:1] == ["-C"]:
+        if len(rest) < 2 or rest[1].startswith("-"):
+            return False
+        rest = rest[2:]
+    if rest[:1] != ["config"]:
+        return False
+    rest = rest[1:]
+    if rest[:1] == ["get"]:
+        rest = rest[1:]
+    return all(token in _HOOKSPATH_READ_OPTIONS for token in rest)
+
+
+def _free_of_lexer_blind_spots(command: str, depth: int = 0) -> bool:
+    """False if ``command`` holds a place named at :data:`_LONE_BRACE` or a backtick.
+
+    Also False for text that lexes only by the quote-stripping fallback. A
+    script handed to a shell is held to the same test, to the depth the rules
+    themselves read.
+    """
+    if (
+        _BACKTICK in command
+        or _LONE_BRACE.search(command)
+        or _QUOTED_SEPARATOR.search(command)
+        or not _FOREIGN_LINE_BREAKS.isdisjoint(command)
+    ):
+        return False
+    invocations = _invocations(command)
+    if invocations is None:
+        return False
+    for _assignments, raw in invocations:
+        script = _shell_script(_unwrap(raw))
+        if script is not None and depth < _MAX_SHELL_DEPTH:
+            if not _free_of_lexer_blind_spots(script, depth + 1):
+                return False
+    return True
+
+
 def _match_hook_evasion(command: str) -> tuple[str, str] | None:
-    """Return (category, reason) for the first hook-evasion pattern matched."""
+    """Return (category, reason) for the first hook-evasion pattern matched.
+
+    A read of ``core.hooksPath`` is withheld from the table, but only where the
+    command is free of the lexer's known blind spots; elsewhere it is judged as
+    every other argv is.
+    """
     argvs = _all_argvs(command)
+    if _free_of_lexer_blind_spots(command):
+        argvs = [argv for argv in argvs if not _hookspath_read(argv)]
     for category, predicate, reason in _EVASION_RULES:
         if predicate(argvs):  # type: ignore[operator]
             return (category, reason)

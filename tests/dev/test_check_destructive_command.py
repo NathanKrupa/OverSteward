@@ -639,6 +639,197 @@ def test_wrapper_stripping_does_not_invent_a_command(hook):
 
 
 # ---------------------------------------------------------------------------
+# A read of core.hooksPath is not a change to it (OS#780). Each pass fixture
+# denied on the hook before this change; each deny fixture is pinned against
+# the mutant named in its test's docstring.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        # A bare read.
+        "git config core.hooksPath",
+        "git config --get core.hooksPath",
+        # A read with company.
+        "git config core.hooksPath; ls .githooks",
+        "hp=$(git config core.hooksPath || echo .git/hooks)",
+        # The read grammar's edges.
+        "git -C /home/natha/repo config --local --get core.hooksPath",
+        "git config get core.hooksPath",
+        "git config --show-origin core.hooksPath",
+        "git config CORE.HOOKSPATH",
+        "sh -c 'git config --get core.hooksPath'",
+    ],
+)
+def test_hookspath_read_passes(hook, cmd):
+    """Denied before OS#780: a read named the key with nothing after it."""
+    assert hook._match_hook_evasion(cmd) is None
+
+
+def _assert_hookspath_denied(hook, cmd: str) -> None:
+    result = hook._match_hook_evasion(cmd)
+    assert result is not None, f"expected a deny for {cmd!r}"
+    assert result[0] == _HOOKSPATH
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "git config --unset core.hooksPath",
+        "git config --unset-all core.hooksPath",
+        "git config unset core.hooksPath",
+        "git config --global --unset core.hooksPath",
+        "git config --unset CORE.HOOKSPATH",
+    ],
+)
+def test_hookspath_unset_still_denies(hook, cmd):
+    """Mutant: the key standing last makes a read, the other tokens unchecked."""
+    _assert_hookspath_denied(hook, cmd)
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "git config core.hooksPath /dev/null",
+        "git config --local core.hooksPath ''",
+        "git config set core.hooksPath /dev/null",
+        "git config --add core.hooksPath /dev/null",
+        "git config --replace-all core.hooksPath ''",
+    ],
+)
+def test_hookspath_value_still_denies(hook, cmd):
+    """Mutant: a read decided from the tokens before the key, its place unchecked."""
+    _assert_hookspath_denied(hook, cmd)
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "git config --add core.hooksPath",
+        "git config --replace-all core.hooksPath",
+        "git config --get --unset-all core.hooksPath",
+    ],
+)
+def test_hookspath_write_flag_still_denies(hook, cmd):
+    """Mutant: any read option present makes a read."""
+    _assert_hookspath_denied(hook, cmd)
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "git config -f .git/config core.hooksPath",
+        "git config --edit core.hooksPath",
+        "git config >out.txt core.hooksPath",
+        "git -c other.key=v config core.hooksPath",
+        "git -C -x config core.hooksPath",
+    ],
+)
+def test_hookspath_unknown_token_still_denies(hook, cmd):
+    """Mutant: tokens the read grammar does not name are skipped."""
+    _assert_hookspath_denied(hook, cmd)
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        # A value in backticks, bare and inside double quotes.
+        "git config core.hooksPath `echo /dev/null`",
+        'git config core.hooksPath "`echo /dev/null`"',
+        # A brace standing alone.
+        "git config core.hooksPath }",
+        "git config core.hooksPath {",
+        # Each again inside a script handed to a shell.
+        "sh -c 'git config core.hooksPath `echo /dev/null`'",
+        "sh -c 'git config core.hooksPath \"`echo /dev/null`\"'",
+        "sh -c 'git config core.hooksPath }'",
+    ],
+)
+def test_hookspath_backtick_and_brace_still_deny(hook, cmd):
+    """Mutant: the backtick and lone-brace checks dropped."""
+    _assert_hookspath_denied(hook, cmd)
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        # A separator quoted or escaped is a word to the shell.
+        'git config core.hooksPath ";"',
+        "git config core.hooksPath '|'",
+        "git config core.hooksPath \\;",
+        "git config core.hooksPath \\{",
+        "sh -c 'git config core.hooksPath \";\"'",
+    ],
+)
+def test_hookspath_quoted_separator_still_denies(hook, cmd):
+    """Mutant: the quoted-or-escaped separator check dropped."""
+    _assert_hookspath_denied(hook, cmd)
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "git config core.hooksPath \r/srv/hooks",
+        "git config core.hooksPath \x1c/srv/hooks",
+        "git config core.hooksPath  /srv/hooks",
+    ],
+)
+def test_hookspath_foreign_line_break_still_denies(hook, cmd):
+    """Mutant: the check for line breaks other than a newline dropped."""
+    _assert_hookspath_denied(hook, cmd)
+
+
+@pytest.mark.parametrize(
+    ("cmd", "expected_category"),
+    [
+        ("git config core.hooksPath || git config core.hooksPath /dev/null", _HOOKSPATH),
+        ("git config core.hooksPath && git commit --no-verify -m x", _NO_VERIFY),
+    ],
+)
+def test_hookspath_read_does_not_clear_its_neighbours(hook, cmd, expected_category):
+    """Mutant: a read anywhere returns no evasion for the whole command."""
+    result = hook._match_hook_evasion(cmd)
+    assert result is not None
+    assert result[0] == expected_category
+
+
+def test_hookspath_hash_inside_a_word_does_not_hide_a_later_write(hook):
+    """Mutant: ``_lex`` on plain ``shlex.shlex``, which reads ``a#b`` as a comment."""
+    _assert_hookspath_denied(
+        hook, "git config core.hooksPath; echo a#b; git config core.hooksPath /dev/null"
+    )
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        'git config core.hooksPath "',
+        'echo "x; git config core.hooksPath',
+        "sh -c 'git config core.hooksPath \"'",
+    ],
+)
+def test_hookspath_read_in_unlexable_text_still_denies(hook, cmd):
+    """Mutant: the read carve-out applied to the quote-stripping fallback."""
+    _assert_hookspath_denied(hook, cmd)
+
+
+def test_hookspath_unset_denies_end_to_end():
+    """Both outcomes exit 0, so the decision and its pattern are what is asserted."""
+    proc = _run_hook(_payload(_BASH, "git config --unset core.hooksPath"))
+    assert proc.returncode == 0
+    hso = _hso(proc)
+    assert hso[_DECISION] == _DENY
+    assert f"Pattern: {_HOOKSPATH}" in hso[_REASON]
+
+
+def test_hookspath_read_passes_end_to_end():
+    proc = _run_hook(_payload(_BASH, "git config core.hooksPath"))
+    assert proc.returncode == 0
+    assert proc.stdout == ""
+
+
+# ---------------------------------------------------------------------------
 # Canonical byte-copy treaty — shared/ source and .claude/ deploy must match.
 # ---------------------------------------------------------------------------
 
