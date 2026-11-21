@@ -327,10 +327,26 @@ class TestVouchedCommandKeepsOneLineQuotes:
         assert guard._nest_true(command) is None
         assert _refused(command)
 
-    def test_a_quoted_substitution_reads_as_it_does_alone(self):
-        """The stated extent: the shell runs this pipeline, and the guard does not read it alone."""
-        assert not _refused(self.SUBSTITUTION)
-        assert not _refused(f"{self.MQ}\n{self.SUBSTITUTION}")
+    @pytest.mark.xfail(strict=True, reason="OS#815: a pipeline in a substitution is not read")
+    def test_a_quoted_substitution_is_refused_alone(self):
+        """The shell runs this pipeline into the filter, and the guard does not read it."""
+        assert _refused(self.SUBSTITUTION)
+
+    @pytest.mark.xfail(strict=True, reason="OS#815: a pipeline in a substitution is not read")
+    def test_a_quoted_substitution_is_refused_beside_a_multi_line_quote(self):
+        """Refused before only because full blanking read the substitution as code; a
+        vouched command now gets the verdict it gets alone."""
+        command = f"{self.MQ}\n{self.SUBSTITUTION}"
+        self._vouched(command)
+        assert _refused(command)
+
+    @pytest.mark.xfail(strict=True, reason="OS#815: a redirection before the gate is not read")
+    def test_a_gate_after_a_leading_redirection_is_refused(self):
+        assert _refused("2>&1 pytest -q | tail -5")
+
+    @pytest.mark.xfail(strict=True, reason="OS#815: an escaped parenthesis reads as a separator")
+    def test_a_gate_with_an_escaped_parenthesis_argument_is_refused(self):
+        assert _refused("pytest -q echo \\( x | tail -5")
 
     @pytest.mark.parametrize(
         "command",

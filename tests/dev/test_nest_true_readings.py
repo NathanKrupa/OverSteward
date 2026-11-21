@@ -9,6 +9,11 @@ shell never opens: a phantom quote, which can hide a later command. Every guard
 also decides on ``_nest_true``'s text, where the scanner vouches for it, and
 holds if that reading holds. Today's readings are untouched and decided first,
 so nothing refused before passes. ``R`` is a command the guard refuses alone.
+
+The pipe guard is the exception (OS#791): where the scanner vouches for a
+command, it decides on the nest-true text alone and drops today's readings, so
+a command refused before only because the toggle lexer read quoted data as
+code passes there. Without a vouch it decides as before.
 """
 
 from __future__ import annotations
@@ -100,7 +105,7 @@ def test_a_later_line_after_a_phantom_quote_is_refused(guard, tmp_path):
     assert _decide(guard, '{MIS} "a\nb"\n{R} ; {MIS}', tmp_path) is True
 
 
-# --- row 2: today's readings stay, and are decided first --------------------
+# --- row 2: today's readings stay, and are decided first (not the pipe guard)
 
 
 @pytest.mark.parametrize("guard", [name for name in GUARDS if name != "gate-pipe"])
