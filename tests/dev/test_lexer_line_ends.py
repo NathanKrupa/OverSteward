@@ -17,6 +17,7 @@ import json
 import os
 import subprocess
 import sys
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -268,6 +269,36 @@ def test_a_plain_promote_one_reading_finds_first_refuses_and_records_nothing():
     code, message = ci_red_tests.run(command, comments=comments)
     assert code == 2 and ci_red_tests.RED in message
     assert comments.attempted == []
+
+
+def test_a_promote_both_readings_find_is_looked_up_once():
+    """The readings' promotes are distinct, so one allowed promote asks GitHub once."""
+    github = cadence_tests.FakeGitHub(ago=timedelta(days=7))
+    code, _ = cadence_tests.run(cadence_tests.GS_PROMOTE + "\necho done", github=github)
+    assert code == 0
+    assert github.calls == 1
+
+
+def test_an_allowed_plain_promote_does_not_silence_the_other_readings_override():
+    """ci-red: the plain promote passes, so the overridden one still records its reason."""
+    comments = ci_red_tests.FakeComments()
+    command = (
+        QQ + "\n" + ci_red_tests.AG_PROMOTE + " && PROMOTE_OVER_CI_RED=why "
+        + ci_red_tests.GS_PROMOTE
+    )
+    code, message = ci_red_tests.run(command, comments=comments)
+    assert code == 0 and "BLOCKED" not in message
+    assert [(repo, number) for repo, number, _ in comments.posted] == [(ci_red_tests.GS, 3530)]
+
+
+def test_an_allowed_plain_promote_does_not_silence_the_other_readings_reason():
+    """cadence: past the window the plain promote passes, and the override is still said."""
+    github = cadence_tests.FakeGitHub(ago=timedelta(days=7))
+    promote = cadence_tests.GS_PROMOTE
+    command = QQ + "\n" + promote + " && GS_PROMOTE_HOTFIX=why " + promote
+    code, message = cadence_tests.run(command, github=github)
+    assert code == 0
+    assert "allowed by GS_PROMOTE_HOTFIX — reason: why" in message
 
 
 # --- row 13: the line-true runs equal today's where each line lexes alone ---
