@@ -922,8 +922,8 @@ class FailingGh(FakeGh):
 def test_a_deploy_whose_verify_leaves_an_untracked_file_registers_no_worktree(
     canon: Path, pickup: Path, tmp_path: Path
 ):
-    # `git worktree remove` refuses a tree holding an untracked file, which a
-    # real `make verify` leaves as readily as this one does.
+    # `git worktree remove` refuses a tree holding an untracked file, which any
+    # `make verify` that writes into its tree leaves behind.
     _commit_makefile(pickup, "verify:\n\ttouch verify-residue\n")
     report, gh, _ruff, _reports = _apply(
         canon, pickup, tmp_path, verify=True, verify_runner=MakeCommand()

@@ -278,8 +278,8 @@ def _drop_unpushed_sync_branch(git: GitCommand, repo_root: Path, branch: str) ->
 
     A pushed branch stays for `cleanup-merged` to delete after its PR merges. A
     tracking ref at any other commit, left by an earlier sync of the same name,
-    does not count as pushed. The delete names the tip it read, so it cannot
-    remove a commit it did not see.
+    does not count as pushed. The delete names the tip it read, and update-ref
+    refuses it if the branch has moved since.
     """
     tip = _ref_sha(git, repo_root, f"refs/heads/{branch}")
     if tip is None or tip == _ref_sha(git, repo_root, f"refs/remotes/origin/{branch}"):
