@@ -658,15 +658,14 @@ def _pr_create_promote(args: list[str], ctx: _Context) -> Promote | None:
     base = TRUNK if wide.base_main else _last(pairs, "-B", "--base")
     if base is not None and _branch(base) != TRUNK:
         return None
+    repo = _last(pairs, "-R", "--repo") or ctx.gh_repo()
     checkout = None
-    if wide.repos:  # one written is the repo; several could be any of them
-        slug = next(iter(wide.repos)) if len(wide.repos) == 1 else None
-    else:
-        repo = _last(pairs, "-R", "--repo") or ctx.gh_repo()
-        if repo is None:
-            checkout = ctx.checkout()
-            repo = checkout.origin
-        slug = _slug(repo)
+    if repo is None:
+        checkout = ctx.checkout()
+        repo = checkout.origin
+    slug = _slug(repo)
+    if wide.repos and wide.repos != {slug}:
+        slug = None  # a repo written elsewhere may be the one gh uses: it could be any
     if slug is not None and slug not in PROMOTE_REPOS:
         return None  # None — could not read the repo — fails closed
     if base is None and not _defaults_to_trunk(slug):
@@ -805,7 +804,7 @@ def _lexer_over(source, lexer_class: type[shlex.shlex], punctuation: str | bool)
 
 
 def _tokens_until_error(lexer: shlex.shlex):
-    """The lexer's tokens up to its error: everything read before it lost the thread."""
+    """Every token the lexer completed before its error, where it lost the thread."""
     try:
         yield from lexer
     except ValueError:
@@ -816,8 +815,9 @@ def _read_rejected(text: str, lexer_class: type[shlex.shlex]) -> tuple[list[str]
     """(F1's tokens, F2's token runs) for ``text``, each line end a ``;``.
 
     F1 is the whole text as far as the lexer got. F2 is each line the lexer
-    began inside a quote, read afresh from its start to its own line end. With
-    fewer than two marker characters free, F1 reads each physical line alone.
+    began inside a quote, read afresh from its start to the line end that fresh
+    reading finds. With fewer than two marker characters free, F1 reads each
+    physical line alone and F2 is empty.
     """
     markers = [char for char in _LINE_MARKER_CANDIDATES if char not in text]
     if len(markers) < 2:
@@ -863,10 +863,11 @@ def _flag_values(tokens: list[str], *names: str) -> list[str]:
 def _wide_reading(command: str) -> _Wide:
     """W: ``command`` with every quote character deleted, read with no comment rule.
 
-    With no quotes and no comments nothing written is skipped, so W cannot lose
-    a written flag. It has no command boundaries, so it only ever adds: base,
-    head and repo values written as flags, API base and head fields, and
-    whether an API input flag occurs.
+    With no quotes and no comments it skips nothing written, but for a word cut
+    by a backslash ending the text (or, with too few marker characters free, a
+    line). It has no command boundaries, so it only ever adds: base, head and
+    repo values written as flags, API base and head fields, and whether an API
+    input flag occurs.
     """
     tokens, _ = _read_rejected(command.replace("'", "").replace('"', ""), _UncommentedLexer)
     fields = [
@@ -893,9 +894,10 @@ def _rejected_promote(command: str, template: _Context) -> Promote | None:
     Calls are found only by F1 and F2, and no quote character is removed to
     find one or to read its own flags. For a call found, whatever W holds that
     would make it a promote does; otherwise today's rule applies to what F1 or
-    F2 read on the call's own command. So ruling ``main`` out never rests on a
-    reading that may have lost text. An F2 line is read from every directory a
-    reading had reached, and a script inside is read under the line-true reading.
+    F2 read on the call's own command. So ruling ``main`` out rests on W, not on
+    a reading that may have lost text. An F2 line is read from every directory
+    F1 or an earlier F2 line reached, and a script inside is read under the
+    line-true reading.
     """
     wide = template.wide | _wide_reading(command)
     template = _Context(
@@ -942,8 +944,9 @@ def find_promotes(
 ) -> list[Promote]:
     """The first promote under each reading, today's first, each from ``cwd``; distinct.
 
-    Both readings reject exactly the text ``_lex`` rejects, which
-    :func:`_rejected_promote` therefore reads once, under today's reading's turn.
+    Both readings reject exactly the text ``_lex`` rejects (reasoned from the
+    stream's states, measured on recorded commands, pinned by a test), so
+    :func:`_rejected_promote` reads such text once, in today's reading's turn.
     """
     found: list[Promote] = []
     for line_true in _readings(command) if _lex(command) is not None else (False,):

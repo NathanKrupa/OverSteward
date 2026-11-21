@@ -47,8 +47,8 @@ class Checkout(NamedTuple):
 
 
 def seam(**dirs: tuple[str | None, str | None]) -> dict[str, Checkout]:
-    """What git says of ``here`` (the hook's cwd) and ``gs``, each as (origin, branch)."""
-    paths = {"here": HERE, "gs": GS_DIR}
+    """What git says of ``here`` (the hook's cwd), ``gs`` and ``ag``, each as (origin, branch)."""
+    paths = {"here": HERE, "gs": GS_DIR, "ag": "/home/natha/aigranthelper"}
     return {paths[k]: Checkout(*v) for k, v in dirs.items()}
 
 
@@ -213,6 +213,16 @@ def test_w_two_watched_repos_written_could_be_either():
     outcome = decide(GUARDS["ci-red"], command, seam(here=(OS_ORIGIN, "master")))
     assert_refused(GUARDS["ci-red"], outcome)
     assert outcome.lookups == 2
+
+
+def test_w_a_repo_written_elsewhere_does_not_clear_the_calls_own():
+    """ci-red: the call's own repo is aigranthelper (default main); grantspider written in
+    prose must not replace it, or W would clear a promote."""
+    command = ("cd /home/natha/aigranthelper\ngh pr create --head staging --title t --body \"$(cat"
+               " <<'EOF'\nCompare --repo NathanKrupa/grantspider\nsay \" here\nEOF\n)\"")
+    ag = ("git@github.com:NathanKrupa/aigranthelper.git", "fix/x")
+    outcome = decide(GUARDS["ci-red"], command, seam(here=(OS_ORIGIN, "master"), ag=ag))
+    assert_refused(GUARDS["ci-red"], outcome)
 
 
 # --- row 12: the override, read from the promote's own prefix ------------------
