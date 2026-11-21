@@ -33,8 +33,9 @@ outside quotes ends a line, a backslash-newline joins two, a comment ends at its
 own line, and a line ending in a pipe continues on the next. Where the lexer
 reports a quote spanning lines, the command is read again with its quote
 characters blanked, and each line that began inside quotes is read from its own
-start. The reading of the whole text is kept beside these, so a command it
-refuses is still refused.
+start. The reading of the whole text is kept beside these, applied to each
+stretch between the command ends the line reading found, so a gate on one
+line and a filter pipeline on a later line are not read as one pipeline.
 
 Not a member of the ``guard_main_worktree`` / ``guard_trunk_pull`` lexer family,
 deliberately: that block splits on ``|`` as a separator and therefore destroys
@@ -210,7 +211,8 @@ class _LineStream:
     a newline, and any other is the line-end marker, which the lexer takes as
     punctuation and so ends the word before it. A comment ends at its own line:
     ``readline``, which shlex calls only to skip a comment, leaves the newline
-    unread. Lines that begin inside quotes are recorded by offset.
+    unread. Lines that begin inside quotes are recorded by offset, and so is
+    the point just past each newline handed over as a line end.
     """
 
     def __init__(self, text, line_end, continuation):
@@ -221,6 +223,7 @@ class _LineStream:
         self._state_before = " "
         self.lexer = None
         self.quoted_line_starts = []
+        self.line_ends = []
 
     def read(self, size=1):
         if self._position >= len(self._text):
@@ -239,6 +242,7 @@ class _LineStream:
         if state in self.lexer.quotes:
             self.quoted_line_starts.append(self._position)
             return char
+        self.line_ends.append(self._position)
         return self._line_end
 
     def readline(self, size=-1):
@@ -253,6 +257,7 @@ class _Reading(NamedTuple):
     tokens: list
     failed: bool
     quoted_line_starts: list
+    command_ends: list
 
 
 def _line_lexer(text, line_end, continuation):
@@ -272,10 +277,15 @@ def _tokens_until_error(lexer, failures):
         failures.append(True)
 
 
-def _line_tokens(raw, line_end, continuation):
-    """``raw`` with markers resolved: a line end is kept unless a pipe waits for a stage."""
+def _line_tokens(raw, line_end, continuation, kept=None):
+    """``raw`` with markers resolved: a line end is kept unless a pipe waits for a stage.
+
+    The index of each line end kept, counted among all the line-end markers, is
+    appended to ``kept`` when it is given.
+    """
     marker = re.compile(f"({re.escape(line_end)})")
     last = None
+    ends = 0
     for token in raw:
         for part in marker.split(token):
             part = part.replace(continuation, "")
@@ -283,8 +293,12 @@ def _line_tokens(raw, line_end, continuation):
                 continue
             if part == "\n":
                 part = _QUOTED_NEWLINE
-            if part == line_end and last in _PIPE_TOKENS:
-                continue
+            if part == line_end:
+                ends += 1
+                if last in _PIPE_TOKENS:
+                    continue
+                if kept is not None:
+                    kept.append(ends - 1)
             last = part
             yield part
 
@@ -292,10 +306,12 @@ def _line_tokens(raw, line_end, continuation):
 def _read_lines(text, line_end, continuation):
     """``text`` read with line ends from the lexer's state, as a :class:`_Reading`."""
     lexer, stream = _line_lexer(text, line_end, continuation)
-    failures = []
+    failures, kept = [], []
     raw = _tokens_until_error(lexer, failures)
-    tokens = [";" if t == line_end else t for t in _line_tokens(raw, line_end, continuation)]
-    return _Reading(tokens, bool(failures), stream.quoted_line_starts)
+    parts = _line_tokens(raw, line_end, continuation, kept)
+    tokens = [";" if t == line_end else t for t in parts]
+    ends = [stream.line_ends[index] for index in kept]
+    return _Reading(tokens, bool(failures), stream.quoted_line_starts, ends)
 
 
 def _first_line(text, line_end, continuation):
@@ -317,16 +333,20 @@ def _line_offenders(command):
     mis-tracked the quoting, so two more readings run: R2, the same reading
     with every quote character blanked, and R3, each line that began inside
     quotes lexed afresh from its own start to its own end.
+
+    Returned beside them: the offsets of the command ends R1 kept, when it
+    lexed the text without error; otherwise none.
     """
     if "\n" not in command:
-        return []
+        return [], []
     markers = [char for char in _MARKER_CANDIDATES if char not in command]
     if len(markers) < 2:
-        return [
+        found = [
             offender
             for line in command.split("\n")
             for offender in _offenders(_lex_or_degrade(line))
         ]
+        return found, []
     line_end, continuation = markers[:2]
     reading = _read_lines(command, line_end, continuation)
     found = _offenders(reading.tokens)
@@ -335,17 +355,29 @@ def _line_offenders(command):
         found += _offenders(_read_lines(blanked, line_end, continuation).tokens)
         for start in reading.quoted_line_starts:
             found += _offenders(_first_line(command[start:], line_end, continuation))
-    return found
+    return found, ([] if reading.failed else reading.command_ends)
+
+
+def _stretch_offenders(command, command_ends):
+    """Today's reading of each stretch of ``command`` between command ends, or of all of it."""
+    bounds = [0, *command_ends, len(command)]
+    return [
+        offender
+        for start, end in zip(bounds, bounds[1:])
+        for offender in _offenders(_lex_or_degrade(command[start:end]))
+    ]
 
 
 def offending_pipelines(command):
     """Every pipeline in ``command`` whose gate's status a trailing filter eats.
 
-    The line-aware readings are searched first, then today's reading of the
-    whole text, which is kept as it is: nothing it refuses can pass.
+    The line-aware readings are searched first, then today's reading, applied
+    to each stretch between the command ends R1 kept, and to the whole text
+    where it kept none. A stretch is read exactly as a whole command is.
     """
+    line_found, command_ends = _line_offenders(command)
     found = []
-    for pipeline in _line_offenders(command) + _offenders(_lex_or_degrade(command)):
+    for pipeline in line_found + _stretch_offenders(command, command_ends):
         if pipeline not in found:
             found.append(pipeline)
     return found
