@@ -217,11 +217,9 @@ _DEFAULT_PUNCTUATION = shlex.shlex("", punctuation_chars=True).punctuation_chars
 
 
 class _LineStream:
-    """``text`` for a lexer: an escaped newline is the continuation marker, a
-    quoted one stays a newline, any other is the line-end marker (punctuation).
-    ``readline``, which shlex calls only to skip a comment, leaves the newline
-    unread, so a comment ends at its line.
-    """
+    """Each newline as the lexer's state reads it: escaped, the continuation
+    marker; quoted, a newline; else the line-end marker. ``readline`` (shlex's
+    comment skip) leaves the newline unread, so a comment ends at its line."""
 
     def __init__(self, text: str, line_end: str, continuation: str) -> None:
         self._text, self._position = text, 0

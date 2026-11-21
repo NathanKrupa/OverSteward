@@ -14,12 +14,9 @@ from __future__ import annotations
 
 import ast
 import json
-import os
 import subprocess
 import sys
-from collections.abc import Callable
 from pathlib import Path
-from typing import NamedTuple
 
 import pytest
 
@@ -28,50 +25,13 @@ from tests.dev import test_lexer_comment_rule as comment_rule
 DEV = comment_rule.DEV
 TESTS = Path(__file__).resolve().parent
 QQ = "echo 'a\nb'"
-_OVERRIDES = (
-    "CLAUDE_ALLOW_MAIN_GIT",
-    "GS_ALLOW_MAIN_GIT",
-    "CLAUDE_ALLOW_SHARED_VENV_MUTATION",
-    "UV_NO_SYNC",
-    "CLAUDE_CODE_REMOTE_ENVIRONMENT_TYPE",
-    "GS_PROMOTE_HOTFIX",
-    "PROMOTE_OVER_CI_RED",
-    "GH_REPO",
-)
-
-
-@pytest.fixture(autouse=True)
-def _no_overrides(monkeypatch):
-    """A session's own override must not decide a fixture."""
-    for name in _OVERRIDES:
-        monkeypatch.delenv(name, raising=False)
-
-
-def _clean_env() -> dict[str, str]:
-    return {key: value for key, value in os.environ.items() if key not in _OVERRIDES}
-
-
-class Guard(NamedTuple):
-    refused: str
-    override: str
-    decide: Callable[[str, Path], bool]
-
-
-def _shared(name: str, override: str = "") -> Guard:
-    """The comment-rule table's stand-in and decider for ``name``, with its override."""
-    spec = comment_rule.GUARDS[name]
-    return Guard(spec.refused, override, spec.decide)
-
-
-GUARDS = {
-    "gate-deny": _shared("gate-deny"),
-    "gate-ask": _shared("gate-ask"),
-}
+# The comment-rule table's stand-in and decider for each guard decided here.
+GUARDS = {name: comment_rule.GUARDS[name] for name in ("gate-deny", "gate-ask")}
 
 
 def _decide(guard: str, template: str, tmp_path: Path) -> bool:
     spec = GUARDS[guard]
-    return spec.decide(template.format(R=spec.refused, O=spec.override, QQ=QQ), tmp_path)
+    return spec.decide(template.format(R=spec.refused, QQ=QQ), tmp_path)
 
 
 # --- row 1 and its controls -------------------------------------------------
@@ -246,13 +206,10 @@ def test_text_that_does_not_lex_gives_neither_reading(stem):
     assert module._line_runs(text) is None
 
 
-@pytest.mark.parametrize(
-    ("guard", "held"),
-    [(name, not name.startswith("promote-")) for name in GUARDS],
-)
-def test_text_that_does_not_lex_keeps_the_fallback_verdict(guard, held, tmp_path):
-    """Row 14, a pin: the fallback verdict, which the promote guards give as allowed."""
-    assert _decide(guard, _NOT_LEXED, tmp_path) is held
+@pytest.mark.parametrize("guard", GUARDS)
+def test_text_that_does_not_lex_keeps_the_fallback_verdict(guard, tmp_path):
+    """Row 14, a pin: the gate's fallback drops the quotes and reads every line."""
+    assert _decide(guard, _NOT_LEXED, tmp_path) is True
 
 
 def test_text_holding_the_marker_characters_is_still_read_by_line(tmp_path):
@@ -283,7 +240,6 @@ def test_the_gate_entry_point_names_its_pattern_on_row_1():
         text=True,
         timeout=10,
         check=False,
-        env=_clean_env(),
     )
     assert proc.returncode == 0 and proc.stdout, "the gate gave no decision"
     reason = json.loads(proc.stdout)["hookSpecificOutput"]["permissionDecisionReason"]
