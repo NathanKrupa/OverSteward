@@ -818,6 +818,7 @@ def test_hookspath_unset_denies_end_to_end():
     """Both outcomes exit 0, so the decision and its pattern are what is asserted."""
     proc = _run_hook(_payload(_BASH, "git config --unset core.hooksPath"))
     assert proc.returncode == 0
+    assert proc.stdout, "expected a deny decision on stdout, got none"
     hso = _hso(proc)
     assert hso[_DECISION] == _DENY
     assert f"Pattern: {_HOOKSPATH}" in hso[_REASON]
