@@ -8,7 +8,7 @@ import os
 import shutil
 import subprocess
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 import pytest
@@ -58,6 +58,25 @@ def _import(name: str, path: Path):
     return module
 
 
+def _scrub_git_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Remove every inherited ``GIT_*`` variable from this test's environment.
+
+    A git hook passes its location variables to the suite it runs (measured:
+    pre-push from a linked worktree exports ``GIT_DIR``, pre-commit exports
+    ``GIT_INDEX_FILE``), and each one re-points git away from the ``-C`` tree:
+    every scratch-repo command would act on the hook's repository instead of
+    ``tmp_path`` (OS#807).
+    """
+    for name in [k for k in os.environ if k.startswith("GIT_")]:
+        monkeypatch.delenv(name)
+
+
+@pytest.fixture(autouse=True)
+def _no_inherited_git_env(monkeypatch):
+    """The one place this file's git calls are isolated from a hook's environment."""
+    _scrub_git_env(monkeypatch)
+
+
 @pytest.fixture(scope="module")
 def doctor():
     return _import("worktree_doctor", SCRIPT)
@@ -72,7 +91,7 @@ def wdb():
 class FakeDocker:
     """A docker seam under test control — records every argv, returns canned stdout."""
 
-    def __init__(self, output: str = "") -> None:
+    def __init__(self, output: str | None = "") -> None:
         self.output = output
         self.calls: list[list[str]] = []
 
@@ -338,7 +357,7 @@ class ScriptedDocker:
 
     def __init__(
         self,
-        responses: dict[str, str] | None = None,
+        responses: Mapping[str, str | None] | None = None,
         *,
         databases: frozenset[str] = frozenset(),
         user: str = "grantspider",
@@ -519,10 +538,7 @@ def test_teardown_refuses_while_something_still_points_here(doctor, tmp_path):
 
 
 def _git(tree: Path, *args: str) -> None:
-    # Scrub GIT_* — under a git hook, inherited GIT_DIR would point every
-    # scratch-repo command at the hook's repository instead of tmp_path.
-    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-    subprocess.run(["git", "-C", str(tree), *args], check=True, capture_output=True, env=env)
+    subprocess.run(["git", "-C", str(tree), *args], check=True, capture_output=True)
 
 
 def _make_git_repo(
@@ -1805,6 +1821,7 @@ DELETE_CALL = f"api -X DELETE repos/o/r/git/refs/heads/{HEAD_BRANCH}"
 
 GH_STUB = r"""#!/bin/sh
 echo "$*" >> "$GH_STUB/calls"
+echo "${GIT_DIR-unset}" > "$GH_STUB/git_dir"
 case "$*" in
   "pr view"*)
     if [ -f "$GH_STUB/fail" ]; then echo "HTTP 502: Bad Gateway" >&2; exit 1; fi
@@ -1900,6 +1917,78 @@ def test_cleanup_refuses_an_open_pr_and_touches_nothing(doctor, tmp_path, gh, ca
     assert _has_branch(repo)
     assert DELETE_CALL not in _gh_calls(gh)
     assert "OPEN" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# a git hook's GIT_DIR must reach neither these tests nor the doctor (OS#807)
+# ---------------------------------------------------------------------------
+
+#: The location variables a git hook can export, each of which overrides ``-C``.
+GIT_LOCATION_VARIABLES = (
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_COMMON_DIR",
+)
+
+
+def test_the_scrub_removes_every_git_location_variable(tmp_path, monkeypatch):
+    for name in GIT_LOCATION_VARIABLES:
+        monkeypatch.setenv(name, str(tmp_path / name))
+    monkeypatch.setenv("KEEP_ME", "1")
+
+    _scrub_git_env(monkeypatch)
+
+    assert [name for name in GIT_LOCATION_VARIABLES if name in os.environ] == []
+    assert os.environ["KEEP_ME"] == "1"
+
+
+def test_a_hooks_git_dir_does_not_reach_the_scratch_repos(tmp_path):
+    """Run a cleanup test the way fiscus's pre-push hook runs this file.
+
+    The decoy is a repository of its own, so a test that leaked to it reads the
+    decoy's refs (it has no session branch) and fails, and writes nowhere real.
+    """
+    decoy = tmp_path / "decoy"
+    _git(tmp_path, "init", "-q", "-b", "main", str(decoy))
+    env = {**os.environ, "GIT_DIR": str(decoy / ".git")}
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            f"{__file__}::test_cleanup_refuses_an_open_pr_and_touches_nothing",
+            "-q",
+            "-p",
+            "no:cacheprovider",
+            f"--basetemp={tmp_path / 'child'}",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "1 passed" in result.stdout
+
+
+def test_gh_never_inherits_a_hooks_git_dir(doctor, tmp_path, gh, monkeypatch):
+    """gh finds its repository through git, so an inherited GIT_DIR re-aims it.
+
+    Measured: ``GIT_DIR=<fiscus>/.git gh repo view`` from OverSteward answers
+    ``NathanKrupa/Fiscus``. Under a hook, ``cleanup-merged <n>`` would read PR
+    ``<n>`` of the hook's repository, and delete a ref there by its slug.
+    """
+    monkeypatch.setenv("GIT_DIR", str(tmp_path / "hook-repo" / ".git"))
+
+    doctor._gh(["repo", "view"], tmp_path)
+
+    assert _gh_calls(gh) == ["repo view"]
+    assert (gh / "git_dir").read_text(encoding="utf-8").strip() == "unset"
 
 
 def test_cleanup_refuses_under_an_open_child_and_names_it(doctor, tmp_path, gh, capsys):
