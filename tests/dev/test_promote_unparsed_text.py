@@ -107,6 +107,9 @@ REFUSED = {
     "a1-input": (API + " -f base=staging -f head=fix/x" + API_BODY + " --input pr.json", None),
     "a1-endpoint-after-break": ("gh api --method POST -f base=main -f head=staging" + API_BODY
                                 + " repos/NathanKrupa/grantspider/pulls", None),
+    "a1-two-endpoints-written": (API + " -f base=main -f head=staging -f body=\"$(cat <<'EOF'\n"
+                                 "see repos/NathanKrupa/OverSteward/pulls\nsay \" here\nEOF\n)\"",
+                                 None),
     "a1-post-after-break": (API + " -X GET -f base=main -f head=staging" + API_BODY + " -X POST",
                             None),
     "c4-cd-read-again-before-a-call": (
