@@ -1341,10 +1341,20 @@ def _refuse(subject: str, reason: str) -> NoReturn:
 
 
 def _gh(args: list[str], cwd: Path) -> str:
-    """Run ``gh`` from ``cwd``. Any failure is "could not look", never an empty answer."""
+    """Run ``gh`` from ``cwd``. Any failure is "could not look", never an empty answer.
+
+    gh finds its repository through git, so it gets the same scrubbed
+    environment: an inherited GIT_DIR would aim it at the hook's repository.
+    """
     try:
         result = subprocess.run(  # list-form argv, no shell
-            ["gh", *args], capture_output=True, text=True, timeout=60, check=False, cwd=cwd
+            ["gh", *args],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+            cwd=cwd,
+            env=_clean_git_env(),
         )
     except (OSError, subprocess.SubprocessError) as failure:
         raise CouldNotLook(f"gh {' '.join(args)} could not run: {failure}") from failure
