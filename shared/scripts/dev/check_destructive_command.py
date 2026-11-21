@@ -881,23 +881,44 @@ def _hookspath_read(argv: list[str]) -> bool:
     return all(token in _HOOKSPATH_READ_OPTIONS for token in rest)
 
 
-# What can make the word ``git`` run something other than git within one
-# command: an alias, a function, the command hash, a builtin toggle, sourced or
-# evaluated text, a trap, and the variables that choose where programs and
-# startup files are found.
+# What can make the word ``git`` run something other than a plain git read
+# within one command: an alias, a function, the command hash, a builtin toggle,
+# sourced or evaluated text, a trap, the variables that choose where programs
+# and startup files are found, the loader's variables, and git's own.
 _REDEFINING_COMMANDS = frozenset({
     "alias", "function", "hash", "enable", "source", ".", "eval", "shopt", "trap",
 })
-_REDEFINING_ASSIGNMENT = re.compile(r"(?<![\w.-])(?:PATH|BASH_ENV|ENV|GIT_EXEC_PATH)\+?=")
+_REDEFINING_ASSIGNMENT = re.compile(
+    r"(?<![\w.-])(?:PATH|BASH_ENV|ENV|LD_\w+|DYLD_\w+|GIT_\w+)\+?="
+)
 _FUNCTION_DEFINITION = re.compile(r"\(\s*\)")
+# ``env -S`` splits its value into the command it runs, ahead of the words the
+# unwrapped argv shows, so the argv after it is not the command that runs.
+_SPLIT_STRING = re.compile(r"-[^-]*S|--split-string")
+
+
+def _env_splits_a_string(command: str, depth: int = 0) -> bool:
+    """True if an ``env`` in ``command``, or in a script it hands a shell, carries ``-S``."""
+    for argv in _argvs_of(command):
+        if any(_basename(token) == "env" for token in argv) and any(
+            _SPLIT_STRING.match(token) for token in argv
+        ):
+            return True
+        script = _shell_script(_unwrap(argv))
+        if script is not None and depth < _MAX_SHELL_DEPTH:
+            if _env_splits_a_string(script, depth + 1):
+                return True
+    return False
 
 
 def _may_redefine_git(command: str, argvs: list[list[str]]) -> bool:
-    """True if ``command`` holds anything listed above :data:`_REDEFINING_COMMANDS`."""
+    """True if ``command`` holds anything named above :data:`_REDEFINING_COMMANDS`,
+    or an ``env -S`` (see :data:`_SPLIT_STRING`)."""
     return bool(
         _REDEFINING_ASSIGNMENT.search(command)
         or _FUNCTION_DEFINITION.search(command)
         or any(_command_name(argv) in _REDEFINING_COMMANDS for argv in argvs)
+        or _env_splits_a_string(command)
     )
 
 

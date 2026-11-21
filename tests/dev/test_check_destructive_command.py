@@ -835,11 +835,19 @@ def test_hookspath_expanding_dir_still_denies(hook, cmd):
         "PATH=/tmp/x git config core.hooksPath",
         "export PATH=/tmp/x:$PATH; git config core.hooksPath",
         "GIT_EXEC_PATH=/tmp/x git config core.hooksPath",
+        "GIT_TRACE=/tmp/t git config core.hooksPath",
+        "LD_PRELOAD=/tmp/x.so git config core.hooksPath",
+        "LD_PRELOAD=/tmp/x.so; export LD_PRELOAD; git config core.hooksPath",
         ". ./defs.sh; git config core.hooksPath",
         "source defs.sh; git config core.hooksPath",
         'eval "$setup"; git config core.hooksPath',
         "trap 'git commit -m x' EXIT; git config core.hooksPath",
         "BASH_ENV=defs.sh bash -c 'git config core.hooksPath'",
+        # env -S runs its split value, not the argv the wrapper hides.
+        "env -S'git -c core.hooksPath=/dev/null commit -m x' git config core.hooksPath",
+        "env --split-string='git commit -m x' git config core.hooksPath",
+        "sudo env -iS'git commit -m x' git config core.hooksPath",
+        "sh -c \"env -S'git commit -m x' git config core.hooksPath\"",
     ],
 )
 def test_hookspath_read_beside_a_redefinition_still_denies(hook, cmd):
