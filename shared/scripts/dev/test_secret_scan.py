@@ -186,6 +186,18 @@ def test_the_scrub_removes_every_git_location_variable(tmp_path, monkeypatch):
     assert os.environ["KEEP_ME"] == "1"
 
 
+def _run_tests_under_git_dir(git_dir: Path, basetemp: Path, *tests: str):
+    """Run the named tests of this file in a child pytest that inherits ``GIT_DIR``."""
+    return subprocess.run(
+        [sys.executable, "-m", "pytest", *(f"{__file__}::{t}" for t in tests)]
+        + ["-q", "-p", "no:cacheprovider", f"--basetemp={basetemp}"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, "GIT_DIR": str(git_dir)},
+    )
+
+
 def test_a_hooks_git_dir_does_not_reach_the_scratch_repos(tmp_path):
     """Run this file's git tests the way a hook would, with GIT_DIR inherited.
 
@@ -197,24 +209,12 @@ def test_a_hooks_git_dir_does_not_reach_the_scratch_repos(tmp_path):
     _git("init", "-q", cwd=decoy)
     config = decoy / ".git" / "config"
     before = config.read_bytes()
-    env = {**os.environ, "GIT_DIR": str(decoy / ".git")}
 
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "pytest",
-            f"{__file__}::test_normal_repo_mounts_itself_at_host_path",
-            f"{__file__}::test_worktree_mounts_common_git_dir",
-            "-q",
-            "-p",
-            "no:cacheprovider",
-            f"--basetemp={tmp_path / 'child'}",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-        env=env,
+    result = _run_tests_under_git_dir(
+        decoy / ".git",
+        tmp_path / "child",
+        "test_normal_repo_mounts_itself_at_host_path",
+        "test_worktree_mounts_common_git_dir",
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
