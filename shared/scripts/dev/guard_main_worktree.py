@@ -195,13 +195,110 @@ def _split_assignments(argv: list[str]) -> tuple[list[str], list[str]]:
     return argv[:index], argv[index:]
 
 
-def _invocations(command: str) -> list[tuple[list[str], list[str]]] | None:
+# The line-true reading. Once a line leaves a quote open, ``_token_runs`` lexes
+# the whole text as one unit, in which every later newline is whitespace. This
+# reading lexes the whole text once through a stream that decides each newline
+# from the lexer's own state. A guard decides under each reading on its own and
+# holds if either holds. Two marker characters stand in for newlines, taken
+# from candidates the text does not hold.
+_LINE_MARKER_CANDIDATES = "\x1c\x1d\x1e\x1f"
+_DEFAULT_PUNCTUATION = shlex.shlex("", punctuation_chars=True).punctuation_chars
+
+
+class _LineStream:
+    """``text`` for a lexer: an escaped newline is the continuation marker, a
+    quoted one stays a newline, any other is the line-end marker (punctuation).
+    ``readline``, which shlex calls only to skip a comment, leaves the newline
+    unread, so a comment ends at its line.
+    """
+
+    def __init__(self, text: str, line_end: str, continuation: str) -> None:
+        self._text, self._position = text, 0
+        self._line_end, self._continuation = line_end, continuation
+        self.lexer: shlex.shlex | None = None
+
+    def read(self, size: int = 1) -> str:
+        char = self._text[self._position : self._position + 1]
+        self._position += len(char)
+        if char != "\n" or self.lexer is None:
+            return char
+        if self.lexer.state in self.lexer.escape:
+            return self._continuation
+        return char if self.lexer.state in self.lexer.quotes else self._line_end
+
+    def readline(self, size: int = -1) -> str:
+        end = self._text.find("\n", self._position)
+        end = len(self._text) if end < 0 else end
+        rest, self._position = self._text[self._position : end], end
+        return rest
+
+
+def _joined_line_runs(command: str) -> list[list[str]] | None:
+    """Runs for text holding the marker characters: lines joined until they lex."""
+    runs: list[list[str]] = []
+    pending: list[str] = []
+    for line in command.split("\n"):
+        pending.append(line)
+        tokens = _lex("\n".join(pending))
+        if tokens is not None:
+            runs.append(tokens)
+            pending = []
+    return None if pending else [run for run in runs if run]
+
+
+def _line_runs(command: str) -> list[list[str]] | None:
+    """Tokens of ``command``, one run per line end the shell acts on.
+
+    Quoted text spanning lines stays one token, as in :func:`_token_runs`. None
+    when the whole text does not lex. Empty runs are dropped.
+    """
+    markers = [char for char in _LINE_MARKER_CANDIDATES if char not in command]
+    if len(markers) < 2:
+        return _joined_line_runs(command)
+    line_end, continuation = markers[:2]
+    stream = _LineStream(command, line_end, continuation)
+    lexer = _ShellLexer(stream, posix=True, punctuation_chars=_DEFAULT_PUNCTUATION + line_end)
+    lexer.whitespace_split = True
+    stream.lexer = lexer
+    try:
+        raw = list(lexer)
+    except ValueError:
+        return None
+    runs: list[list[str]] = [[]]
+    for token in raw:
+        if continuation in token:
+            token = token.replace(continuation, "")
+            if not token:
+                continue
+        if line_end not in token:
+            runs[-1].append(token)
+            continue
+        # A line end fused onto punctuation (``;``, ``&&``, ``|``) is split off it.
+        for part in re.split(f"({re.escape(line_end)})", token):
+            if part == line_end:
+                runs.append([])
+            elif part:
+                runs[-1].append(part)
+    return [run for run in runs if run]
+
+
+def _readings(command: str) -> tuple[bool, ...]:
+    """The readings a guard decides under: today's, then the line-true one if lines exist."""
+    return (False, True) if "\n" in command else (False,)
+
+
+def _invocations(
+    command: str, line_true: bool = False
+) -> list[tuple[list[str], list[str]]] | None:
     """Every simple command in ``command`` as (env assignments, argv).
+
+    ``line_true`` selects the line-true reading, :func:`_line_runs`;
+    today's reading, :func:`_token_runs`, is the default.
 
     None means the text could not be lexed, which callers treat as
     un-analysable rather than as safe.
     """
-    runs = _token_runs(command)
+    runs = _line_runs(command) if line_true else _token_runs(command)
     if runs is None:
         return None
     return [
@@ -271,12 +368,24 @@ def _unlexable_branch_switch(command: str) -> bool:
     return not (_FILE_RESTORE.search(command) or _RESTORE.search(command))
 
 
-def is_branch_switch(command: str) -> bool:
+def is_branch_switch(command: str, line_true: bool = False) -> bool:
     """True if ``command`` switches or creates a branch (not a file restore)."""
-    invocations = _invocations(command)
+    invocations = _invocations(command, line_true)
     if invocations is None:
         return _unlexable_branch_switch(command)
     return any(_is_branch_op(argv) for _assignments, argv in invocations)
+
+
+def refuses(command: str) -> bool:
+    """True if some reading holds a branch switch without that reading's override.
+
+    Each reading is decided on its own: an overridden switch one reading makes
+    visible must not clear a switch the other reading holds without one.
+    """
+    return any(
+        is_branch_switch(command, line_true) and not has_override(command, line_true)
+        for line_true in _readings(command)
+    )
 
 
 def in_main_worktree(git_dir: str) -> bool:
@@ -308,7 +417,7 @@ def _inline_override(assignments: list[str]) -> bool:
     return False
 
 
-def has_override(command: str) -> bool:
+def has_override(command: str, line_true: bool = False) -> bool:
     """True if an override var is set — in the real environment or as a
     genuine leading assignment on the guarded git command.
 
@@ -319,7 +428,7 @@ def has_override(command: str) -> bool:
     """
     if any(os.environ.get(var) == "1" for var in _OVERRIDE_VARS):
         return True
-    invocations = _invocations(command)
+    invocations = _invocations(command, line_true)
     if invocations is None:
         return bool(_OVERRIDE_PREFIX.search(command))
     return any(
@@ -352,9 +461,7 @@ def main() -> int:
     if in_remote_container(os.environ):
         return 0
     command = (event.get("tool_input") or {}).get("command", "") or ""
-    if not is_branch_switch(command):
-        return 0
-    if has_override(command):
+    if not refuses(command):
         return 0
     cwd = event.get("cwd") or os.getcwd()
     if not in_main_worktree(_git_dir(cwd)):

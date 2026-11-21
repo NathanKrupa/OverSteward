@@ -191,12 +191,109 @@ def _split_assignments(argv: list[str]) -> tuple[list[str], list[str]]:
     return argv[:index], argv[index:]
 
 
-def _invocations(command: str) -> list[tuple[list[str], list[str]]] | None:
+# The line-true reading. Once a line leaves a quote open, ``_token_runs`` lexes
+# the whole text as one unit, in which every later newline is whitespace. This
+# reading lexes the whole text once through a stream that decides each newline
+# from the lexer's own state. A guard decides under each reading on its own and
+# holds if either holds. Two marker characters stand in for newlines, taken
+# from candidates the text does not hold.
+_LINE_MARKER_CANDIDATES = "\x1c\x1d\x1e\x1f"
+_DEFAULT_PUNCTUATION = shlex.shlex("", punctuation_chars=True).punctuation_chars
+
+
+class _LineStream:
+    """``text`` for a lexer: an escaped newline is the continuation marker, a
+    quoted one stays a newline, any other is the line-end marker (punctuation).
+    ``readline``, which shlex calls only to skip a comment, leaves the newline
+    unread, so a comment ends at its line.
+    """
+
+    def __init__(self, text: str, line_end: str, continuation: str) -> None:
+        self._text, self._position = text, 0
+        self._line_end, self._continuation = line_end, continuation
+        self.lexer: shlex.shlex | None = None
+
+    def read(self, size: int = 1) -> str:
+        char = self._text[self._position : self._position + 1]
+        self._position += len(char)
+        if char != "\n" or self.lexer is None:
+            return char
+        if self.lexer.state in self.lexer.escape:
+            return self._continuation
+        return char if self.lexer.state in self.lexer.quotes else self._line_end
+
+    def readline(self, size: int = -1) -> str:
+        end = self._text.find("\n", self._position)
+        end = len(self._text) if end < 0 else end
+        rest, self._position = self._text[self._position : end], end
+        return rest
+
+
+def _joined_line_runs(command: str) -> list[list[str]] | None:
+    """Runs for text holding the marker characters: lines joined until they lex."""
+    runs: list[list[str]] = []
+    pending: list[str] = []
+    for line in command.split("\n"):
+        pending.append(line)
+        tokens = _lex("\n".join(pending))
+        if tokens is not None:
+            runs.append(tokens)
+            pending = []
+    return None if pending else [run for run in runs if run]
+
+
+def _line_runs(command: str) -> list[list[str]] | None:
+    """Tokens of ``command``, one run per line end the shell acts on.
+
+    Quoted text spanning lines stays one token, as in :func:`_token_runs`. None
+    when the whole text does not lex. Empty runs are dropped.
+    """
+    markers = [char for char in _LINE_MARKER_CANDIDATES if char not in command]
+    if len(markers) < 2:
+        return _joined_line_runs(command)
+    line_end, continuation = markers[:2]
+    stream = _LineStream(command, line_end, continuation)
+    lexer = _ShellLexer(stream, posix=True, punctuation_chars=_DEFAULT_PUNCTUATION + line_end)
+    lexer.whitespace_split = True
+    stream.lexer = lexer
+    try:
+        raw = list(lexer)
+    except ValueError:
+        return None
+    runs: list[list[str]] = [[]]
+    for token in raw:
+        if continuation in token:
+            token = token.replace(continuation, "")
+            if not token:
+                continue
+        if line_end not in token:
+            runs[-1].append(token)
+            continue
+        # A line end fused onto punctuation (``;``, ``&&``, ``|``) is split off it.
+        for part in re.split(f"({re.escape(line_end)})", token):
+            if part == line_end:
+                runs.append([])
+            elif part:
+                runs[-1].append(part)
+    return [run for run in runs if run]
+
+
+def _readings(command: str) -> tuple[bool, ...]:
+    """The readings a guard decides under: today's, then the line-true one if lines exist."""
+    return (False, True) if "\n" in command else (False,)
+
+
+def _invocations(
+    command: str, line_true: bool = False
+) -> list[tuple[list[str], list[str]]] | None:
     """Every simple command in ``command`` as (env assignments, argv).
+
+    ``line_true`` selects the line-true reading, :func:`_line_runs`;
+    today's reading, :func:`_token_runs`, is the default.
 
     None means the text could not be lexed.
     """
-    runs = _token_runs(command)
+    runs = _line_runs(command) if line_true else _token_runs(command)
     if runs is None:
         return None
     return [
@@ -532,6 +629,7 @@ class _Context:
     cwd: str
     environ: Mapping[str, str]
     read_checkout: ReadCheckout
+    line_true: bool = False
 
     def gh_repo(self) -> str | None:
         return _assigned(self.assignments, GH_REPO_VAR) or self.environ.get(GH_REPO_VAR)
@@ -613,6 +711,7 @@ def _promote_in(argv: list[str], ctx: _Context) -> Promote | None:
             environ=ctx.environ,
             read_checkout=ctx.read_checkout,
             inherited=ctx.assignments,
+            line_true=ctx.line_true,
         )
     return _gh_promote(argv, ctx)
 
@@ -624,21 +723,38 @@ def find_promote(
     environ: Mapping[str, str],
     read_checkout: ReadCheckout,
     inherited: list[str] | None = None,
+    line_true: bool = False,
 ) -> Promote | None:
     """The first staging→main promote on a ``PROMOTE_REPOS`` repo ``command`` would run.
 
     None when it runs none. ``inherited`` is the environment prefix of the
     shell running ``command``, which every command inside it receives.
+    ``line_true`` selects the reading, and a nested script is read under it.
     """
-    for assignments, argv in _invocations(command) or []:
+    for assignments, argv in _invocations(command, line_true) or []:
         argv, run_assignments, run_cwd = _unwrap(argv, [*(inherited or []), *assignments], cwd)
         if not argv:
             continue
-        found = _promote_in(argv, _Context(run_assignments, run_cwd, environ, read_checkout))
+        ctx = _Context(run_assignments, run_cwd, environ, read_checkout, line_true)
+        found = _promote_in(argv, ctx)
         if found is not None:
             return found
         cwd = _next_cwd(argv, cwd)
     return None
+
+
+def find_promotes(
+    command: str, cwd: str, *, environ: Mapping[str, str], read_checkout: ReadCheckout
+) -> list[Promote]:
+    """The first promote under each reading, today's first, each from ``cwd``; distinct."""
+    found: list[Promote] = []
+    for line_true in _readings(command):
+        promote = find_promote(
+            command, cwd, environ=environ, read_checkout=read_checkout, line_true=line_true
+        )
+        if promote is not None and promote not in found:
+            found.append(promote)
+    return found
 
 
 # ---------------------------------------------------------------------------
@@ -720,11 +836,31 @@ def evaluate(
     list_red_issues: ListRedIssues,
     post_comment: PostComment,
 ) -> tuple[int, str]:
-    """(exit code, stderr text) for ``command`` run from ``cwd``. 2 refuses, 0 allows."""
-    promote = find_promote(command, cwd, environ=environ, read_checkout=read_checkout)
-    if promote is None:
-        return 0, ""
-    repos = [promote.repo] if promote.repo is not None else sorted(PROMOTE_REPOS)
+    """(exit code, stderr text) for ``command`` run from ``cwd``. 2 refuses, 0 allows.
+
+    Each reading's first promote is decided on its own, those without a reason
+    first: a refusal of any stands, and the first with a reason decides the rest,
+    so an override is recorded at most once.
+    """
+    promotes = find_promotes(command, cwd, environ=environ, read_checkout=read_checkout)
+    for promote in sorted(promotes, key=_has_reason):
+        code, message = _verdict(
+            promote, list_red_issues=list_red_issues, post_comment=post_comment
+        )
+        if code or _has_reason(promote):
+            return code, message
+    return 0, ""
+
+
+def _has_reason(promote: Promote) -> bool:
+    return bool((promote.override or "").strip())
+
+
+def _verdict(
+    promote: Promote, *, list_red_issues: ListRedIssues, post_comment: PostComment
+) -> tuple[int, str]:
+    """(exit code, stderr text) for one promote."""
+    repos =[promote.repo] if promote.repo is not None else sorted(PROMOTE_REPOS)
     reason = (promote.override or "").strip()
     note = _EMPTY_OVERRIDE if promote.override is not None and not reason else ""
     try:

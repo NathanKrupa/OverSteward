@@ -194,13 +194,110 @@ def _split_assignments(argv: list[str]) -> tuple[list[str], list[str]]:
     return argv[:index], argv[index:]
 
 
-def _invocations(command: str) -> list[tuple[list[str], list[str]]] | None:
+# The line-true reading. Once a line leaves a quote open, ``_token_runs`` lexes
+# the whole text as one unit, in which every later newline is whitespace. This
+# reading lexes the whole text once through a stream that decides each newline
+# from the lexer's own state. A guard decides under each reading on its own and
+# holds if either holds. Two marker characters stand in for newlines, taken
+# from candidates the text does not hold.
+_LINE_MARKER_CANDIDATES = "\x1c\x1d\x1e\x1f"
+_DEFAULT_PUNCTUATION = shlex.shlex("", punctuation_chars=True).punctuation_chars
+
+
+class _LineStream:
+    """``text`` for a lexer: an escaped newline is the continuation marker, a
+    quoted one stays a newline, any other is the line-end marker (punctuation).
+    ``readline``, which shlex calls only to skip a comment, leaves the newline
+    unread, so a comment ends at its line.
+    """
+
+    def __init__(self, text: str, line_end: str, continuation: str) -> None:
+        self._text, self._position = text, 0
+        self._line_end, self._continuation = line_end, continuation
+        self.lexer: shlex.shlex | None = None
+
+    def read(self, size: int = 1) -> str:
+        char = self._text[self._position : self._position + 1]
+        self._position += len(char)
+        if char != "\n" or self.lexer is None:
+            return char
+        if self.lexer.state in self.lexer.escape:
+            return self._continuation
+        return char if self.lexer.state in self.lexer.quotes else self._line_end
+
+    def readline(self, size: int = -1) -> str:
+        end = self._text.find("\n", self._position)
+        end = len(self._text) if end < 0 else end
+        rest, self._position = self._text[self._position : end], end
+        return rest
+
+
+def _joined_line_runs(command: str) -> list[list[str]] | None:
+    """Runs for text holding the marker characters: lines joined until they lex."""
+    runs: list[list[str]] = []
+    pending: list[str] = []
+    for line in command.split("\n"):
+        pending.append(line)
+        tokens = _lex("\n".join(pending))
+        if tokens is not None:
+            runs.append(tokens)
+            pending = []
+    return None if pending else [run for run in runs if run]
+
+
+def _line_runs(command: str) -> list[list[str]] | None:
+    """Tokens of ``command``, one run per line end the shell acts on.
+
+    Quoted text spanning lines stays one token, as in :func:`_token_runs`. None
+    when the whole text does not lex. Empty runs are dropped.
+    """
+    markers = [char for char in _LINE_MARKER_CANDIDATES if char not in command]
+    if len(markers) < 2:
+        return _joined_line_runs(command)
+    line_end, continuation = markers[:2]
+    stream = _LineStream(command, line_end, continuation)
+    lexer = _ShellLexer(stream, posix=True, punctuation_chars=_DEFAULT_PUNCTUATION + line_end)
+    lexer.whitespace_split = True
+    stream.lexer = lexer
+    try:
+        raw = list(lexer)
+    except ValueError:
+        return None
+    runs: list[list[str]] = [[]]
+    for token in raw:
+        if continuation in token:
+            token = token.replace(continuation, "")
+            if not token:
+                continue
+        if line_end not in token:
+            runs[-1].append(token)
+            continue
+        # A line end fused onto punctuation (``;``, ``&&``, ``|``) is split off it.
+        for part in re.split(f"({re.escape(line_end)})", token):
+            if part == line_end:
+                runs.append([])
+            elif part:
+                runs[-1].append(part)
+    return [run for run in runs if run]
+
+
+def _readings(command: str) -> tuple[bool, ...]:
+    """The readings a guard decides under: today's, then the line-true one if lines exist."""
+    return (False, True) if "\n" in command else (False,)
+
+
+def _invocations(
+    command: str, line_true: bool = False
+) -> list[tuple[list[str], list[str]]] | None:
     """Every simple command in ``command`` as (env assignments, argv).
+
+    ``line_true`` selects the line-true reading, :func:`_line_runs`;
+    today's reading, :func:`_token_runs`, is the default.
 
     None means the text could not be lexed, which callers treat as
     un-analysable rather than as safe.
     """
-    runs = _token_runs(command)
+    runs = _line_runs(command) if line_true else _token_runs(command)
     if runs is None:
         return None
     return [
@@ -285,8 +382,11 @@ def _fallback_invocations(command: str) -> list[tuple[list[str], list[str]]]:
     ]
 
 
-def _expand(argvs: list[list[str]], depth: int) -> list[list[str]]:
-    """``argvs`` unwrapped, plus the argv of any script handed to a shell."""
+def _expand(argvs: list[list[str]], depth: int, line_true: bool = False) -> list[list[str]]:
+    """``argvs`` unwrapped, plus the argv of any script handed to a shell.
+
+    A script is read under the same reading as the command that carries it.
+    """
     expanded: list[list[str]] = []
     for raw in argvs:
         argv = _unwrap(raw)
@@ -295,21 +395,24 @@ def _expand(argvs: list[list[str]], depth: int) -> list[list[str]]:
         expanded.append(argv)
         script = _shell_script(argv)
         if script is not None and depth < _MAX_SHELL_DEPTH:
-            expanded.extend(_expand(_argvs_of(script), depth + 1))
+            expanded.extend(_expand(_argvs_of(script, line_true), depth + 1, line_true))
     return expanded
 
 
-def _argvs_of(command: str) -> list[list[str]]:
-    """The argv of every simple command in ``command``, before expansion."""
-    invocations = _invocations(command)
+def _argvs_of(command: str, line_true: bool = False) -> list[list[str]]:
+    """The argv of every simple command in ``command``, before expansion.
+
+    Text that does not lex goes to the fallback under either reading.
+    """
+    invocations = _invocations(command, line_true)
     if invocations is None:
         invocations = _fallback_invocations(command)
     return [argv for _assignments, argv in invocations]
 
 
-def _all_argvs(command: str) -> list[list[str]]:
+def _all_argvs(command: str, line_true: bool = False) -> list[list[str]]:
     """Every command the shell would run, as argv the rules can inspect."""
-    return _expand(_argvs_of(command), depth=0)
+    return _expand(_argvs_of(command, line_true), 0, line_true)
 
 
 # ---------------------------------------------------------------------------
@@ -669,13 +772,25 @@ _RULES: tuple[tuple[str, object, str], ...] = (
 )
 
 
+def _first_rule(
+    command: str, rules: tuple[tuple[str, object, str], ...]
+) -> tuple[str, str] | None:
+    """(category, text) of the first rule matched under today's reading, else the line-true one.
+
+    Each reading's commands are matched on their own, never merged: a text-tool
+    line made visible by one reading must not stand down a rule the other holds.
+    """
+    for line_true in _readings(command):
+        argvs = _all_argvs(command, line_true)
+        for category, predicate, text in rules:
+            if predicate(argvs):  # type: ignore[operator]
+                return (category, text)
+    return None
+
+
 def _match(command: str) -> tuple[str, str] | None:
     """Return (category, risk) for the first destructive pattern matched."""
-    argvs = _all_argvs(command)
-    for category, predicate, risk in _RULES:
-        if predicate(argvs):  # type: ignore[operator]
-            return (category, risk)
-    return None
+    return _first_rule(command, _RULES)
 
 
 # ---------------------------------------------------------------------------
@@ -795,11 +910,7 @@ _EVASION_RULES: tuple[tuple[str, object, str], ...] = (
 
 def _match_hook_evasion(command: str) -> tuple[str, str] | None:
     """Return (category, reason) for the first hook-evasion pattern matched."""
-    argvs = _all_argvs(command)
-    for category, predicate, reason in _EVASION_RULES:
-        if predicate(argvs):  # type: ignore[operator]
-            return (category, reason)
-    return None
+    return _first_rule(command, _EVASION_RULES)
 
 
 def _deny_message(category: str, reason: str, command: str) -> str:

@@ -169,13 +169,110 @@ def _split_assignments(argv: list[str]) -> tuple[list[str], list[str]]:
     return argv[:index], argv[index:]
 
 
-def _invocations(command: str) -> list[tuple[list[str], list[str]]] | None:
+# The line-true reading. Once a line leaves a quote open, ``_token_runs`` lexes
+# the whole text as one unit, in which every later newline is whitespace. This
+# reading lexes the whole text once through a stream that decides each newline
+# from the lexer's own state. A guard decides under each reading on its own and
+# holds if either holds. Two marker characters stand in for newlines, taken
+# from candidates the text does not hold.
+_LINE_MARKER_CANDIDATES = "\x1c\x1d\x1e\x1f"
+_DEFAULT_PUNCTUATION = shlex.shlex("", punctuation_chars=True).punctuation_chars
+
+
+class _LineStream:
+    """``text`` for a lexer: an escaped newline is the continuation marker, a
+    quoted one stays a newline, any other is the line-end marker (punctuation).
+    ``readline``, which shlex calls only to skip a comment, leaves the newline
+    unread, so a comment ends at its line.
+    """
+
+    def __init__(self, text: str, line_end: str, continuation: str) -> None:
+        self._text, self._position = text, 0
+        self._line_end, self._continuation = line_end, continuation
+        self.lexer: shlex.shlex | None = None
+
+    def read(self, size: int = 1) -> str:
+        char = self._text[self._position : self._position + 1]
+        self._position += len(char)
+        if char != "\n" or self.lexer is None:
+            return char
+        if self.lexer.state in self.lexer.escape:
+            return self._continuation
+        return char if self.lexer.state in self.lexer.quotes else self._line_end
+
+    def readline(self, size: int = -1) -> str:
+        end = self._text.find("\n", self._position)
+        end = len(self._text) if end < 0 else end
+        rest, self._position = self._text[self._position : end], end
+        return rest
+
+
+def _joined_line_runs(command: str) -> list[list[str]] | None:
+    """Runs for text holding the marker characters: lines joined until they lex."""
+    runs: list[list[str]] = []
+    pending: list[str] = []
+    for line in command.split("\n"):
+        pending.append(line)
+        tokens = _lex("\n".join(pending))
+        if tokens is not None:
+            runs.append(tokens)
+            pending = []
+    return None if pending else [run for run in runs if run]
+
+
+def _line_runs(command: str) -> list[list[str]] | None:
+    """Tokens of ``command``, one run per line end the shell acts on.
+
+    Quoted text spanning lines stays one token, as in :func:`_token_runs`. None
+    when the whole text does not lex. Empty runs are dropped.
+    """
+    markers = [char for char in _LINE_MARKER_CANDIDATES if char not in command]
+    if len(markers) < 2:
+        return _joined_line_runs(command)
+    line_end, continuation = markers[:2]
+    stream = _LineStream(command, line_end, continuation)
+    lexer = _ShellLexer(stream, posix=True, punctuation_chars=_DEFAULT_PUNCTUATION + line_end)
+    lexer.whitespace_split = True
+    stream.lexer = lexer
+    try:
+        raw = list(lexer)
+    except ValueError:
+        return None
+    runs: list[list[str]] = [[]]
+    for token in raw:
+        if continuation in token:
+            token = token.replace(continuation, "")
+            if not token:
+                continue
+        if line_end not in token:
+            runs[-1].append(token)
+            continue
+        # A line end fused onto punctuation (``;``, ``&&``, ``|``) is split off it.
+        for part in re.split(f"({re.escape(line_end)})", token):
+            if part == line_end:
+                runs.append([])
+            elif part:
+                runs[-1].append(part)
+    return [run for run in runs if run]
+
+
+def _readings(command: str) -> tuple[bool, ...]:
+    """The readings a guard decides under: today's, then the line-true one if lines exist."""
+    return (False, True) if "\n" in command else (False,)
+
+
+def _invocations(
+    command: str, line_true: bool = False
+) -> list[tuple[list[str], list[str]]] | None:
     """Every simple command in ``command`` as (env assignments, argv).
+
+    ``line_true`` selects the line-true reading, :func:`_line_runs`;
+    today's reading, :func:`_token_runs`, is the default.
 
     None means the text could not be lexed, which callers treat as
     un-analysable rather than as safe.
     """
-    runs = _token_runs(command)
+    runs = _line_runs(command) if line_true else _token_runs(command)
     if runs is None:
         return None
     return [
@@ -267,7 +364,7 @@ def _unlexable_pull_target(command: str) -> str | None:
     return _refspec([w for w in match.group("rest").split() if not _FLAG.match(w)])
 
 
-def pull_target(command: str) -> str | None:
+def pull_target(command: str, line_true: bool = False) -> str | None:
     """The refspec a ``git pull`` names, or ``None``.
 
     ``None`` covers every safe shape: not a pull at all, a bare ``git pull``
@@ -275,7 +372,7 @@ def pull_target(command: str) -> str | None:
     a foreign ref), a remote with no refspec, and a pull named only inside
     quoted text.
     """
-    invocations = _invocations(command)
+    invocations = _invocations(command, line_true)
     if invocations is None:
         return _unlexable_pull_target(command)
     for _assignments, argv in invocations:
@@ -301,7 +398,7 @@ def _inline_override(assignments: list[str]) -> bool:
     return False
 
 
-def has_override(command: str) -> bool:
+def has_override(command: str, line_true: bool = False) -> bool:
     """True if an override var is set in the environment or as a genuine
     leading assignment on the guarded ``git pull``.
 
@@ -310,7 +407,7 @@ def has_override(command: str) -> bool:
     """
     if any(os.environ.get(var) == "1" for var in _OVERRIDE_VARS):
         return True
-    invocations = _invocations(command)
+    invocations = _invocations(command, line_true)
     if invocations is None:
         return bool(_OVERRIDE_PREFIX.search(command))
     return any(
@@ -321,12 +418,24 @@ def has_override(command: str) -> bool:
 
 def should_block(command: str, *, current_branch: str) -> bool:
     """True when this pull would rewrite a protected branch with a foreign ref."""
-    if has_override(command):
-        return False
+    return blocking_target(command, current_branch=current_branch) is not None
+
+
+def blocking_target(command: str, *, current_branch: str) -> str | None:
+    """The foreign ref some reading pulls onto a protected branch without its override.
+
+    Each reading is decided on its own: an overridden pull one reading makes
+    visible must not clear a pull the other reading holds without one.
+    """
     if not is_protected(current_branch):
-        return False
-    target = pull_target(command)
-    return target is not None and target != current_branch
+        return None
+    for line_true in _readings(command):
+        if has_override(command, line_true):
+            continue
+        target = pull_target(command, line_true)
+        if target is not None and target != current_branch:
+            return target
+    return None
 
 
 def _current_branch(cwd: str) -> str:
@@ -351,13 +460,14 @@ def main() -> int:
     if event.get("tool_name") != "Bash":
         return 0
     command = (event.get("tool_input") or {}).get("command", "") or ""
-    if pull_target(command) is None:  # cheap reject before shelling out to git
-        return 0
+    if all(pull_target(command, line_true) is None for line_true in _readings(command)):
+        return 0  # cheap reject before shelling out to git
     cwd = event.get("cwd") or os.getcwd()
     branch = _current_branch(cwd)
-    if not should_block(command, current_branch=branch):
+    target = blocking_target(command, current_branch=branch)
+    if target is None:
         return 0
-    sys.stderr.write(_MESSAGE.format(branch=branch, target=pull_target(command)))
+    sys.stderr.write(_MESSAGE.format(branch=branch, target=target))
     return 2
 
 

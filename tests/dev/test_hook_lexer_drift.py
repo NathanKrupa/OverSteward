@@ -40,6 +40,12 @@ _LEXER_MEMBERS = (
     "_token_runs",
     "_simple_commands",
     "_split_assignments",
+    "_LINE_MARKER_CANDIDATES",
+    "_DEFAULT_PUNCTUATION",
+    "_LineStream",
+    "_joined_line_runs",
+    "_line_runs",
+    "_readings",
     "_invocations",
 )
 
@@ -77,6 +83,7 @@ _PARSER_MEMBERS = (
     "_gh_promote",
     "_promote_in",
     "find_promote",
+    "find_promotes",
 )
 
 
@@ -215,6 +222,28 @@ def test_the_check_detects_a_mutated_copy(tmp_path):
     assert signatures[mutant] != signatures[paths[0]]
 
 
+@pytest.mark.parametrize(
+    "anchor",
+    [
+        "if self.lexer.state in self.lexer.escape:",
+        'return (False, True) if "\\n" in command',
+        "        if line_end not in token:",
+    ],
+)
+def test_the_check_detects_a_mutated_line_reading(tmp_path, anchor):
+    """The negative fixture for the line-true reading: one copy edited inside it goes red."""
+    paths = _lexer_paths()
+    original = paths[-1].read_text(encoding="utf-8")
+    mutated = original.replace(anchor, anchor.replace("if ", "if not ", 1), 1)
+    assert mutated != original, "the mutation anchor is gone — the fixture is inert"
+    mutant = tmp_path / "guard_drifted.py"
+    mutant.write_text(mutated, encoding="utf-8")
+
+    signatures = _signatures([*paths, mutant])
+    assert len(set(signatures.values())) == 2
+    assert signatures[mutant] != signatures[paths[0]]
+
+
 def test_a_prose_only_difference_is_not_drift(tmp_path):
     """Per-guard examples in comments and docstrings are deliberate, not drift."""
     original = _lexer_paths()[0].read_text(encoding="utf-8")
@@ -290,6 +319,8 @@ def test_the_duplicated_promote_parser_has_not_drifted():
     [
         # Behaviour: the base check of gh pr create.
         ("if base is not None and _branch(base) != TRUNK:", "if base is not None and False:"),
+        # Behaviour: each reading's promote kept, not only distinct ones.
+        ("if promote is not None and promote not in found:", "if promote is not None:"),
         # A decorator: Promote stops being a frozen dataclass.
         ("@dataclass(frozen=True)\nclass Promote:", "@dataclass\nclass Promote:"),
         # Prose: the parser is held byte-identical, docstrings included.

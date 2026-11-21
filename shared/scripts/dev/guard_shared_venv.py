@@ -205,13 +205,110 @@ def _split_assignments(argv: list[str]) -> tuple[list[str], list[str]]:
     return argv[:index], argv[index:]
 
 
-def _invocations(command: str) -> list[tuple[list[str], list[str]]] | None:
+# The line-true reading. Once a line leaves a quote open, ``_token_runs`` lexes
+# the whole text as one unit, in which every later newline is whitespace. This
+# reading lexes the whole text once through a stream that decides each newline
+# from the lexer's own state. A guard decides under each reading on its own and
+# holds if either holds. Two marker characters stand in for newlines, taken
+# from candidates the text does not hold.
+_LINE_MARKER_CANDIDATES = "\x1c\x1d\x1e\x1f"
+_DEFAULT_PUNCTUATION = shlex.shlex("", punctuation_chars=True).punctuation_chars
+
+
+class _LineStream:
+    """``text`` for a lexer: an escaped newline is the continuation marker, a
+    quoted one stays a newline, any other is the line-end marker (punctuation).
+    ``readline``, which shlex calls only to skip a comment, leaves the newline
+    unread, so a comment ends at its line.
+    """
+
+    def __init__(self, text: str, line_end: str, continuation: str) -> None:
+        self._text, self._position = text, 0
+        self._line_end, self._continuation = line_end, continuation
+        self.lexer: shlex.shlex | None = None
+
+    def read(self, size: int = 1) -> str:
+        char = self._text[self._position : self._position + 1]
+        self._position += len(char)
+        if char != "\n" or self.lexer is None:
+            return char
+        if self.lexer.state in self.lexer.escape:
+            return self._continuation
+        return char if self.lexer.state in self.lexer.quotes else self._line_end
+
+    def readline(self, size: int = -1) -> str:
+        end = self._text.find("\n", self._position)
+        end = len(self._text) if end < 0 else end
+        rest, self._position = self._text[self._position : end], end
+        return rest
+
+
+def _joined_line_runs(command: str) -> list[list[str]] | None:
+    """Runs for text holding the marker characters: lines joined until they lex."""
+    runs: list[list[str]] = []
+    pending: list[str] = []
+    for line in command.split("\n"):
+        pending.append(line)
+        tokens = _lex("\n".join(pending))
+        if tokens is not None:
+            runs.append(tokens)
+            pending = []
+    return None if pending else [run for run in runs if run]
+
+
+def _line_runs(command: str) -> list[list[str]] | None:
+    """Tokens of ``command``, one run per line end the shell acts on.
+
+    Quoted text spanning lines stays one token, as in :func:`_token_runs`. None
+    when the whole text does not lex. Empty runs are dropped.
+    """
+    markers = [char for char in _LINE_MARKER_CANDIDATES if char not in command]
+    if len(markers) < 2:
+        return _joined_line_runs(command)
+    line_end, continuation = markers[:2]
+    stream = _LineStream(command, line_end, continuation)
+    lexer = _ShellLexer(stream, posix=True, punctuation_chars=_DEFAULT_PUNCTUATION + line_end)
+    lexer.whitespace_split = True
+    stream.lexer = lexer
+    try:
+        raw = list(lexer)
+    except ValueError:
+        return None
+    runs: list[list[str]] = [[]]
+    for token in raw:
+        if continuation in token:
+            token = token.replace(continuation, "")
+            if not token:
+                continue
+        if line_end not in token:
+            runs[-1].append(token)
+            continue
+        # A line end fused onto punctuation (``;``, ``&&``, ``|``) is split off it.
+        for part in re.split(f"({re.escape(line_end)})", token):
+            if part == line_end:
+                runs.append([])
+            elif part:
+                runs[-1].append(part)
+    return [run for run in runs if run]
+
+
+def _readings(command: str) -> tuple[bool, ...]:
+    """The readings a guard decides under: today's, then the line-true one if lines exist."""
+    return (False, True) if "\n" in command else (False,)
+
+
+def _invocations(
+    command: str, line_true: bool = False
+) -> list[tuple[list[str], list[str]]] | None:
     """Every simple command in ``command`` as (env assignments, argv).
+
+    ``line_true`` selects the line-true reading, :func:`_line_runs`;
+    today's reading, :func:`_token_runs`, is the default.
 
     None means the text could not be lexed, which callers treat as
     un-analysable rather than as safe.
     """
-    runs = _token_runs(command)
+    runs = _line_runs(command) if line_true else _token_runs(command)
     if runs is None:
         return None
     return [
@@ -289,9 +386,9 @@ def _unlexable_verb(command: str) -> str | None:
     return None
 
 
-def mutating_verb(command: str) -> str | None:
+def mutating_verb(command: str, line_true: bool = False) -> str | None:
     """The env-mutating uv verb ``command`` invokes, or None if it invokes none."""
-    invocations = _invocations(command)
+    invocations = _invocations(command, line_true)
     if invocations is None:
         return _unlexable_verb(command)
     for assignments, argv in invocations:
@@ -329,7 +426,7 @@ def venv_is_shared(tree_root: str) -> bool:
     return shared_venv_target(tree_root) is not None
 
 
-def has_override(command: str) -> bool:
+def has_override(command: str, line_true: bool = False) -> bool:
     """True if the override is exported, or set as a leading assignment on ``command``.
 
     Reading it off the invocation's own assignments — not as a substring — is
@@ -338,7 +435,7 @@ def has_override(command: str) -> bool:
     """
     if os.environ.get(_OVERRIDE_VAR) == "1":
         return True
-    for assignments, argv in _invocations(command) or []:
+    for assignments, argv in _invocations(command, line_true) or []:
         if argv[:1] == ["uv"] and f"{_OVERRIDE_VAR}=1" in assignments:
             return True
     return False
@@ -350,9 +447,22 @@ def blocked_venv(command: str, tree_root: str) -> str | None:
     Returning the venv rather than a bare verdict lets the refusal name the tree
     that actually owns the environment, which is the whole point of the message.
     """
-    if not is_env_mutating(command) or has_override(command):
+    if held_verb(command) is None:
         return None
     return shared_venv_target(tree_root)
+
+
+def held_verb(command: str) -> str | None:
+    """The first mutating verb some reading holds without that reading's override.
+
+    Each reading is decided on its own: an overridden verb one reading makes
+    visible must not clear a verb the other reading holds without one.
+    """
+    for line_true in _readings(command):
+        verb = mutating_verb(command, line_true)
+        if verb is not None and not has_override(command, line_true):
+            return verb
+    return None
 
 
 # Verb-specific remedy, shown when the same work has a cheaper route than the
@@ -410,10 +520,10 @@ def main() -> int:
     if event.get("tool_name") != "Bash":
         return 0
     command = (event.get("tool_input") or {}).get("command", "") or ""
-    verb = mutating_verb(command)
+    verb = held_verb(command)
     if verb is None:
         return 0  # the cheap check first — most commands never reach git
-    target = blocked_venv(command, _tree_root(event.get("cwd") or os.getcwd()))
+    target = shared_venv_target(_tree_root(event.get("cwd") or os.getcwd()))
     if target is None:
         return 0
     sys.stderr.write(refusal_message(verb, target))
