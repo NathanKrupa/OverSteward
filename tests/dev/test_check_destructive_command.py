@@ -664,6 +664,8 @@ def test_wrapper_stripping_does_not_invent_a_command(hook):
         "git config --show-origin core.hooksPath",
         "git config CORE.HOOKSPATH",
         "sh -c 'git config --get core.hooksPath'",
+        # A variable whose name merely ends in PATH redefines nothing.
+        "PYTHONPATH=src git config core.hooksPath",
     ],
 )
 def test_hookspath_read_passes(hook, cmd):
@@ -799,6 +801,49 @@ def test_hookspath_foreign_line_break_still_denies(hook, cmd):
 )
 def test_hookspath_array_assignment_still_denies(hook, cmd):
     """Mutant: the array-assignment check dropped."""
+    _assert_hookspath_denied(hook, cmd)
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        # An expansion in the -C operand can become several words: other
+        # options, another subcommand.
+        "d='/r -c core.hooksPath=/dev/null commit -m x'; git -C $d config core.hooksPath",
+        "git -C $REPO config core.hooksPath",
+        'git -C "$REPO" config core.hooksPath',
+        "git -C /r{,x} config core.hooksPath",
+        "git -C /r* config core.hooksPath",
+        "git -C /r?[ab] config core.hooksPath",
+        "git -C ~/repo config core.hooksPath",
+    ],
+)
+def test_hookspath_expanding_dir_still_denies(hook, cmd):
+    """Mutant: the shell-expansion check on the -C operand dropped."""
+    _assert_hookspath_denied(hook, cmd)
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        # Each can make the word git run something other than git.
+        "shopt -s expand_aliases\nalias git=gitx\ngit config core.hooksPath",
+        "git() ( command git commit -m x ) ; git config core.hooksPath",
+        "hash -p /tmp/x/git git; git config core.hooksPath",
+        "enable -n command; git config core.hooksPath",
+        "PATH=/tmp/x:$PATH; git config core.hooksPath",
+        "PATH=/tmp/x git config core.hooksPath",
+        "export PATH=/tmp/x:$PATH; git config core.hooksPath",
+        "GIT_EXEC_PATH=/tmp/x git config core.hooksPath",
+        ". ./defs.sh; git config core.hooksPath",
+        "source defs.sh; git config core.hooksPath",
+        'eval "$setup"; git config core.hooksPath',
+        "trap 'git commit -m x' EXIT; git config core.hooksPath",
+        "BASH_ENV=defs.sh bash -c 'git config core.hooksPath'",
+    ],
+)
+def test_hookspath_read_beside_a_redefinition_still_denies(hook, cmd):
+    """Mutant: the check for what can redefine git dropped."""
     _assert_hookspath_denied(hook, cmd)
 
 

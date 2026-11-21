@@ -797,6 +797,11 @@ _EVASION_RULES: tuple[tuple[str, object, str], ...] = (
 # recognised only in the one grammar below, token for token:
 # ``git [-C DIR] config [get] [READ_OPTION ...] core.hooksPath``, key last. Any
 # other token makes the argv something else, judged by the rule table as before.
+# ``DIR`` is the grammar's one free word. A character the shell may expand there
+# (a parameter, a glob, a brace or a tilde) can turn the one word the lexer sees
+# into several, and so into other options or another subcommand; the lexer
+# cannot tell a quoted expansion from a bare one, so either disqualifies it.
+_SHELL_EXPANSION = re.compile(r"[$*?\[{~]")
 _HOOKSPATH_READ_OPTIONS = frozenset({
     "--get", "--get-all", "--all", "--local", "--global", "--system", "--worktree",
     "--show-origin", "--show-scope", "--null", "-z", "--path", "--type=path",
@@ -865,7 +870,7 @@ def _hookspath_read(argv: list[str]) -> bool:
         return False
     rest = argv[1:-1]
     if rest[:1] == ["-C"]:
-        if len(rest) < 2 or rest[1].startswith("-"):
+        if len(rest) < 2 or rest[1].startswith("-") or _SHELL_EXPANSION.search(rest[1]):
             return False
         rest = rest[2:]
     if rest[:1] != ["config"]:
@@ -874,6 +879,26 @@ def _hookspath_read(argv: list[str]) -> bool:
     if rest[:1] == ["get"]:
         rest = rest[1:]
     return all(token in _HOOKSPATH_READ_OPTIONS for token in rest)
+
+
+# What can make the word ``git`` run something other than git within one
+# command: an alias, a function, the command hash, a builtin toggle, sourced or
+# evaluated text, a trap, and the variables that choose where programs and
+# startup files are found.
+_REDEFINING_COMMANDS = frozenset({
+    "alias", "function", "hash", "enable", "source", ".", "eval", "shopt", "trap",
+})
+_REDEFINING_ASSIGNMENT = re.compile(r"(?<![\w.-])(?:PATH|BASH_ENV|ENV|GIT_EXEC_PATH)\+?=")
+_FUNCTION_DEFINITION = re.compile(r"\(\s*\)")
+
+
+def _may_redefine_git(command: str, argvs: list[list[str]]) -> bool:
+    """True if ``command`` holds anything listed above :data:`_REDEFINING_COMMANDS`."""
+    return bool(
+        _REDEFINING_ASSIGNMENT.search(command)
+        or _FUNCTION_DEFINITION.search(command)
+        or any(_command_name(argv) in _REDEFINING_COMMANDS for argv in argvs)
+    )
 
 
 def _free_of_lexer_blind_spots(command: str, depth: int = 0) -> bool:
@@ -910,7 +935,7 @@ def _match_hook_evasion(command: str) -> tuple[str, str] | None:
     every other argv is.
     """
     argvs = _all_argvs(command)
-    if _free_of_lexer_blind_spots(command):
+    if _free_of_lexer_blind_spots(command) and not _may_redefine_git(command, argvs):
         argvs = [argv for argv in argvs if not _hookspath_read(argv)]
     for category, predicate, reason in _EVASION_RULES:
         if predicate(argvs):  # type: ignore[operator]
