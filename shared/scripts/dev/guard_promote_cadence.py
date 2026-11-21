@@ -74,6 +74,7 @@ GitHub, git and the clock are parameters of :func:`evaluate`, so the decision
 is unit-tested without network or repositories.
 """
 
+import functools
 import json
 import os
 import re
@@ -558,17 +559,40 @@ def _readings(command: str) -> tuple[bool, ...]:
     return (False, True) if "\n" in command else (False,)
 
 
+def _reading_pairs(command: str) -> tuple[tuple[bool, bool], ...]:
+    """Every reading a guard decides under, as (line_true, nest_true), today's first.
+
+    Each of :func:`_readings` on today's text, then each again on the
+    nest-true text where :func:`_nest_true` vouches for it. A guard decides
+    each on its own and holds if any holds.
+
+    A double quote is escaped only inside a ``$( )``, ``${ }`` or backtick
+    region, so a text holding no double quote, or neither a dollar sign nor a
+    backtick, comes back from :func:`_nest_true` unchanged. So does every
+    script it hands a shell, since the lexer builds each token from the text's
+    own characters. Its nest-true readings would repeat today's, and are not
+    made.
+    """
+    nested = '"' in command and ("$" in command or "`" in command)
+    nests = (False, True) if nested and _nest_true(command) is not None else (False,)
+    return tuple((line, nest) for nest in nests for line in _readings(command))
+
+
 def _invocations(
-    command: str, line_true: bool = False
+    command: str, line_true: bool = False, nest_true: bool = False
 ) -> list[tuple[list[str], list[str]]] | None:
     """Every simple command in ``command`` as (env assignments, argv).
 
     ``line_true`` selects the line-true reading, :func:`_line_runs`;
-    today's reading, :func:`_token_runs`, is the default.
+    today's reading, :func:`_token_runs`, is the default. ``nest_true``
+    reads :func:`_nest_true`'s text in place of ``command`` where it vouches
+    for it, and ``command`` itself where it does not.
 
     None means the text could not be lexed.
     """
-    runs = _line_runs(command) if line_true else _token_runs(command)
+    vouched = _nest_true(command) if nest_true else None
+    text = command if vouched is None else vouched
+    runs = _line_runs(text) if line_true else _token_runs(text)
     if runs is None:
         return None
     return [
@@ -898,6 +922,7 @@ class _Context:
     environ: Mapping[str, str]
     read_checkout: ReadCheckout
     line_true: bool = False
+    nest_true: bool = False
     wide: _Wide = _NOTHING_WIDE
 
     def gh_repo(self) -> str | None:
@@ -991,6 +1016,7 @@ def _promote_in(argv: list[str], ctx: _Context) -> Promote | None:
             read_checkout=ctx.read_checkout,
             inherited=ctx.assignments,
             line_true=ctx.line_true,
+            nest_true=ctx.nest_true,
             wide=ctx.wide,
         )
     return _gh_promote(argv, ctx)
@@ -1008,7 +1034,13 @@ def _search(
         argv, run_assignments, run_cwd = _unwrap(argv, [*template.assignments, *assignments], cwd)
         if not argv:
             continue
-        seams = (template.environ, template.read_checkout, template.line_true, template.wide)
+        seams = (
+            template.environ,
+            template.read_checkout,
+            template.line_true,
+            template.nest_true,
+            template.wide,
+        )
         found = _promote_in(argv, _Context(run_assignments, run_cwd, *seams))
         if found is not None:
             return found
@@ -1167,11 +1199,17 @@ def _rejected_promote(command: str, template: _Context) -> Promote | None:
     from the hook's directory and then from every directory a run reached from
     there. Those second readings collect no further directory, so a relative
     ``cd`` cannot nest without end. A script inside is read under the
-    line-true reading.
+    line-true reading, on the nest-true text where ``template`` reads it.
     """
     wide = template.wide | _wide_reading(command)
     template = _Context(
-        template.assignments, template.cwd, template.environ, template.read_checkout, True, wide
+        template.assignments,
+        template.cwd,
+        template.environ,
+        template.read_checkout,
+        True,
+        template.nest_true,
+        wide,
     )
     first, fresh = _read_rejected(command, _ShellLexer)
     runs = [[_split_assignments(argv) for argv in _simple_commands(t)] for t in [first, *fresh]]
@@ -1196,18 +1234,22 @@ def find_promote(
     read_checkout: ReadCheckout,
     inherited: list[str] | None = None,
     line_true: bool = False,
+    nest_true: bool = False,
     wide: _Wide = _NOTHING_WIDE,
 ) -> Promote | None:
     """The first staging→main promote on a ``PROMOTE_REPOS`` repo ``command`` would run.
 
     None when it runs none. ``inherited`` is the environment prefix of the
     shell running ``command``, which every command inside it receives.
-    ``line_true`` selects the reading, and a nested script is read under it.
-    Text the lexer rejects is read by :func:`_rejected_promote`; ``wide`` is
-    what W found in a rejected text enclosing this one.
+    ``line_true`` and ``nest_true`` select the reading, and a nested script
+    is read under it. Text the lexer rejects is read by
+    :func:`_rejected_promote`; ``wide`` is what W found in a rejected text
+    enclosing this one.
     """
-    template = _Context(list(inherited or []), cwd, environ, read_checkout, line_true, wide)
-    invocations = _invocations(command, line_true)
+    template = _Context(
+        list(inherited or []), cwd, environ, read_checkout, line_true, nest_true, wide
+    )
+    invocations = _invocations(command, line_true, nest_true)
     if invocations is None:
         return _rejected_promote(command, template)
     return _search(invocations, cwd, template, [cwd])
@@ -1218,14 +1260,26 @@ def find_promotes(
 ) -> list[Promote]:
     """The first promote under each reading, today's first, each from ``cwd``; distinct.
 
-    Both readings reject exactly the text ``_lex`` rejects (reasoned from the
-    stream's states, measured on recorded commands, pinned by a test), so
-    :func:`_rejected_promote` reads such text once, in today's reading's turn.
+    Both readings of one text reject exactly the text ``_lex`` rejects
+    (reasoned from the stream's states, measured on recorded commands, pinned
+    by a test), so :func:`_rejected_promote` reads such text once, in its
+    reading without line ends. Text ``_lex`` rejects whose nest-true text it
+    accepts is read as parsed text under the nest-true readings. A directory's
+    checkout is read once, however many readings reach it.
     """
+    read_checkout = functools.cache(read_checkout)
+    texts = {False: command, True: _nest_true(command)}
     found: list[Promote] = []
-    for line_true in _readings(command) if _lex(command) is not None else (False,):
+    for line_true, nest_true in _reading_pairs(command):
+        if line_true and _lex(texts[nest_true]) is None:
+            continue
         promote = find_promote(
-            command, cwd, environ=environ, read_checkout=read_checkout, line_true=line_true
+            command,
+            cwd,
+            environ=environ,
+            read_checkout=read_checkout,
+            line_true=line_true,
+            nest_true=nest_true,
         )
         if promote is not None and promote not in found:
             found.append(promote)

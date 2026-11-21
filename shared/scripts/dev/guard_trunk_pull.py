@@ -517,18 +517,41 @@ def _readings(command: str) -> tuple[bool, ...]:
     return (False, True) if "\n" in command else (False,)
 
 
+def _reading_pairs(command: str) -> tuple[tuple[bool, bool], ...]:
+    """Every reading a guard decides under, as (line_true, nest_true), today's first.
+
+    Each of :func:`_readings` on today's text, then each again on the
+    nest-true text where :func:`_nest_true` vouches for it. A guard decides
+    each on its own and holds if any holds.
+
+    A double quote is escaped only inside a ``$( )``, ``${ }`` or backtick
+    region, so a text holding no double quote, or neither a dollar sign nor a
+    backtick, comes back from :func:`_nest_true` unchanged. So does every
+    script it hands a shell, since the lexer builds each token from the text's
+    own characters. Its nest-true readings would repeat today's, and are not
+    made.
+    """
+    nested = '"' in command and ("$" in command or "`" in command)
+    nests = (False, True) if nested and _nest_true(command) is not None else (False,)
+    return tuple((line, nest) for nest in nests for line in _readings(command))
+
+
 def _invocations(
-    command: str, line_true: bool = False
+    command: str, line_true: bool = False, nest_true: bool = False
 ) -> list[tuple[list[str], list[str]]] | None:
     """Every simple command in ``command`` as (env assignments, argv).
 
     ``line_true`` selects the line-true reading, :func:`_line_runs`;
-    today's reading, :func:`_token_runs`, is the default.
+    today's reading, :func:`_token_runs`, is the default. ``nest_true``
+    reads :func:`_nest_true`'s text in place of ``command`` where it vouches
+    for it, and ``command`` itself where it does not.
 
     None means the text could not be lexed, which callers treat as
     un-analysable rather than as safe.
     """
-    runs = _line_runs(command) if line_true else _token_runs(command)
+    vouched = _nest_true(command) if nest_true else None
+    text = command if vouched is None else vouched
+    runs = _line_runs(text) if line_true else _token_runs(text)
     if runs is None:
         return None
     return [
@@ -620,7 +643,7 @@ def _unlexable_pull_target(command: str) -> str | None:
     return _refspec([w for w in match.group("rest").split() if not _FLAG.match(w)])
 
 
-def pull_target(command: str, line_true: bool = False) -> str | None:
+def pull_target(command: str, line_true: bool = False, nest_true: bool = False) -> str | None:
     """The refspec a ``git pull`` names, or ``None``.
 
     ``None`` covers every safe shape: not a pull at all, a bare ``git pull``
@@ -628,7 +651,7 @@ def pull_target(command: str, line_true: bool = False) -> str | None:
     a foreign ref), a remote with no refspec, and a pull named only inside
     quoted text.
     """
-    invocations = _invocations(command, line_true)
+    invocations = _invocations(command, line_true, nest_true)
     if invocations is None:
         return _unlexable_pull_target(command)
     for _assignments, argv in invocations:
@@ -654,7 +677,7 @@ def _inline_override(assignments: list[str]) -> bool:
     return False
 
 
-def has_override(command: str, line_true: bool = False) -> bool:
+def has_override(command: str, line_true: bool = False, nest_true: bool = False) -> bool:
     """True if an override var is set in the environment or as a genuine
     leading assignment on the guarded ``git pull``.
 
@@ -663,7 +686,7 @@ def has_override(command: str, line_true: bool = False) -> bool:
     """
     if any(os.environ.get(var) == "1" for var in _OVERRIDE_VARS):
         return True
-    invocations = _invocations(command, line_true)
+    invocations = _invocations(command, line_true, nest_true)
     if invocations is None:
         return bool(_OVERRIDE_PREFIX.search(command))
     return any(
@@ -681,14 +704,14 @@ def blocking_target(command: str, *, current_branch: str) -> str | None:
     """The foreign ref some reading pulls onto a protected branch without its override.
 
     Each reading is decided on its own: an overridden pull one reading makes
-    visible must not clear a pull the other reading holds without one.
+    visible must not clear a pull another reading holds without one.
     """
     if not is_protected(current_branch):
         return None
-    for line_true in _readings(command):
-        if has_override(command, line_true):
+    for line_true, nest_true in _reading_pairs(command):
+        if has_override(command, line_true, nest_true):
             continue
-        target = pull_target(command, line_true)
+        target = pull_target(command, line_true, nest_true)
         if target is not None and target != current_branch:
             return target
     return None
@@ -716,7 +739,7 @@ def main() -> int:
     if event.get("tool_name") != "Bash":
         return 0
     command = (event.get("tool_input") or {}).get("command", "") or ""
-    if all(pull_target(command, line_true) is None for line_true in _readings(command)):
+    if all(pull_target(command, *reading) is None for reading in _reading_pairs(command)):
         return 0  # cheap reject before shelling out to git
     cwd = event.get("cwd") or os.getcwd()
     branch = _current_branch(cwd)

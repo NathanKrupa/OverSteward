@@ -543,18 +543,41 @@ def _readings(command: str) -> tuple[bool, ...]:
     return (False, True) if "\n" in command else (False,)
 
 
+def _reading_pairs(command: str) -> tuple[tuple[bool, bool], ...]:
+    """Every reading a guard decides under, as (line_true, nest_true), today's first.
+
+    Each of :func:`_readings` on today's text, then each again on the
+    nest-true text where :func:`_nest_true` vouches for it. A guard decides
+    each on its own and holds if any holds.
+
+    A double quote is escaped only inside a ``$( )``, ``${ }`` or backtick
+    region, so a text holding no double quote, or neither a dollar sign nor a
+    backtick, comes back from :func:`_nest_true` unchanged. So does every
+    script it hands a shell, since the lexer builds each token from the text's
+    own characters. Its nest-true readings would repeat today's, and are not
+    made.
+    """
+    nested = '"' in command and ("$" in command or "`" in command)
+    nests = (False, True) if nested and _nest_true(command) is not None else (False,)
+    return tuple((line, nest) for nest in nests for line in _readings(command))
+
+
 def _invocations(
-    command: str, line_true: bool = False
+    command: str, line_true: bool = False, nest_true: bool = False
 ) -> list[tuple[list[str], list[str]]] | None:
     """Every simple command in ``command`` as (env assignments, argv).
 
     ``line_true`` selects the line-true reading, :func:`_line_runs`;
-    today's reading, :func:`_token_runs`, is the default.
+    today's reading, :func:`_token_runs`, is the default. ``nest_true``
+    reads :func:`_nest_true`'s text in place of ``command`` where it vouches
+    for it, and ``command`` itself where it does not.
 
     None means the text could not be lexed, which callers treat as
     un-analysable rather than as safe.
     """
-    runs = _line_runs(command) if line_true else _token_runs(command)
+    vouched = _nest_true(command) if nest_true else None
+    text = command if vouched is None else vouched
+    runs = _line_runs(text) if line_true else _token_runs(text)
     if runs is None:
         return None
     return [
@@ -624,9 +647,9 @@ def _unlexable_branch_switch(command: str) -> bool:
     return not (_FILE_RESTORE.search(command) or _RESTORE.search(command))
 
 
-def is_branch_switch(command: str, line_true: bool = False) -> bool:
+def is_branch_switch(command: str, line_true: bool = False, nest_true: bool = False) -> bool:
     """True if ``command`` switches or creates a branch (not a file restore)."""
-    invocations = _invocations(command, line_true)
+    invocations = _invocations(command, line_true, nest_true)
     if invocations is None:
         return _unlexable_branch_switch(command)
     return any(_is_branch_op(argv) for _assignments, argv in invocations)
@@ -636,11 +659,12 @@ def refuses(command: str) -> bool:
     """True if some reading holds a branch switch without that reading's override.
 
     Each reading is decided on its own: an overridden switch one reading makes
-    visible must not clear a switch the other reading holds without one.
+    visible must not clear a switch another reading holds without one.
     """
     return any(
-        is_branch_switch(command, line_true) and not has_override(command, line_true)
-        for line_true in _readings(command)
+        is_branch_switch(command, line_true, nest_true)
+        and not has_override(command, line_true, nest_true)
+        for line_true, nest_true in _reading_pairs(command)
     )
 
 
@@ -673,7 +697,7 @@ def _inline_override(assignments: list[str]) -> bool:
     return False
 
 
-def has_override(command: str, line_true: bool = False) -> bool:
+def has_override(command: str, line_true: bool = False, nest_true: bool = False) -> bool:
     """True if an override var is set — in the real environment or as a
     genuine leading assignment on the guarded git command.
 
@@ -684,7 +708,7 @@ def has_override(command: str, line_true: bool = False) -> bool:
     """
     if any(os.environ.get(var) == "1" for var in _OVERRIDE_VARS):
         return True
-    invocations = _invocations(command, line_true)
+    invocations = _invocations(command, line_true, nest_true)
     if invocations is None:
         return bool(_OVERRIDE_PREFIX.search(command))
     return any(
