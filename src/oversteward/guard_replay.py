@@ -55,9 +55,16 @@ OUTCOMES = (ASK, DENY, PASS, ERROR)
 #: The outcomes that hold a command: the rows a reader labels.
 FLAGGED = (ASK, DENY)
 
+#: The verdicts a labels file may give a flagged command; every other docstring means these.
+#: ``warranted``: the hold is one a person would want.
+#: ``false``: the rule matched something it was not written for.
+#: ``misread``: the rule matched to the letter, and the command was harmless (OS#192 ruling 5).
 WARRANTED = "warranted"
 FALSE = "false"
-VERDICTS = (WARRANTED, FALSE)
+MISREAD = "misread"
+VERDICTS = (WARRANTED, FALSE, MISREAD)
+#: A flagged command the labels file does not name. It is not ``warranted``.
+UNLABELLED = "unlabelled"
 
 #: A command attributed to no managed context.
 OTHER = "other"
@@ -416,7 +423,11 @@ def launch_context(project_dir: str, contexts: Sequence[Context]) -> str:
 
 
 def load_labels(path: Path) -> dict[str, Label]:
-    """Labels by command key, from JSON Lines of ``key``, ``verdict`` and ``class``."""
+    """Labels by command key, from JSON Lines of ``key``, ``verdict`` and ``class``.
+
+    A verdict outside :data:`VERDICTS` (whose meanings are given there) is refused,
+    naming the file and the line.
+    """
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except OSError as error:
@@ -439,6 +450,7 @@ def load_labels(path: Path) -> dict[str, Label]:
 
 
 def _label(row: object) -> Label | None:
+    """The row's label when it has a string key, a verdict in :data:`VERDICTS` and a class."""
     if not isinstance(row, Mapping) or not isinstance(row.get("key"), str):
         return None
     verdict, cls = row.get("verdict"), row.get("class")
@@ -465,6 +477,7 @@ class Row:
     occurrences: int = 0
 
     def as_json(self, label: Label | None) -> dict:
+        """The row, its verdict as labelled (see :data:`VERDICTS`) or None when unlabelled."""
         return {
             "key": self.key,
             "outcome": self.decision.outcome,
@@ -632,7 +645,12 @@ def write_rows(result: Replay, labels: Mapping[str, Label], path: Path) -> None:
 
 
 def summary(result: Replay, labels: Mapping[str, Label], hook_name: str, since_days: float) -> str:
-    """The public summary of a replay. It never prints a command, a path or a project name."""
+    """The public summary of a replay. It never prints a command, a path or a project name.
+
+    Its label lines count each verdict of :data:`VERDICTS` and the classes under it,
+    then, per flagged outcome, the readiness line: the distinct commands not labelled
+    ``warranted``, which is ``false`` plus ``misread`` plus unlabelled (OS#192 ruling 5).
+    """
     lines = [
         f"guard replay of {hook_name} over {since_days:g} days",
         f"transcripts: {result.transcripts} read, {len(result.unreadable)} unreadable",
@@ -670,24 +688,36 @@ def _counts(
 def _label_lines(result: Replay, labels: Mapping[str, Label]) -> list[str]:
     flagged = [key for key, row in result.rows.items() if row.decision.outcome in FLAGGED]
     verdicts: Counter[str] = Counter()
+    by_outcome: dict[str, Counter[str]] = {outcome: Counter() for outcome in FLAGGED}
     classes: dict[str, Counter[str]] = {verdict: Counter() for verdict in VERDICTS}
     for key in flagged:
         label = labels.get(key)
-        if label is None:
-            verdicts["unlabelled"] += 1
-            continue
-        verdicts[label.verdict] += 1
-        classes[label.verdict][label.cls] += 1
+        verdict = label.verdict if label is not None else UNLABELLED
+        verdicts[verdict] += 1
+        by_outcome[result.rows[key].decision.outcome][verdict] += 1
+        if label is not None:
+            classes[label.verdict][label.cls] += 1
     lines = [
         f"labels over {len(flagged)} distinct flagged commands: "
         f"{WARRANTED} {verdicts[WARRANTED]}, {FALSE} {verdicts[FALSE]}, "
-        f"unlabelled {verdicts['unlabelled']}"
+        f"{UNLABELLED} {verdicts[UNLABELLED]}, {MISREAD} {verdicts[MISREAD]}"
     ]
     for verdict in VERDICTS:
         counted = classes[verdict]
         shown = ", ".join(f"{c} {n}" for c, n in sorted(counted.items(), key=lambda i: (-i[1], i[0])))
         lines.append(f"{verdict} by class: {shown or 'none'}")
+    lines.extend(_readiness_line(outcome, by_outcome[outcome]) for outcome in FLAGGED)
     return lines
+
+
+def _readiness_line(outcome: str, verdicts: Counter[str]) -> str:
+    """The distinct ``outcome`` commands not labelled ``warranted``, with each term of the sum."""
+    not_warranted = verdicts[FALSE] + verdicts[MISREAD] + verdicts[UNLABELLED]
+    return (
+        f"{outcome} not warranted: {not_warranted} of {sum(verdicts.values())} "
+        f"distinct flagged commands ({FALSE} {verdicts[FALSE]}, {MISREAD} {verdicts[MISREAD]}, "
+        f"{UNLABELLED} {verdicts[UNLABELLED]})"
+    )
 
 
 def _agreement_lines(result: Replay) -> list[str]:

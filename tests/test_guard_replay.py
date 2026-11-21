@@ -9,6 +9,7 @@ import os
 import subprocess
 import sys
 import time
+from collections import Counter
 from pathlib import Path, PurePosixPath
 
 import pytest
@@ -443,7 +444,7 @@ def test_an_unlabelled_ask_is_neither_warranted_nor_false(capsys, root, registry
 
     assert code == 0
     assert line(out, "labels over") == (
-        "labels over 2 distinct flagged commands: warranted 1, false 0, unlabelled 1"
+        "labels over 2 distinct flagged commands: warranted 1, false 0, unlabelled 1, misread 0"
     )
     assert line(out, "warranted by class:") == "warranted by class: db 1"
     assert line(out, "false by class:") == "false by class: none"
@@ -459,6 +460,146 @@ def test_an_unknown_verdict_could_not_look(capsys, root, registry, tmp_path):
     assert code == 1
     assert out == ""
     assert "labels.jsonl:1: needs a key, a verdict" in err
+
+
+def test_an_unknown_verdict_names_the_file_and_its_line(capsys, root, registry, tmp_path):
+    _two_asks(root)
+    labels = tmp_path / "labels.jsonl"
+    labels.write_text(
+        json.dumps({"key": "abc", "verdict": "misread", "class": "quoted"})
+        + "\n"
+        + json.dumps({"key": "def", "verdict": "harmless", "class": "quoted"})
+        + "\n"
+    )
+
+    code, out, err = run(capsys, root, registry, "--labels", str(labels))
+
+    assert code == 1
+    assert out == ""
+    assert err == (
+        f"could not look: labels {labels}:2: needs a key, "
+        "a verdict in ('warranted', 'false', 'misread') and a class\n"
+    )
+
+
+# --- three verdicts and the readiness line --------------------------------------------------
+
+MARKING_STUB = """\
+import json, sys
+
+def main():
+    command = json.load(sys.stdin)["tool_input"]["command"]
+    for outcome in ("ask", "deny"):
+        if outcome.upper() + "MARK" in command:
+            reason = "Pattern: stub " + outcome
+            decision = {"permissionDecision": outcome, "permissionDecisionReason": reason}
+            print(json.dumps({"hookSpecificOutput": decision}))
+    return 0
+"""
+
+#: Distinct commands of each kind under each outcome, in counts that differ wherever a
+#: dropped or swapped term would otherwise go unseen.
+KINDS = {
+    "ask": {"warranted": 1, "false": 1, "misread": 2, "unlabelled": 3},
+    "deny": {"warranted": 1, "false": 3, "misread": 1, "unlabelled": 4},
+}
+CLASSES = {
+    ("ask", "warranted"): "db",
+    ("deny", "warranted"): "db",
+    ("ask", "false"): "grep",
+    ("deny", "false"): "grep",
+    ("ask", "misread"): "quoted",
+    ("deny", "misread"): "dry-run",
+}
+
+
+def _every_kind(root: Path, tmp_path: Path) -> tuple[Path, Path]:
+    """A stub hook and a labels file over KINDS, plus a labelled command the hook passes."""
+    entries, labels = [bash("echo PASSMARK", "t0")], []
+    labels.append({"key": guard_replay.command_key("echo PASSMARK"), "verdict": "misread", "class": "x"})
+    for outcome, kinds in KINDS.items():
+        for kind, count in kinds.items():
+            for n in range(count):
+                text = f"echo {outcome.upper()}MARK {kind} {n}"
+                entries.append(bash(text, f"t-{outcome}-{kind}-{n}"))
+                if kind != "unlabelled":
+                    cls = CLASSES[(outcome, kind)]
+                    labels.append({"key": guard_replay.command_key(text), "verdict": kind, "class": cls})
+    write(root / "-work-alpha" / "s1.jsonl", entries)
+    path = tmp_path / "labels.jsonl"
+    path.write_text("".join(json.dumps(label) + "\n" for label in labels))
+    return stub_hook(tmp_path, MARKING_STUB), path
+
+
+def test_a_three_verdict_labels_file_prints_each_count_and_class(capsys, root, registry, tmp_path):
+    hook, labels = _every_kind(root, tmp_path)
+    out_rows = tmp_path / "rows.jsonl"
+
+    code, out, err = run(
+        capsys, root, registry, "--hook", str(hook), "--labels", str(labels), "--rows", str(out_rows)
+    )
+
+    assert (code, err) == (0, "")
+    assert line(out, "outcomes:") == "outcomes: ask 7, deny 9, pass 1, error 0"
+    assert line(out, "labels over") == (
+        "labels over 16 distinct flagged commands: warranted 2, false 4, unlabelled 7, misread 3"
+    )
+    assert line(out, "warranted by class:") == "warranted by class: db 2"
+    assert line(out, "false by class:") == "false by class: grep 4"
+    assert line(out, "misread by class:") == "misread by class: quoted 2, dry-run 1"
+    verdicts = Counter((row["outcome"], row["verdict"]) for row in rows(out_rows))
+    assert verdicts[("ask", "misread")] == 2 and verdicts[("deny", "misread")] == 1
+    assert verdicts[("deny", None)] == 4
+
+
+def test_the_readiness_line_counts_every_flagged_command_not_warranted(
+    capsys, root, registry, tmp_path
+):
+    hook, labels = _every_kind(root, tmp_path)
+
+    _, out, _ = run(capsys, root, registry, "--hook", str(hook), "--labels", str(labels))
+
+    assert line(out, "ask not warranted:") == (
+        "ask not warranted: 6 of 7 distinct flagged commands (false 1, misread 2, unlabelled 3)"
+    )
+    assert line(out, "deny not warranted:") == (
+        "deny not warranted: 8 of 9 distinct flagged commands (false 3, misread 1, unlabelled 4)"
+    )
+
+
+def test_a_two_verdict_labels_file_loads_and_prints_as_before(capsys, root, registry, tmp_path):
+    write(
+        root / "-work-alpha" / "s1.jsonl",
+        [bash(FLUSH, "t1"), bash(TREE_DELETE, "t2"), bash(HARD_RESET, "t3")],
+    )
+    labels = tmp_path / "labels.jsonl"
+    labels.write_text(
+        json.dumps({"key": guard_replay.command_key(FLUSH), "verdict": "warranted", "class": "db"})
+        + "\n\n"
+        + json.dumps({"key": guard_replay.command_key(TREE_DELETE), "verdict": "false", "class": "x"})
+        + "\n"
+    )
+
+    loaded = guard_replay.load_labels(labels)
+    code, out, _ = run(capsys, root, registry, "--labels", str(labels))
+
+    assert loaded == {
+        guard_replay.command_key(FLUSH): guard_replay.Label("warranted", "db"),
+        guard_replay.command_key(TREE_DELETE): guard_replay.Label("false", "x"),
+    }
+    assert code == 0
+    assert line(out, "labels over") == (
+        "labels over 3 distinct flagged commands: warranted 1, false 1, unlabelled 1, misread 0"
+    )
+    assert line(out, "warranted by class:") == "warranted by class: db 1"
+    assert line(out, "false by class:") == "false by class: x 1"
+    assert line(out, "misread by class:") == "misread by class: none"
+    assert line(out, "ask not warranted:") == (
+        "ask not warranted: 2 of 3 distinct flagged commands (false 1, misread 0, unlabelled 1)"
+    )
+    assert line(out, "deny not warranted:") == (
+        "deny not warranted: 0 of 0 distinct flagged commands (false 0, misread 0, unlabelled 0)"
+    )
 
 
 def test_a_missing_labels_file_could_not_look(capsys, root, registry, tmp_path):
