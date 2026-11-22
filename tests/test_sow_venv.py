@@ -625,3 +625,18 @@ def test_a_malformed_workflow_aborts_one_context_and_the_run_still_reports(
     assert "ci.yml" in outcome.detail
     assert builder.calls == []
     assert (reports / "2026-08-28.jsonl").is_file()
+
+
+@pytest.mark.parametrize("text", ['package = "x"\n', 'package = ["a"]\n', "package = 3\n"])
+def test_a_lock_of_the_wrong_shape_is_refused(text: str):
+    with pytest.raises(SowError, match="uv.lock"):
+        lock_package_names(text)
+
+
+@pytest.mark.parametrize("record", [["file:///tmp"], "file:///tmp", 3])
+def test_a_direct_url_record_of_the_wrong_shape_is_skipped(tmp_path: Path, record):
+    venv = tmp_path / "shared"
+    info = _dist(venv, "odd", None)
+    (info / "direct_url.json").write_text(json.dumps(record), encoding="utf-8")
+    _dist(venv, "sibling", {"url": "file:///home/x/sibling", "dir_info": {}})
+    assert carried_installs(venv, frozenset()) == (("/home/x/sibling",),)

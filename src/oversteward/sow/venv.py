@@ -167,7 +167,10 @@ def lock_package_names(lock_text: str) -> frozenset[str]:
         lock = tomllib.loads(lock_text)
     except tomllib.TOMLDecodeError as exc:
         raise SowError(f"uv.lock could not be parsed: {exc}") from exc
-    return frozenset(_normalize(str(package.get("name", ""))) for package in lock.get("package", ()))
+    packages = lock.get("package", [])
+    if not isinstance(packages, list) or not all(isinstance(entry, dict) for entry in packages):
+        raise SowError("uv.lock `package` is not a list of tables")
+    return frozenset(_normalize(str(entry.get("name", ""))) for entry in packages)
 
 
 def _dist_name(dist_info: Path) -> str:
@@ -182,10 +185,13 @@ def _dist_name(dist_info: Path) -> str:
 def carried_installs(shared_venv: Path, locked: frozenset[str]) -> tuple[tuple[str, ...], ...]:
     """`uv pip install` arguments for each local-directory install the lock does not name."""
     carried = []
-    for direct_url in sorted(shared_venv.glob("lib/python*/site-packages/*.dist-info/direct_url.json")):
+    records = shared_venv.glob("lib/python*/site-packages/*.dist-info/direct_url.json")
+    for direct_url in sorted(records):
         try:
             record = json.loads(direct_url.read_text(encoding="utf-8"))
         except (OSError, ValueError):
+            continue
+        if not isinstance(record, dict):
             continue
         url = urlparse(str(record.get("url", "")))
         if url.scheme != "file" or _normalize(_dist_name(direct_url.parent)) in locked:
