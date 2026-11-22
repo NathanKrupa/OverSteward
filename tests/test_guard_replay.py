@@ -61,6 +61,7 @@ def bash(
     cwd: str = "/work/alpha",
     sidechain: object = False,
     entrypoint: str = "claude-vscode",
+    session: str | None = None,
 ) -> dict:
     entry = {
         "type": "assistant",
@@ -75,6 +76,8 @@ def bash(
     }
     if sidechain is not None:
         entry["isSidechain"] = sidechain
+    if session is not None:
+        entry["sessionId"] = session
     return entry
 
 
@@ -352,6 +355,37 @@ def test_the_hook_sees_the_command_and_the_streams_are_restored():
 
 # --- attribution has an edge -----------------------------------------------------------
 
+
+SESSION_STUB = """\
+import json, sys
+
+def main():
+    event = json.load(sys.stdin)
+    session = event.get("session_id", "none")
+    print(json.dumps({"hookSpecificOutput": {"permissionDecision": "ask",
+                      "permissionDecisionReason": "Pattern: session " + session}}))
+    return 0
+"""
+
+
+def test_the_hook_sees_each_calls_session_and_decides_per_session(capsys, root, registry, tmp_path):
+    hook = stub_hook(tmp_path, SESSION_STUB)
+    write(
+        root / "-work-alpha" / "s1.jsonl",
+        [
+            bash(LISTING, "t1", session="s-one"),
+            bash(LISTING, "t2", session="s-two"),
+            bash(LISTING, "t3", session="s-one"),
+            bash(LISTING, "t4"),
+        ],
+    )
+
+    code, out, _ = run(capsys, root, registry, "--hook", str(hook))
+
+    assert code == 0
+    assert line(out, "asks by pattern:") == (
+        "asks by pattern: session s-one 2, session none 1, session s-two 1"
+    )
 
 def test_cwd_and_named_paths_attribute_and_a_sibling_name_is_other(capsys, root, registry, tmp_path):
     write(

@@ -323,6 +323,22 @@ def test_every_dev_card_runs_the_adversarial_reviewer_before_opening_a_pr(card: 
     )
 
 
+SCRATCHPAD_DELETE_LINE = "In a delete, write the scratchpad path in full."
+DISPATCH_DOCS = (
+    REPO_ROOT / "shared" / "skills" / "dispatch" / "playbook.md",
+    REPO_ROOT / "shared" / "skills" / "dispatch" / "SKILL.md",
+)
+
+
+@pytest.mark.parametrize(
+    "doc", _dev_cards() + list(DISPATCH_DOCS), ids=lambda p: f"{p.parent.name}/{p.name}"
+)
+def test_every_dev_card_and_the_dispatch_docs_say_to_write_the_scratchpad_path_in_full(
+    doc: Path,
+) -> None:
+    """The gate's scratchpad exception reads only a literal path (OS#821)."""
+    assert SCRATCHPAD_DELETE_LINE in _unwrapped(doc.read_text(encoding="utf-8"))
+
 @pytest.mark.parametrize("card", _dev_cards(), ids=lambda p: f"{p.parent.name}/{p.name}")
 def test_every_dev_card_states_that_a_block_stops_the_pickup(card: Path) -> None:
     """A verdict that cannot stop anything is a report, not a gate."""

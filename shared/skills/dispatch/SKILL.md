@@ -150,7 +150,7 @@ uv run python scripts/dispatch/dispatch_watchdog.py <owner>/<repo> <n>
 
 It polls for the agent's `issue-<n>-…` branch and exits `0` (progressing) once the branch is pushed, or exits `3` with an alert if no branch appears within `--warn-min` (default 22). Run it via `run_in_background`; on a stall alert, inspect the agent transcript's turn count and `TaskStop` + re-dispatch if it is looping. Tune with `--warn-min` for issues expected to take longer before a first push.
 
-Arm the prompt watch beside it, in the same way. An agent held on a confirmation prompt pushes nothing and writes nothing, and that can happen at any stage, after merge included: AG#2736 sat at one for 6h44m after its PR merged (OS#674).
+Arm the prompt watch beside it, in the same way. An agent held on a confirmation prompt pushes nothing and writes nothing, and that can happen at any stage, after merge included: AG#2736 sat at one for 6h44m after its PR merged (OS#674). In a delete, write the scratchpad path in full. The gate stands down only when every target is a literal absolute path inside this session's own scratchpad, never one reached through a variable (OS#821).
 
 ```bash
 uv run python scripts/dispatch/dispatch_run.py prompts --watch --for-min 480 --session <session-id>
