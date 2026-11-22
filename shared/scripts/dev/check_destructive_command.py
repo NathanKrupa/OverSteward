@@ -35,9 +35,9 @@ structured risk explanation. Claude Code surfaces that as a confirmation prompt:
 in an interactive session Nathan approves or rejects; in an autonomous/operator
 context an unanswered ``ask`` blocks the command. Both match the intent.
 
-``careful.md``'s Safe Exceptions (build-artifact deletes, ``git stash``,
-``git branch -d``, ``docker system prune`` without ``-a``) pass through cleanly
-— exit 0, no prompt.
+``careful.md``'s Safe Exceptions (build-artifact deletes, a delete confined to
+the session's own scratchpad, ``git stash``, ``git branch -d``, ``docker system
+prune`` without ``-a``) pass through cleanly — exit 0, no prompt.
 
 **Both tiers decide from lexed argv, not from the raw command string** (OS#402).
 A command counts only where the shell would run it, and a flag counts only where

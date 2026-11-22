@@ -144,8 +144,18 @@ def test_a_parent_segment_escape_asks(hook, tree):
     _asks_as_today(hook, tree, f"rm -rf {tree.root}/a/../../../../outside")
 
 
+def test_a_parent_segment_as_the_last_segment_asks(hook, tree):
+    _asks_as_today(hook, tree, f"rm -rf {tree.root}/a/..")
+
+
 def test_a_glob_reaching_outside_the_scratchpad_asks(hook, tree):
     _asks_as_today(hook, tree, f"rm -rf {tree.project_dir}/*/scratchpad/a")
+
+
+def test_a_glob_in_a_middle_segment_asks_because_a_match_may_be_a_link_out(hook, tree):
+    (tree.root / "link").symlink_to(tree.outside, target_is_directory=True)
+
+    _asks_as_today(hook, tree, f"rm -rf {tree.root}/*/data")
 
 
 def test_a_glob_on_the_scratchpad_segment_itself_asks(hook, tree):
