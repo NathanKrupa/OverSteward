@@ -509,3 +509,103 @@ def test_a_worktree_already_holding_a_venv_is_refused_not_synced_into(
     assert "Traceback" not in outcome.detail
     assert builder.calls == []
     assert gh.created == []
+
+
+# --------------------------------------------------------------------------
+# every failure is one context's abort, never an escape from the run
+
+MULTI_LINE_QUOTE = """
+jobs:
+  t:
+    steps:
+      - run: uv sync --locked --extra dev
+      - run: |
+          python -c "
+          print('a quoted argument across lines')
+          "
+          uv sync --extra docs # '
+"""
+
+
+def test_a_quoted_argument_spanning_lines_is_read_not_refused():
+    assert ci_sync_args(MULTI_LINE_QUOTE) == ("--extra", "dev", "--extra", "docs")
+
+
+def test_a_sync_inside_a_multi_line_quote_is_not_a_sync():
+    text = 'jobs:\n  t:\n    steps:\n      - run: |\n          echo "\n          uv sync --extra nope\n          "\n'
+    assert ci_sync_args(text) is None
+
+
+def test_an_unclosed_quote_is_still_refused():
+    with pytest.raises(SowError, match="cannot read"):
+        ci_sync_args("jobs:\n  t:\n    steps:\n      - run: |\n          echo \"open\n")
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "jobs:\n  t: reusable\n",
+        "jobs:\n  - a\n",
+        "jobs:\n  t:\n    steps: run-me\n",
+        "jobs:\n  t:\n    steps:\n      - run-me\n",
+        "- not a workflow\n",
+    ],
+)
+def test_a_workflow_of_the_wrong_shape_is_refused(text: str):
+    with pytest.raises(SowError, match="ci.yml"):
+        ci_sync_args(text)
+
+
+def test_a_workflow_with_no_jobs_reads_as_no_sync():
+    assert ci_sync_args("name: ci\non: push\n") is None
+
+
+def test_an_undecodable_workflow_or_lock_is_refused(tmp_path: Path):
+    bad_ci = tmp_path / "bad-ci"
+    _uv_target(bad_ci)
+    (bad_ci / ".github/workflows/ci.yml").write_bytes(b"jobs: \xff\xfe\n")
+    bad_lock = tmp_path / "bad-lock"
+    _uv_target(bad_lock)
+    (bad_lock / "uv.lock").write_bytes(b"version = \xff\n")
+    for root in (bad_ci, bad_lock):
+        with pytest.raises(SowError, match="could not be read"):
+            locked_venv_plan(root, tmp_path / "shared")
+
+
+def test_a_uv_that_cannot_be_started_is_a_failed_build_not_a_crash(tmp_path: Path):
+    wt = tmp_path / "wt"
+    wt.mkdir()
+    log = tmp_path / "venv.log"
+    result = VenvBuilder(str(tmp_path / "no-such-uv")).build(wt, (), (), log)
+    assert not result.ok
+    assert "no-such-uv" in result.text
+    assert "no-such-uv" in log.read_text(encoding="utf-8")
+
+
+def test_an_unstartable_uv_aborts_one_context_and_the_run_still_reports(
+    canon: Path, pickup: Path, tmp_path: Path
+):
+    _shared_venv(pickup)
+    _commit_uv_target(pickup)
+    report, gh, _ruff, reports = _verify_on_uv_target(
+        canon, pickup, tmp_path, VenvBuilder(str(tmp_path / "no-such-uv"))
+    )
+    outcome = report.outcomes[0]
+    assert outcome.action == ABORTED
+    assert "worktree venv build failed" in outcome.detail
+    assert gh.created == []
+    assert (reports / "2026-08-28.jsonl").is_file()
+
+
+def test_a_malformed_workflow_aborts_one_context_and_the_run_still_reports(
+    canon: Path, pickup: Path, tmp_path: Path
+):
+    _shared_venv(pickup)
+    _commit_uv_target(pickup, "jobs:\n  t: reusable\n")
+    builder = FakeVenvBuilder()
+    report, gh, _ruff, reports = _verify_on_uv_target(canon, pickup, tmp_path, builder)
+    outcome = report.outcomes[0]
+    assert outcome.action == ABORTED
+    assert "ci.yml" in outcome.detail
+    assert builder.calls == []
+    assert (reports / "2026-08-28.jsonl").is_file()

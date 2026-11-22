@@ -181,9 +181,12 @@ class VenvBuilder:
         transcript: list[str] = []
         result = CommandResult(True, "", "")
         for argv in self.commands(worktree, sync_args, carried):
-            proc = subprocess.run(argv, cwd=str(worktree), env=env, check=False, **_CAPTURE)
-            transcript.append(f"$ {' '.join(argv)}\n{proc.stdout}{proc.stderr}")
-            result = CommandResult(proc.returncode == 0, proc.stdout, proc.stderr)
+            try:
+                proc = subprocess.run(argv, cwd=str(worktree), env=env, check=False, **_CAPTURE)
+                result = CommandResult(proc.returncode == 0, proc.stdout, proc.stderr)
+            except OSError as exc:
+                result = CommandResult(False, "", f"could not start {argv[0]}: {exc}")
+            transcript.append(f"$ {' '.join(argv)}\n{result.out}{result.err}")
             if not result.ok:
                 break
         log_path.write_text("\n".join(transcript), encoding="utf-8")

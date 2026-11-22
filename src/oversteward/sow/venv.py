@@ -98,13 +98,37 @@ def _install_args(flags: list[str]) -> tuple[list[str], bool]:
 
 
 def _run_scripts(document: object) -> list[str]:
-    jobs = document.get("jobs") if isinstance(document, dict) else None
+    """Every step's `run:` script. A workflow of another shape is refused, never skipped."""
+    if document is None:
+        return []
+    if not isinstance(document, dict):
+        raise SowError("ci.yml is not a mapping")
+    jobs = document.get("jobs") or {}
+    if not isinstance(jobs, dict):
+        raise SowError("ci.yml `jobs` is not a mapping")
     scripts: list[str] = []
-    for job in (jobs or {}).values():
-        for step in (job or {}).get("steps") or ():
-            if isinstance(step, dict) and isinstance(step.get("run"), str):
-                scripts.append(step["run"])
+    for name, job in jobs.items():
+        steps = (job.get("steps") or []) if isinstance(job, dict) else None
+        if not isinstance(steps, list) or not all(isinstance(step, dict) for step in steps):
+            raise SowError(f"ci.yml job `{name}` does not hold a list of steps")
+        scripts.extend(step["run"] for step in steps if isinstance(step.get("run"), str))
     return scripts
+
+
+def _commands(script: str) -> list[list[str]]:
+    """The script's commands as tokens: one per logical line, a quote may span lines."""
+    commands: list[list[str]] = []
+    pending = ""
+    for line in script.replace("\\\n", " ").splitlines():
+        pending = f"{pending}\n{line}" if pending else line
+        try:
+            commands.append(shlex.split(pending, comments=True))
+        except ValueError:
+            continue
+        pending = ""
+    if pending:
+        raise SowError(f"ci.yml has a run line sow cannot read: {pending.strip()}")
+    return commands
 
 
 def ci_sync_args(ci_text: str) -> tuple[str, ...] | None:
@@ -122,11 +146,7 @@ def ci_sync_args(ci_text: str) -> tuple[str, ...] | None:
     extras: list[str] = []
     every_extra = False
     for script in _run_scripts(document):
-        for line in script.replace("\\\n", " ").splitlines():
-            try:
-                tokens = shlex.split(line, comments=True)
-            except ValueError as exc:
-                raise SowError(f"ci.yml has a run line sow cannot read: {line.strip()}") from exc
+        for tokens in _commands(script):
             for index in range(len(tokens) - 1):
                 if tokens[index : index + 2] != ["uv", "sync"]:
                     continue
@@ -165,7 +185,7 @@ def carried_installs(shared_venv: Path, locked: frozenset[str]) -> tuple[tuple[s
     for direct_url in sorted(shared_venv.glob("lib/python*/site-packages/*.dist-info/direct_url.json")):
         try:
             record = json.loads(direct_url.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+        except (OSError, ValueError):
             continue
         url = urlparse(str(record.get("url", "")))
         if url.scheme != "file" or _normalize(_dist_name(direct_url.parent)) in locked:
@@ -176,14 +196,21 @@ def carried_installs(shared_venv: Path, locked: frozenset[str]) -> tuple[tuple[s
     return tuple(carried)
 
 
+def _read(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise SowError(f"{path.name} could not be read: {exc}") from exc
+
+
 def locked_venv_plan(worktree: Path, shared_venv: Path) -> LockedVenvPlan | None:
     """The worktree venv to build for verify, or None when the target keeps its shared venv."""
     lockfile = worktree / LOCKFILE
     workflow = worktree / CI_WORKFLOW
     if not lockfile.is_file() or not workflow.is_file():
         return None
-    sync_args = ci_sync_args(workflow.read_text(encoding="utf-8"))
+    sync_args = ci_sync_args(_read(workflow))
     if sync_args is None:
         return None
-    locked = lock_package_names(lockfile.read_text(encoding="utf-8"))
+    locked = lock_package_names(_read(lockfile))
     return LockedVenvPlan(sync_args, carried_installs(shared_venv, locked))
