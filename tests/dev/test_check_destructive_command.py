@@ -688,15 +688,28 @@ def _read_only_commands() -> list[str]:
     return forms
 
 
+_READ_GREP_LONGS = " ".join(
+    f"--{name}"
+    for name in (
+        "extended-regexp", "fixed-strings", "basic-regexp", "with-filename", "no-filename",
+        "files-with-matches", "files-without-match", "count", "ignore-case", "line-number",
+        "only-matching", "quiet", "silent", "no-messages", "invert-match", "word-regexp",
+        "line-regexp", "after-context=1", "before-context=1",
+    )
+)
 # Rows 7, 12 and 13: the listed redirections, quoted patterns and a comment.
 _ALSO_PASSING = (
     f"ls .githooks 2>/dev/null ; {_READ}",
-    f"grep -rn marker .githooks 2>&1 | head -20 ; {_READ}",
+    f"grep -n marker .githooks/pre-push 2>&1 | head -20 ; {_READ}",
     f"echo checking >&2 && {_READ}",
     f"ls .githooks >/dev/null || {_READ}",
     f'grep -n "docs\\|\\.md\\|[A-Z]x" .githooks/pre-push ; {_READ}',
     f"grep -n 'a|b' notes.txt | head -3 ; {_READ}",
     f"{_READ}  # where do the hooks live? $(not run) `nor this`",
+    # The options a grep beside the read may carry, in each form.
+    f"grep -inA3 -B 2 -C1 -m1 -e marker -cHhLloqsvwxEFG -- .githooks/pre-push ; {_READ}",
+    f"grep --regexp=marker --regexp marker --max-count=2 --context=1 '-n' {_READ_GREP_LONGS} "
+    f"x ; {_READ}",
 )
 
 
@@ -787,6 +800,103 @@ def test_a_read_beside_anything_unlisted_is_judged_as_today(hook, cmd):
     assert _verdict(hook, cmd) == expected
 
 
+# The grep beside the read (OS#820): every option that lets grep run a program
+# or read a file the command did not name, read from `man grep` (GNU grep 3.11)
+# and `ugrep --help` (ugrep 7.8.4: the Bash tool's shell defines `grep` as a
+# function that runs ugrep). Each row is (short, long, value, how the value is
+# taken, whether GNU getopt reads an abbreviation of the long name).
+_FLAG, _REQUIRED, _OPTIONAL = "flag", "required", "optional"
+_REACHING_GREP_OPTIONS = (
+    # Recursion: reads every file under a directory, or the working directory.
+    ("r", "recursive", None, _FLAG, True),
+    ("R", "dereference-recursive", None, _FLAG, True),
+    ("d", "directories", "recurse", _REQUIRED, True),
+    (None, "include", "hooks/pre-push", _REQUIRED, True),
+    ("g", "glob", "hooks/pre-push", _REQUIRED, False),
+    (None, "include-dir", "hooks/x", _REQUIRED, False),
+    (None, "index", None, _FLAG, False),
+    (None, "depth", "3", _REQUIRED, False),
+    ("3", None, None, _FLAG, False),
+    # A file of patterns, globs or file names, searched for where it is not found.
+    ("f", "file", "patterns.txt", _REQUIRED, False),
+    (None, "exclude-from", "globs.txt", _REQUIRED, True),
+    (None, "include-from", "globs.txt", _REQUIRED, False),
+    (None, "from", "files.txt", _REQUIRED, False),
+    (None, "ignore-files", ".gitignore", _OPTIONAL, False),
+    # A configuration file: read from the working or home directory, or written.
+    (None, "config", ".ugrep", _OPTIONAL, False),
+    (None, "-", None, _FLAG, False),
+    (None, "-.ugrep", None, _FLAG, False),
+    (None, "save-config", ".ugrep", _OPTIONAL, False),
+    # Another program, run on each file or on the output.
+    (None, "filter", "md:cat", _REQUIRED, False),
+    (None, "filter-magic-label", "md:x", _REQUIRED, False),
+    (None, "pager", "less", _OPTIONAL, False),
+    (None, "view", "less", _OPTIONAL, False),
+    ("Q", "query", None, _FLAG, False),
+    # The members of an archive.
+    ("z", "decompress", None, _FLAG, False),
+)
+_GREP_AT = {
+    "first": f"grep -n {{}} marker .githooks/pre-push ; {_READ}",
+    "bundled": f"grep -n{{}} marker .githooks/pre-push ; {_READ}",
+    "after-dashdash": f"grep -n -- {{}} marker .githooks/pre-push ; {_READ}",
+    "after-operands": f"grep -n marker .githooks/pre-push {{}} ; {_READ}",
+    "after-read": f"{_READ} && grep -n {{}} marker .githooks/pre-push",
+}
+
+
+def _option_forms(short, long, value, takes, abbreviates):
+    """(spelling, form, option text, place) for each way the option can be written."""
+    forms = []
+    if short is not None:
+        spelling = f"-{short}"
+        attached = f"{spelling}{value}" if takes == _REQUIRED else spelling
+        separate = f"{spelling} {value}" if takes == _REQUIRED else spelling
+        forms += [(spelling, "short", separate, "first")]
+        forms += [(spelling, "bundled", attached[1:], "bundled")]
+        forms += [(spelling, "quoted", f"'{spelling}'" + separate[2:], "first")]
+        forms += [(spelling, "after-dashdash", separate, "after-dashdash")]
+        forms += [(spelling, "after-operands", separate, "after-operands")]
+        if takes == _REQUIRED:
+            forms += [(spelling, "attached", attached, "first")]
+    if long is not None:
+        spelling = f"--{long}"
+        joined = f"{spelling}={value}" if takes != _FLAG else spelling
+        bare = f"{spelling} {value}" if takes == _REQUIRED else spelling
+        forms += [(spelling, "long", bare, "first")]
+        if takes != _FLAG:
+            forms += [(spelling, "joined", joined, "first")]
+        forms += [(spelling, "quoted", f'"{joined}"', "first")]
+        forms += [(spelling, "after-read", joined, "after-read")]
+        forms += [(spelling, "after-dashdash", joined, "after-dashdash")]
+        forms += [(spelling, "after-operands", joined, "after-operands")]
+        if abbreviates:
+            cut = spelling[:-2]
+            forms += [(cut, "abbreviated", cut + bare[len(spelling) :], "first")]
+    return forms
+
+
+def _reaching_grep_rows():
+    rows = []
+    for spec in _REACHING_GREP_OPTIONS:
+        for spelling, form, option, place in _option_forms(*spec):
+            template = _GREP_AT[place]
+            control = template.format("").replace("  ", " ")
+            rows.append(
+                pytest.param(template.format(option), control, id=f"{spelling}:{form}")
+            )
+    return rows
+
+
+@pytest.mark.parametrize(("cmd", "control"), _reaching_grep_rows())
+def test_a_grep_option_reaching_past_its_arguments_is_judged_as_today(hook, cmd, control):
+    assert _verdict(hook, control) is None, "without the option, the read passes"
+    expected = _today(hook, cmd)
+    assert expected is not None, "the table with nothing withheld holds it"
+    assert _verdict(hook, cmd) == expected, "the option withholds the carve-out"
+
+
 _RELATIVE_PATHS = (".:/usr/bin", "/usr/bin::/bin", "bin:/usr/bin", "/usr/bin:", "")
 
 
@@ -822,7 +932,11 @@ def test_a_read_among_reads_emits_no_decision():
 
 @pytest.mark.parametrize(
     ("cmd", "search_path"),
-    [(f"hooks=({_READ}) ; ls", _SEARCH_PATH), (f"cd /tmp/work && {_READ}", ".:/usr/bin")],
+    [
+        (f"hooks=({_READ}) ; ls", _SEARCH_PATH),
+        (f"cd /tmp/work && {_READ}", ".:/usr/bin"),
+        (f"grep -rn marker .githooks ; {_READ}", _SEARCH_PATH),
+    ],
 )
 def test_a_read_beside_an_unlisted_part_denies_end_to_end(cmd, search_path):
     proc = _run_hook_with_path(cmd, search_path)
@@ -845,7 +959,7 @@ _SWEEP_BASES = (
     f"cat README.md | head -3\ngit config get --show-origin {_KEY}",
     f'{_READ} && grep -n "marker\\|docs" .githooks/pre-push',
     f"head -5 notes.txt ; git config --global {_KEY}",
-    f"grep -rn 'verify' .githooks 2>&1 | head -20 ; {_READ}",
+    f"grep -n 'verify' .githooks/pre-push 2>&1 | head -20 ; {_READ}",
 )
 # Where a member goes: where a command word goes, at every boundary between
 # words, inside an unquoted word, or inside a quoted one.
