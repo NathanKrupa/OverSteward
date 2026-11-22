@@ -1224,7 +1224,8 @@ _PLAIN_CHARS = frozenset(string.ascii_letters + string.digits + "_-./,:=@%+")
 # parameter, command or arithmetic expansion can appear in such a command.
 # The glob characters stay literal inside quotes; in a token quoted only in
 # part they may match file names, which become arguments of a word that only
-# reads. The read itself takes plain tokens only.
+# reads; a ``grep`` refuses such a token where a match could begin with a dash
+# (below). The read itself takes plain tokens only.
 _QUOTED_CHARS = _PLAIN_CHARS | frozenset(" |\\[]()^*?")
 # The tokens that may separate two commands, each read with no quote and no
 # escape. A line end separates too.
@@ -1235,9 +1236,31 @@ _READ_REDIRECTIONS = {">": frozenset({"/dev/null"}), ">&": frozenset({"1", "2"})
 # The first words a command beside the read may have. Each only reads, prints
 # or changes the working directory: none, whatever its arguments, writes a
 # file, assigns a variable it is given the name of, or runs another program.
-# That is a reading of each program's options, not something a test shows.
+# That is a reading of each program's options, not something a test shows,
+# except for ``grep``, whose options are closed below and tested (OS#820).
 # ``git rev-parse`` is not here: ``--help`` makes git run ``man``.
 _READ_ONLY_WORDS = frozenset({"cd", "ls", "cat", "head", "grep", "echo"})
+_GREP = "grep"
+# The options ``grep`` may carry there, each meaning the same in GNU grep and
+# in ugrep, which the Bash tool's shell may run for ``grep``. None of them makes
+# grep run a program or read a file the command does not name. Every token of
+# that ``grep`` that starts with a dash must be made of these, wherever it
+# stands, ``--`` included; a long name matches exactly, so an abbreviation of
+# any other is refused too. A short option in the second set takes a value,
+# which is the rest of its token or the next token. A token beginning with a
+# character in the last set is refused, quoted or not: in a token quoted only in
+# part it is a glob whose matches, which the hook cannot see, may begin with a
+# dash. A glob beginning anywhere else matches only names that begin with
+# something other than a dash.
+_GREP_SHORT_FLAGS = frozenset("EFGHLchilnoqsvwx")
+_GREP_SHORT_VALUED = frozenset("ABCem")
+_GREP_LONG_OPTIONS = frozenset({
+    "extended-regexp", "fixed-strings", "basic-regexp", "with-filename", "no-filename",
+    "files-with-matches", "files-without-match", "count", "ignore-case", "line-number",
+    "only-matching", "quiet", "silent", "no-messages", "invert-match", "word-regexp",
+    "line-regexp", "after-context", "before-context", "context", "regexp", "max-count",
+})
+_GREP_GLOB_STARTS = ("*", "?", "[")
 
 
 class _QuoteTrackingLexer(_ShellLexer):
@@ -1311,11 +1334,32 @@ def _is_argument(token: tuple[str, bool]) -> bool:
     return _is_plain(token) or (quoted and set(text) <= _QUOTED_CHARS)
 
 
+def _is_grep_read_argument(text: str) -> bool:
+    """True if ``text`` cannot reach ``grep`` as an option outside the sets above."""
+    if text.startswith(_GREP_GLOB_STARTS):
+        return False
+    if not text.startswith("-") or text == "--":
+        return True
+    if text.startswith("--"):
+        return text[2:].split("=", 1)[0] in _GREP_LONG_OPTIONS
+    for char in text[1:]:
+        if char in _GREP_SHORT_VALUED:
+            return True
+        if char not in _GREP_SHORT_FLAGS:
+            return False
+    return len(text) > 1
+
+
 def _is_read_only_command(command: list[tuple[str, bool]]) -> bool:
-    """A listed first word, then arguments and the listed redirections only."""
+    """A listed first word, then arguments and the listed redirections only.
+
+    A ``grep``'s every token is :func:`_is_grep_read_argument`.
+    """
     if not command or not _is_plain(command[0]) or command[0][0] not in _READ_ONLY_WORDS:
         return False
     rest = command[1:]
+    if command[0][0] == _GREP and not all(_is_grep_read_argument(text) for text, _ in rest):
+        return False
     index = 0
     while index < len(rest):
         text, quoted = rest[index]
