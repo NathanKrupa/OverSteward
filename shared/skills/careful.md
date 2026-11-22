@@ -48,6 +48,7 @@ Before executing any Bash command, check whether it matches these patterns. If i
 These are always safe and do NOT require confirmation:
 - `rm -rf node_modules` / `rm -rf dist` / `rm -rf build` / `rm -rf __pycache__`
 - `rm -rf .pytest_cache` / `rm -rf *.egg-info` / `rm -rf .mypy_cache`
+- A delete whose every target is a literal absolute path inside this session's own scratchpad, written in full (never through a variable), and run before anything else in the command but reads (OS#821)
 - `git stash` (reversible)
 - `git branch -d` (safe delete — only works if merged)
 - `docker system prune` without `-a` flag

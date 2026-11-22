@@ -35,9 +35,9 @@ structured risk explanation. Claude Code surfaces that as a confirmation prompt:
 in an interactive session Nathan approves or rejects; in an autonomous/operator
 context an unanswered ``ask`` blocks the command. Both match the intent.
 
-``careful.md``'s Safe Exceptions (build-artifact deletes, ``git stash``,
-``git branch -d``, ``docker system prune`` without ``-a``) pass through cleanly
-— exit 0, no prompt.
+``careful.md``'s Safe Exceptions (build-artifact deletes, a delete confined to
+the session's own scratchpad, ``git stash``, ``git branch -d``, ``docker system
+prune`` without ``-a``) pass through cleanly — exit 0, no prompt.
 
 **Both tiers decide from lexed argv, not from the raw command string** (OS#402).
 A command counts only where the shell would run it, and a flag counts only where
@@ -78,7 +78,8 @@ import re
 import shlex
 import string
 import sys
-from collections.abc import Callable
+from collections import Counter
+from collections.abc import Callable, Mapping
 
 # ---------------------------------------------------------------------------
 # Shell lexing — a command counts only where the shell would run it.
@@ -1063,26 +1064,202 @@ def _first_rule(
     command: str,
     rules: tuple[tuple[str, object, str], ...],
     withheld: Callable[[list[str]], bool] | None = None,
+    narrowed: tuple[frozenset[str], Callable[[list[list[str]]], list[list[str]]]] | None = None,
 ) -> tuple[str, str] | None:
     """(category, text) of the first rule matched under each reading in turn, today's first.
 
     Each reading's commands are matched on their own, never merged: a text-tool
     line made visible by one reading must not stand down a rule another holds.
     An argv for which ``withheld`` holds is left out of every reading alike.
+    ``narrowed`` is (categories, narrowing): a rule of those categories judges
+    each reading's commands after the narrowing, every other rule all of them.
     """
     for line_true, nest_true in _reading_pairs(command):
         argvs = _all_argvs(command, line_true, nest_true)
         if withheld is not None:
             argvs = [argv for argv in argvs if not withheld(argv)]
+        narrow_categories, narrowing = narrowed if narrowed is not None else (frozenset(), None)
+        narrow_argvs = narrowing(argvs) if narrowing is not None else argvs
         for category, predicate, text in rules:
-            if predicate(argvs):  # type: ignore[operator]
+            judged = narrow_argvs if category in narrow_categories else argvs
+            if predicate(judged):  # type: ignore[operator]
                 return (category, text)
     return None
 
 
-def _match(command: str) -> tuple[str, str] | None:
-    """Return (category, risk) for the first destructive pattern matched."""
-    return _first_rule(command, _RULES)
+def _match(
+    command: str, scope: tuple[str, str] | None = None, search_path: str = ""
+) -> tuple[str, str] | None:
+    """Return (category, risk) for the first destructive pattern matched.
+
+    ``scope`` is :func:`_scratch_scope`'s answer. The delete rules leave out a
+    delete :func:`_scratch_deletes` verified, in a reading that holds it as
+    many times as it was verified; in a reading that holds it more often, one
+    copy came from somewhere the walk did not read, so none is left out. With
+    no scope, or an empty ``search_path``, nothing is left out: today's verdict.
+    """
+    verified = _scratch_deletes(command, scope, search_path)
+    if not verified:
+        return _first_rule(command, _RULES)
+
+    def narrowing(argvs: list[list[str]]) -> list[list[str]]:
+        held = Counter(tuple(argv) for argv in argvs)
+        exact = {argv for argv, count in verified.items() if held[argv] == count}
+        return [argv for argv in argvs if tuple(argv) not in exact]
+
+    return _first_rule(command, _RULES, narrowed=(_SCRATCH_DELETE_RULES, narrowing))
+
+
+# ---------------------------------------------------------------------------
+# The scratchpad exception (OS#821).
+#
+# A delete stands down only when the hook can prove what it deletes lies inside
+# the scratchpad of the session that issued it. The scratchpad's path is the
+# harness's, never the command's: ``<CLAUDE_CODE_TMPDIR>/claude-<uid>/<project>/
+# <session id>/scratchpad``, from the hook's own environment and the event's
+# ``session_id``. When either is missing or malformed there is no exception.
+# Every test below is positive: what the delete is made of, never what it lacks.
+# ---------------------------------------------------------------------------
+
+# The rules a verified scratchpad delete is left out of. The other rules,
+# including the SQL rules that read every token of the command, see it.
+_SCRATCH_DELETE_RULES = frozenset({"rm -rf", "rm -r", "rm glob"})
+_TMPDIR_VARIABLE = "CLAUDE_CODE_TMPDIR"
+_SCRATCHPAD = "scratchpad"
+_SESSION_ID = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
+# The harness names a project's directory by its launch path, every other
+# character a dash.
+_PROJECT_SEGMENT = re.compile(r"[A-Za-z0-9-]+")
+# The options a verified delete may carry. None takes a value or names a path.
+_RM_SHORT_FLAGS = frozenset("rRfvd")
+_RM_LONG_OPTIONS = frozenset({"--recursive", "--force", "--verbose", "--dir"})
+_END_OF_OPTIONS = "--"
+# The last segment of a target alone may hold these. Pathname matching never
+# crosses a slash, so such a glob names entries of the one directory before it.
+_LAST_SEGMENT_GLOB = frozenset("*?")
+
+
+def _scratch_scope(event: dict, environ: Mapping[str, str]) -> tuple[str, str] | None:
+    """(the harness's per-user temp directory, the event's session id), or None if unknown."""
+    tmpdir = environ.get(_TMPDIR_VARIABLE)
+    session = event.get("session_id")
+    getuid = getattr(os, "getuid", None)
+    if not isinstance(tmpdir, str) or not os.path.isabs(tmpdir) or getuid is None:
+        return None
+    if not isinstance(session, str) or not _SESSION_ID.fullmatch(session):
+        return None
+    return os.path.normpath(os.path.join(tmpdir, f"claude-{getuid()}")), session
+
+
+def _within(path: str, directory: str) -> bool:
+    """True if ``path`` is ``directory`` or lies under it, both already resolved."""
+    return path == directory or path.startswith(directory.rstrip("/") + "/")
+
+
+def _in_scratchpad(target: str, scope: tuple[str, str]) -> bool:
+    """True if ``target`` is a literal absolute path below the session's scratchpad.
+
+    Lexically: no empty, ``.`` or ``..`` segment, no trailing slash, plain
+    characters, a glob only in the last segment and never one beginning with a
+    dot; and the scratchpad's segments, then at least one more. On disk, now:
+    the scratchpad resolves to its own place under the resolved temp
+    directory, and the target's parent resolves inside the resolved
+    scratchpad, so a link anywhere above the last segment that leads out
+    fails. The last segment is not followed: ``rm`` removes a link, not its
+    target. A parent that does not exist resolves as far as it does.
+    """
+    user_dir, session = scope
+    if not target.startswith("/") or target.endswith("/"):
+        return False
+    segments = target.split("/")[1:]
+    if any(segment in ("", ".", "..") for segment in segments):
+        return False
+    *parents, last = segments
+    if not all(set(segment) <= _PLAIN_CHARS for segment in parents):
+        return False
+    if not set(last) <= _PLAIN_CHARS | _LAST_SEGMENT_GLOB:
+        return False
+    if last.startswith(".") and set(last) & _LAST_SEGMENT_GLOB:
+        return False
+    base = [segment for segment in user_dir.split("/") if segment]
+    depth = len(base)
+    if segments[:depth] != base or len(segments) < depth + 4:
+        return False
+    project, owner, name = segments[depth : depth + 3]
+    if not _PROJECT_SEGMENT.fullmatch(project) or owner != session or name != _SCRATCHPAD:
+        return False
+    real_root = os.path.realpath("/" + "/".join(segments[: depth + 3]))
+    if real_root != os.path.join(os.path.realpath(user_dir), project, session, _SCRATCHPAD):
+        return False
+    return _within(os.path.realpath("/" + "/".join(parents)), real_root)
+
+
+def _scratch_delete(command: list[tuple[str, bool]], scope: tuple[str, str]) -> bool:
+    """True if ``command`` is ``rm``, options from the closed set, and confined targets only.
+
+    Every token is unquoted. Before ``--`` a token beginning with a dash is an
+    option and must be in the set; after it, every token is a target.
+    """
+    if not command or command[0] != ("rm", False) or any(quoted for _, quoted in command):
+        return False
+    targets: list[str] = []
+    options_ended = False
+    for text, _quoted in command[1:]:
+        if not options_ended and text == _END_OF_OPTIONS:
+            options_ended = True
+        elif not options_ended and text.startswith("-") and len(text) > 1:
+            short = not text.startswith("--") and set(text[1:]) <= _RM_SHORT_FLAGS
+            if not short and text not in _RM_LONG_OPTIONS:
+                return False
+        else:
+            targets.append(text)
+    return bool(targets) and all(_in_scratchpad(target, scope) for target in targets)
+
+
+def _scratch_deletes(
+    command: str, scope: tuple[str, str] | None, search_path: str
+) -> Counter[tuple[str, ...]]:
+    """Each confined delete the shell runs before anything that could move a path, counted.
+
+    The walk reads the command's lines in order, each lexed on its own by
+    :func:`_tagged_tokens` and made only of :data:`_READ_COMMAND_CHARS`, as
+    commands split at the unquoted :data:`_READ_SEPARATORS`. Each command is a
+    :func:`_scratch_delete` or a read (:func:`_is_read_only_command`), none of
+    which creates a link or moves a file; the first that is neither, or a line
+    that does not lex, ends the walk. A delete in a pipeline with a command
+    that ended the walk runs beside it, and is not counted. Every entry of
+    ``search_path`` must be absolute, so a ``cd`` cannot change what ``rm``
+    or a read runs. Nothing is counted with no ``scope``.
+    """
+    found: Counter[tuple[str, ...]] = Counter()
+    if scope is None or not all(os.path.isabs(entry) for entry in search_path.split(os.pathsep)):
+        return found
+    for line in command.split("\n"):
+        tokens = _tagged_tokens(line) if set(line) <= _READ_COMMAND_CHARS else None
+        if tokens is None:
+            return found
+        if not tokens:
+            continue
+        pipeline: Counter[tuple[str, ...]] = Counter()
+        current: list[tuple[str, bool]] = []
+        before = ""
+        for token in [*tokens, ("", False)]:
+            text, quoted = token
+            ends = token == ("", False) or (not quoted and text in _READ_SEPARATORS)
+            if not ends:
+                current.append(token)
+                continue
+            if _scratch_delete(current, scope):
+                pipeline[tuple(word for word, _ in current)] += 1
+            elif not _is_read_only_command(current):
+                if before != "|":
+                    found.update(pipeline)
+                return found
+            if text != "|":
+                found.update(pipeline)
+                pipeline.clear()
+            current, before = [], text
+    return found
 
 
 # ---------------------------------------------------------------------------
@@ -1505,7 +1682,7 @@ def main() -> int:
         _emit_deny(_deny_message(category, reason, command))
         return 0  # _emit_deny exits; unreachable, kept for type clarity
 
-    hit = _match(command)
+    hit = _match(command, _scratch_scope(event, os.environ), os.environ.get("PATH", ""))
     if hit is None:
         return 0
     category, risk = hit

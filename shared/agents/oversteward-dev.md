@@ -132,6 +132,9 @@ the rest of its `_RULES` table. Nobody answers that prompt, and an unattended
 agent sits at it unseen. If the work needs such a command, stop with
 `STOPPED_FOR_INPUT` and name it. Never delete a worktree's `.venv` yourself: the
 worktree's removal at playbook step 19 takes it with the worktree.
+In a delete, write the scratchpad path in full. The gate stands down only when
+every target is a literal absolute path inside this session's own scratchpad,
+never one reached through a variable (OS#821).
 
 **Wait only in a sanctioned shape** (OS#723). Foreground `sleep` is refused, and
 a home-made sleep leaks: `read -t N < <(… exec cat /dev/zero …)` gives up after

@@ -16,7 +16,8 @@ often a recorded decision of the hook agrees with the replay.
   counted once, by its ``tool_use`` id.
 * **Decision.** The hook file is loaded and its own ``main()`` is called on a
   PreToolUse event, with ``sys.stdin`` and ``sys.stdout`` swapped for the call
-  and ``SystemExit`` caught. Its private matchers are never called, so the
+  and ``SystemExit`` caught. The event carries the entry's ``sessionId`` as
+  ``session_id``, and each distinct command is decided once per session. Its private matchers are never called, so the
   priority between its tiers is the hook's own. An exception, a non-zero exit
   or output that is not a decision is an ``error``, never a pass.
 * **Recorded.** A PreToolUse ``attachment`` whose ``command`` names the hook file
@@ -101,6 +102,7 @@ class Command:
     tool_use_id: str
     cwd: str
     attendance: str
+    session: str = ""
 
     @property
     def key(self) -> str:
@@ -144,7 +146,8 @@ def project_dir_name(path: str) -> str:
 # The hook, called through its own entry point.
 # ---------------------------------------------------------------------------
 
-Hook = Callable[[str], Decision]
+#: The hook as a function of the command text and the session id its event carries.
+Hook = Callable[..., Decision]
 
 
 def load_hook(path: Path) -> Hook:
@@ -162,12 +165,19 @@ def load_hook(path: Path) -> Hook:
     main = getattr(module, "main", None)
     if not callable(main):
         raise ReplayUnreadable(f"hook {path} has no main()")
-    return lambda text: run_hook(main, text)
+    return lambda text, session="": run_hook(main, text, session)
 
 
-def run_hook(main: Callable[[], object], command: str) -> Decision:
-    """Call a PreToolUse(Bash) hook's ``main()`` on ``command`` and read its decision."""
+def run_hook(main: Callable[[], object], command: str, session: str = "") -> Decision:
+    """Call a PreToolUse(Bash) hook's ``main()`` on ``command`` and read its decision.
+
+    A ``session`` is sent as the event's ``session_id``, as Claude Code sends it.
+    A hook that reads it decides by this process's environment, not the
+    recorded session's, so the replay is run where those sessions ran.
+    """
     event = {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": command}}
+    if session:
+        event["session_id"] = session
     stdin, stdout = sys.stdin, sys.stdout
     captured = io.StringIO()
     sys.stdin, sys.stdout = io.StringIO(json.dumps(event)), captured
@@ -302,7 +312,13 @@ def bash_commands(entry: Mapping) -> list[Command]:
         text = tool_input.get("command") if isinstance(tool_input, Mapping) else None
         if block.get("name") == "Bash" and isinstance(text, str):
             commands.append(
-                Command(text, str(block.get("id", "")), str(entry.get("cwd") or ""), attendance)
+                Command(
+                    text,
+                    str(block.get("id", "")),
+                    str(entry.get("cwd") or ""),
+                    attendance,
+                    str(entry.get("sessionId") or ""),
+                )
             )
     return commands
 
@@ -560,7 +576,7 @@ def replay(
 ) -> Replay:
     """Read every transcript and replay the hook over each distinct tool call once."""
     result = Replay()
-    decided: dict[str, Decision] = {}
+    decided: dict[tuple[str, str], Decision] = {}
     seen: set[str] = set()
     for path in transcripts:
         try:
@@ -580,9 +596,10 @@ def replay(
                 result.duplicates += 1
                 continue
             seen.add(command.tool_use_id)
-            if command.key not in decided:
-                decided[command.key] = hook(command.text)
-            _tally(result, command, decided[command.key], contexts)
+            asked = (command.key, command.session)
+            if asked not in decided:
+                decided[asked] = hook(command.text, command.session)
+            _tally(result, command, decided[asked], contexts)
     return result
 
 
