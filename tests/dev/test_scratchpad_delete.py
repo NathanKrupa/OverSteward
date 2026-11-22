@@ -184,6 +184,14 @@ def test_a_link_out_of_the_scratchpad_asks(hook, tree):
     _asks_as_today(hook, tree, f"rm -rf {tree.root}/out/data")
 
 
+def test_a_link_into_a_sibling_whose_name_begins_with_scratchpad_asks(hook, tree):
+    keep = tree.project_dir / SESSION / "scratchpad-keep"
+    keep.mkdir()
+    (tree.root / "link").symlink_to(keep, target_is_directory=True)
+
+    _asks_as_today(hook, tree, f"rm -rf {tree.root}/link/data")
+
+
 def test_a_scratchpad_that_is_itself_a_link_out_asks(hook, tmp_path):
     tree = Tree(tmp_path)
     tree.root.rmdir()
