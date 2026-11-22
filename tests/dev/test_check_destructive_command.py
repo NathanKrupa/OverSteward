@@ -792,6 +792,8 @@ def test_a_read_among_listed_reads_passes(hook, cmd):
         # Row 11: a listed word beside a real evasion.
         f"ls ; git commit --no-verify -m x ; {_READ}",
         f"cd /tmp/work && git add -A && {_READ}",
+        # An extended glob in a grep's argument: the lexer splits at its paren.
+        f'grep -n marker ""@(-r) ; {_READ}',
     ],
 )
 def test_a_read_beside_anything_unlisted_is_judged_as_today(hook, cmd):
@@ -889,7 +891,23 @@ def _reaching_grep_rows():
     return rows
 
 
-@pytest.mark.parametrize(("cmd", "control"), _reaching_grep_rows())
+# A token quoted in part is globbed by the shell, and a glob that begins with a
+# wildcard may match a file named like an option. Such a token is refused even
+# where its quotes keep it literal, as the last three are.
+_GREP_GLOBS = ('""?r', '""?n', '""*', "''[-]-filter*", "'['ab]", '"*marker"', "'?'")
+
+
+def _grep_glob_rows():
+    rows = []
+    for glob in _GREP_GLOBS:
+        for place in ("first", "after-dashdash", "after-operands", "after-read"):
+            template = _GREP_AT[place]
+            control = template.format("").replace("  ", " ")
+            rows.append(pytest.param(template.format(glob), control, id=f"{glob}:{place}"))
+    return rows
+
+
+@pytest.mark.parametrize(("cmd", "control"), [*_reaching_grep_rows(), *_grep_glob_rows()])
 def test_a_grep_option_reaching_past_its_arguments_is_judged_as_today(hook, cmd, control):
     assert _verdict(hook, control) is None, "without the option, the read passes"
     expected = _today(hook, cmd)

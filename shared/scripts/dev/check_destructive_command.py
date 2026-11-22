@@ -1224,7 +1224,8 @@ _PLAIN_CHARS = frozenset(string.ascii_letters + string.digits + "_-./,:=@%+")
 # parameter, command or arithmetic expansion can appear in such a command.
 # The glob characters stay literal inside quotes; in a token quoted only in
 # part they may match file names, which become arguments of a word that only
-# reads. The read itself takes plain tokens only.
+# reads; a ``grep`` refuses such a token where a match could begin with a dash
+# (below). The read itself takes plain tokens only.
 _QUOTED_CHARS = _PLAIN_CHARS | frozenset(" |\\[]()^*?")
 # The tokens that may separate two commands, each read with no quote and no
 # escape. A line end separates too.
@@ -1246,7 +1247,11 @@ _GREP = "grep"
 # that ``grep`` that starts with a dash must be made of these, wherever it
 # stands, ``--`` included; a long name matches exactly, so an abbreviation of
 # any other is refused too. A short option in the second set takes a value,
-# which is the rest of its token or the next token.
+# which is the rest of its token or the next token. A token beginning with a
+# character in the last set is refused, quoted or not: in a token quoted only in
+# part it is a glob whose matches, which the hook cannot see, may begin with a
+# dash. A glob beginning anywhere else matches only names that begin with
+# something other than a dash.
 _GREP_SHORT_FLAGS = frozenset("EFGHLchilnoqsvwx")
 _GREP_SHORT_VALUED = frozenset("ABCem")
 _GREP_LONG_OPTIONS = frozenset({
@@ -1255,6 +1260,7 @@ _GREP_LONG_OPTIONS = frozenset({
     "only-matching", "quiet", "silent", "no-messages", "invert-match", "word-regexp",
     "line-regexp", "after-context", "before-context", "context", "regexp", "max-count",
 })
+_GREP_GLOB_STARTS = ("*", "?", "[")
 
 
 class _QuoteTrackingLexer(_ShellLexer):
@@ -1328,9 +1334,11 @@ def _is_argument(token: tuple[str, bool]) -> bool:
     return _is_plain(token) or (quoted and set(text) <= _QUOTED_CHARS)
 
 
-def _is_grep_read_option(text: str) -> bool:
-    """True if ``text`` is ``--`` or made only of :data:`_GREP_LONG_OPTIONS` or the short sets."""
-    if text == "--":
+def _is_grep_read_argument(text: str) -> bool:
+    """True if ``text`` cannot reach ``grep`` as an option outside the sets above."""
+    if text.startswith(_GREP_GLOB_STARTS):
+        return False
+    if not text.startswith("-") or text == "--":
         return True
     if text.startswith("--"):
         return text[2:].split("=", 1)[0] in _GREP_LONG_OPTIONS
@@ -1345,14 +1353,12 @@ def _is_grep_read_option(text: str) -> bool:
 def _is_read_only_command(command: list[tuple[str, bool]]) -> bool:
     """A listed first word, then arguments and the listed redirections only.
 
-    A ``grep``'s every token that starts with a dash is :func:`_is_grep_read_option`.
+    A ``grep``'s every token is :func:`_is_grep_read_argument`.
     """
     if not command or not _is_plain(command[0]) or command[0][0] not in _READ_ONLY_WORDS:
         return False
     rest = command[1:]
-    if command[0][0] == _GREP and not all(
-        _is_grep_read_option(text) for text, _quoted in rest if text.startswith("-")
-    ):
+    if command[0][0] == _GREP and not all(_is_grep_read_argument(text) for text, _ in rest):
         return False
     index = 0
     while index < len(rest):
