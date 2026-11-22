@@ -276,6 +276,21 @@ def test_real_uv_builds_the_worktree_venv_offline_and_leaves_a_shared_one_alone(
     subprocess.run(["uv", "lock"], cwd=wt, check=True, capture_output=True)
     shared = tmp_path / "shared-venv"
     subprocess.run(["uv", "venv", str(shared)], check=True, capture_output=True)
+    # Whether `uv venv` writes a .pth depends on the interpreter it finds, so the
+    # shared venv gets the one an editable install of the project would write.
+    (site,) = shared.glob("lib/python*/site-packages")
+    (site / "_pickup.pth").write_text(f"{wt}/src\n", encoding="utf-8")
+    # A package the lock does not name: a sync that reached this venv would
+    # remove it as extraneous, which no pyvenv.cfg or .pth hash would show.
+    extraneous = site / "extraneous-0.1.dist-info"
+    extraneous.mkdir()
+    for name, text in (
+        ("METADATA", "Metadata-Version: 2.1\nName: extraneous\nVersion: 0.1\n"),
+        ("INSTALLER", "uv\n"),
+        ("RECORD", "extraneous-0.1.dist-info/METADATA,,\nextraneous-0.1.dist-info/RECORD,,\n"
+         "extraneous-0.1.dist-info/INSTALLER,,\n"),
+    ):
+        (extraneous / name).write_text(text, encoding="utf-8")
     before = _venv_hashes(shared)
     monkeypatch.setenv("VIRTUAL_ENV", str(shared))
     monkeypatch.setenv("UV_PROJECT_ENVIRONMENT", str(shared))
@@ -284,6 +299,7 @@ def test_real_uv_builds_the_worktree_venv_offline_and_leaves_a_shared_one_alone(
     assert (wt / ".venv" / "pyvenv.cfg").is_file()
     assert not (wt / ".venv").is_symlink()
     assert _venv_hashes(shared) == before
+    assert (extraneous / "METADATA").is_file()
 
 
 # --------------------------------------------------------------------------
