@@ -775,6 +775,111 @@ def test_every_ag_pytest_line_binds_the_settings_and_the_worktree_bench(card: Pa
     )
 
 
+#: A tool the lite gate runs, named as a word. A dispatch worktree has none of
+#: them on PATH, so each must be reached through the worktree's own venv
+#: (OS#828); a repo's make target names none of them and is never matched.
+VENV_TOOL = re.compile(r"\b(?:ruff|pyright|bandit|pytest)\b")
+
+#: The two spellings that reach a tool through the worktree's venv.
+VENV_PREFIXES = (".venv/bin/", ".venv/bin/python -m ")
+
+#: A trailing shell comment, which runs nothing.
+TRAILING_COMMENT = re.compile(r"\s#.*$")
+
+
+def _bare_tool_calls(block: str, prefixes: tuple[str, ...] = VENV_PREFIXES) -> list[str]:
+    """Each command in ``block`` that calls a gate tool through none of ``prefixes``."""
+    bare = []
+    for command in _commands(block):
+        if NOT_A_COMMAND.match(command):
+            continue
+        command = TRAILING_COMMENT.sub("", command)
+        for tool in VENV_TOOL.finditer(command):
+            before = command[: tool.start()]
+            if not before.endswith(prefixes):
+                bare.append(command.strip())
+                break
+    return bare
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "ruff check src/ tests/ || rc=1",
+        "ruff format --check src/ tests/ || rc=1",
+        "uv run --no-sync ruff check . || rc=1",
+        "uv run --no-sync bandit -r apps/ -c pyproject.toml || rc=1",
+        "FOO=1 bandit -r src/ -c pyproject.toml || rc=1",
+        "cd sub && pyright || rc=1",
+        "python -m pytest $tests || rc=1",
+        "    .venv/bin/python -m pytest $tests && pytest $tests || rc=1",
+        "some/other/bin/ruff check . || rc=1",
+    ],
+)
+def test_a_lite_gate_tool_called_outside_the_venv_is_found(command: str) -> None:
+    """The negative fixtures: each spelling a dispatch worktree cannot run is reported."""
+    assert _bare_tool_calls(f"rc=0\n{command}\n(exit $rc)\n") == [command.strip()]
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        ".venv/bin/ruff check src/ tests/ || rc=1",
+        ".venv/bin/python -m ruff format --check . || rc=1",
+        ".venv/bin/bandit -q -r src/ -c pyproject.toml || rc=1",
+        "    .venv/bin/python -m pytest $tests || rc=1",
+        "GRANTSPIDER_CI_LOCAL_SKIP_DB_READY=1 make ci-boy-scout || rc=1",
+        "# Bandit as the full gate's security job runs it, tests/ included",
+        '    echo "LITE GATE: the diff touches no test file, so pytest ran nothing"',
+        ".venv/bin/ruff check . || rc=1  # ruff on the whole tree",
+    ],
+)
+def test_a_lite_gate_tool_called_through_the_venv_is_not_found(command: str) -> None:
+    """A venv path, a make target, a comment or an echo is not a bare call."""
+    assert _bare_tool_calls(f"rc=0\n{command}\n(exit $rc)\n") == []
+
+
+@pytest.mark.parametrize("card", _pre_round_sequence_cards(), ids=_card_id)
+def test_the_lite_gate_calls_every_tool_through_the_worktree_venv(card: Path) -> None:
+    """A bare tool is not on PATH in a dispatch worktree, so the step goes red (OS#828)."""
+    bare = _bare_tool_calls(_lite_gate_block(card))
+    assert not bare, (
+        f"{_card_id(card)} lite gate calls a tool outside the worktree venv; use "
+        f"`.venv/bin/<tool>`, `.venv/bin/python -m <tool>` or the repo's make target: {bare}"
+    )
+
+
+#: Outside the lite gate a card may also give a repo's primary-checkout form,
+#: which `uv run` resolves to the project venv; a tool with neither in front of
+#: it is looked up on PATH, where a dispatch worktree has none (OS#828).
+CARD_TOOL_PREFIXES = (*VENV_PREFIXES, "uv run ", "uv run --no-sync ")
+
+BASH_FENCE = re.compile(r"^```bash\n(?P<code>.*?)^```", re.MULTILINE | re.DOTALL)
+
+
+def test_a_card_command_outside_any_venv_is_found() -> None:
+    """The negative fixture: a bare tool in an ordinary commands block is reported."""
+    card = "```bash\nuv run pytest\n.venv/bin/ruff check .\nbandit -r src/\n```\n"
+    blocks = [fence.group("code") for fence in BASH_FENCE.finditer(card)]
+    assert [_bare_tool_calls(block, CARD_TOOL_PREFIXES) for block in blocks] == [
+        ["bandit -r src/"]
+    ]
+
+
+@pytest.mark.parametrize("card", _dev_cards(), ids=_card_id)
+def test_no_card_command_looks_a_gate_tool_up_on_path(card: Path) -> None:
+    """A commands block that calls a tool bare prints "command not found" in a worktree."""
+    bare = [
+        call
+        for fence in BASH_FENCE.finditer(card.read_text(encoding="utf-8"))
+        for call in _bare_tool_calls(fence.group("code"), CARD_TOOL_PREFIXES)
+    ]
+    assert not bare, (
+        f"{_card_id(card)} calls a tool bare, which a dispatch worktree has no PATH entry "
+        f"for; use `.venv/bin/<tool>` or the repo's `uv run` form: {bare}"
+    )
+
+
 #: The headless reviewer's process ends with its turn, so a mutation loop it
 #: backgrounds is lost and its mutant left in `<worktree>.review` (OS#682). The
 #: variable takes `run_in_background` off its Bash tool; a headless probe saw the

@@ -23,14 +23,14 @@ You are the dedicated PR worker for the **wphelper** repository.
 ### Test / Lint / Security commands (exact, CI-scoped)
 
 ```bash
-pytest
+.venv/bin/python -m pytest
 
 # Lint
-ruff check src/ tests/
-ruff format --check src/ tests/
+.venv/bin/ruff check src/ tests/
+.venv/bin/ruff format --check src/ tests/
 
 # Security (pyproject.toml has skips = ["B101", "B321", "B402"] — FTP module intentional)
-bandit -r src/ -c pyproject.toml
+.venv/bin/bandit -r src/ -c pyproject.toml
 ```
 
 ### CI check names — read them live

@@ -28,8 +28,8 @@ You are the dedicated PR worker for the **grantspider** repository.
 .venv/bin/python -m pytest
 
 # Lint (MUST be scoped to src/ tests/ — matches CI; the whole repo has drift)
-ruff check src/ tests/
-ruff format --check src/ tests/
+.venv/bin/ruff check src/ tests/
+.venv/bin/ruff format --check src/ tests/
 
 # Security — the scope and config CI's security job uses; bare `bandit -r src/`
 # skips tests/ and the pyproject.toml skips, and fails on findings they accept.
@@ -160,8 +160,8 @@ after the findings, below.
 #     `rc` collects every step, so one red step reddens the whole block; the
 #     last command's status alone would say nothing about the others.
 rc=0
-ruff check src/ tests/ || rc=1
-ruff format --check src/ tests/ || rc=1
+.venv/bin/ruff check src/ tests/ || rc=1
+.venv/bin/ruff format --check src/ tests/ || rc=1
 changed=$(git diff --name-only --diff-filter=d origin/staging...HEAD)
 py=$(printf '%s\n' $changed | grep '\.py$' || true)
 # The wrapper calls a bare `gaudi`, so the worktree venv goes on PATH.
