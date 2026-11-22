@@ -1,4 +1,4 @@
-# ABOUTME: INNER connectors — one class per external system: git, gh, the target repo's ruff, make, the lock.
+# ABOUTME: INNER connectors — one class per external system: git, gh, the target's ruff, make, uv, the lock.
 # ABOUTME: No decisions here; each maps a command's exit status onto a CommandResult the service reads.
 
 from __future__ import annotations
@@ -139,6 +139,55 @@ class MakeCommand:
         """
         result = _run(["make", "-n", "verify"], worktree)
         return result.ok or not names_no_verify_rule(result.text)
+
+
+class VenvBuilder:
+    """Builds a worktree's own `.venv` with uv: the dispatch playbook's step 6a, `--locked`.
+
+    `UV_PROJECT_ENVIRONMENT` names the worktree's venv outright, replacing any
+    inherited value, and `VIRTUAL_ENV`, which names sow's own interpreter, is
+    dropped. Every command runs with the worktree as its working directory.
+    """
+
+    def __init__(self, uv: str = "uv") -> None:
+        self._uv = uv
+
+    def commands(
+        self, worktree: Path, sync_args: tuple[str, ...], carried: tuple[tuple[str, ...], ...]
+    ) -> list[list[str]]:
+        venv = worktree / ".venv"
+        python = str(venv / "bin" / "python")
+        return [
+            [self._uv, "venv", str(venv)],
+            [self._uv, "sync", "--locked", *sync_args],
+            *([self._uv, "pip", "install", "--python", python, *args] for args in carried),
+        ]
+
+    def environment(self, worktree: Path) -> dict[str, str]:
+        env = {key: value for key, value in os.environ.items() if key != "VIRTUAL_ENV"}
+        env["UV_PROJECT_ENVIRONMENT"] = str(worktree / ".venv")
+        return env
+
+    def build(
+        self,
+        worktree: Path,
+        sync_args: tuple[str, ...],
+        carried: tuple[tuple[str, ...], ...],
+        log_path: Path,
+    ) -> CommandResult:
+        """Run each command in the worktree, stopping at the first failure; output to a log."""
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        env = self.environment(worktree)
+        transcript: list[str] = []
+        result = CommandResult(True, "", "")
+        for argv in self.commands(worktree, sync_args, carried):
+            proc = subprocess.run(argv, cwd=str(worktree), env=env, check=False, **_CAPTURE)
+            transcript.append(f"$ {' '.join(argv)}\n{proc.stdout}{proc.stderr}")
+            result = CommandResult(proc.returncode == 0, proc.stdout, proc.stderr)
+            if not result.ok:
+                break
+        log_path.write_text("\n".join(transcript), encoding="utf-8")
+        return result
 
 
 #: The top-level make's own message for a goal with no rule. "needed by" marks a

@@ -60,6 +60,7 @@ from oversteward.sow.runners import (
     MakeCommand,
     SowError,
     SowLock,
+    VenvBuilder,
     names_no_verify_rule,
 )
 
@@ -519,6 +520,7 @@ def _apply(canon_root: Path, pickup_root: Path, tmp_path: Path, **kwargs):
     ruff = kwargs.pop("ruff", None) or FakeRuff()
     git = kwargs.pop("git", None) or GitCommand()
     verify_runner = kwargs.pop("verify_runner", None) or FakeVerify()
+    venv_builder = kwargs.pop("venv_builder", None) or VenvBuilder()
     apply_requested = kwargs.pop("apply_requested", True)
     observation = kwargs.pop("observation", None) or _observe(pickup_root)
     reports = tmp_path / "reports" / "sow"
@@ -526,7 +528,7 @@ def _apply(canon_root: Path, pickup_root: Path, tmp_path: Path, **kwargs):
     report = apply_plan(
         result,
         canonical_shared=canon_root / "shared",
-        runners=Runners(git=git, gh=gh, ruff=ruff, verify=verify_runner),
+        runners=Runners(git=git, gh=gh, ruff=ruff, verify=verify_runner, venv=venv_builder),
         reports_dir=reports,
         now=NOW,
         **kwargs,

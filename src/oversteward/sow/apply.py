@@ -29,7 +29,7 @@ import json
 import shutil
 import tempfile
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 
@@ -53,7 +53,16 @@ from .plan import (
     gate_consumer_format,
 )
 from .render import render_context_report
-from .runners import CommandResult, GhCommand, GitCommand, MakeCommand, RuffCommand, SowError
+from .runners import (
+    CommandResult,
+    GhCommand,
+    GitCommand,
+    MakeCommand,
+    RuffCommand,
+    SowError,
+    VenvBuilder,
+)
+from .venv import locked_venv_plan
 
 CO_AUTHOR = "Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
@@ -101,6 +110,7 @@ class Runners:
     gh: GhCommand
     ruff: RuffCommand
     verify: MakeCommand = field(default_factory=MakeCommand)
+    venv: VenvBuilder = field(default_factory=VenvBuilder)
 
 
 def push_sync_branch(
@@ -162,6 +172,31 @@ def _link_target_venv(repo_root: Path, worktree: Path) -> Path | None:
         return None
     link.symlink_to(venv)
     return link
+
+
+def _provision_venv(
+    repo_root: Path, worktree: Path, builder: VenvBuilder, log_path: Path, verify: bool
+) -> tuple[Path | None, str]:
+    """(link to remove, note for the report): the shared venv lent, or the worktree's own built.
+
+    Only a verified uv target gets its own (see `venv`); it is a real directory
+    inside the throwaway worktree, so the worktree's removal takes it. A `.venv`
+    already in the worktree is refused rather than synced, because a link there
+    would carry the sync into whatever environment it names.
+    """
+    plan = locked_venv_plan(worktree, repo_root / ".venv") if verify else None
+    if plan is None:
+        return _link_target_venv(repo_root, worktree), ""
+    held = worktree / ".venv"
+    if held.exists() or held.is_symlink():
+        raise SowError("the worktree already holds a .venv; refusing to sync a venv into it")
+    if not builder.build(worktree, plan.sync_args, plan.carried, log_path).ok:
+        raise SowError(f"worktree venv build failed — full output in {log_path}")
+    return None, plan.describe()
+
+
+def _noted(outcome: ContextOutcome, note: str) -> ContextOutcome:
+    return replace(outcome, detail=f"{outcome.detail}; {note}") if note else outcome
 
 
 def _unlink_target_venv(link: Path | None) -> None:
@@ -313,8 +348,11 @@ def apply_context(
     holder, worktree = opened
     venv_link = None
     try:
-        venv_link = _link_target_venv(repo_root, worktree)
-        return _deploy(
+        build_log = reports_dir / f"{date}-{ctx.context_id}-venv.log"
+        venv_link, venv_note = _provision_venv(
+            repo_root, worktree, runners.venv, build_log, verify
+        )
+        outcome = _deploy(
             ctx,
             worktree,
             canonical_shared=canonical_shared,
@@ -323,6 +361,7 @@ def apply_context(
             date=date,
             verify=verify,
         )
+        return _noted(outcome, venv_note)
     except SowError as exc:
         return ContextOutcome(ctx.context_id, ABORTED, (), str(exc))
     finally:
