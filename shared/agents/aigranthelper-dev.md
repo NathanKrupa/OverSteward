@@ -254,14 +254,14 @@ the findings, below.
 #     `rc` collects every step, so one red step reddens the whole block; the
 #     last command's status alone would say nothing about the others.
 rc=0
-uv run --no-sync ruff check . || rc=1
-uv run --no-sync ruff format --check . || rc=1
+.venv/bin/ruff check . || rc=1
+.venv/bin/ruff format --check . || rc=1
 # The whole gaudi job of the full gate, not only its error tier: a ratchet that
 # first fails in the full gate fails after review and forces a delta round.
 AG_BASE_REF=staging make ci-gaudi || rc=1
 # Bandit as the full gate's security job runs it: its scope, its pyproject.toml
 # config (which excludes tests/). A finding first seen there is seen after review.
-uv run --no-sync bandit -r apps/ config/ scripts/ -c pyproject.toml || rc=1
+.venv/bin/bandit -r apps/ config/ scripts/ -c pyproject.toml || rc=1
 changed=$(git diff --name-only --diff-filter=d origin/staging...HEAD)
 tests=$(printf '%s\n' $changed | grep -E '(^|/)test_[^/]*\.py$' || true)
 if [ -n "$tests" ]; then
