@@ -138,13 +138,14 @@ sow is additive.
 | Fetch | `git fetch origin <branch>` in the target checkout. Refs only |
 | Worktree | `git worktree add -B oversteward/sync-YYYY-MM-DD <tmpdir> origin/<branch>` — a throwaway worktree, **never** a branch checkout in the resident tree |
 | Environment | Symlink the target's `.venv` into the worktree once it is cut, before the copy, commit and push, so the target's commit and push hooks find `.venv/bin/<tool>`. sow writes nothing in the target's `.venv` |
+| Environment under `--verify` | A target whose branch carries `uv.lock` and whose branch's `.github/workflows/ci.yml` runs `uv sync` gets its own `.venv` instead, built in the worktree from that lock (dispatch playbook step 6a, `--locked`): `uv venv <worktree>/.venv`, then `uv sync --locked` with the extras CI's `uv sync` steps name, under `UV_PROJECT_ENVIRONMENT=<worktree>/.venv` and without `VIRTUAL_ENV`. The shared venv follows the primary checkout, which can sit on another branch than the sync PR's base, so verifying there measures the wrong dependency set. Local-directory installs the shared venv carries and the lock does not name (packages CI layers on top of its sync) are installed on top from the same directory. A `uv sync` flag that changes the install set other than `--extra`/`--all-extras`, an unparseable `ci.yml` or `uv.lock`, a `.venv` already in the worktree, or a failed build aborts the context, the build log under `reports/sow/` named. The commit and push hooks run in the same venv. A target with no `uv.lock`, or whose CI installs some other way, keeps the link |
 | Copy | Byte-copy each deployable member; compare the written bytes against the source |
 | Stage | `git add -- <explicit paths>`. Never `git add -A` |
 | Commit | `oversteward sync: N canonical family member(s) (<date>)`, with the per-context report as the message body and a `Co-Authored-By` trailer. Hooks run |
 | Verify (opt-in) | With `--verify`: run the target's `make verify`, redirected to a file under `reports/sow/`. The file is read; a failure aborts the context and names the log. Never `\| tail`. A target where `make -n verify` answers make's own "No rule to make target 'verify'" is not a failure: the report says it has no `make verify` and that its pre-push hook is the full gate, and the push (which runs that hook) goes ahead. Detected from make's answer, never the repo's name |
 | Push | `push_sync_branch()` — refuses any branch not matching `oversteward/sync-*`, and refuses the registry `branch:` outright |
 | PR | `gh pr create --base <registry branch> --body-file <report>` |
-| Teardown | Remove the `.venv` link sow made, then `git worktree remove` and `git worktree prune`; the temp holder is removed |
+| Teardown | Remove the `.venv` link sow made, then `git worktree remove` and `git worktree prune`; the temp holder is removed, and a worktree-local `.venv` with it |
 | Auto-merge | **Never.** sow prints the `gh pr merge` line; Nathan reviews and merges |
 
 **Why a worktree.** The pinned contract said `git checkout -b` on the target
