@@ -547,6 +547,22 @@ class TestVouchedCommandEnds:
         assert _refused(f"{X} \\\n  {GF}\necho b")
         assert _refused(f"echo a\n{X} \\\n  {GF}")
 
+    @pytest.mark.xfail(strict=True, reason="OS#815: a compound command piped into a filter is not read")
+    @pytest.mark.parametrize(
+        "command",
+        ["case x in\nx) pytest -q ;;\nesac | tail -5", "case x in\nx) pytest -q\n;;\nesac | tail -5"],
+    )
+    def test_a_multi_line_case_around_a_gate_piped_into_a_filter_is_refused(self, command):
+        """The shell pipes the case's status, the gate's, into the filter. The whole text
+        read as one stretch refused it only because ``;;`` is no separator to this guard; the
+        same guard never refused a multi-line ``if`` or brace group."""
+        self._vouched(command)
+        assert _refused(command)
+
+    def test_a_one_line_case_around_a_gate_piped_into_a_filter_is_still_refused(self):
+        """A pin: on one line there is no command end to cut at."""
+        assert _refused("case x in x) pytest -q ;; esac | tail -5")
+
     def test_a_line_end_after_a_pipe_is_no_command_end(self):
         assert self._ends("a |\nb\nc") == [6]
 
