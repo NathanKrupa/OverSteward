@@ -2170,7 +2170,7 @@ capabilities:
   - scripts/dev/worktree_doctor.py
   invariants: [I-21]
   liabilities: [L-DEV-1, L-DEV-2]
-  current_shape: sow (7 modules, 1,554 lines) plus dev_family.py (263) deploy the shared/scripts/dev/
+  current_shape: sow (7 modules, 1,586 lines) plus dev_family.py (263) deploy the shared/scripts/dev/
     family as sync PRs. In OverSteward the deployed side is symlinks into shared/ (OS#576); every other
     repo carries copies, and they have drifted (L-DEV-1).
   target_shape: 'Every repo''s copies at canon: worktree_doctor.py deployed where it is absent or pre-#571
