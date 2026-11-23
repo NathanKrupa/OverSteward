@@ -33,6 +33,7 @@ from oversteward.brief.compose import (
     render,
 )
 from oversteward.board.client import NotFoundError
+from oversteward.liveness.check import ProjectRef
 from oversteward.liveness.client import RailwayConfigError, RailwayUnavailableError
 from oversteward.liveness.models import LivenessReport, ServiceState
 from oversteward.shelve.ledger import LedgerEntry, to_lines
@@ -714,17 +715,95 @@ _DOWN = (ServiceState("aigranthelper", "monitor_indexation", "CRASHED", stopped=
          ServiceState("aigranthelper", "web", "CRASHED", stopped=False))
 
 
-def _urgent(known, open_issues=frozenset({("aigranthelper", 2481)})):
-    return liveness_urgent([], sweeper=lambda _p: LivenessReport(states=_DOWN), known=known,
+_AG_PROJECT = ProjectRef(name="aigranthelper", project_id="pid-ag")
+_SIGNED = KnownIssue("aigranthelper", 2481, signature="statement timeout")
+
+
+def _no_log(_project, _state):
+    raise AssertionError("a crash log was read")
+
+
+def _urgent(known, open_issues=frozenset({("aigranthelper", 2481)}), final_line=_no_log):
+    return liveness_urgent([_AG_PROJECT], sweeper=lambda _p: LivenessReport(states=_DOWN),
+                           known=known, final_line=final_line,
                            is_open=lambda issue: (issue.repo, issue.number) in open_issues)
 
 
-def test_a_recorded_open_issue_marks_the_service_known():
+def _crashed_with(line):
+    seen = []
+
+    def read(project, state):
+        seen.append((project, state.name))
+        return line
+
+    return read, seen
+
+
+def test_an_unsignatured_open_issue_marks_the_service_known_and_names_the_gap():
     lines = _urgent({"aigranthelper/monitor_indexation": KnownIssue("aigranthelper", 2481)})
     assert lines == (
-        "KNOWN→aigranthelper#2481 — Railway: aigranthelper / monitor_indexation is CRASHED",
+        "KNOWN→aigranthelper#2481 (unsignatured: any crash reads as this issue) — "
+        "Railway: aigranthelper / monitor_indexation is CRASHED",
         "Railway: aigranthelper / web is CRASHED",
     )
+
+
+def test_a_signature_found_in_the_final_line_marks_the_service_known():
+    read, seen = _crashed_with("OperationalError: canceling statement due to statement timeout")
+    lines = _urgent({"aigranthelper/monitor_indexation": _SIGNED}, final_line=read)
+    assert lines[0] == ("KNOWN→aigranthelper#2481 — Railway: aigranthelper / monitor_indexation "
+                        "is CRASHED")
+    assert seen == [(_AG_PROJECT, "monitor_indexation")]
+
+
+def test_a_known_service_whose_crash_misses_its_signature_alarms_as_a_different_failure():
+    read, _seen = _crashed_with("CommandError: The read operation timed out")
+    lines = _urgent({"aigranthelper/monitor_indexation": _SIGNED}, final_line=read)
+    assert lines[0] == ("Railway: aigranthelper / monitor_indexation is CRASHED "
+                        "(known service, different failure — recorded issue aigranthelper#2481 "
+                        "is signed 'statement timeout')")
+    assert not any(line.startswith("KNOWN") for line in lines)
+
+
+def test_a_signature_miss_names_the_different_failure_without_asking_whether_the_issue_is_open():
+    read, _seen = _crashed_with("CommandError: The read operation timed out")
+    asked = []
+
+    def is_open(issue):
+        asked.append(issue)
+        return False
+
+    lines = liveness_urgent([_AG_PROJECT], sweeper=lambda _p: LivenessReport(states=_DOWN[:1]),
+                            known={"aigranthelper/monitor_indexation": _SIGNED},
+                            is_open=is_open, final_line=read)
+    assert lines == ("Railway: aigranthelper / monitor_indexation is CRASHED "
+                     "(known service, different failure — recorded issue aigranthelper#2481 "
+                     "is signed 'statement timeout')",)
+    assert asked == []
+
+
+def test_the_signature_is_matched_case_sensitively_as_a_literal():
+    read, _seen = _crashed_with("canceling statement due to STATEMENT TIMEOUT")
+    lines = _urgent({"aigranthelper/monitor_indexation": _SIGNED}, final_line=read)
+    assert not lines[0].startswith("KNOWN")
+
+
+def test_a_signed_entry_whose_crash_cannot_be_read_alarms_and_says_so():
+    def read(_project, _state):
+        raise RailwayUnavailableError("railway exited 1 running `railway logs`")
+
+    lines = _urgent({"aigranthelper/monitor_indexation": _SIGNED}, final_line=read)
+    assert lines[0] == ("Railway: aigranthelper / monitor_indexation is CRASHED "
+                        "(known service, crash not read — railway exited 1 running `railway logs`; "
+                        "recorded issue aigranthelper#2481)")
+
+
+def test_a_matching_signature_on_a_closed_issue_is_a_fresh_alarm_again():
+    read, _seen = _crashed_with("statement timeout")
+    lines = _urgent({"aigranthelper/monitor_indexation": _SIGNED}, open_issues=frozenset(),
+                    final_line=read)
+    assert lines[0] == ("Railway: aigranthelper / monitor_indexation is CRASHED "
+                        "(recorded issue aigranthelper#2481 is no longer open)")
 
 
 @pytest.mark.parametrize("key", ["monitor_indexation", "aigranthelper/monitor",
@@ -752,10 +831,32 @@ def test_known_failures_validates_every_entry():
             known_failures({"railway": bad}, [AG])
 
 
-def test_the_recorded_mapping_file_is_valid_and_seeds_monitor_indexation():
+def test_known_failures_reads_a_signed_entry():
+    entry = {"issue": "aigranthelper#7", "signature": "timed out"}
+    assert known_failures({"railway": {"aigranthelper/x": entry}}, [AG]) == {
+        "aigranthelper/x": KnownIssue("aigranthelper", 7, signature="timed out")}
+
+
+@pytest.mark.parametrize("bad", [
+    {"issue": "aigranthelper#7", "signature": ""},
+    {"issue": "aigranthelper#7", "signature": "   "},
+    {"issue": "aigranthelper#7", "signature": 5},
+    {"issue": "aigranthelper#7"},
+    {"signature": "timed out"},
+    {"issue": "aigranthelper#7", "signature": "timed out", "note": "x"},
+    {"issue": "nosuchrepo#7", "signature": "timed out"},
+])
+def test_known_failures_refuses_a_malformed_signed_entry(bad):
+    # An empty signature is a substring of every line: it would mute any crash.
+    with pytest.raises(ValueError, match="aigranthelper/x"):
+        known_failures({"railway": {"aigranthelper/x": bad}}, [AG])
+
+
+def test_the_recorded_mapping_file_is_valid_and_signs_monitor_indexation():
     module = _module()
     known = known_failures(module.load_known(), github_repos_from_registry(module.load_registry()))
-    assert known["aigranthelper/monitor_indexation"] == KnownIssue("aigranthelper", 2481)
+    assert known["aigranthelper/monitor_indexation"] == KnownIssue(
+        "aigranthelper", 3081, signature="The read operation timed out")
 
 
 def test_issue_is_open_is_false_for_a_pull_request_a_closed_issue_or_a_missing_one():

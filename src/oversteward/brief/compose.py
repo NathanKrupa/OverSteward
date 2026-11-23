@@ -10,8 +10,10 @@ vault files, so it says four things and nothing else:
   classifies, or a liveness sweep that could not look. Rendered only when
   there is something to say. A service whose failure is already filed is
   marked ``KNOWN→<repo>#n`` — only through an exact ``<context>/<service>`` key
-  recorded in ``data/known_failures.yaml``, and only while that issue is open;
-  never by matching titles. Sentry is not read yet.
+  recorded in ``data/known_failures.yaml``, only while that issue is open, and,
+  when the entry carries a ``signature``, only when the crash's final log line
+  contains it; never by matching titles. An unsignatured entry says so on its
+  line. Sentry is not read yet.
 * **Shipped** — pull requests *merged* in the window, grouped by repository,
   with a count. A pull request closed without merging never counts, and
   ``0 shipped`` is a measured answer, not a missing one.
@@ -55,9 +57,9 @@ from oversteward.brief.client import (
     read_activity,
     read_thread,
 )
-from oversteward.liveness.check import ProjectRef, sweep
+from oversteward.liveness.check import ProjectRef, crash_line, sweep
 from oversteward.liveness.client import RailwayConfigError, RailwayUnavailableError
-from oversteward.liveness.models import LivenessReport
+from oversteward.liveness.models import LivenessReport, ServiceState
 from oversteward.shelve.ledger import MODE_APPLIED, LedgerEntry
 from oversteward.shelve.sweep import (
     RULE_BRANCH,
@@ -122,20 +124,41 @@ class Shelved:
 
 @dataclass(frozen=True, slots=True)
 class KnownIssue:
-    """A recorded issue for one failing service: registry id and issue number."""
+    """A recorded issue for one failing service: registry id, issue number, and failure.
+
+    ``signature`` is a literal substring of the crash's final log line that
+    names *this* failure; ``None`` means the entry is unsignatured, so any
+    crash of the service reads as this issue.
+    """
 
     repo: str
     number: int
+    signature: str | None = None
 
     def __str__(self) -> str:
         return f"{self.repo}#{self.number}"
+
+
+_SIGNED_KEYS = frozenset({"issue", "signature"})
+
+
+def _issue_and_signature(value: Any) -> tuple[str, str | None] | None:
+    """Split an entry's value into its issue text and signature; ``None`` when malformed."""
+    if not isinstance(value, Mapping):
+        return str(value), None
+    signature = value.get("signature")
+    if set(value) != _SIGNED_KEYS or not isinstance(signature, str) or not signature.strip():
+        return None
+    return str(value["issue"]), signature
 
 
 def known_failures(data: Mapping[str, Any], repos: Sequence[RepoRef]) -> dict[str, KnownIssue]:
     """The ``railway:`` map of ``data/known_failures.yaml``, validated.
 
     Keys are ``<registry context id>/<service name>`` exactly as the liveness
-    sweep names them; values are ``<registry id>#<issue>``. Both registry ids
+    sweep names them. A value is ``<registry id>#<issue>`` (unsignatured), or a
+    mapping of exactly ``issue`` and a non-blank ``signature`` — a blank one is
+    a substring of every line, so it would mute any crash. Both registry ids
     must be contexts with a GitHub remote, and the service name must be one
     whitespace-free token; anything else is a ``ValueError``. Whether the
     service exists on Railway is not checked here: a key naming a service that
@@ -145,11 +168,15 @@ def known_failures(data: Mapping[str, Any], repos: Sequence[RepoRef]) -> dict[st
     ids = {repo.id for repo in repos}
     found: dict[str, KnownIssue] = {}
     for key, value in (data.get("railway") or {}).items():
-        match = _KNOWN_ISSUE.match(str(value))
+        parts = _issue_and_signature(value)
+        match = _KNOWN_ISSUE.match(parts[0]) if parts is not None else None
         named = _KNOWN_KEY.match(str(key))
         if named is None or named[1] not in ids or match is None or match[1] not in ids:
-            raise ValueError(f"known_failures: {key!r}: {value!r} is not <context>/<service>: <repo>#<n>")
-        found[str(key)] = KnownIssue(match[1], int(match[2]))
+            raise ValueError(
+                f"known_failures: {key!r}: {value!r} is not <context>/<service>: <repo>#<n> "
+                "or {issue: <repo>#<n>, signature: <non-blank text>}"
+            )
+        found[str(key)] = KnownIssue(match[1], int(match[2]), parts[1])
     return found
 
 
@@ -172,30 +199,72 @@ class Brief:
         return sum(len(pulls) for _, pulls in self.shipped)
 
 
+FinalLineReader = Callable[[ProjectRef, ServiceState], str]
+
+
+def _signature_miss(issue: KnownIssue, read_line: Callable[[], str]) -> str | None:
+    """Why a signed entry does not cover this crash, or ``None`` when it does (or is unsigned).
+
+    A literal, case-sensitive substring test on the crash's final log line. A
+    line that cannot be read is a miss, so it alarms rather than mutes.
+    """
+    if issue.signature is None:
+        return None
+    try:
+        line = read_line()
+    except RailwayUnavailableError as exc:
+        return f"known service, crash not read — {exc}; recorded issue {issue}"
+    if issue.signature in line:
+        return None
+    return f"known service, different failure — recorded issue {issue} is signed {issue.signature!r}"
+
+
+def _urgent_line(
+    state: ServiceState,
+    issue: KnownIssue | None,
+    is_open: Callable[[KnownIssue], bool],
+    read_line: Callable[[], str],
+) -> str:
+    line = f"Railway: {state.project} / {state.name} is {state.status or 'in an unknown state'}"
+    if issue is None:
+        return line
+    miss = _signature_miss(issue, read_line)
+    if miss is not None:
+        return f"{line} ({miss})"
+    if not is_open(issue):
+        return f"{line} (recorded issue {issue} is no longer open)"
+    gap = " (unsignatured: any crash reads as this issue)" if issue.signature is None else ""
+    return f"KNOWN→{issue}{gap} — {line}"
+
+
 def liveness_urgent(
     projects: Sequence[ProjectRef],
     *,
     sweeper: Callable[[Sequence[ProjectRef]], LivenessReport] = sweep,
     known: Mapping[str, KnownIssue] | None = None,
     is_open: Callable[[KnownIssue], bool] = lambda _issue: False,
+    final_line: FinalLineReader = crash_line,
 ) -> tuple[str, ...]:
     """One line per Railway service that is down or in a state nothing classifies.
 
-    A service whose exact ``<project>/<service>`` key is in ``known`` and whose
-    issue is still open is marked ``KNOWN→<repo>#n``; a recorded issue that has
-    closed leaves the line a fresh alarm, saying so.
+    A service whose exact ``<project>/<service>`` key is in ``known`` is marked
+    ``KNOWN→<repo>#n`` only while that issue is open and, for a signed entry,
+    only when the signature is in the crash's final log line (read only for a
+    signed entry). A crash the signature misses alarms as a different failure
+    of a known service; an unsignatured entry is marked KNOWN but says so; a
+    recorded issue that has closed leaves the line a fresh alarm, saying so.
     """
     known = known or {}
-    lines = []
-    for state in sweeper(projects).findings:
-        line = f"Railway: {state.project} / {state.name} is {state.status or 'in an unknown state'}"
-        issue = known.get(f"{state.project}/{state.name}")
-        if issue is not None and is_open(issue):
-            line = f"KNOWN→{issue} — {line}"
-        elif issue is not None:
-            line = f"{line} (recorded issue {issue} is no longer open)"
-        lines.append(line)
-    return tuple(lines)
+    by_name = {project.name: project for project in projects}
+    return tuple(
+        _urgent_line(
+            state,
+            known.get(f"{state.project}/{state.name}"),
+            is_open,
+            lambda state=state: final_line(by_name[state.project], state),
+        )
+        for state in sweeper(projects).findings
+    )
 
 
 def question_text(thread: AskThread) -> str:
@@ -428,6 +497,7 @@ __all__ = [
     "QUESTION_MARKER",
     "SHELVED_LISTED",
     "ActivityReader",
+    "FinalLineReader",
     "KnownIssue",
     "Shelved",
     "ShelvedRead",

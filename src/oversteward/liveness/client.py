@@ -1,11 +1,11 @@
-# ABOUTME: INNER connector for Railway — reads service deployment state via the CLI.
+# ABOUTME: INNER connector for Railway — reads service deployment state and crash lines via the CLI.
 # ABOUTME: Transport only; what a state means for liveness is decided in models.py.
 
-"""Read Railway service state.
+"""Read Railway service state, and the final log line of a deployment.
 
 The CLI is the estate's standard connection procedure for Railway (the MCP
 servers churn transport), so this shells out to ``railway service list --json``
-rather than reaching for the GraphQL API.
+and ``railway logs --json`` rather than reaching for the GraphQL API.
 
 ``--project`` requires ``--environment``, which is why both are always passed:
 without the pair the CLI falls back to whatever directory it was invoked from,
@@ -56,7 +56,7 @@ def _run(command: Sequence[str]) -> str:
         ) from None
     if completed.returncode != 0:
         raise RailwayUnavailableError(
-            f"railway exited {completed.returncode} reading services"
+            f"railway exited {completed.returncode} running `railway {command[1]}`"
         )
     return completed.stdout
 
@@ -97,9 +97,70 @@ def read_project(
             name=str(service.get("name") or "<unnamed>"),
             status=str(service.get("status") or ""),
             stopped=bool(service.get("deploymentStopped")),
+            deployment_id=str(service.get("deploymentId") or ""),
         )
         for service in payload
     )
 
 
-__all__ = ["RailwayConfigError", "RailwayUnavailableError", "read_project"]
+#: Log lines fetched to find the final one: enough to step over trailing blank lines.
+_LOG_LINES = 20
+
+
+def _messages(raw: str, service: str) -> list[str]:
+    messages = []
+    for line in raw.splitlines():
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            raise RailwayUnavailableError(f"railway sent an unparseable log line for {service}") from None
+        message = entry.get("message") if isinstance(entry, dict) else None
+        if isinstance(message, str) and message.strip():
+            messages.append(message.strip())
+    return messages
+
+
+def read_final_line(
+    project_id: str,
+    environment: str,
+    state: ServiceState,
+    *,
+    runner: Callable[[Sequence[str]], str] = _run,
+) -> str:
+    """The last non-blank log message of the service's latest deployment.
+
+    For a crashed one-shot this is normally the line it died on (measured on
+    one crashed cron service, not on every shape of crash); a signature that
+    misses it fails toward the alarm, never a mute. A deployment with no
+    id, or logs with no message at all, raise rather than return an empty line:
+    an empty line would read as "a crash that matched nothing", not as "could
+    not look".
+    """
+    if not state.deployment_id:
+        raise RailwayUnavailableError(f"railway named no deployment for {state.name}")
+    raw = runner(
+        [
+            "railway",
+            "logs",
+            state.deployment_id,
+            "--deployment",
+            "--json",
+            "--lines",
+            str(_LOG_LINES),
+            "--project",
+            project_id,
+            "--environment",
+            environment,
+            "--service",
+            state.name,
+        ]
+    )
+    messages = _messages(raw, state.name)
+    if not messages:
+        raise RailwayUnavailableError(f"railway sent no log lines for {state.name}")
+    return messages[-1]
+
+
+__all__ = ["RailwayConfigError", "RailwayUnavailableError", "read_final_line", "read_project"]

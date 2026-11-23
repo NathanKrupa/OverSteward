@@ -50,6 +50,8 @@ class ServiceState:
     name: str
     status: str
     stopped: bool
+    #: The latest deployment's id, whose logs hold the crash; empty when Railway named none.
+    deployment_id: str = ""
 
     @property
     def health(self) -> Health:

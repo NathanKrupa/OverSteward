@@ -12,7 +12,8 @@ aloud; it cannot run a shell, so this note is its only view of the estate.
 ``~/.local/state/oversteward/``; ``--sweep-max-age-minutes`` makes a sweep run
 older than that count as no run (the nightly unit passes it, since its sweep
 runs moments before the brief). URGENT marks failures already filed through
-``data/known_failures.yaml``.
+``data/known_failures.yaml``, reading a crashed deployment's final log line for
+an entry that carries a signature.
 
 Exit codes carry meaning and must not be collapsed:
 
@@ -25,7 +26,8 @@ Exit codes carry meaning and must not be collapsed:
   output path was given, no context carries a ``railway:`` block, no sweep
   ledger was given, the ledger path lies outside the state directory, or
   ``data/known_failures.yaml`` holds an entry that is not an exact key and
-  issue (in the middle two the note is still written, saying so).
+  issue, or one whose signature is blank (in the middle two the note is still
+  written, saying so).
 """
 
 from __future__ import annotations

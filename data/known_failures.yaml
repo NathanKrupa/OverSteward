@@ -7,8 +7,23 @@
 # line. Lookup is an exact key match, never a title or a pattern. The brief stops
 # (exit 2) on a key whose context is not a registry context with a GitHub remote,
 # a service name that is not one whitespace-free token, or a value that is not
-# "<registry id>#<number>". A key naming a service that does not exist is not
+# one of the two shapes below. A key naming a service that does not exist is not
 # caught here: it never matches, so that service still alarms.
+#
+# An entry names the failure, not only the service:
+#
+#   <context>/<service>:
+#     issue: <registry id>#<n>
+#     signature: <literal, case-sensitive substring of the crash's final log line>
+#
+# The brief reads the final line of the crashed deployment's logs and marks the
+# service KNOWN only when the signature is in it. A crash it misses alarms as
+# "known service, different failure", naming the recorded issue; a crash whose
+# log cannot be read alarms too. The bare form `<context>/<service>: <repo>#<n>`
+# is still accepted, but unsignatured: any crash of that service reads as the
+# issue, and the brief prints "unsignatured" on its line so the gap stays visible.
 
 railway:
-  aigranthelper/monitor_indexation: aigranthelper#2481
+  aigranthelper/monitor_indexation:
+    issue: aigranthelper#3081
+    signature: The read operation timed out
