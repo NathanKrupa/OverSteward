@@ -131,7 +131,9 @@ def read_final_line(
 ) -> str:
     """The last non-blank log message of the service's latest deployment.
 
-    For a crashed one-shot that is the line it died on. A deployment with no
+    For a crashed one-shot this is normally the line it died on (measured on
+    one crashed cron service, not on every shape of crash); a signature that
+    misses it fails toward the alarm, never a mute. A deployment with no
     id, or logs with no message at all, raise rather than return an empty line:
     an empty line would read as "a crash that matched nothing", not as "could
     not look".
