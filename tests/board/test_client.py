@@ -221,9 +221,13 @@ def test_an_issue_whose_own_labels_overflow_their_page_is_a_truncated_read():
         read_repo(GS, run=gh)
 
 
-def test_graphql_errors_are_a_gh_error():
+def test_graphql_errors_are_a_gh_error_even_beside_partial_data():
     def failing(args):
-        return {"errors": [{"message": "rate limited"}], "data": None}
+        partial = {"totalCount": 0, "pageInfo": {"hasNextPage": False}, "nodes": []}
+        return {
+            "errors": [{"message": "rate limited"}],
+            "data": {"repository": {"issues": partial, "labels": partial}},
+        }
 
     with pytest.raises(GhError, match="rate limited"):
         read_repo(GS, run=failing)

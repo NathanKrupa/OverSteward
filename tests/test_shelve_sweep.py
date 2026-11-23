@@ -584,6 +584,7 @@ class FakeGh:
         if args[:2] == ["api", "graphql"]:
             query = args[3]
             if "issues(states: $states" in query:
+                assert "states[]=OPEN" in args, args
                 start = int(next((a.split("=", 1)[1] for a in args if a.startswith("cursor=")), 0))
                 page = list(self.issues)[start : start + 100]
                 more = start + 100 < len(self.issues)
