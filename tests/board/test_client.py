@@ -137,7 +137,7 @@ def test_reads_open_issues_then_closed_issues_carrying_any_epic_label():
     assert issues[1].labels == frozenset({"epic:x"})
     assert issues[2].state == "CLOSED" and issues[2].closed_at is not None
     (closed,) = gh.lists_asked("CLOSED")
-    assert closed["labels"] == ["epic:x", "epic:y"]
+    assert closed.get("labels") == ["epic:x", "epic:y"]
     assert "labels" not in gh.lists_asked("OPEN")[0]
     assert all(
         variables(c)["owner"] == "NathanKrupa" and variables(c)["name"] == "grantspider"
@@ -171,7 +171,7 @@ def test_labels_and_closed_epic_issues_are_read_past_their_first_page():
 
     issues = read_repo(GS, run=gh)
 
-    assert gh.lists_asked("CLOSED")[0]["labels"] == ["epic:late"]
+    assert gh.lists_asked("CLOSED")[0].get("labels") == ["epic:late"]
     assert [i.number for i in issues] == list(range(1000, 1250))
 
 
