@@ -707,6 +707,9 @@ def test_a_linked_issue_reads_its_state_and_comments():
                       "repos/NathanKrupa/wphelper/issues/8": {"state": "closed"}})
     assert read_linked_issue(WP, 7, run=gh) == LinkedIssue(7, True, ("b",), complete=True)
     assert read_linked_issue(WP, 8, run=gh).open is False
+    # $number is an Int! in the query: gh must send it typed (-F), never as a string (-f).
+    thread_reads = [c for c in gh.calls if c[:2] == ["api", "graphql"] and "issue(number" in c[3]]
+    assert [c[c.index("number=7") - 1] for c in thread_reads if "number=7" in c] == ["-F"]
 
 
 def test_a_linked_issue_with_more_comments_than_read_is_incomplete():
