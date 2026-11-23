@@ -17,8 +17,8 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
-from oversteward.liveness.client import RailwayConfigError, read_project
-from oversteward.liveness.models import LivenessReport
+from oversteward.liveness.client import RailwayConfigError, read_final_line, read_project
+from oversteward.liveness.models import LivenessReport, ServiceState
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,4 +53,17 @@ def sweep(
     return LivenessReport(states=tuple(states))
 
 
-__all__ = ["ProjectRef", "sweep"]
+def crash_line(
+    project: ProjectRef,
+    state: ServiceState,
+    *,
+    reader: Callable[[str, str, ServiceState], str] = read_final_line,
+) -> str:
+    """The final log line of ``state``'s latest deployment, read in its own project.
+
+    Raises :class:`RailwayUnavailableError` when the line cannot be read.
+    """
+    return reader(project.project_id, project.environment, state)
+
+
+__all__ = ["ProjectRef", "crash_line", "sweep"]
