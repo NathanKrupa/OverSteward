@@ -765,6 +765,23 @@ def test_a_known_service_whose_crash_misses_its_signature_alarms_as_a_different_
     assert not any(line.startswith("KNOWN") for line in lines)
 
 
+def test_a_signature_miss_names_the_different_failure_without_asking_whether_the_issue_is_open():
+    read, _seen = _crashed_with("CommandError: The read operation timed out")
+    asked = []
+
+    def is_open(issue):
+        asked.append(issue)
+        return False
+
+    lines = liveness_urgent([_AG_PROJECT], sweeper=lambda _p: LivenessReport(states=_DOWN[:1]),
+                            known={"aigranthelper/monitor_indexation": _SIGNED},
+                            is_open=is_open, final_line=read)
+    assert lines == ("Railway: aigranthelper / monitor_indexation is CRASHED "
+                     "(known service, different failure — recorded issue aigranthelper#2481 "
+                     "is signed 'statement timeout')",)
+    assert asked == []
+
+
 def test_the_signature_is_matched_case_sensitively_as_a_literal():
     read, _seen = _crashed_with("canceling statement due to STATEMENT TIMEOUT")
     lines = _urgent({"aigranthelper/monitor_indexation": _SIGNED}, final_line=read)
