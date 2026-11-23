@@ -568,7 +568,7 @@ def _conn(nodes, has_next=False, cursor="c1"):
 
 
 class FakeGh:
-    """Answers gh argv: label/issue lists, GraphQL by connection, REST writes recorded."""
+    """Answers gh argv: GraphQL by connection (open issues a page at a time), REST writes recorded."""
 
     def __init__(self, pulls_pages=None, labels=("shelved",), issues=(), branches=(),
                  shelved_prs=(), rest=None, issue_total=1):
@@ -581,12 +581,17 @@ class FakeGh:
 
     def __call__(self, args):
         self.calls.append(args)
-        if args[:2] == ["label", "list"]:
-            return [{"name": n} for n in self.labels]
-        if args[:2] == ["issue", "list"]:
-            return list(self.issues)
         if args[:2] == ["api", "graphql"]:
             query = args[3]
+            if "issues(states: $states" in query:
+                start = int(next((a.split("=", 1)[1] for a in args if a.startswith("cursor=")), 0))
+                page = list(self.issues)[start : start + 100]
+                more = start + 100 < len(self.issues)
+                conn = {**_conn(page, more, str(start + 100)), "totalCount": len(self.issues)}
+                return {"data": {"repository": {"issues": conn}}}
+            if "labels(first" in query:
+                conn = {**_conn([{"name": n} for n in self.labels]), "totalCount": len(self.labels)}
+                return {"data": {"repository": {"labels": conn}}}
             if "pullRequests(states: OPEN" in query:
                 page = self.pulls_pages.pop(0)
                 return {"data": {"repository": {"pullRequests": _conn(page, bool(self.pulls_pages))}}}
@@ -631,6 +636,22 @@ def test_read_snapshot_pages_open_pulls_and_reads_the_newest_comments():
     assert "comments(last: 100)" in pull_queries[0][3]
     assert "cursor=c1" in pull_queries[1]
     assert snapshot.pulls[1].last_commit_at == datetime(2026, 9, 1, tzinfo=UTC)
+
+
+def _issue_node(number):
+    return {"number": number, "title": "t", "url": "u", "state": "OPEN",
+            "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-09-01T00:00:00Z",
+            "closedAt": None, "body": "",
+            "labels": {"totalCount": 1, "nodes": [{"name": "agent-finding"}]}}
+
+
+def test_read_snapshot_reads_every_open_issue_past_the_first_page():
+    gh = FakeGh(issues=[_issue_node(n) for n in range(1, 540)], labels=("shelved", "bug"))
+    snapshot = read_snapshot(WP, run=gh)
+
+    assert [i.number for i in snapshot.issues] == list(range(1, 540))
+    assert snapshot.issues[0].labels == frozenset({"agent-finding"})
+    assert snapshot.labels == frozenset({"shelved", "bug"})
 
 
 def test_read_snapshot_reads_each_pull_requests_author_login():

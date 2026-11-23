@@ -29,14 +29,13 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from oversteward.board.client import (
-    LABEL_LIMIT,
-    OPEN_LIMIT,
-    GhError,
     NotFoundError,
     Runner,
     TruncatedReadError,
-    _page,
     gh_json,
+    graphql,
+    read_issues,
+    read_labels,
 )
 from oversteward.board.config import RepoRef
 from oversteward.board.models import Issue
@@ -44,8 +43,6 @@ from oversteward.intake.labels import AGENT_FINDING, SHELVED
 
 #: GraphQL pages read per connection before the read is refused as incomplete.
 MAX_PAGES = 40
-
-_ISSUE_FIELDS = "number,title,url,state,labels,createdAt,updatedAt"
 
 _PULLS = """
 query($owner: String!, $name: String!, $cursor: String) {
@@ -216,17 +213,6 @@ class RepoSnapshot:
     branches: tuple[Branch, ...]
 
 
-def _graphql(run: Runner, query: str, repo: RepoRef, **variables: str) -> dict:
-    owner, name = repo.full_name.split("/", 1)
-    args = ["api", "graphql", "-f", f"query={query}", "-f", f"owner={owner}", "-f", f"name={name}"]
-    for key, value in variables.items():
-        args += ["-F" if key == "number" else "-f", f"{key}={value}"]
-    data = run(args)
-    if data.get("errors"):
-        raise GhError(f"{repo.full_name}: GraphQL errors {data['errors']}")
-    return data["data"]["repository"]
-
-
 def _connection(
     run: Runner, query: str, repo: RepoRef, key: str, what: str, **variables: str
 ) -> tuple[list[dict], dict]:
@@ -235,7 +221,7 @@ def _connection(
     first: dict | None = None
     cursor: dict[str, str] = {}
     for _ in range(MAX_PAGES):
-        page = _graphql(run, query, repo, **variables, **cursor)
+        page = graphql(run, query, repo, **variables, **cursor)
         first = first if first is not None else page
         connection = page[key]
         nodes.extend(connection["nodes"])
@@ -272,21 +258,14 @@ def _read_shelved(run: Runner, repo: RepoRef) -> tuple[ShelvedItem, ...]:
 
 def read_snapshot(repo: RepoRef, *, run: Runner = gh_json) -> RepoSnapshot:
     """One repository, read for the sweep. Any failure propagates."""
-    base = ["--repo", repo.full_name]
-    labels = _page(run, ["label", "list", *base, "--json", "name"], LABEL_LIMIT, "labels", repo)
+    labels = read_labels(repo, run=run)
     pulls, _ = _connection(run, _PULLS, repo, "pullRequests", "open pull requests")
-    issues = _page(
-        run,
-        ["issue", "list", *base, "--state", "open", "--json", _ISSUE_FIELDS],
-        OPEN_LIMIT,
-        "open issues",
-        repo,
-    )
+    issues = read_issues(repo, "OPEN", what="open issues", run=run)
     default, branches = _read_branches(run, repo)
     return RepoSnapshot(
         repo=repo,
         default_branch=default,
-        labels=frozenset(row["name"] for row in labels),
+        labels=frozenset(labels),
         pulls=tuple(OpenPull.from_gh(repo.id, row) for row in pulls),
         shelved=_read_shelved(run, repo),
         issues=tuple(Issue.from_gh(repo.id, row) for row in issues),
@@ -302,7 +281,7 @@ def read_linked_issue(repo: RepoRef, number: int, *, run: Runner = gh_json) -> L
         return None
     if "pull_request" in payload:
         return None
-    found = _graphql(run, _ISSUE_COMMENTS, repo, number=str(number))
+    found = graphql(run, _ISSUE_COMMENTS, repo, number=number)
     thread = (found.get("issue") or {}).get("comments") or {}
     nodes = thread.get("nodes") or []
     return LinkedIssue(

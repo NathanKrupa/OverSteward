@@ -7,10 +7,9 @@ import subprocess
 
 import pytest
 
+from oversteward.board import client
 from oversteward.board.client import (
-    CLOSED_LIMIT,
-    LABEL_LIMIT,
-    OPEN_LIMIT,
+    GhError,
     TruncatedReadError,
     read_repo,
 )
@@ -20,92 +19,214 @@ GS = RepoRef(id="grantspider", full_name="NathanKrupa/grantspider")
 
 
 def raw(number: int, **overrides) -> dict:
+    """One GraphQL issue node, as the board's issue query asks for it."""
+    labels = overrides.pop("labels", ())
     base = {
         "number": number,
         "title": f"issue {number}",
         "url": f"https://github.com/NathanKrupa/grantspider/issues/{number}",
         "state": "OPEN",
-        "labels": [],
         "createdAt": "2026-09-01T00:00:00Z",
         "updatedAt": "2026-09-10T00:00:00Z",
         "closedAt": None,
         "body": "",
+        "labels": {"totalCount": len(labels), "nodes": [{"name": name} for name in labels]},
     }
     base.update(overrides)
     return base
 
 
-class Recorder:
-    """Answers each gh call from a script and records what was asked."""
+def variables(args: list[str]) -> dict:
+    """The GraphQL variables a ``gh api graphql`` argv carries; ``key[]`` collects a list."""
+    found: dict = {}
+    for flag, pair in zip(args[2::2], args[3::2], strict=True):
+        assert flag in ("-f", "-F"), args
+        key, _, value = pair.partition("=")
+        if key.endswith("[]"):
+            found.setdefault(key[:-2], []).append(value)
+        else:
+            found[key] = value
+    return found
 
-    def __init__(self, answers: dict[str, list]):
-        self.answers = answers
+
+class FakeGh:
+    """Answers the board's GraphQL lists a page at a time, and REST reads by number.
+
+    ``totals`` overrides the ``totalCount`` a list reports: an int for every
+    page, or a list read by page index — the shapes of a list that is short,
+    or one that changed under the read. ``pages`` overrides how a list is cut
+    into pages, as explicit lists of rows.
+    """
+
+    def __init__(
+        self,
+        open_rows=(),
+        labels=(),
+        closed_rows=(),
+        *,
+        by_number=None,
+        totals=None,
+        pages=None,
+        page_size=client.PAGE_SIZE,
+    ):
+        self.lists = {
+            "OPEN": list(open_rows),
+            "CLOSED": list(closed_rows),
+            "labels": [{"name": name} for name in labels],
+        }
+        self.by_number = by_number or {}
+        self.totals = totals or {}
+        self.pages = pages or {}
+        self.page_size = page_size
         self.calls: list[list[str]] = []
 
-    def __call__(self, args: list[str]) -> list:
+    def lists_asked(self, key: str) -> list[dict]:
+        return [
+            variables(c)
+            for c in self.calls
+            if c[:2] == ["api", "graphql"] and self._key(c) == key
+        ]
+
+    @staticmethod
+    def _key(args: list[str]) -> str:
+        found = variables(args)
+        return found["states"][0] if "states" in found else "labels"
+
+    def _cut(self, key: str) -> list[list[dict]]:
+        if key in self.pages:
+            return self.pages[key]
+        rows, size = self.lists[key], self.page_size
+        return [rows[i : i + size] for i in range(0, len(rows), size)] or [[]]
+
+    def __call__(self, args: list[str]):
         self.calls.append(args)
-        key = " ".join(args[:2])
-        if "--state" in args:
-            key += " " + args[args.index("--state") + 1]
-        return self.answers[key]
+        if args[:2] == ["api", "graphql"]:
+            key = self._key(args)
+            pages = self._cut(key)
+            index = int(variables(args).get("cursor", 0))
+            total = self.totals.get(key, sum(len(page) for page in pages))
+            connection = {
+                "totalCount": total[index] if isinstance(total, list) else total,
+                "pageInfo": {"hasNextPage": index + 1 < len(pages), "endCursor": str(index + 1)},
+                "nodes": pages[index],
+            }
+            field = "labels" if key == "labels" else "issues"
+            return {"data": {"repository": {field: connection}}}
+        if args[0] == "api":
+            number = int(args[1].rsplit("/", 1)[1])
+            answer = self.by_number[number]
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+        raise AssertionError(f"unexpected gh call {args}")
 
 
 def test_reads_open_issues_then_closed_issues_carrying_any_epic_label():
-    gh = Recorder(
-        {
-            "issue list open": [raw(1), raw(2, labels=[{"name": "epic:x"}])],
-            "label list": [{"name": "bug"}, {"name": "epic:x"}, {"name": "epic:y"}],
-            "issue list closed": [
-                raw(3, state="CLOSED", closedAt="2026-09-05T00:00:00Z", labels=[{"name": "epic:x"}])
-            ],
-        }
+    gh = FakeGh(
+        open_rows=[raw(1), raw(2, labels=["epic:x"])],
+        labels=["bug", "epic:x", "epic:y"],
+        closed_rows=[
+            raw(3, state="CLOSED", closedAt="2026-09-05T00:00:00Z", labels=["epic:x"])
+        ],
     )
 
     issues = read_repo(GS, run=gh)
 
     assert [i.number for i in issues] == [1, 2, 3]
     assert all(i.repo == "grantspider" for i in issues)
-    closed_call = next(c for c in gh.calls if "closed" in c)
-    assert "--search" in closed_call
-    assert closed_call[closed_call.index("--search") + 1] == 'label:"epic:x","epic:y"'
+    assert issues[1].labels == frozenset({"epic:x"})
+    assert issues[2].state == "CLOSED" and issues[2].closed_at is not None
+    (closed,) = gh.lists_asked("CLOSED")
+    assert closed["labels"] == ["epic:x", "epic:y"]
+    assert "labels" not in gh.lists_asked("OPEN")[0]
     assert all(
-        "--repo" in c and c[c.index("--repo") + 1] == "NathanKrupa/grantspider" for c in gh.calls
+        variables(c)["owner"] == "NathanKrupa" and variables(c)["name"] == "grantspider"
+        for c in gh.calls
     )
 
 
 def test_no_epic_labels_means_no_closed_read_at_all():
-    gh = Recorder(
-        {
-            "issue list open": [raw(1)],
-            "label list": [{"name": "bug"}],
-        }
-    )
+    gh = FakeGh(open_rows=[raw(1)], labels=["bug"])
 
     issues = read_repo(GS, run=gh)
 
     assert [i.number for i in issues] == [1]
-    assert not any("closed" in c for c in gh.calls)
+    assert gh.lists_asked("CLOSED") == []
 
 
-@pytest.mark.parametrize(
-    ("key", "limit"),
-    [
-        ("issue list open", OPEN_LIMIT),
-        ("label list", LABEL_LIMIT),
-        ("issue list closed", CLOSED_LIMIT),
-    ],
-)
-def test_a_page_that_fills_its_limit_is_a_truncated_read_not_an_answer(key, limit):
-    answers = {
-        "issue list open": [raw(1)],
-        "label list": [{"name": "epic:x"}],
-        "issue list closed": [raw(9, state="CLOSED", labels=[{"name": "epic:x"}])],
-    }
-    filler = {"name": "epic:z"} if key == "label list" else raw(1)
-    answers[key] = [filler] * limit
+def test_more_open_issues_than_any_one_page_holds_are_all_read():
+    gh = FakeGh(open_rows=[raw(n) for n in range(1, 540)])
 
-    with pytest.raises(TruncatedReadError, match="grantspider"):
-        read_repo(GS, run=Recorder(answers))
+    issues = read_repo(GS, run=gh)
+
+    assert [i.number for i in issues] == list(range(1, 540))
+    cursors = [asked.get("cursor") for asked in gh.lists_asked("OPEN")]
+    assert cursors == [None, "1", "2", "3", "4", "5"]
+
+
+def test_labels_and_closed_epic_issues_are_read_past_their_first_page():
+    names = [f"area:{n}" for n in range(150)] + ["epic:late"]
+    closed = [raw(n, state="CLOSED", labels=["epic:late"]) for n in range(1000, 1250)]
+    gh = FakeGh(labels=names, closed_rows=closed)
+
+    issues = read_repo(GS, run=gh)
+
+    assert gh.lists_asked("CLOSED")[0]["labels"] == ["epic:late"]
+    assert [i.number for i in issues] == list(range(1000, 1250))
+
+
+@pytest.mark.parametrize("key", ["OPEN", "labels", "CLOSED"])
+def test_a_list_shorter_than_github_counts_is_a_truncated_read(key):
+    gh = FakeGh(
+        open_rows=[raw(1)],
+        labels=["epic:x"],
+        closed_rows=[raw(9, state="CLOSED", labels=["epic:x"])],
+        totals={key: 2},
+    )
+
+    with pytest.raises(TruncatedReadError, match="grantspider: .* read 1 rows but GitHub counts 2"):
+        read_repo(GS, run=gh)
+
+
+def test_a_count_that_changes_between_pages_is_a_truncated_read():
+    gh = FakeGh(open_rows=[raw(n) for n in range(1, 151)], totals={"OPEN": [150, 151]})
+
+    with pytest.raises(TruncatedReadError, match="GitHub counts 150, 151"):
+        read_repo(GS, run=gh)
+
+
+def test_a_row_repeated_across_pages_cannot_stand_in_for_one_never_read():
+    first = [raw(n) for n in range(1, 101)]
+    second = [raw(100), *(raw(n) for n in range(102, 151))]  # #101 never comes back
+    gh = FakeGh(pages={"OPEN": [first, second]}, totals={"OPEN": 150})
+
+    with pytest.raises(TruncatedReadError, match="read 149 rows but GitHub counts 150"):
+        read_repo(GS, run=gh)
+
+
+def test_a_list_that_never_ends_is_refused(monkeypatch):
+    monkeypatch.setattr(client, "MAX_PAGES", 2)
+    gh = FakeGh(open_rows=[raw(n) for n in range(1, 301)])
+
+    with pytest.raises(TruncatedReadError, match="open issues ran past 2 pages"):
+        read_repo(GS, run=gh)
+
+
+def test_an_issue_whose_own_labels_overflow_their_page_is_a_truncated_read():
+    crowded = raw(1, labels=["bug"])
+    crowded["labels"]["totalCount"] = 101
+    gh = FakeGh(open_rows=[crowded])
+
+    with pytest.raises(TruncatedReadError, match="#1 carries more labels"):
+        read_repo(GS, run=gh)
+
+
+def test_graphql_errors_are_a_gh_error():
+    def failing(args):
+        return {"errors": [{"message": "rate limited"}], "data": None}
+
+    with pytest.raises(GhError, match="rate limited"):
+        read_repo(GS, run=failing)
 
 
 def test_read_estate_keys_by_registry_id_in_the_order_given():
@@ -113,7 +234,7 @@ def test_read_estate_keys_by_registry_id_in_the_order_given():
     from oversteward.board.models import Issue
 
     ag = RepoRef(id="aigranthelper", full_name="NathanKrupa/aigranthelper")
-    fake = lambda repo: (Issue.from_gh(repo.id, raw(1)),)
+    fake = lambda repo: (Issue.from_gh(repo.id, {**raw(1), "labels": []}),)
 
     estate = read_estate([GS, ag], reader=fake)
 
@@ -152,37 +273,16 @@ def rest(number: int, *, state: str = "closed", pull: bool = False) -> dict:
     return payload
 
 
-class RestRecorder(Recorder):
-    """Recorder that also answers per-number REST reads from a ``by_number`` map."""
-
-    def __init__(self, answers: dict[str, list], by_number: dict[int, dict | Exception]):
-        super().__init__(answers)
-        self.by_number = by_number
-
-    def __call__(self, args: list[str]):
-        if args[0] == "api":
-            self.calls.append(args)
-            number = int(args[1].rsplit("/", 1)[1])
-            answer = self.by_number[number]
-            if isinstance(answer, Exception):
-                raise answer
-            return answer
-        return super().__call__(args)
-
-
 def test_body_refs_of_open_epics_that_were_not_fetched_are_read_by_number():
     from oversteward.board.client import NotFoundError
 
-    gh = RestRecorder(
-        {
-            "issue list open": [
-                epic_raw(1, body="- [x] #50\n- [x] #51\n- [ ] #2\n- [x] #52\n- [x] #53"),
-                raw(2),
-                epic_raw(3, body="#60", state="CLOSED", closedAt="2026-08-01T00:00:00Z"),
-                raw(4, body="#61"),
-            ],
-            "label list": [],
-        },
+    gh = FakeGh(
+        open_rows=[
+            epic_raw(1, body="- [x] #50\n- [x] #51\n- [ ] #2\n- [x] #52\n- [x] #53"),
+            raw(2),
+            epic_raw(3, body="#60", state="CLOSED", closedAt="2026-08-01T00:00:00Z"),
+            raw(4, body="#61"),
+        ],
         by_number={
             50: rest(50),  # a closed, label-less child: the missing case
             51: rest(51, pull=True),  # a merged PR: not a child
@@ -199,23 +299,22 @@ def test_body_refs_of_open_epics_that_were_not_fetched_are_read_by_number():
     assert fetched[50].labels == frozenset({"bug"})
     assert fetched[50].url.endswith("/issues/50")
     assert fetched[53].state == "OPEN"
-    asked = sorted(int(c[1].rsplit("/", 1)[1]) for c in gh.calls if c[0] == "api")
+    rest_calls = [c for c in gh.calls if c[0] == "api" and c[1] != "graphql"]
+    asked = sorted(int(c[1].rsplit("/", 1)[1]) for c in rest_calls)
     assert asked == [
         50,
         51,
         52,
         53,
     ]  # not #2 (fetched), not #60 (closed epic), not #61 (not an epic)
-    assert all(
-        c[1].startswith("repos/NathanKrupa/grantspider/issues/") for c in gh.calls if c[0] == "api"
-    )
+    assert all(c[1].startswith("repos/NathanKrupa/grantspider/issues/") for c in rest_calls)
 
 
 def test_a_failed_by_number_read_that_is_not_a_404_propagates():
     from oversteward.board.client import GhError
 
-    gh = RestRecorder(
-        {"issue list open": [epic_raw(1, body="#50")], "label list": []},
+    gh = FakeGh(
+        open_rows=[epic_raw(1, body="#50")],
         by_number={50: GhError("gh api failed (exit 1): HTTP 502")},
     )
 

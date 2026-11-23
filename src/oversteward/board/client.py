@@ -1,19 +1,26 @@
 # ABOUTME: INNER transport for the Estate Board — reads one repository's issues through gh.
-# ABOUTME: Refuses a page that fills its limit; a truncated estate must never read as a small one.
+# ABOUTME: Pages every list to its end and proves it against GitHub's count; a short read is refused.
 
 """Read a repository's issues the way the board needs them.
 
-Three ``gh`` calls per repository: every open issue, the label list (to learn
-which ``epic:<slug>`` labels exist), and every *closed* issue carrying any of
-those labels — one OR-search, so GS's 900 closed issues are never paged. Then
-one read per issue an *open epic's body* names that none of those pages held —
-a closed child without the label is exactly the child that turns "no children"
-into "every child is closed". A number that is a pull request or does not
-exist is not a child; any other failure is the repository being unreadable.
+Three lists per repository: every open issue, every label (to learn which
+``epic:<slug>`` labels exist), and every *closed* issue carrying any of those
+labels. Then one read per issue an *open epic's body* names that none of those
+lists held — a closed child without the label is exactly the child that turns
+"no children" into "every child is closed". A number that is a pull request or
+does not exist is not a child; any other failure is the repository being
+unreadable.
 
-Each page is checked against its limit. ``gh`` truncates silently, and an
-estate read at exactly the limit is a smaller estate than exists — that is a
-:class:`TruncatedReadError`, never a report.
+Each list is read through GraphQL a page at a time until GitHub reports no
+next page, and is then proved complete: every page must report the same
+``totalCount``, and the distinct rows read must number exactly that. A list
+that changed under the read, ran past :data:`MAX_PAGES`, or came back short is
+a :class:`TruncatedReadError`, never a report — an estate read short is a
+smaller estate than exists. GraphQL's issue lists hold issues only, never pull
+requests.
+
+:func:`_page` is the one-call ``gh … --limit`` read other transports still use;
+it refuses a page that fills its limit, because ``gh`` truncates silently.
 """
 
 from __future__ import annotations
@@ -27,11 +34,40 @@ from typing import Any
 from oversteward.board.config import RepoRef
 from oversteward.board.models import EPIC_LABEL_PREFIX, Issue
 
-OPEN_LIMIT = 500
-LABEL_LIMIT = 200
-CLOSED_LIMIT = 1000
+#: Rows asked for per GraphQL page — GitHub's maximum.
+PAGE_SIZE = 100
 
-_FIELDS = "number,title,url,state,labels,createdAt,updatedAt,closedAt,body"
+#: Pages read per list before the read is refused as incomplete.
+MAX_PAGES = 40
+
+_ISSUES = """
+query($owner: String!, $name: String!, $states: [IssueState!], $labels: [String!],
+      $cursor: String) {
+  repository(owner: $owner, name: $name) {
+    issues(states: $states, labels: $labels, first: %d, after: $cursor,
+           orderBy: {field: CREATED_AT, direction: ASC}) {
+      totalCount
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        number title url state createdAt updatedAt closedAt body
+        labels(first: 100) { totalCount nodes { name } }
+      }
+    }
+  }
+}
+""" % PAGE_SIZE
+
+_LABELS = """
+query($owner: String!, $name: String!, $cursor: String) {
+  repository(owner: $owner, name: $name) {
+    labels(first: %d, after: $cursor) {
+      totalCount
+      pageInfo { hasNextPage endCursor }
+      nodes { name }
+    }
+  }
+}
+""" % PAGE_SIZE
 
 Runner = Callable[[list[str]], Any]
 
@@ -82,28 +118,107 @@ def _page(run: Runner, args: list[str], limit: int, what: str, repo: RepoRef) ->
     return rows
 
 
+def graphql(run: Runner, query: str, repo: RepoRef, **variables: object) -> dict:
+    """``repository`` from one GraphQL call; GraphQL errors are a :class:`GhError`.
+
+    A list or tuple variable goes as a GraphQL list (``-f key[]=item`` per
+    item), an ``int`` as a typed field (``-F``), anything else as a string.
+    """
+    owner, name = repo.full_name.split("/", 1)
+    args = ["api", "graphql", "-f", f"query={query}", "-f", f"owner={owner}", "-f", f"name={name}"]
+    for key, value in variables.items():
+        if isinstance(value, list | tuple):
+            for item in value:
+                args += ["-f", f"{key}[]={item}"]
+        elif isinstance(value, int):
+            args += ["-F", f"{key}={value}"]
+        else:
+            args += ["-f", f"{key}={value}"]
+    data = run(args)
+    if data.get("errors"):
+        raise GhError(f"{repo.full_name}: GraphQL errors {data['errors']}")
+    return data["data"]["repository"]
+
+
+def _counted(
+    run: Runner, query: str, repo: RepoRef, key: str, ident: str, what: str, **variables: object
+) -> list[dict]:
+    """Every node of ``repository.<key>``, proved complete against its ``totalCount``.
+
+    Rows are keyed by ``ident``, so a row two pages both return counts once
+    and cannot stand in for one neither returned.
+    """
+    rows: dict[object, dict] = {}
+    totals: set[int] = set()
+    cursor: dict[str, str] = {}
+    for _ in range(MAX_PAGES):
+        connection = graphql(run, query, repo, **variables, **cursor)[key]
+        totals.add(int(connection["totalCount"]))
+        for node in connection["nodes"]:
+            rows[node[ident]] = node
+        if not connection["pageInfo"]["hasNextPage"]:
+            break
+        cursor = {"cursor": connection["pageInfo"]["endCursor"]}
+    else:
+        raise TruncatedReadError(f"{repo.name}: {what} ran past {MAX_PAGES} pages")
+    if len(totals) != 1 or len(rows) != next(iter(totals)):
+        counted = ", ".join(str(total) for total in sorted(totals))
+        raise TruncatedReadError(
+            f"{repo.name}: {what} read {len(rows)} rows but GitHub counts {counted}"
+            " — the read is incomplete"
+        )
+    return list(rows.values())
+
+
+def _issue_row(repo: RepoRef, node: dict) -> dict:
+    """A GraphQL issue node in the ``gh issue list --json`` shape."""
+    labels = node.get("labels") or {}
+    names = [{"name": label["name"]} for label in labels.get("nodes") or ()]
+    if int(labels.get("totalCount", 0)) > len(names):
+        raise TruncatedReadError(
+            f"{repo.name}: #{node['number']} carries more labels than one page holds"
+            " — the read is incomplete"
+        )
+    return {**node, "labels": names}
+
+
+def read_labels(repo: RepoRef, *, run: Runner = gh_json) -> list[str]:
+    """Every label name in the repository, proved complete."""
+    nodes = _counted(run, _LABELS, repo, "labels", "name", "labels")
+    return [node["name"] for node in nodes]
+
+
+def read_issues(
+    repo: RepoRef,
+    state: str,
+    *,
+    labels: Sequence[str] = (),
+    what: str,
+    run: Runner = gh_json,
+) -> list[dict]:
+    """Every issue in ``state`` (``OPEN``/``CLOSED``), proved complete.
+
+    ``labels``, when given, keeps issues carrying *any* of them — GitHub's
+    ``labels`` filter is an OR. Rows come back in the ``gh issue list --json``
+    shape :meth:`Issue.from_gh` reads.
+    """
+    variables: dict[str, object] = {"states": [state]}
+    if labels:
+        variables["labels"] = list(labels)
+    nodes = _counted(run, _ISSUES, repo, "issues", "number", what, **variables)
+    return [_issue_row(repo, node) for node in nodes]
+
+
 def read_repo(repo: RepoRef, *, run: Runner = gh_json) -> tuple[Issue, ...]:
     """Every open issue plus every closed issue carrying an ``epic:`` label."""
-    base = ["--repo", repo.full_name]
-    open_rows = _page(
-        run,
-        ["issue", "list", *base, "--state", "open", "--json", _FIELDS],
-        OPEN_LIMIT,
-        "open issues",
-        repo,
+    open_rows = read_issues(repo, "OPEN", what="open issues", run=run)
+    epic_labels = sorted(
+        name for name in read_labels(repo, run=run) if name.startswith(EPIC_LABEL_PREFIX)
     )
-    labels = _page(run, ["label", "list", *base, "--json", "name"], LABEL_LIMIT, "labels", repo)
-    epic_labels = sorted(row["name"] for row in labels if row["name"].startswith(EPIC_LABEL_PREFIX))
-    closed_rows: list = []
+    closed_rows: list[dict] = []
     if epic_labels:
-        # GitHub's search syntax reads a comma-joined label list as OR.
-        search = "label:" + ",".join(f'"{label}"' for label in epic_labels)
-        closed_rows = _page(
-            run,
-            ["issue", "list", *base, "--state", "closed", "--search", search, "--json", _FIELDS],
-            CLOSED_LIMIT,
-            "closed epic issues",
-            repo,
+        closed_rows = read_issues(
+            repo, "CLOSED", labels=epic_labels, what="closed epic issues", run=run
         )
     rows = [*open_rows, *closed_rows]
     rows.extend(_read_missing_children(run, repo, rows))
@@ -164,13 +279,15 @@ def read_estate(
 
 
 __all__ = [
-    "CLOSED_LIMIT",
-    "LABEL_LIMIT",
-    "OPEN_LIMIT",
+    "MAX_PAGES",
+    "PAGE_SIZE",
     "GhError",
     "NotFoundError",
     "TruncatedReadError",
     "gh_json",
+    "graphql",
     "read_estate",
+    "read_issues",
+    "read_labels",
     "read_repo",
 ]
