@@ -43,8 +43,18 @@ which means the verb could not look before it acted. The worktree is gone by
 then and the name with it, so the message points at ``sweep``, which finds a
 database by absence (OS#717). ``sweep --drop`` reports its drops the same way.
 
-Naming the databases needs a Postgres to ask, so a docker that runs none is
-"could not look" (exit 2) — a stopped bench still holds every database it had.
+Naming the databases needs a Postgres to ask, so a docker that runs none of
+this checkout's is "could not look" (exit 2) — a stopped bench still holds every
+database it had.
+
+Each repo runs its own bench, and a worktree of the same name in another repo
+derives the same ``_<slug>`` suffix, so every verb reads only this checkout's
+own bench (OS#480). A Postgres container belongs to the checkout its compose
+``working_dir`` label lies in: git places a label path that still exists, and
+the ``.claude/worktrees/`` layout one that is gone. Another checkout's container
+is never exec'd into. One that nothing places is read, and if it holds a name
+this checkout would claim the verb stops with "could not look" and drops
+nothing, since nothing tells this repo's database there from another's.
 A repo with no bench of its own says so in ``.worktree-bench`` at its primary
 checkout's root, a repo-owned file outside this byte-copy family; there, and
 only there, a docker that answers ``ps`` and runs no Postgres means "owns
@@ -521,7 +531,11 @@ class Ownership:
       the digest taken over the worktree's path.
 
     Both are computable from the worktree alone, so matching on the suffix finds
-    every database it owns with no per-repo knowledge at all.
+    every database it owns with no per-repo knowledge at all — on this
+    checkout's own bench. Anywhere else the ``_<slug>`` suffix is no evidence:
+    another repo's worktree of the same name derives it too. So the suffix is
+    only ever matched against a container :func:`bench_checkout` places in this
+    checkout (OS#480).
     """
 
     #: A name the caller supplied outright — matched exactly, nothing derived.
@@ -597,12 +611,104 @@ def _listed(answer: str | None) -> list[str]:
     return sorted(line.strip() for line in (answer or "").splitlines() if line.strip())
 
 
+def _marked_checkout(path: str) -> Path | None:
+    """The primary checkout a path names by the estate layout, or None.
+
+    ``<primary>/.claude/worktrees/<name>[/...]`` names ``<primary>`` whether or
+    not the worktree still exists — the same rule :func:`uncapture_path` reads.
+    """
+    index = path.find(WORKTREE_MARKER)
+    return Path(path[:index]) if index > 0 else None
+
+
+def compose_working_dir(container: str, docker: DockerRunner) -> str | None:
+    """The directory ``docker compose`` ran in for ``container``, or None if unlabelled.
+
+    A container docker will not describe is a refusal, as in
+    :func:`postgres_containers`: it may be this checkout's bench.
+    """
+    answer = docker(
+        ["inspect", "--format", '{{index .Config.Labels "' + WORKING_DIR_LABEL + '"}}', container]
+    )
+    if answer is None:
+        raise CouldNotLook(f"docker did not answer `docker inspect {container}` for its labels")
+    return answer.strip() or None
+
+
+def bench_checkout(container: str, docker: DockerRunner) -> Path | None:
+    """The primary checkout whose bench ``container`` is, or None when nothing says.
+
+    The compose ``working_dir`` label is the one record a container carries of
+    where it came from. On an estate bench it is the primary checkout or one of
+    its worktrees — whichever ran ``compose up`` first (see
+    :func:`docker_hits`), so possibly a worktree long gone. Git places a path
+    that still exists; the ``.claude/worktrees/`` layout places one that does
+    not. Anything else — no label, or a removed directory outside that layout —
+    is unplaced, and an unplaced container is never assumed to be anyone's.
+    """
+    label = compose_working_dir(container, docker)
+    if label is None:
+        return None
+    path = Path(label)
+    owner = primary_checkout(path) if path.is_dir() else None
+    owner = owner or _marked_checkout(label)
+    return owner.resolve() if owner is not None else None
+
+
+@dataclass(frozen=True)
+class Benches:
+    """Every running Postgres, sorted by whose bench it is.
+
+    Only ``own`` is ever a source of names to drop. ``foreign`` containers are
+    never exec'd into; ``unplaced`` ones are listed only so a name this checkout
+    would claim can stop the verb (:func:`refuse_unplaced_claims`).
+    """
+
+    #: ``(container, superuser, databases)`` on this checkout's own benches.
+    own: tuple[tuple[str, str, tuple[str, ...]], ...]
+    #: The same, for containers no label places in any checkout.
+    unplaced: tuple[tuple[str, str, tuple[str, ...]], ...] = ()
+    #: ``(container, checkout)`` for benches another checkout owns.
+    foreign: tuple[tuple[str, Path], ...] = ()
+
+
+def refuse_unplaced_claims(benches: Benches, claims: Callable[[str], bool]) -> None:
+    """Refuse when a container nothing places holds a name this checkout would claim.
+
+    Such a database may be this worktree's, on a bench started outside
+    compose, or another repo's that shares the slug. Nothing tells the two
+    apart, so nothing on that container is dropped and the verb could not look.
+    """
+    for container, _, databases in benches.unplaced:
+        claimed = [database for database in databases if claims(database)]
+        if claimed:
+            raise CouldNotLook(
+                f"{container} holds {', '.join(claimed)}, a name this checkout's worktrees "
+                f"derive, but no `{WORKING_DIR_LABEL}` label places it in any checkout — "
+                "so it cannot be told from another repo's, and nothing on it was dropped"
+            )
+
+
+def checkout_of(worktree: Path) -> Path:
+    """The primary checkout ``worktree`` belongs to — the one whose benches it may use."""
+    owner = primary_checkout(worktree) or _marked_checkout(str(worktree))
+    if owner is None:
+        raise CouldNotLook(
+            f"cannot tell which checkout owns {worktree}, so cannot tell its bench "
+            "from another repo's"
+        )
+    return owner.resolve()
+
+
 def _holders(worktree: Path, docker: DockerRunner, name: str | None) -> list[tuple[str, str, str]]:
     """``(container, superuser, database)`` for every database ``worktree`` owns.
 
     Listing every database and filtering here — rather than asking after one
     name — is what lets a worktree own N of them without the doctor knowing any
-    repo's stems. See :class:`Ownership`.
+    repo's stems. See :class:`Ownership`. The listing reads only this
+    checkout's own benches: a suffix match is evidence only on a container the
+    worktree's own repo runs, because another repo's worktree of the same name
+    derives the same suffix (OS#480).
 
     The listing is :func:`_database_listings`, the sweep's, so a docker that
     cannot say what the bench holds raises :class:`CouldNotLook` here too rather
@@ -615,10 +721,12 @@ def _holders(worktree: Path, docker: DockerRunner, name: str | None) -> list[tup
     ownership = Ownership(exact=name) if name is not None else _ownership(worktree)
     if ownership == UNOWNED:
         return []
-    benchless = declares_no_bench(primary_checkout(worktree))
+    home = checkout_of(worktree)
+    benches = _database_listings(docker, home=home, benchless=declares_no_bench(home))
+    refuse_unplaced_claims(benches, ownership.owns)
     return [
         (container, user, database)
-        for container, user, databases in _database_listings(docker, benchless=benchless)
+        for container, user, databases in benches.own
         for database in databases
         if ownership.owns(database)
     ]
@@ -766,6 +874,9 @@ class Reconciliation:
     #: set only when the repo declares no bench and no Postgres was running, so
     #: that pass never reads like a bench that was asked and held nothing.
     no_bench: Path | None = None
+    #: ``(container, checkout)`` for the benches another checkout owns — never
+    #: read, and printed so the operator can see what the sweep left alone.
+    foreign: tuple[tuple[str, Path], ...] = ()
 
     @property
     def orphans(self) -> tuple[Candidate, ...]:
@@ -906,35 +1017,44 @@ def declares_no_bench(root: Path | None) -> bool:
     return values == ["none"]
 
 
-def _database_listings(
-    docker: DockerRunner, *, benchless: bool = False
-) -> list[tuple[str, str, list[str]]]:
-    """``(container, superuser, databases)`` for every running Postgres.
+def _database_listings(docker: DockerRunner, *, home: Path, benchless: bool = False) -> Benches:
+    """Every running Postgres, placed by :func:`bench_checkout`, with what it holds.
+
+    ``home`` is this repo's primary checkout. Another checkout's bench is never
+    asked anything: a database there is never this repo's to name or drop,
+    whatever its suffix (OS#480). An unplaced one is listed, and the caller
+    refuses if it holds a name this repo would claim.
 
     Every silence is a refusal. ``docker`` answers None when it is absent or
     unhappy, which by the time it reaches a caller is indistinguishable from an
-    empty answer — and an empty answer here reads as "nothing is orphaned".
+    empty answer — and an empty answer here reads as "nothing is orphaned". So
+    is a docker running no Postgres of this checkout's: a stopped bench still
+    holds its databases while another repo's runs beside it.
 
     The one exception is ``benchless``: in a repo that declares no bench (see
     :func:`declares_no_bench`), a docker that answered ``ps`` and runs no
-    Postgres holds nothing of this repo's, so the empty listing is the answer.
-    A docker that does not answer, or a Postgres that will not describe or list
-    itself, still refuses there.
+    Postgres of this repo's holds nothing of this repo's, so the empty listing
+    is the answer. A docker that does not answer, or a Postgres that will not
+    describe or list itself, still refuses there.
     """
     if docker(["ps", "--format", "{{.Names}}"]) is None:
         raise CouldNotLook("docker did not answer `docker ps` — is the daemon running?")
-    listings = []
+    own, unplaced, foreign = [], [], []
     for container, user in postgres_containers(docker):
+        owner = bench_checkout(container, docker)
+        if owner is not None and owner != home:
+            foreign.append((container, owner))
+            continue
         answer = docker(_psql(container, user, LIST_DATABASES))
         if answer is None:
             raise CouldNotLook(f"{container} did not answer `{LIST_DATABASES}`")
-        listings.append((container, user, _listed(answer)))
-    if not listings and not benchless:
+        (own if owner == home else unplaced).append((container, user, tuple(_listed(answer))))
+    if not own and not benchless:
         raise CouldNotLook(
-            "no running Postgres container — a stopped bench still holds every "
-            "database it ever had, so none of them can be named or ruled out"
+            f"no running Postgres container is {home}'s bench — a stopped bench still "
+            "holds every database it ever had, so none of them can be named or ruled out"
         )
-    return listings
+    return Benches(tuple(own), tuple(unplaced), tuple(foreign))
 
 
 def reconcile(repo: Path, docker: DockerRunner) -> Reconciliation:
@@ -943,9 +1063,13 @@ def reconcile(repo: Path, docker: DockerRunner) -> Reconciliation:
     primary, linked = live_worktrees(repo)
     trees = [_live_tree(module, path) for path in linked]
     benchless = declares_no_bench(primary)
-    listings = _database_listings(docker, benchless=benchless)
+    benches = _database_listings(docker, home=primary.resolve(), benchless=benchless)
+    listings = benches.own
     everything = [database for _, _, databases in listings for database in databases]
     stems = _stems(module, primary, trees, everything)
+    refuse_unplaced_claims(
+        benches, lambda database: _attributed(module, database, stems) is not None
+    )
     candidates = [
         Candidate(
             container,
@@ -962,12 +1086,13 @@ def reconcile(repo: Path, docker: DockerRunner) -> Reconciliation:
         tuple(candidates),
         tuple(sorted(set(everything) - named - SYSTEM_DATABASES)),
         no_bench=primary if benchless and not listings else None,
+        foreign=benches.foreign,
     )
 
 
 def _no_bench_running(root: Path) -> str:
     """What a sweep says when a benchless repo's empty listing was the answer."""
-    return f"{root} declares no bench in {BENCH_DECLARATION} and no Postgres is running"
+    return f"{root} declares no bench in {BENCH_DECLARATION} and runs no Postgres of its own"
 
 
 def sweep_candidates(repo: Path, docker: DockerRunner) -> list[Candidate]:
@@ -995,6 +1120,9 @@ def report_reconciliation(found: Reconciliation) -> None:
     if found.unattributed:
         print("\nOutside this repo's stems — left alone, never dropped:")
         print("\n".join(f"    {name}" for name in found.unattributed))
+    if found.foreign:
+        print("\nAnother checkout's bench — not read, never dropped:")
+        print("\n".join(f"    {container} ({owner})" for container, owner in found.foreign))
 
 
 def sweep(repo: Path, docker: DockerRunner, drop: bool = False) -> int:
