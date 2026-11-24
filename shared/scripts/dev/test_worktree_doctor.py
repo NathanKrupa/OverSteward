@@ -2824,9 +2824,16 @@ def test_a_bench_is_placed_by_the_layout_where_its_label_is_gone(doctor, tmp_pat
     assert doctor.bench_checkout("pg", docker) == (tmp_path / "r").resolve()
 
 
-@pytest.mark.parametrize("label", [None, "<no value>", "/nowhere/outside/the/layout", "here"])
+@pytest.mark.parametrize(
+    "label",
+    [None, "<no value>", "/nowhere/outside/the/layout", "/.claude/worktrees/gone", "here"],
+)
 def test_a_bench_nothing_places_is_nobodys(doctor, tmp_path, label):
-    """No label, docker's nil-map answer, a gone path, or a real dir git does not know."""
+    """No label, a template's nil answer, a gone path, or a real dir git does not know.
+
+    A label that *starts* with the layout marker names no checkout before it: read
+    as one, the empty prefix would resolve to whatever directory the doctor ran in.
+    """
     if label == "here":
         label = str(tmp_path)
     docker = MultiBench({"pg": (label, frozenset())})

@@ -632,8 +632,7 @@ def compose_working_dir(container: str, docker: DockerRunner) -> str | None:
     )
     if answer is None:
         raise CouldNotLook(f"docker did not answer `docker inspect {container}` for its labels")
-    label = answer.strip()
-    return None if label in ("", "<no value>") else label
+    return answer.strip() or None
 
 
 def bench_checkout(container: str, docker: DockerRunner) -> Path | None:
