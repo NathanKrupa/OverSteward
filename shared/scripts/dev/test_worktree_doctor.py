@@ -2780,6 +2780,25 @@ def test_only_another_repos_bench_running_is_could_not_look(doctor, tmp_path):
     assert docker.touched("other-test-pg") == []
 
 
+def test_only_an_unplaced_bench_running_is_could_not_look(doctor, tmp_path):
+    """This repo's bench is stopped; an unlabelled Postgres beside it holds nothing it claims.
+
+    That Postgres may be this repo's own bench started outside compose, so its
+    silence about this worktree is not "owns nothing" — the OS#502 false green.
+    """
+    repo, worktree = _make_git_repo(tmp_path)
+    docker = _with_unplaced(repo, "demo")
+    del docker.containers["repo-test-pg"]
+    docker.containers["loose-pg"] = (None, frozenset({"postgres", "scratch"}))
+    removed: list[Path] = []
+
+    with pytest.raises(doctor.CouldNotLook, match="no running Postgres container"):
+        doctor.teardown(worktree, [], docker=docker, remove=removed.append)
+
+    assert removed == []
+    assert docker.drops == []
+
+
 def test_a_benchless_repo_beside_another_repos_bench_drops_nothing(doctor, tmp_path, capsys):
     repo, worktree = _make_git_repo(tmp_path, name=SLUG)
     _declare(repo, NO_BENCH)
