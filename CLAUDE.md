@@ -82,7 +82,11 @@ step nothing can undo. It clears only the `.venv` symlink and `.envrc` that
 `new-session.sh` wrote, never `--force`, so a worktree holding real uncommitted
 work refuses and keeps its databases. A docker that cannot say what the bench
 holds (no answer, no running Postgres) is exit 2 before anything is removed
-(OS#502): start docker and run it again. A drop docker does not confirm, after
+(OS#502): start docker and run it again. Only this checkout's own bench is read
+— the Postgres whose compose `working_dir` label lies in this checkout — since
+another repo's worktree of the same name derives the same database suffix
+(OS#480); a container no label places that holds a name this checkout would
+claim is exit 2 as well, with nothing dropped. A drop docker does not confirm, after
 the worktree is gone, prints `NOT dropped <name>` on stderr instead of
 `dropped <name>` and exits **3** — not 1 (refused, nothing changed) and not 2
 (could not look, nothing changed): the worktree is removed and its name with it,

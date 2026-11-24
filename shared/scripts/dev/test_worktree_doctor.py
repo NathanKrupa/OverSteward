@@ -341,6 +341,10 @@ RESEARCH = "test_research_demo"
 #: happen while the worktree still exists.
 LISTED = "listed"
 
+#: The compose label every estate bench carries (measured 2026-11-24): the
+#: directory ``compose up`` ran in, which places the bench in its checkout.
+WORKDIR_LABEL = "com.docker.compose.project.working_dir"
+
 
 class ScriptedDocker:
     """A docker seam that answers per-argv, so a query can be told apart from a drop.
@@ -362,8 +366,10 @@ class ScriptedDocker:
         databases: frozenset[str] = frozenset(),
         user: str = "grantspider",
         events: list[str] | None = None,
+        home: Path | None = None,
     ) -> None:
         self.responses = responses or {}
+        self.home = home
         self.databases = databases
         self.user = user
         self.events = [] if events is None else events
@@ -381,6 +387,8 @@ class ScriptedDocker:
             elif args[-1].startswith("SELECT datname"):
                 self.events.append(LISTED)
                 return "".join(f"{name}\n" for name in sorted(self.databases))
+        if args[:1] == ["inspect"] and WORKDIR_LABEL in args[2]:
+            return f"{self.home or ''}\n"
         for marker, output in self.responses.items():
             if marker in " ".join(args):
                 return output
@@ -388,9 +396,16 @@ class ScriptedDocker:
 
 
 def _bench_docker(
-    *databases: str, container: str = "grantspider-test-pg", events: list[str] | None = None
+    *databases: str,
+    home: Path,
+    container: str = "grantspider-test-pg",
+    events: list[str] | None = None,
 ) -> ScriptedDocker:
-    """A container running postgres that serves ``databases``.
+    """A container running postgres that serves ``databases``, labelled into ``home``.
+
+    ``home`` is the directory its compose ``working_dir`` label names — a
+    checkout or one of its worktrees, as on a real bench — and so the checkout
+    whose bench it is. Required, so no fixture's bench is unplaced by accident.
 
     ``repo_test`` is always there: it is the primary checkout's own database, and
     every discovery test needs the bench present to prove it is left alone.
@@ -407,12 +422,13 @@ def _bench_docker(
         },
         databases=frozenset({"postgres", "grantspider_test", "repo_test", *databases}),
         events=events,
+        home=home,
     )
 
 
 def test_the_worktrees_database_is_found_on_the_shared_container(doctor, tmp_path):
     _, worktree = _make_repo(tmp_path, captured=False)
-    docker = _bench_docker("repo_test_demo")
+    docker = _bench_docker("repo_test_demo", home=worktree)
 
     hits = doctor.database_hits(worktree, docker, name="repo_test_demo")
 
@@ -425,7 +441,7 @@ def test_the_worktrees_database_is_found_on_the_shared_container(doctor, tmp_pat
 def test_no_database_no_hit(doctor, tmp_path):
     """A running bench that lacks the database — not a bench that is absent (OS#502)."""
     _, worktree = _make_repo(tmp_path, captured=False)
-    docker = _bench_docker()
+    docker = _bench_docker(home=worktree)
 
     assert doctor.database_hits(worktree, docker, name="repo_test_demo") == []
 
@@ -436,7 +452,7 @@ def test_a_container_that_is_not_postgres_is_skipped(doctor, tmp_path):
     The bench runs beside it: with no Postgres at all the listing refuses (OS#502).
     """
     _, worktree = _make_repo(tmp_path, captured=False)
-    docker = _bench_docker()
+    docker = _bench_docker(home=worktree)
 
     doctor.database_hits(worktree, docker, name="repo_test_demo")
 
@@ -452,14 +468,14 @@ def test_the_database_does_not_block_removal(doctor, tmp_path):
     of every worktree would be blocked forever.
     """
     _, worktree = _make_repo(tmp_path, captured=False)
-    docker = _bench_docker("repo_test_demo")
+    docker = _bench_docker("repo_test_demo", home=worktree)
 
     assert doctor.check_worktree(worktree, [], docker=docker) == []
 
 
 def test_dropping_the_database_targets_the_right_container(doctor, tmp_path):
     _, worktree = _make_repo(tmp_path, captured=False)
-    docker = _bench_docker("repo_test_demo")
+    docker = _bench_docker("repo_test_demo", home=worktree)
 
     dropped = doctor.drop_database(worktree, docker, name="repo_test_demo")
 
@@ -473,7 +489,7 @@ def test_dropping_the_database_targets_the_right_container(doctor, tmp_path):
 
 def test_dropping_an_absent_database_is_a_no_op(doctor, tmp_path):
     _, worktree = _make_repo(tmp_path, captured=False)
-    docker = _bench_docker()
+    docker = _bench_docker(home=worktree)
 
     assert doctor.drop_database(worktree, docker, name="repo_test_demo") == []
     assert not any("dropdb" in call for call in docker.calls)
@@ -487,7 +503,7 @@ def test_teardown_names_then_removes_then_drops(doctor, tmp_path):
     """
     repo, worktree = _make_repo(tmp_path, captured=False)
     events: list[str] = []
-    docker = _bench_docker("repo_test_demo", events=events)
+    docker = _bench_docker("repo_test_demo", events=events, home=worktree)
 
     rc = doctor.teardown(
         worktree,
@@ -504,7 +520,7 @@ def test_teardown_names_then_removes_then_drops(doctor, tmp_path):
 def test_a_refused_removal_leaves_every_database_intact(doctor, tmp_path, capsys):
     """OS#286: a worktree that will not go must still have its databases."""
     repo, worktree = _make_repo(tmp_path, captured=False)
-    docker = _bench_docker("repo_test_demo", RESEARCH)
+    docker = _bench_docker("repo_test_demo", RESEARCH, home=worktree)
 
     def refuse(path: Path) -> None:
         raise doctor.WorktreeRemovalRefused(f"'{path}' contains modified or untracked files")
@@ -521,7 +537,7 @@ def test_a_refused_removal_leaves_every_database_intact(doctor, tmp_path, capsys
 def test_teardown_refuses_while_something_still_points_here(doctor, tmp_path):
     """Capture first, drop second: a blocked teardown must change nothing."""
     repo, worktree = _make_repo(tmp_path, captured=True)
-    docker = _bench_docker("repo_test_demo")
+    docker = _bench_docker("repo_test_demo", home=worktree)
     removed: list[Path] = []
 
     rc = doctor.teardown(
@@ -542,7 +558,7 @@ def _git(tree: Path, *args: str) -> None:
 
 
 def _make_git_repo(
-    tmp_path: Path, name: str = "demo", *, tracked: tuple[str, ...] = ()
+    tmp_path: Path, name: str = "demo", *, tracked: tuple[str, ...] = (), checkout: str = "repo"
 ) -> tuple[Path, Path]:
     """A real checkout with a real linked worktree — the database name needs git.
 
@@ -552,8 +568,11 @@ def _make_git_repo(
     ``tracked`` names files committed *before* the worktree is added, so the
     worktree checks them out under version control — grantspider's ``.envrc``
     is one (OS#308).
+
+    ``checkout`` names the primary checkout, and so its stem: a second repo
+    beside the first gets ``<checkout>_test`` rather than ``repo_test``.
     """
-    repo = tmp_path / "repo"
+    repo = tmp_path / checkout
     repo.mkdir()
     _git(repo, "init", "-q", "-b", "main")
     _git(repo, "config", "user.email", "t@example.com")
@@ -585,6 +604,7 @@ def test_check_names_the_database_without_blocking_removal(tmp_path, monkeypatch
         'case "$*" in\n'
         '  *"--format {{.Names}}"*) echo repo-test-pg ;;\n'
         '  *"{{range .Config.Env}}"*) echo POSTGRES_USER=repo ;;\n'
+        f'  *"{WORKDIR_LABEL}"*) echo {repo} ;;\n'
         "  *pg_database*) echo repo_test; echo repo_test_demo ;;\n"
         "esac\n",
         encoding="utf-8",
@@ -603,7 +623,7 @@ def test_the_probe_names_a_database_it_can_actually_connect_to(doctor, tmp_path)
     after the user, which no estate container has — so the probe never ran and
     every worktree looked database-free."""
     _, worktree = _make_repo(tmp_path, captured=False)
-    docker = _bench_docker("repo_test_demo")
+    docker = _bench_docker("repo_test_demo", home=worktree)
 
     doctor.database_hits(worktree, docker, name="repo_test_demo")
 
@@ -618,7 +638,7 @@ def test_the_probe_names_a_database_it_can_actually_connect_to(doctor, tmp_path)
 def test_the_drop_connects_through_a_maintenance_database(doctor, tmp_path):
     """``dropdb`` cannot connect to the database it is dropping."""
     _, worktree = _make_repo(tmp_path, captured=False)
-    docker = _bench_docker("repo_test_demo")
+    docker = _bench_docker("repo_test_demo", home=worktree)
 
     doctor.drop_database(worktree, docker, name="repo_test_demo")
 
@@ -692,7 +712,7 @@ def test_check_names_every_database_the_worktree_owns(doctor, tmp_path):
     names are found because both were derived from the worktree's own path.
     """
     _, worktree = _make_git_repo(tmp_path)
-    docker = _bench_docker("repo_test_demo", RESEARCH)
+    docker = _bench_docker("repo_test_demo", RESEARCH, home=worktree)
 
     named = _named(doctor.database_hits(worktree, docker))
 
@@ -703,7 +723,7 @@ def test_teardown_drops_every_database_the_worktree_owns(doctor, tmp_path):
     """Dropping one and removing the worktree orphans the other forever."""
     _, worktree = _make_git_repo(tmp_path)
     events: list[str] = []
-    docker = _bench_docker("repo_test_demo", RESEARCH, events=events)
+    docker = _bench_docker("repo_test_demo", RESEARCH, events=events, home=worktree)
 
     rc = doctor.teardown(worktree, [], docker=docker, remove=lambda path: events.append("removed"))
 
@@ -717,7 +737,7 @@ def test_a_hashed_database_is_found_by_its_digest_suffix(doctor, wdb, tmp_path):
     _, worktree = _make_git_repo(tmp_path, name=long_name)
     hashed = wdb.database_name(worktree)
     digest = hashed.rsplit("_", 1)[1]
-    docker = _bench_docker(hashed, f"test_research_{digest}")
+    docker = _bench_docker(hashed, f"test_research_{digest}", home=worktree)
 
     named = _named(doctor.database_hits(worktree, docker))
 
@@ -728,7 +748,7 @@ def test_a_hashed_database_is_found_by_its_digest_suffix(doctor, wdb, tmp_path):
 def test_a_primary_checkout_owns_no_databases(doctor, tmp_path):
     """The unsuffixed database is the shared bench — reporting it invites its loss."""
     repo, _ = _make_git_repo(tmp_path)
-    docker = _bench_docker("repo_test_demo")
+    docker = _bench_docker("repo_test_demo", home=repo)
 
     assert doctor.database_hits(repo, docker) == []
     assert doctor.drop_database(repo, docker) == []
@@ -745,7 +765,7 @@ def test_the_shared_bench_survives_a_worktree_whose_slug_is_the_stem(doctor, tmp
     database rather than destroying a shared one.
     """
     _, worktree = _make_git_repo(tmp_path, name="test")
-    docker = _bench_docker("repo_test_test", "test_research_test")
+    docker = _bench_docker("repo_test_test", "test_research_test", home=worktree)
 
     named = _named(doctor.database_hits(worktree, docker))
 
@@ -817,7 +837,7 @@ def test_an_ignored_dedicated_venv_goes_with_the_worktree(doctor, tmp_path):
     """
     repo, worktree = _make_git_repo(tmp_path)
     venv = _dedicated_venv(worktree, ignored=True)
-    docker = _bench_docker("repo_test_demo")
+    docker = _bench_docker("repo_test_demo", home=repo)
 
     rc = doctor.teardown(
         worktree,
@@ -836,7 +856,7 @@ def test_an_unignored_dedicated_venv_refuses_and_is_kept(doctor, tmp_path):
     """A venv git cannot see as ignored is untracked work: refuse, delete nothing."""
     repo, worktree = _make_git_repo(tmp_path)
     venv = _dedicated_venv(worktree, ignored=False)
-    docker = _bench_docker("repo_test_demo")
+    docker = _bench_docker("repo_test_demo", home=repo)
 
     rc = doctor.teardown(
         worktree,
@@ -958,7 +978,7 @@ def test_a_refused_teardown_keeps_the_launcher_symlink(doctor, tmp_path):
     """Through the full verb, with the real removal — the symlink is a mutation too."""
     repo, worktree = _make_git_repo(tmp_path)
     (worktree / "notes.md").write_text("a session's uncommitted work\n", encoding="utf-8")
-    docker = _bench_docker("repo_test_demo")
+    docker = _bench_docker("repo_test_demo", home=repo)
 
     rc = doctor.teardown(
         worktree,
@@ -993,7 +1013,7 @@ def test_sweep_finds_a_database_whose_worktree_is_gone(doctor, tmp_path):
     the path that named it is gone, so no forward derivation can reach it again.
     """
     repo, worktree = _make_git_repo(tmp_path)
-    docker = _bench_docker("repo_test_demo", "repo_test_ghost")
+    docker = _bench_docker("repo_test_demo", "repo_test_ghost", home=repo)
 
     candidates = doctor.sweep_candidates(repo, docker)
 
@@ -1006,15 +1026,15 @@ def test_sweep_finds_a_database_whose_worktree_is_gone(doctor, tmp_path):
 def test_sweep_never_reports_the_shared_bench(doctor, tmp_path):
     """The primary checkout's unsuffixed name is every session's bench, not an orphan."""
     repo, _ = _make_git_repo(tmp_path)
-    docker = _bench_docker("repo_test_demo")
+    docker = _bench_docker("repo_test_demo", home=repo)
 
     assert "repo_test" not in _databases(doctor.sweep_candidates(repo, docker))
 
 
 def test_sweep_never_reports_another_repos_database(doctor, tmp_path):
-    """One container serves several repos; a sweep run from here claims only here."""
+    """A name outside this repo's stems on its own bench — hand-made — is never claimed."""
     repo, _ = _make_git_repo(tmp_path)
-    docker = _bench_docker("grantspider_test_gs_2044")
+    docker = _bench_docker("grantspider_test_gs_2044", home=repo)
 
     assert doctor.sweep_candidates(repo, docker) == []
 
@@ -1026,7 +1046,7 @@ def test_sweep_finds_an_orphan_on_a_second_stem(doctor, tmp_path):
     own path derives, and what stands in front of that suffix is a stem.
     """
     repo, _ = _make_git_repo(tmp_path)
-    docker = _bench_docker("repo_test_demo", RESEARCH, "test_research_ghost")
+    docker = _bench_docker("repo_test_demo", RESEARCH, "test_research_ghost", home=repo)
 
     assert _orphans(doctor.sweep_candidates(repo, docker)) == {"test_research_ghost"}
 
@@ -1036,7 +1056,7 @@ def test_a_live_worktree_with_a_hashed_name_is_not_swept(doctor, wdb, tmp_path):
     long_name = "os-296-orphan-sweep-with-a-name-long-enough-to-overflow-the-identifier-limit"
     repo, worktree = _make_git_repo(tmp_path, name=long_name)
     hashed = wdb.database_name(worktree)
-    docker = _bench_docker(hashed)
+    docker = _bench_docker(hashed, home=repo)
 
     assert not hashed.endswith(wdb.sanitize(long_name)), "not a shortened name — test is vacuous"
     assert _orphans(doctor.sweep_candidates(repo, docker)) == set()
@@ -1049,7 +1069,7 @@ def test_a_worktree_named_test_never_makes_a_bench_an_orphan(doctor, tmp_path):
     the container would then look like an orphan of it.
     """
     repo, _ = _make_git_repo(tmp_path, name="test")
-    docker = _bench_docker("repo_test_test")
+    docker = _bench_docker("repo_test_test", home=repo)
 
     candidates = doctor.sweep_candidates(repo, docker)
 
@@ -1060,7 +1080,7 @@ def test_a_worktree_named_test_never_makes_a_bench_an_orphan(doctor, tmp_path):
 def test_the_default_sweep_destroys_nothing(doctor, tmp_path, capsys):
     """A heuristic match may not destroy on its own say-so."""
     repo, _ = _make_git_repo(tmp_path)
-    docker = _bench_docker("repo_test_ghost")
+    docker = _bench_docker("repo_test_ghost", home=repo)
 
     rc = doctor.sweep(repo, docker)
 
@@ -1071,7 +1091,7 @@ def test_the_default_sweep_destroys_nothing(doctor, tmp_path, capsys):
 
 def test_sweep_drops_only_the_orphan_and_only_when_told(doctor, tmp_path):
     repo, _ = _make_git_repo(tmp_path)
-    docker = _bench_docker("repo_test_demo", "repo_test_ghost")
+    docker = _bench_docker("repo_test_demo", "repo_test_ghost", home=repo)
 
     rc = doctor.sweep(repo, docker, drop=True)
 
@@ -1082,7 +1102,7 @@ def test_sweep_drops_only_the_orphan_and_only_when_told(doctor, tmp_path):
 def test_sweep_names_what_each_candidate_was_matched_against(doctor, tmp_path, capsys):
     """The inference is absence, not derivation — the operator has to audit it."""
     repo, worktree = _make_git_repo(tmp_path)
-    docker = _bench_docker("repo_test_demo", "repo_test_ghost")
+    docker = _bench_docker("repo_test_demo", "repo_test_ghost", home=repo)
 
     doctor.sweep(repo, docker)
 
@@ -1117,8 +1137,8 @@ def _deployed(tmp_path: Path, *sources: Path) -> Path:
     return target / "worktree_doctor.py"
 
 
-def _fake_docker(tmp_path: Path, *databases: str) -> None:
-    """A ``docker`` on PATH that answers the three reads the sweep makes."""
+def _fake_docker(tmp_path: Path, *databases: str, home: Path) -> None:
+    """A ``docker`` on PATH that answers the reads the sweep makes, its bench in ``home``."""
     listing = "".join(f"echo {name}; " for name in databases)
     script = tmp_path / "docker"
     script.write_text(
@@ -1126,6 +1146,7 @@ def _fake_docker(tmp_path: Path, *databases: str) -> None:
         'case "$*" in\n'
         '  *"--format {{.Names}}"*) echo repo-test-pg ;;\n'
         '  *"{{range .Config.Env}}"*) echo POSTGRES_USER=repo ;;\n'
+        f'  *"{WORKDIR_LABEL}"*) echo {home} ;;\n'
         f"  *pg_database*) {listing};;\n"
         "esac\n",
         encoding="utf-8",
@@ -1163,7 +1184,9 @@ def test_the_cli_sweeps_a_materialised_copy_through_repo(tmp_path, monkeypatch):
     """
     repo, _ = _make_git_repo(tmp_path)
     lone = _deployed(tmp_path, SCRIPT, DB_SCRIPT)
-    _fake_docker(tmp_path, "postgres", "repo_test", "repo_test_demo", "repo_test_ghost")
+    _fake_docker(
+        tmp_path, "postgres", "repo_test", "repo_test_demo", "repo_test_ghost", home=repo
+    )
     monkeypatch.setenv("PATH", f"{tmp_path}:{__import__('os').environ['PATH']}")
 
     result = subprocess.run(
@@ -1220,7 +1243,7 @@ def test_teardown_refuses_before_removing_when_it_cannot_derive(doctor, tmp_path
     the asymmetry that made this worse in ``teardown`` than in ``sweep``.
     """
     repo, worktree = _make_git_repo(tmp_path)
-    docker = _bench_docker("repo_test_demo")
+    docker = _bench_docker("repo_test_demo", home=repo)
     removed: list[Path] = []
     monkeypatch.setattr(doctor, "_load_worktree_db", lambda: None)
 
@@ -1241,7 +1264,7 @@ def test_a_lone_doctor_refuses_the_teardown_and_removes_nothing(tmp_path, monkey
     """
     repo, worktree = _make_git_repo(tmp_path)
     lone = _deployed(tmp_path, SCRIPT)
-    _fake_docker(tmp_path, "postgres", "repo_test", "repo_test_demo")
+    _fake_docker(tmp_path, "postgres", "repo_test", "repo_test_demo", home=repo)
     monkeypatch.setenv("PATH", f"{tmp_path}:{__import__('os').environ['PATH']}")
 
     result = subprocess.run(
@@ -1265,7 +1288,7 @@ def test_the_pair_tears_the_same_worktree_down(tmp_path, monkeypatch):
     """
     repo, worktree = _make_git_repo(tmp_path)
     pair = _deployed(tmp_path, SCRIPT, DB_SCRIPT)
-    _fake_docker(tmp_path, "postgres", "repo_test", "repo_test_demo")
+    _fake_docker(tmp_path, "postgres", "repo_test", "repo_test_demo", home=repo)
     monkeypatch.setenv("PATH", f"{tmp_path}:{__import__('os').environ['PATH']}")
 
     result = subprocess.run(
@@ -1390,11 +1413,13 @@ CLI_SILENCES = {
 
 
 def _logging_docker(
-    tmp_path: Path, names: str, env: str, listing: str, drop: str = ":"
+    tmp_path: Path, names: str, env: str, listing: str, drop: str = ":", *, label: str = ":"
 ) -> Path:
     """A ``docker`` on PATH that logs every argv, so a test can prove no drop was made.
 
     ``drop`` is what ``dropdb`` does; the default succeeds silently, as dropdb does.
+    ``label`` answers the compose ``working_dir`` read; the default prints nothing,
+    so the bench is unplaced unless a test places it.
     """
     log = tmp_path / "docker-calls"
     script = tmp_path / "docker"
@@ -1404,6 +1429,7 @@ def _logging_docker(
         'case "$*" in\n'
         f'  *"--format {{{{.Names}}}}"*) {names} ;;\n'
         f'  *"{{{{range .Config.Env}}}}"*) {env} ;;\n'
+        f'  *"{WORKDIR_LABEL}"*) {label} ;;\n'
         f"  *pg_database*) {listing} ;;\n"
         f"  *dropdb*) {drop} ;;\n"
         "esac\n",
@@ -1462,6 +1488,7 @@ def test_the_cli_teardown_still_drops_what_a_live_bench_holds(tmp_path, monkeypa
         "echo repo-test-pg",
         "echo POSTGRES_USER=repo",
         "echo postgres; echo repo_test; echo repo_test_demo",
+        label=f"echo {repo}",
     )
     monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
 
@@ -1509,7 +1536,7 @@ def _drop_outcome(doctor, capsys, rc: int) -> tuple[str, str]:
 def test_teardown_reports_a_drop_docker_did_not_confirm(doctor, tmp_path, capsys):
     repo, worktree = _make_repo(tmp_path, captured=False)
     events: list[str] = []
-    docker = _unconfirmed_drops(_bench_docker("repo_test_demo"), events)
+    docker = _unconfirmed_drops(_bench_docker("repo_test_demo", home=worktree), events)
 
     rc = doctor.teardown(
         worktree,
@@ -1533,7 +1560,7 @@ def test_sweep_drop_reports_each_database_on_its_own_answer(doctor, tmp_path, ca
     failure would leave the second unattempted.
     """
     repo, _ = _make_git_repo(tmp_path)
-    bench = _bench_docker("repo_test_ghost", "repo_test_wraith")
+    bench = _bench_docker("repo_test_ghost", "repo_test_wraith", home=repo)
 
     def answer(args: list[str]) -> str | None:
         if "dropdb" in args and args[-1] == "repo_test_ghost":
@@ -1564,6 +1591,7 @@ def test_the_cli_teardown_reports_a_dropdb_that_exited_non_zero(tmp_path, monkey
         "echo POSTGRES_USER=repo",
         "echo postgres; echo repo_test; echo repo_test_demo",
         drop='echo "dropdb: error: database removal failed" >&2; exit 1',
+        label=f"echo {repo}",
     )
     monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
 
@@ -1725,7 +1753,7 @@ def test_a_benchless_repo_still_drops_what_a_running_postgres_holds(doctor, tmp_
     """The declaration short-circuits only the empty listing; a live bench is still read."""
     repo, worktree = _make_git_repo(tmp_path)
     _declare(repo, NO_BENCH)
-    docker = _bench_docker("repo_test_demo")
+    docker = _bench_docker("repo_test_demo", home=repo)
 
     rc = doctor.teardown(worktree, [doctor.venv_of(repo)], docker=docker, remove=lambda path: None)
 
@@ -1742,7 +1770,7 @@ def test_an_undeclared_teardown_that_drops_nothing_says_nothing_of_a_bench(
     repo, worktree = _make_git_repo(tmp_path)
 
     rc = doctor.teardown(
-        worktree, [doctor.venv_of(repo)], docker=_bench_docker(), remove=lambda path: None
+        worktree, [doctor.venv_of(repo)], docker=_bench_docker(home=repo), remove=lambda path: None
     )
 
     assert rc == 0
@@ -1764,7 +1792,7 @@ def test_a_benchless_sweep_of_a_running_postgres_still_reconciles(doctor, tmp_pa
     repo, _ = _make_git_repo(tmp_path)
     _declare(repo, NO_BENCH)
 
-    assert doctor.sweep(repo, _bench_docker("repo_test_ghost")) == 1
+    assert doctor.sweep(repo, _bench_docker("repo_test_ghost", home=repo)) == 1
     out = capsys.readouterr().out
     assert "repo_test_ghost" in out
     assert "declares no bench" not in out
@@ -1901,16 +1929,16 @@ def _merged_repo(tmp_path: Path, *, siblings: bool = False) -> tuple[Path, Path]
     return repo, worktree
 
 
-def _bench() -> ScriptedDocker:
-    """A running Postgres holding only the shared bench — the sweep finds no orphan."""
-    return _bench_docker()
+def _bench(repo: Path) -> ScriptedDocker:
+    """``repo``'s running Postgres holding only the shared bench — the sweep finds no orphan."""
+    return _bench_docker(home=repo)
 
 
 def test_cleanup_refuses_an_open_pr_and_touches_nothing(doctor, tmp_path, gh, capsys):
     repo, worktree = _merged_repo(tmp_path)
     (gh / "pr.json").write_text(_pr_json(state="OPEN"), encoding="utf-8")
 
-    rc = doctor.cleanup_merged(repo, 7, _bench())
+    rc = doctor.cleanup_merged(repo, 7, _bench(repo))
 
     assert rc == 1
     assert worktree.is_dir()
@@ -1997,7 +2025,7 @@ def test_cleanup_refuses_under_an_open_child_and_names_it(doctor, tmp_path, gh, 
         '[{"number": 12, "url": "https://github.com/o/r/pull/12"}]', encoding="utf-8"
     )
 
-    rc = doctor.cleanup_merged(repo, 7, _bench())
+    rc = doctor.cleanup_merged(repo, 7, _bench(repo))
 
     assert rc == 1
     assert "#12" in capsys.readouterr().out
@@ -2013,7 +2041,7 @@ def test_cleanup_could_not_look_when_gh_fails(doctor, tmp_path, gh, capsys):
     repo, worktree = _merged_repo(tmp_path)
     (gh / "fail").write_text("", encoding="utf-8")
 
-    rc = doctor.cleanup_merged(repo, 7, _bench())
+    rc = doctor.cleanup_merged(repo, 7, _bench(repo))
 
     assert rc == 2
     assert worktree.is_dir()
@@ -2030,7 +2058,7 @@ def test_cleanup_refuses_a_promote_whose_head_is_the_default_branch(
     (gh / "pr.json").write_text(_pr_json(head="staging", base="main"), encoding="utf-8")
     (gh / "default").write_text("staging\n", encoding="utf-8")
 
-    rc = doctor.cleanup_merged(repo, 7, _bench())
+    rc = doctor.cleanup_merged(repo, 7, _bench(repo))
 
     assert rc == 1
     assert _has_branch(repo, "staging")
@@ -2044,7 +2072,7 @@ def test_cleanup_refuses_a_back_merge_whose_head_is_checked_out(doctor, tmp_path
     (gh / "pr.json").write_text(_pr_json(head="main", base="staging"), encoding="utf-8")
     (gh / "default").write_text("staging\n", encoding="utf-8")
 
-    rc = doctor.cleanup_merged(repo, 7, _bench())
+    rc = doctor.cleanup_merged(repo, 7, _bench(repo))
 
     assert rc == 1
     assert _has_branch(repo, "main")
@@ -2058,7 +2086,7 @@ def test_cleanup_refuses_a_pr_from_a_fork(doctor, tmp_path, gh, capsys):
     forked = _pr_json().replace('"isCrossRepository": false', '"isCrossRepository": true')
     (gh / "pr.json").write_text(forked, encoding="utf-8")
 
-    rc = doctor.cleanup_merged(repo, 7, _bench())
+    rc = doctor.cleanup_merged(repo, 7, _bench(repo))
 
     assert rc == 1
     assert worktree.is_dir()
@@ -2069,7 +2097,7 @@ def test_cleanup_refuses_a_pr_from_a_fork(doctor, tmp_path, gh, capsys):
 def test_cleanup_reports_an_orphan_and_never_drops_it(doctor, tmp_path, gh, capsys):
     """The sweep step is the report, never ``--drop`` — the orphan is the operator's call."""
     repo, _ = _merged_repo(tmp_path)
-    docker = _bench_docker("repo_test_ghost")
+    docker = _bench_docker("repo_test_ghost", home=repo)
 
     rc = doctor.cleanup_merged(repo, 7, docker)
 
@@ -2088,7 +2116,7 @@ def test_cleanup_surfaces_a_drop_docker_did_not_confirm(doctor, tmp_path, gh, ca
     """
     repo, worktree = _merged_repo(tmp_path)
     events: list[str] = []
-    docker = _unconfirmed_drops(_bench_docker("repo_test_demo"), events)
+    docker = _unconfirmed_drops(_bench_docker("repo_test_demo", home=repo), events)
 
     rc = doctor.cleanup_merged(repo, 7, docker)
 
@@ -2108,7 +2136,7 @@ def test_an_undropped_database_outranks_a_stray_sibling(doctor, tmp_path, gh, ca
     repo, worktree = _merged_repo(tmp_path)
     stray = tmp_path / "repo" / ".claude" / "worktrees" / "gone.baseline"
     _git(repo, "worktree", "add", "-q", "--detach", str(stray), "main")
-    docker = _unconfirmed_drops(_bench_docker("repo_test_demo"), [])
+    docker = _unconfirmed_drops(_bench_docker("repo_test_demo", home=repo), [])
 
     rc = doctor.cleanup_merged(repo, 7, docker)
 
@@ -2122,7 +2150,7 @@ def test_an_undropped_database_outranks_a_sweep_that_could_not_look(
 ):
     """Docker dies between the naming and the drop: the sweep's 2 must not hide the 3."""
     repo, _ = _merged_repo(tmp_path)
-    bench = _bench_docker("repo_test_demo")
+    bench = _bench_docker("repo_test_demo", home=repo)
     dead: list[str] = []
 
     def dies_at_the_drop(args: list[str]) -> str | None:
@@ -2142,7 +2170,7 @@ def test_an_undropped_database_outranks_a_sweep_that_could_not_look(
 def test_cleanup_removes_everything_a_merged_pr_left(doctor, tmp_path, gh, capsys):
     repo, worktree = _merged_repo(tmp_path, siblings=True)
 
-    rc = doctor.cleanup_merged(repo, 7, _bench())
+    rc = doctor.cleanup_merged(repo, 7, _bench(repo))
 
     out = capsys.readouterr().out
     assert rc == 0, out
@@ -2160,7 +2188,7 @@ def test_cleanup_of_an_already_clean_pr_is_a_pass(doctor, tmp_path, gh, capsys):
     _git(repo, "branch", "-D", HEAD_BRANCH)
     _git(repo, "push", "-q", "origin", "--delete", HEAD_BRANCH)
 
-    rc = doctor.cleanup_merged(repo, 7, _bench())
+    rc = doctor.cleanup_merged(repo, 7, _bench(repo))
 
     out = capsys.readouterr().out
     assert rc == 0, out
@@ -2174,7 +2202,7 @@ def test_a_dirty_worktree_stops_cleanup_before_the_branch(doctor, tmp_path, gh, 
     repo, worktree = _merged_repo(tmp_path)
     (worktree / "notes.txt").write_text("unsaved\n", encoding="utf-8")
 
-    rc = doctor.cleanup_merged(repo, 7, _bench())
+    rc = doctor.cleanup_merged(repo, 7, _bench(repo))
 
     out = capsys.readouterr().out
     assert rc == 1
@@ -2192,7 +2220,7 @@ def test_a_pruned_tracking_ref_is_answered_with_the_trunk_not_minus_D(
     repo, _ = _merged_repo(tmp_path)
     _git(repo, "update-ref", "-d", f"refs/remotes/origin/{HEAD_BRANCH}")
 
-    rc = doctor.cleanup_merged(repo, 7, _bench())
+    rc = doctor.cleanup_merged(repo, 7, _bench(repo))
 
     out = capsys.readouterr().out
     assert rc == 0, out
@@ -2208,7 +2236,7 @@ def test_a_branch_carrying_unmerged_work_is_never_deleted(doctor, tmp_path, gh, 
     _git(worktree, "commit", "-qm", "late")
     _git(repo, "update-ref", "-d", f"refs/remotes/origin/{HEAD_BRANCH}")
 
-    rc = doctor.cleanup_merged(repo, 7, _bench())
+    rc = doctor.cleanup_merged(repo, 7, _bench(repo))
 
     assert rc == 1
     assert _has_branch(repo)
@@ -2236,7 +2264,7 @@ def test_work_pushed_after_the_merge_is_never_deleted(doctor, tmp_path, gh, caps
     _git(worktree, "commit", "-qm", "late")
     _git(worktree, "push", "-q", "origin", HEAD_BRANCH)
 
-    rc = doctor.cleanup_merged(repo, 7, _bench())
+    rc = doctor.cleanup_merged(repo, 7, _bench(repo))
 
     assert rc == 1
     assert worktree.is_dir()
@@ -2250,7 +2278,7 @@ def test_a_remote_ahead_of_the_merge_is_kept(doctor, tmp_path, gh, capsys):
     repo, worktree = _merged_repo(tmp_path)
     _push_from_server(tmp_path, "elsewhere.txt")
 
-    rc = doctor.cleanup_merged(repo, 7, _bench())
+    rc = doctor.cleanup_merged(repo, 7, _bench(repo))
 
     assert rc == 1
     assert worktree.is_dir()
@@ -2264,7 +2292,7 @@ def test_a_remote_ahead_of_the_merge_is_kept(doctor, tmp_path, gh, capsys):
 def test_a_remote_that_moves_during_cleanup_is_not_deleted(doctor, tmp_path, gh, capsys):
     """The DELETE is for the sha step 3 proved, not whatever origin holds later."""
     repo, _ = _merged_repo(tmp_path)
-    bench = _bench()
+    bench = _bench(repo)
     pushed: list[bool] = []
 
     def docker(args: list[str]) -> str | None:
@@ -2284,7 +2312,7 @@ def test_an_unreachable_origin_could_not_look(doctor, tmp_path, gh, capsys):
     repo, worktree = _merged_repo(tmp_path)
     _git(repo, "remote", "set-url", "origin", str(tmp_path / "missing.git"))
 
-    rc = doctor.cleanup_merged(repo, 7, _bench())
+    rc = doctor.cleanup_merged(repo, 7, _bench(repo))
 
     assert rc == 2
     assert worktree.is_dir()
@@ -2297,7 +2325,7 @@ def test_a_base_origin_cannot_fetch_could_not_look(doctor, tmp_path, gh, capsys)
     repo, worktree = _merged_repo(tmp_path)
     (gh / "pr.json").write_text(_pr_json(base="gone"), encoding="utf-8")
 
-    rc = doctor.cleanup_merged(repo, 7, _bench())
+    rc = doctor.cleanup_merged(repo, 7, _bench(repo))
 
     assert rc == 2
     assert worktree.is_dir()
@@ -2315,7 +2343,7 @@ def test_a_sweep_that_cannot_look_exits_2_and_the_pr_is_still_cleaned(
     """
     repo, worktree = _merged_repo(tmp_path)
 
-    rc = doctor.cleanup_merged(repo, 7, _silent_after_one_listing(doctor))
+    rc = doctor.cleanup_merged(repo, 7, _silent_after_one_listing(doctor, repo))
 
     out = capsys.readouterr().out
     assert rc == 2
@@ -2324,9 +2352,9 @@ def test_a_sweep_that_cannot_look_exits_2_and_the_pr_is_still_cleaned(
     assert not _has_branch(repo)
 
 
-def _silent_after_one_listing(doctor) -> Callable[[list[str]], str | None]:
+def _silent_after_one_listing(doctor, repo: Path) -> Callable[[list[str]], str | None]:
     """A running bench that stops answering once it has listed its databases once."""
-    bench = _bench()
+    bench = _bench(repo)
     listed: list[bool] = []
 
     def docker(args: list[str]) -> str | None:
@@ -2365,7 +2393,7 @@ def test_an_absent_remote_ref_makes_no_delete_call(doctor, tmp_path, gh, capsys)
     repo, _ = _merged_repo(tmp_path)
     _git(repo, "push", "-q", "origin", "--delete", HEAD_BRANCH)
 
-    rc = doctor.cleanup_merged(repo, 7, _bench())
+    rc = doctor.cleanup_merged(repo, 7, _bench(repo))
 
     out = capsys.readouterr().out
     assert rc == 0, out
@@ -2379,7 +2407,7 @@ def test_a_ref_merely_ending_in_the_branch_is_not_the_branch(doctor, tmp_path, g
     _git(repo, "push", "-q", "origin", f"main:refs/heads/x/refs/heads/{HEAD_BRANCH}")
     _git(repo, "push", "-q", "origin", "--delete", HEAD_BRANCH)
 
-    rc = doctor.cleanup_merged(repo, 7, _bench())
+    rc = doctor.cleanup_merged(repo, 7, _bench(repo))
 
     out = capsys.readouterr().out
     assert rc == 0, out
@@ -2392,7 +2420,7 @@ def test_a_sibling_on_another_branch_is_refused(doctor, tmp_path, gh, capsys):
     repo, worktree = _merged_repo(tmp_path)
     _git(repo, "worktree", "add", "-q", "-b", "other", f"{worktree}.baseline", "main")
 
-    rc = doctor.cleanup_merged(repo, 7, _bench())
+    rc = doctor.cleanup_merged(repo, 7, _bench(repo))
 
     assert rc == 1
     assert Path(f"{worktree}.baseline").is_dir()
@@ -2407,7 +2435,7 @@ def test_a_stray_sibling_of_a_removed_worktree_is_reported(doctor, tmp_path, gh,
     (worktree / ".venv").unlink()
     _git(repo, "worktree", "remove", str(worktree))
 
-    rc = doctor.cleanup_merged(repo, 7, _bench())
+    rc = doctor.cleanup_merged(repo, 7, _bench(repo))
 
     assert rc == 1
     assert f"{worktree}.baseline" in capsys.readouterr().out
@@ -2427,7 +2455,7 @@ def test_the_cli_reports_could_not_look_with_exit_2(tmp_path, gh):
 
 def test_the_cli_cleans_a_merged_pr_end_to_end(tmp_path, gh, monkeypatch):
     repo, worktree = _merged_repo(tmp_path)
-    _fake_docker(tmp_path, "postgres", "repo_test")
+    _fake_docker(tmp_path, "postgres", "repo_test", home=repo)
     monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
 
     result = _run("cleanup-merged", "7", "--repo", str(repo))
@@ -2498,3 +2526,317 @@ def test_the_cli_cleans_a_benchless_merged_pr_with_no_postgres(tmp_path, gh, mon
     assert not worktree.exists()
     assert not _has_branch(repo)
     assert DELETE_CALL in _gh_calls(gh)
+
+
+# ---------------------------------------------------------------------------
+# two repos' worktrees sharing a slug: only this checkout's bench is read (OS#480)
+# ---------------------------------------------------------------------------
+#
+# A worktree's names are found by suffix, and another repo's worktree of the same
+# name derives the same ``_<slug>``. Each repo runs its own bench container, so
+# the suffix is evidence only on a container placed in this checkout by its
+# compose ``working_dir`` label. Another checkout's container is never exec'd
+# into; one nothing places stops the verb when it holds a name this one claims.
+
+SLUG = "promote-2026-11-24"
+SLUGGED = "promote_2026_11_24"
+
+
+class MultiBench:
+    """Several Postgres containers, each with its own label, databases and drops.
+
+    ``containers`` maps a name to ``(working_dir label or None, databases)``.
+    ``drops`` records ``(container, database)`` for every ``dropdb`` asked for,
+    so a test can assert the drop seam was never reached for another repo's name.
+    """
+
+    def __init__(self, containers: dict[str, tuple[str | None, frozenset[str]]]) -> None:
+        self.containers = containers
+        self.calls: list[list[str]] = []
+        self.drops: list[tuple[str, str]] = []
+
+    def __call__(self, args: list[str]) -> str | None:
+        self.calls.append(args)
+        if args[:2] == ["ps", "--format"]:
+            return "".join(f"{name}\n" for name in self.containers)
+        if args[0] == "inspect" and args[-1] in self.containers:
+            label, _ = self.containers[args[-1]]
+            if "Config.Env" in args[2]:
+                return f"POSTGRES_USER={args[-1]}\n"
+            if WORKDIR_LABEL in args[2]:
+                return f"{label or ''}\n"
+        if args[0] == "exec" and "dropdb" in args:
+            self.drops.append((args[1], args[-1]))
+            label, databases = self.containers[args[1]]
+            self.containers[args[1]] = (label, databases - {args[-1]})
+        elif args[0] == "exec" and "psql" in args:
+            _, databases = self.containers[args[1]]
+            return "".join(f"{name}\n" for name in sorted(databases))
+        return ""
+
+    def touched(self, container: str) -> list[list[str]]:
+        """Every exec made inside ``container`` — a listing or a drop."""
+        return [call for call in self.calls if call[:2] == ["exec", container]]
+
+
+def _other_repo(tmp_path: Path, name: str) -> tuple[Path, Path]:
+    """Repo B: stem ``other_test`` and a second stem, its own worktree named ``name``."""
+    return _make_git_repo(tmp_path, name=name, checkout="other")
+
+
+def _two_benches(repo: Path, other: Path, slug: str, *extra_ours: str) -> MultiBench:
+    """A's bench, labelled with a long-gone worktree; B's, labelled with B's checkout.
+
+    The two labels take the two routes :func:`bench_checkout` has: the
+    ``.claude/worktrees/`` layout for a path that is gone, git for one that exists.
+    """
+    return MultiBench(
+        {
+            "repo-test-pg": (
+                f"{repo}/.claude/worktrees/bench-maker",
+                frozenset({"postgres", "repo_test", f"repo_test_{slug}", *extra_ours}),
+            ),
+            "other-test-pg": (
+                str(other),
+                frozenset(
+                    {"postgres", "other_test", f"other_test_{slug}", f"test_research_{slug}"}
+                ),
+            ),
+        }
+    )
+
+
+def test_teardown_never_drops_another_repos_databases_of_the_same_slug(doctor, tmp_path):
+    repo, worktree = _make_git_repo(tmp_path, name=SLUG)
+    other, other_worktree = _other_repo(tmp_path, SLUG)
+    docker = _two_benches(repo, other, SLUGGED)
+    removed: list[Path] = []
+
+    rc = doctor.teardown(worktree, [], docker=docker, remove=removed.append)
+
+    assert rc == 0
+    assert removed == [worktree]
+    assert docker.drops == [("repo-test-pg", f"repo_test_{SLUGGED}")]
+    assert not [drop for drop in docker.drops if drop[0] == "other-test-pg"]
+    assert docker.touched("other-test-pg") == [], "another repo's bench was exec'd into"
+    assert other_worktree.is_dir()
+
+
+def test_check_never_names_another_repos_database_as_owned(doctor, tmp_path):
+    repo, worktree = _make_git_repo(tmp_path, name=SLUG)
+    other, _ = _other_repo(tmp_path, SLUG)
+
+    named = _named(doctor.database_hits(worktree, _two_benches(repo, other, SLUGGED)))
+
+    assert named == {f"database repo_test_{SLUGGED}"}
+
+
+def test_cleanup_merged_never_drops_another_repos_databases_of_the_same_slug(
+    doctor, tmp_path, gh, capsys
+):
+    repo, worktree = _merged_repo(tmp_path)
+    other, other_worktree = _other_repo(tmp_path, worktree.name)
+    docker = _two_benches(repo, other, "demo")
+
+    rc = doctor.cleanup_merged(repo, 7, docker)
+
+    out = capsys.readouterr().out
+    assert rc == 0, out
+    assert docker.drops == [("repo-test-pg", "repo_test_demo")]
+    assert docker.touched("other-test-pg") == [], "another repo's bench was exec'd into"
+    assert not worktree.exists()
+    assert other_worktree.is_dir()
+
+
+def test_sweep_drop_never_drops_another_repos_databases(doctor, tmp_path, capsys):
+    """A live worktree of this repo named like one of B's would reveal B's stems.
+
+    Read off every container, ``other_test_demo`` reveals the stem ``other_test``,
+    and B's ``other_test_wip`` — a worktree of B's this repo cannot see — then
+    reads as this repo's orphan.
+    """
+    repo, _ = _make_git_repo(tmp_path)
+    other, _ = _other_repo(tmp_path, "wip")
+    docker = _two_benches(repo, other, "demo", "repo_test_ghost")
+    other_dbs = docker.containers["other-test-pg"][1] | {"other_test_wip"}
+    docker.containers["other-test-pg"] = (str(other), other_dbs)
+
+    rc = doctor.sweep(repo, docker, drop=True)
+
+    out = capsys.readouterr().out
+    assert rc == 0, out
+    assert docker.drops == [("repo-test-pg", "repo_test_ghost")]
+    assert docker.touched("other-test-pg") == [], "another repo's bench was exec'd into"
+    assert f"other-test-pg ({other.resolve()})" in out, "the skipped bench went unreported"
+
+
+def _with_unplaced(repo: Path, slug: str) -> MultiBench:
+    """This repo's own bench, plus one with no label holding a name this repo derives."""
+    return MultiBench(
+        {
+            "repo-test-pg": (
+                f"{repo}/.claude/worktrees/bench-maker",
+                frozenset({"postgres", "repo_test", f"repo_test_{slug}"}),
+            ),
+            "loose-pg": (None, frozenset({"postgres", f"test_research_{slug}"})),
+        }
+    )
+
+
+def test_teardown_refuses_when_a_container_nothing_places_holds_its_name(doctor, tmp_path):
+    repo, worktree = _make_git_repo(tmp_path)
+    docker = _with_unplaced(repo, "demo")
+    removed: list[Path] = []
+
+    with pytest.raises(doctor.CouldNotLook, match="loose-pg holds test_research_demo"):
+        doctor.teardown(worktree, [], docker=docker, remove=removed.append)
+
+    assert removed == []
+    assert docker.drops == []
+
+
+def test_cleanup_merged_exits_2_when_a_container_nothing_places_holds_its_name(
+    doctor, tmp_path, gh, capsys
+):
+    repo, worktree = _merged_repo(tmp_path)
+    docker = _with_unplaced(repo, "demo")
+
+    rc = doctor.cleanup_merged(repo, 7, docker)
+
+    out = capsys.readouterr().out
+    assert rc == 2, out
+    assert "loose-pg holds test_research_demo" in out
+    assert docker.drops == []
+    assert worktree.is_dir()
+    assert _has_branch(repo)
+    assert DELETE_CALL not in _gh_calls(gh)
+
+
+def test_sweep_refuses_when_a_container_nothing_places_holds_its_stem(doctor, tmp_path):
+    repo, _ = _make_git_repo(tmp_path)
+    docker = _with_unplaced(repo, "demo")
+    docker.containers["loose-pg"] = (None, frozenset({"repo_test_ghost"}))
+
+    with pytest.raises(doctor.CouldNotLook, match="loose-pg holds repo_test_ghost"):
+        doctor.sweep(repo, docker, drop=True)
+
+    assert docker.drops == []
+
+
+def test_an_unplaced_container_holding_nothing_of_ours_does_not_stop_teardown(doctor, tmp_path):
+    repo, worktree = _make_git_repo(tmp_path)
+    docker = _with_unplaced(repo, "demo")
+    docker.containers["loose-pg"] = (None, frozenset({"postgres", "scratch"}))
+
+    rc = doctor.teardown(worktree, [], docker=docker, remove=lambda path: None)
+
+    assert rc == 0
+    assert docker.drops == [("repo-test-pg", "repo_test_demo")]
+
+
+def test_the_cli_teardown_exits_2_over_a_container_nothing_places(tmp_path, monkeypatch):
+    repo, worktree = _make_git_repo(tmp_path)
+    log = tmp_path / "docker-calls"
+    script = tmp_path / "docker"
+    script.write_text(
+        "#!/bin/sh\n"
+        f'echo "$*" >> {log}\n'
+        'case "$*" in\n'
+        '  *"--format {{.Names}}"*) echo repo-test-pg; echo loose-pg ;;\n'
+        '  *"{{range .Config.Env}}"*) echo POSTGRES_USER=repo ;;\n'
+        f'  *"{WORKDIR_LABEL}"*repo-test-pg) echo {repo} ;;\n'
+        f'  *"{WORKDIR_LABEL}"*) echo ;;\n'
+        "  *repo-test-pg*pg_database*) echo repo_test; echo repo_test_demo ;;\n"
+        "  *pg_database*) echo test_research_demo ;;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+    log.touch()
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+
+    result = _run("teardown", str(worktree), "--repo", str(repo))
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "teardown refused" in result.stderr
+    assert "loose-pg holds test_research_demo" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert worktree.is_dir()
+    assert "dropdb" not in log.read_text(encoding="utf-8")
+
+
+def test_only_another_repos_bench_running_is_could_not_look(doctor, tmp_path):
+    """This repo's bench is stopped: B's running beside it holds nothing of A's to rule out."""
+    repo, worktree = _make_git_repo(tmp_path, name=SLUG)
+    other, _ = _other_repo(tmp_path, SLUG)
+    docker = _two_benches(repo, other, SLUGGED)
+    del docker.containers["repo-test-pg"]
+    removed: list[Path] = []
+
+    with pytest.raises(doctor.CouldNotLook, match="no running Postgres container"):
+        doctor.teardown(worktree, [], docker=docker, remove=removed.append)
+
+    assert removed == []
+    assert docker.touched("other-test-pg") == []
+
+
+def test_a_benchless_repo_beside_another_repos_bench_drops_nothing(doctor, tmp_path, capsys):
+    repo, worktree = _make_git_repo(tmp_path, name=SLUG)
+    _declare(repo, NO_BENCH)
+    other, _ = _other_repo(tmp_path, SLUG)
+    docker = _two_benches(repo, other, SLUGGED)
+    del docker.containers["repo-test-pg"]
+
+    rc = doctor.teardown(worktree, [], docker=docker, remove=lambda path: None)
+
+    assert rc == 0
+    assert docker.drops == []
+    assert docker.touched("other-test-pg") == []
+    assert "declares no bench" in capsys.readouterr().out
+
+
+def test_a_repo_with_two_stems_still_drops_both_on_its_own_bench(doctor, tmp_path):
+    """The control: scoping by container must not narrow what a worktree owns there."""
+    repo, worktree = _make_git_repo(tmp_path, name=SLUG)
+    other, _ = _other_repo(tmp_path, SLUG)
+    docker = _two_benches(repo, other, SLUGGED, f"test_research_{SLUGGED}")
+
+    rc = doctor.teardown(worktree, [], docker=docker, remove=lambda path: None)
+
+    assert rc == 0
+    assert docker.drops == [
+        ("repo-test-pg", f"repo_test_{SLUGGED}"),
+        ("repo-test-pg", f"test_research_{SLUGGED}"),
+    ]
+    assert docker.touched("other-test-pg") == []
+
+
+def test_a_bench_is_placed_by_git_where_its_label_still_exists(doctor, tmp_path):
+    repo, worktree = _make_git_repo(tmp_path)
+    docker = MultiBench({"pg": (str(worktree), frozenset())})
+
+    assert doctor.bench_checkout("pg", docker) == repo.resolve()
+
+
+def test_a_bench_is_placed_by_the_layout_where_its_label_is_gone(doctor, tmp_path):
+    docker = MultiBench({"pg": (f"{tmp_path}/r/.claude/worktrees/gone", frozenset())})
+
+    assert doctor.bench_checkout("pg", docker) == (tmp_path / "r").resolve()
+
+
+@pytest.mark.parametrize("label", [None, "<no value>", "/nowhere/outside/the/layout", "here"])
+def test_a_bench_nothing_places_is_nobodys(doctor, tmp_path, label):
+    """No label, docker's nil-map answer, a gone path, or a real dir git does not know."""
+    if label == "here":
+        label = str(tmp_path)
+    docker = MultiBench({"pg": (label, frozenset())})
+
+    assert doctor.bench_checkout("pg", docker) is None
+
+
+def test_a_bench_docker_will_not_describe_is_could_not_look(doctor):
+    def docker(args: list[str]) -> str | None:
+        return None if WORKDIR_LABEL in " ".join(args) else ""
+
+    with pytest.raises(doctor.CouldNotLook, match="for its labels"):
+        doctor.bench_checkout("pg", docker)
