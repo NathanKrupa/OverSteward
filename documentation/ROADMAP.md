@@ -2563,6 +2563,148 @@ Every §3.14 watch-list row, in order:
   with `generation_costs` and add a per-org generation budget before
   changing the allowance. No ruling yet.
 
+## §3.24 Late November 2026 — GS promotes the government ladder six times, AG ships county hubs, agency pages and billing hardening, and OverSteward teaches its guards to read the shell as the shell does (reconciled 2026-11-25)
+
+> A dream-cycle pass, eight days after §3.23. It was drafted on 11-24
+> and extended on 11-25 through that day's Tuesday promotes. Three
+> through-lines. **GS promoted to main six times in seven days**
+> (11-18 → 11-24). It
+> carried the government-funder map's agency pass, county and city hubs,
+> slug history and the DC seed. It also rebuilt the IRS BMF sync after the
+> sync hit Neon's transaction limit. **AG promoted twice on 11-19** and
+> shipped two hotfixes. The promotes took the county hubs, the state city and
+> county directories and the noindexed agency pages live. **The Tuesday
+> promote on 11-24** (AG #3086) took the billing hardening and the ops
+> corpus page live. **OverSteward spent the week
+> on its guards**: about fifteen PRs line up the shared lexer and
+> `guard_gate_pipe` with how the shell reads quotes, comments and line ends.
+> It also fixed sow's verify run, the lite gates and the board's pagination.
+
+### Shipped (2026-11-17 → 11-24)
+
+- **OverSteward.**
+  - Guards: the shared lexer's comment rule follows the shell's (#778).
+    The lexer ends a command where the shell does in a multi-line command
+    (#788, #790), and nested quotes pair as the shell pairs them (#808).
+    Every guard also decides under the nest-true reading (#811).
+    `guard_gate_pipe` reads line boundaries and vouched commands correctly
+    (#784, #816, #818). The promote guards read text the lexer rejects
+    before they decide (#797). A read of the hooks-path setting passes, with
+    a fail-closed neighbour rule and a closed grep-option list (#795, #824).
+    A delete confined to the session's own scratchpad stands down (#826).
+  - Guard replay: the destructive-command gate replays over recorded Bash
+    commands (#771). It gained a `misread` verdict and a readiness line
+    (#799). `sync-status` audits hook registration on each repo's origin ref
+    (#774).
+  - Sow: the target venv is linked before the commit, and a target with no
+    `make verify` is pushed (#806). Every run unregisters its worktree and
+    drops an unpushed sync branch (#813). `--verify` runs a uv target's gate
+    in a worktree venv built from its own `uv.lock` (#829).
+  - Dev cards: lite gates call every tool through the worktree venv (#830).
+    The cards state the measured merge posture of four repos (#805) and
+    name catalogue entry 15, the grant row, beside 13 and 14 (#767). The
+    adversarial reviewer gained a catalogue row for every write that grants
+    something (#762). A public repo's review narrative names private issues
+    by number only (#769).
+  - Tests keep a git hook's `GIT_*` variables out of their scratch repos
+    and `gh` calls (#810, #814).
+  - Board and brief: issue and label lists are paged to their end, proved
+    against `totalCount` (#833). GS passing 500 open issues had stopped
+    the nightly abandoned-work sweep for eight nights. A known failure now
+    names the crash by signature, not only the service (#834).
+  - The worktree doctor reads only its own checkout's bench when it names
+    databases (#835, closing OS#480). A same-named worktree in another repo
+    had let a teardown try to drop that repo's test databases. It was
+    deployed by sow to fiscus (fiscus#139), GS (#4104) and AG (#3089).
+  - `/rulings` puts every open decision to Nathan by click-through (#789).
+  - Backup health gained AG and GS restore rows, RED past 35 days (#759).
+  - `ag_ops` prints each waiting row in full (#741). Transcripts split on
+    `\n` alone (#744).
+  - Estate map: the agency-pass modules and 18 + 4 GrantSpider orphans
+    are claimed (#739, #746, #776). County hubs (#749), the Bing CLI (#733)
+    and the resilience epic's liabilities (#764) are added. The architect
+    card states its brief contract (#735).
+- **GS — six promotes.**
+  - #3906 (11-18): county and city hubs, GS side.
+  - #3955 and #3973 (11-19): the agency pass up to the bench, profile
+    tables and views, slug history, and the five-year area window.
+  - #4048 (11-23): the government ladder.
+  - #4081 (11-24): the BMF sync rebuilt as a per-region COPY with one
+    transaction per region (GS#4076, #4080), ladder guards for NYC and for
+    cut-off, township, interstate and river names (#4052, #4070), DC seeded
+    as its own state-level body (#4068, #4073), and
+    `ag_research.corpus_status_v` (#4065).
+  - #4099 (11-24, the Tuesday promote): E9 joins by display name and the
+    agency core, the FL and NC seed folds (#4086–#4088), and the E9 naming
+    guard, which holds a cut, stateless or local name (#4090). It also
+    carried funding-profile template v7, which fixes the scholarship branch
+    (#4096), and the nightly quality audit as a Dagster asset with its CLI
+    (#4097, #4098), its schedule shipped stopped. No production migration
+    was needed. Back-merge #4101.
+  - On staging after #4099: the FL 11th Circuit State Attorney renamed
+    apart from the courts, and ND's Health and Human Services seeded as one
+    node carrying both UEIs (#4103). This replaces #4088's FL fold, so
+    `authorities load --state FL` waits on the next promote.
+  - The seven GitHub Actions data-quality schedules were retired (#4062).
+    Under Nathan's ruling on GS#4055, the checks that matter move to
+    Dagster.
+- **AG — promotes #3017 and #3021 (11-19).**
+  - These shipped the county hub page, the state city and county
+    directories and their trails, the hubs' sitemap sections and
+    cross-links, the five-year filing window, and one funding body's page at
+    `/gov/agency/<st>/<slug>/` (noindex) with its "Who it funded" section.
+  - `monitor_crawl` parts 2–4 also reached main.
+  - Hotfixes: hub cache warming (#3023), and one Checkout fulfillment
+    function for the return and the webhook (#3041).
+- **AG — promote #3086 (11-24, the Tuesday promote).** Back-merge #3088.
+  - Billing: an entitlement census with a report-only reconciler
+    (#3044, #3046), Stripe webhook outcomes recorded and failures alerted
+    (#3053), bounded replay (#3054), and prepaid seat pools (#3049).
+  - Capacity: no DB connection is held through AI provider calls
+    (#3061, #3076). The load-test bench (#3058) and a tenancy sweep across
+    every object route (#3056) also landed.
+  - The rest: the restore drill (#3050), the `/ops/corpus/` quality and
+    enrichment page (#3084, #3085), and transient URL Inspection timeouts
+    (#3082).
+  - Six migrations rode with it (billing 0006–0010 and the research corpus
+    view 0033). They were applied before the promote, because AG staging
+    shares production's database.
+- **Data runs on 11-24.** The IRS BMF sync, 11,191 new 990 facsimiles,
+  126,123 funding profiles rewritten on template v7, and 82,823 fiscal
+  synopses re-rendered.
+- **GitHub Actions did not run on 11-24.** PRs that day were gated on the
+  local `make verify` alone.
+
+### Corrections to earlier sections
+
+- §3.23 listed the GS pin bump (AG#2972) as a draft. It merged, followed by
+  #3015 and #3022.
+- §3.23 listed `monitor_crawl` as on staging. Parts 2–4 reached main with
+  the 11-19 promotes. Its Railway service and a forced red are not verified
+  here.
+
+### Started, not landed
+
+| Item | Where | State |
+|---|---|---|
+| Request Indexing experiment | AG#2952 | day-7 reading was due 11-24 and is not posted; day-14 due 12-01 |
+| Resilience epic | OS#750 | open; children include restore drills on a timer (#823) and a token-cost measure (#822) |
+| Funding-profile scope over ~200k ids | GS#4085 | open; one transaction across every chunk hits Neon's 600 s limit |
+| Guard residue | OS#792, #815, #817, #819, #825 | open; the remaining guard misreads and the per-command override |
+| Estate-map drift | OS#785 | open; measured sizes, a nightly check and suggested claims |
+| Standing Orders line cap | OS#730 | open; the gate checks bytes, and the 11-24 dream run needed a trim to fit the byte budget |
+
+### Intent not yet filed (flagged by the dream cycle)
+
+- **The held-prompt watch missed two stuck agents.** The 11-23 dream run
+  flagged that `dispatch_run.py prompts --watch` reported nothing on two
+  long runs. No issue is filed.
+- **The AG ops nightly corpus page's schedule.** Nathan asked for the page
+  to run nightly (GS#4055 ruling). The page is live, and the GS quality
+  audit that feeds it ships with its Dagster schedule stopped. The first
+  production run was made by hand on 11-24. Whether the schedule is on is
+  not verified here.
+
 ## §4 In flight
 
 Active or partially-shipped items as of 2026-05-07.
@@ -2668,4 +2810,4 @@ Captured in `IDEA_STORE.md` from gstack research and conversational drift. None 
 - If §2-§3 grow past readable length, extract to a `documentation/changelog.md` and keep this doc thin.
 - This doc is the single answer to "what are we trying to do, what's done, what's next?" If it can't answer that in under 60 seconds of reading, it's grown past its purpose — restructure rather than expand.
 
-*Last updated: 2026-11-17 (dream-cycle reconciliation — §3.23 added: AG's crawl monitor, `/foundations/` and `/grants-for/` hubs and the Request Indexing experiment, the Monday 11-16 promotes GS #3887 and AG #2973, and the dream cycle's run lock, store health and correction pass). Previously 2026-11-10 (Tuesday promotion reconciliation — §3.22 added: the ci-red line (OS#657), GS promotes #3554–#3672 with the funding-authority views, AG promotes #2732 and #2825 with Consultant Builder shipped dark). Previously 2026-11-05 (early-November reconciliation — §3.21 added: AG's crawl-recovery promote #2656, GS's website consolidation and judge-only re-verify through promotes #3427, #3495 and #3520, the estate map replacing architecture.md, and Nathan's 11-04 express-word rule for GS promotes). Previously 2026-10-29 (late-October reconciliation — §3.20 added: AG's promotes #2535 and #2566 for the Pro trial, passes and consultants, GS's held-funder crawl and website-accuracy epic GS#3407, and OverSteward's GS promote-cadence guard). Previously 2026-10-22 (late-October reconciliation — §3.18 added: AG's signup-surge build and promote #2477, GS's claim-queue enrich drain and segment drains, the IRS keep-current fixes, and OverSteward's backup sweep going live; §3.19 added: the Railway breach, GS's funding-authority map, and the Estate Brief and intake split).*
+*Last updated: 2026-11-25 (dream-cycle reconciliation — §3.24 added: GS's six promotes #3906–#4099 with the government ladder, the DC seed, the rebuilt BMF sync and funding-profile v7, AG's 11-19 promotes #3017 and #3021 and the 11-24 promote #3086 with county hubs, agency pages and billing hardening, and OverSteward's guard-lexer, sow, board-pagination and worktree-doctor fixes). Previously 2026-11-17 (dream-cycle reconciliation — §3.23 added: AG's crawl monitor, `/foundations/` and `/grants-for/` hubs and the Request Indexing experiment, the Monday 11-16 promotes GS #3887 and AG #2973, and the dream cycle's run lock, store health and correction pass). Previously 2026-11-10 (Tuesday promotion reconciliation — §3.22 added: the ci-red line (OS#657), GS promotes #3554–#3672 with the funding-authority views, AG promotes #2732 and #2825 with Consultant Builder shipped dark). Previously 2026-11-05 (early-November reconciliation — §3.21 added: AG's crawl-recovery promote #2656, GS's website consolidation and judge-only re-verify through promotes #3427, #3495 and #3520, the estate map replacing architecture.md, and Nathan's 11-04 express-word rule for GS promotes). Previously 2026-10-29 (late-October reconciliation — §3.20 added: AG's promotes #2535 and #2566 for the Pro trial, passes and consultants, GS's held-funder crawl and website-accuracy epic GS#3407, and OverSteward's GS promote-cadence guard). Previously 2026-10-22 (late-October reconciliation — §3.18 added: AG's signup-surge build and promote #2477, GS's claim-queue enrich drain and segment drains, the IRS keep-current fixes, and OverSteward's backup sweep going live; §3.19 added: the Railway breach, GS's funding-authority map, and the Estate Brief and intake split).*
