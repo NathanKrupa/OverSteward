@@ -2576,7 +2576,7 @@ Every §3.14 watch-list row, in order:
 > county directories and the noindexed agency pages live. **The Tuesday
 > promote on 11-24** (AG #3086) took the billing hardening and the ops
 > corpus page live. **OverSteward spent the week
-> on its guards**: about twenty PRs line up the shared lexer and
+> on its guards**: about fifteen PRs line up the shared lexer and
 > `guard_gate_pipe` with how the shell reads quotes, comments and line ends.
 > It also fixed sow's verify run, the lite gates and the board's pagination.
 
@@ -2672,10 +2672,8 @@ Every §3.14 watch-list row, in order:
 - **Data runs on 11-24.** The IRS BMF sync, 11,191 new 990 facsimiles,
   126,123 funding profiles rewritten on template v7, and 82,823 fiscal
   synopses re-rendered.
-- **GitHub Actions stopped on 11-24** when account payments failed. Every
-  job failed before it started, so PRs that day were gated on the local
-  `make verify` alone. Nathan raised the budget the same day and Actions
-  recovered.
+- **GitHub Actions did not run on 11-24.** PRs that day were gated on the
+  local `make verify` alone.
 
 ### Corrections to earlier sections
 
@@ -2689,7 +2687,7 @@ Every §3.14 watch-list row, in order:
 
 | Item | Where | State |
 |---|---|---|
-| Request Indexing experiment | AG#2952 | day-7 reading about 11-25, day-14 about 12-02 |
+| Request Indexing experiment | AG#2952 | day-7 reading was due 11-24 and is not posted; day-14 due 12-01 |
 | Resilience epic | OS#750 | open; children include restore drills on a timer (#823) and a token-cost measure (#822) |
 | Funding-profile scope over ~200k ids | GS#4085 | open; one transaction across every chunk hits Neon's 600 s limit |
 | Guard residue | OS#792, #815, #817, #819, #825 | open; the remaining guard misreads and the per-command override |
