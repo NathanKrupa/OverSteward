@@ -5,7 +5,7 @@ branch: docs/issue-847-seed-editable-rows
 issues:
   - oversteward#847
 session_kind: dispatch
-duration: "60min"
+duration: "12min (719s measured from the run's start and end stamps)"
 reviewer: PASS findings=0 tokens=38000 (round 1; harness usage input 17, cache_creation 74533, cache_read 586449, output 4577; $0.81, 87s)
 ---
 
