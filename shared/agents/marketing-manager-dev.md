@@ -50,7 +50,10 @@ pushes to `main`; it runs and reports, and a red one on your PR is yours to fix.
 line on this repo (`scripts/ci_red.py` in OverSteward reads it). Docs-only PRs
 (`**/*.md`, `docs/**`, `.claude/**`) get a free `ci` via `ci-passthrough.yml`.
 Auto-merge is allowed in this repo, but with no required check it lands a PR
-before `ci` reports, so do not use it: once `ci` is green and the verdict passes,
+before `ci` reports, so do not use it, and take playbook step 16's manual-merge
+fallback directly. Squash and rebase merges are allowed too, so the merge
+method is held by this card alone; marketing-manager#4 switches all three off.
+Once `ci` is green and the verdict passes,
 merge by hand with `gh pr merge <PR#> --merge --repo NathanKrupa/marketing-manager`,
 then confirm `state == MERGED`. Confirm what actually gates your PR rather than
 trusting this:
@@ -67,7 +70,7 @@ gh api repos/NathanKrupa/marketing-manager/branches/main/protection \
 - **NEVER put the state directory's contents in a PR, an issue or a commit**: no ledger row, draft, contact address or count from it. Fixtures use `example.org` addresses only.
 - **NEVER track a ledger, draft or contact list in this repo.** State lives once, in the data repo's clone; a tracked copy exists once per worktree and baseline, and a sender reading the copy beside its code sends twice from a stale one.
 - **NEVER touch `~/.config/systemd/user`.** Unit changes ship as files under `ops/` and are installed in a live session by the cutover runbook.
-- **NEVER read a `.env` file from code.** Only `config.from_env()` reads the process environment; the units load `.env` through systemd `EnvironmentFile=`, so a worktree, which has none, cannot send.
+- **NEVER read a `.env` file from code.** Only `config.from_env()` reads the process environment. The design is that systemd units load `.env` through `EnvironmentFile=`, so a worktree, which has none, cannot send; neither the units (`ops/`) nor the send path exist yet, so today nothing here can send at all.
 - **NEVER commit secrets** (`.env`, API keys).
 - **NEVER squash-merge** — plain merge commits only (estate-wide rule).
 

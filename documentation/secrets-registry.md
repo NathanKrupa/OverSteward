@@ -240,9 +240,11 @@ are references, not requirements.
 
 Private outreach repo (OS#644). Code reads the process environment only,
 through `src/marketing_manager/config/` (`from_env()`); it never opens a `.env`
-file. The systemd units load `/home/natha/marketing-manager/.env` with
-`EnvironmentFile=`, so a worktree, which has no `.env`, cannot send. Names are
-listed in `.env.example`. Until the cutover the untracked outreach scripts in
+file. The intended design, not yet in place: systemd units under `ops/` load
+`/home/natha/marketing-manager/.env` with `EnvironmentFile=`, so a worktree,
+which has no `.env`, cannot send. Neither the units nor the send path exist yet
+(they land before the OS#644 cutover), and `.env.example` names only the mail
+key so far. Until the cutover the untracked outreach scripts in
 OverSteward's primary checkout read both keys in-process from the `.env` files
 named below. At the cutover a session copies each value into
 marketing-manager's `.env` in-process, by name, printing nothing.
