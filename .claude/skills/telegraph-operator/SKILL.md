@@ -57,6 +57,7 @@ Parse each inbound message into one verb. Repo shorthand resolves via the
 | `WP` | `NathanKrupa/wphelper` |
 | `FI` | `NathanKrupa/Fiscus` |
 | `EX` | `NathanKrupa/exchequer` |
+| `MM` | `NathanKrupa/marketing-manager` |
 | `ai-assistants` | `NathanKrupa/ai-assistants` |
 
 ### Auto-fire verbs (no confirmation — reversible or read-only)
