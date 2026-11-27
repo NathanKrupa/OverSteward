@@ -15,13 +15,15 @@ import pytest
 
 from oversteward.ci_red.sources import (
     GithubCiRed,
+    JobInfo,
     PrInfo,
     RawIssue,
     RunInfo,
     SourceUnavailableError,
     Target,
+    WatchRun,
+    alert_trunks,
     targets_from_registry,
-    watched,
 )
 from oversteward.ci_red.triage import (
     CiRedUnreadable,
@@ -48,7 +50,16 @@ GS = Target("grantspider", "NathanKrupa/grantspider", Path("/gs"), "staging")
 FISCUS = Target("fiscus", "NathanKrupa/fiscus", Path("/fiscus"), "main")
 TARGETS = [GS, FISCUS]
 
-WATCHED_CI = b"name: ci\njobs:\n  ci:\n    runs-on: x\n  ci-red-alert:\n    runs-on: x\n"
+WATCHED_CI = (
+    b"name: ci\njobs:\n  ci:\n    runs-on: x\n  ci-red-alert:\n    runs-on: x\n"
+    b"    if: ${{ github.event_name == 'pull_request' && github.base_ref == 'staging' }}\n"
+)
+#: A run of the watched workflow that tested something: one job ran its steps, and passed.
+GREEN_RUN = WatchRun(
+    700, "completed", "success",
+    datetime(2026, 11, 5, 9, 0, tzinfo=UTC), datetime(2026, 11, 5, 9, 15, tzinfo=UTC),
+)
+GREEN_JOBS = (JobInfo(7001, "ci", "success", 29),)
 UNWATCHED_CI = b"name: ci\njobs:\n  ci:\n    runs-on: x\n"
 
 
@@ -91,8 +102,15 @@ def red_issue(number: int = 5, comments: tuple[str, ...] = (), **kw) -> RawIssue
 class FakeSource:
     """GitHub, as the sweep sees it. Every close is recorded; any read can be made to fail."""
 
-    def __init__(self, open_issues=None, prs=None, runs=None, issue_states=None, fail=()):
+    def __init__(self, open_issues=None, prs=None, runs=None, issue_states=None, fail=(),
+                 pr_heads=None, watch_runs=None, jobs=None, annotations=None):
         self.open_issues = open_issues or {}
+        #: The watchdog's reads; by default every trunk's newest PR has one green run.
+        self.pr_heads = pr_heads or {}
+        self.watch_runs = watch_runs or {}
+        self.jobs = jobs or {}
+        self.annotations = annotations or {}
+        self.watchdog_reads: list[tuple] = []
         self.prs = prs or {}
         self.runs = runs or {}
         self.issue_states = issue_states or {}
@@ -136,6 +154,23 @@ class FakeSource:
     def close(self, full_name, number, comment):
         self._check("close")
         self.closed.append((full_name, number, comment))
+
+    def recent_pr_heads(self, full_name, base, limit):
+        self._check(("heads", full_name, base))
+        self.watchdog_reads.append(("heads", full_name, base, limit))
+        return self.pr_heads.get((full_name, base), (SHA,))
+
+    def newest_run(self, full_name, workflow, head_sha):
+        self.watchdog_reads.append(("run", full_name, workflow, head_sha))
+        return self.watch_runs.get((full_name, head_sha), GREEN_RUN)
+
+    def run_jobs(self, full_name, run_id):
+        self.watchdog_reads.append(("jobs", full_name, run_id))
+        return self.jobs.get((full_name, run_id), GREEN_JOBS)
+
+    def job_annotations(self, full_name, job_id):
+        self.watchdog_reads.append(("annotations", full_name, job_id))
+        return self.annotations.get((full_name, job_id), ())
 
 
 class FakeGit:
@@ -231,7 +266,7 @@ def test_open_issue_is_queued_with_its_override_count(store, capsys):
 
 
 def _readings(source):
-    return read_estate(TARGETS, source, lambda t: t is GS)
+    return read_estate(TARGETS, source, lambda t: ("staging",) if t is GS else ())
 
 
 def test_known_whose_ref_is_closed_is_requeued(store):
@@ -430,12 +465,12 @@ def test_targets_from_registry_reads_checkout_and_branch():
             targets_from_registry(broken)
 
 
-def test_watched_reads_the_alert_job_from_the_ref():
-    assert watched(GS, repo_factory=GIT) is True
-    assert watched(FISCUS, repo_factory=GIT) is False
+def test_alert_trunks_reads_the_alert_job_from_the_ref():
+    assert alert_trunks(GS, repo_factory=GIT) == ("staging",)
+    assert alert_trunks(FISCUS, repo_factory=GIT) == ()
     broken = FakeGit({(GS.checkout, "origin/staging"): b"jobs: [unclosed"})
     with pytest.raises(SourceUnavailableError, match="is not YAML"):
-        watched(GS, repo_factory=broken)
+        alert_trunks(GS, repo_factory=broken)
 
 
 def test_github_connector_lists_by_label_and_refuses_a_full_page():

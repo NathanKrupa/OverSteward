@@ -39,9 +39,10 @@ written. A closing verdict closes first and writes the ledger after, so a
 failed close leaves no ruling claiming it happened.
 
 **The sweep reads everything before it writes anything.** Any repository that
-could not be read — its issues, its ``ci.yml`` ref, a ruling's ref issue —
-fails the whole sweep, and the snapshot ``record`` checks keys against is left
-as it was.
+could not be read — its issues, its ``ci.yml`` ref, a ruling's ref issue, or a
+watched workflow whose last-started run on a trunk's recent PRs never started
+(``watchdog.py``) — fails the whole sweep, and the snapshot ``record`` checks
+keys against is left as it was.
 """
 
 from __future__ import annotations
@@ -65,6 +66,7 @@ from .sources import (
     SourceUnavailableError,
     Target,
 )
+from .watchdog import WatchdogSource, check_watchdog
 
 VERDICT_FIXED = "fixed"
 VERDICT_UNMERGED = "unmerged"
@@ -102,7 +104,7 @@ class VerdictError(ValueError):
     """A verdict cannot be recorded as asked; nothing was closed."""
 
 
-class CiRedSource(Protocol):
+class CiRedSource(WatchdogSource, Protocol):
     def open_ci_red(self, full_name: str) -> tuple[RawIssue, ...]: ...
 
     def issue(self, full_name: str, number: int) -> RawIssue: ...
@@ -187,20 +189,27 @@ class RepoReading:
 
 
 def read_estate(
-    targets: Iterable[Target], source: CiRedSource, watched: Callable[[Target], bool]
+    targets: Iterable[Target],
+    source: CiRedSource,
+    alert_trunks: Callable[[Target], tuple[str, ...]],
 ) -> tuple[RepoReading, ...]:
-    """Every target's open ci-red issues and watch state; any unreadable one fails them all."""
+    """Every target's open ci-red issues and watch state; any unreadable one fails them all.
+
+    A watched target is read only once its watchdog is shown to have run on every
+    trunk its alert job covers (:func:`check_watchdog`).
+    """
     readings: list[RepoReading] = []
     failures: list[str] = []
     for target in targets:
         try:
             raws = source.open_ci_red(target.full_name)
-            is_watched = watched(target)
+            trunks = alert_trunks(target)
+            check_watchdog(target, trunks, source)
         except SourceUnavailableError as exc:
             failures.append(f"{target.id}: {exc}")
             continue
         issues = tuple(ci_red_issue(target.id, raw) for raw in raws)
-        readings.append(RepoReading(target, is_watched, issues))
+        readings.append(RepoReading(target, bool(trunks), issues))
     if failures:
         raise CiRedUnreadable("; ".join(failures))
     return tuple(readings)
