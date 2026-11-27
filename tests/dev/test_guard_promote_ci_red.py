@@ -39,6 +39,7 @@ AG_ORIGIN = "git@github.com:NathanKrupa/aigranthelper.git"
 RED = "BLOCKED — staging is red"
 COULD_NOT_LOOK = "BLOCKED — could not check"
 UNRECORDED = "BLOCKED — the PROMOTE_OVER_CI_RED override could not be recorded"
+PULL_UNREAD = "BLOCKED — could not read pull request"
 OVERRIDE_BODY = "PROMOTE OVERRIDE: staging→main — {}"
 
 
@@ -88,7 +89,33 @@ class FakeCheckouts:
         return self._checkouts.get(path, g.Checkout(origin=None, branch=None))
 
 
-def run(command, *, issues=None, comments=None, checkouts=None, cwd="/home/natha/OverSteward", environ=None):
+class FakePulls:
+    """The pull-request seam: (repo, selector) -> Pull, or a canned failure; records who was asked."""
+
+    def __init__(self, pulls: dict[tuple[str, str], g.Pull] | None = None, *, fails: str | None = None) -> None:
+        self._pulls = pulls or {}
+        self._fails = fails
+        self.asked: list[tuple[str, str]] = []
+
+    def __call__(self, repo: str, selector: str):
+        self.asked.append((repo, selector))
+        if self._fails is not None:
+            raise g.LookupFailed(self._fails)
+        if (repo, selector) not in self._pulls:
+            raise g.LookupFailed(f"gh pr view exited 1: no pull requests found for {selector}")
+        return self._pulls[(repo, selector)]
+
+
+def run(
+    command,
+    *,
+    issues=None,
+    comments=None,
+    checkouts=None,
+    pulls=None,
+    cwd="/home/natha/OverSteward",
+    environ=None,
+):
     issues = issues if issues is not None else FakeRedIssues({GS: [red(GS, 3530)]})
     return g.evaluate(
         command,
@@ -97,6 +124,7 @@ def run(command, *, issues=None, comments=None, checkouts=None, cwd="/home/natha
         read_checkout=checkouts or FakeCheckouts(),
         list_red_issues=issues,
         post_comment=comments if comments is not None else FakeComments(),
+        read_pull=pulls if pulls is not None else FakePulls(),
     )
 
 
@@ -390,6 +418,423 @@ def test_the_cadence_override_is_not_this_override():
     assert comments.attempted == []
 
 
+# --- guard merge: merging a promote is checked as opening one is (OS#661) -----------------
+
+PROMOTE_PULL = g.Pull(base="main", head="staging")
+GS_MERGE = "gh pr merge 3532 --repo NathanKrupa/grantspider --merge"
+GS_REST_MERGE = "gh api repos/NathanKrupa/grantspider/pulls/3532/merge -X PUT"
+OS_ORIGIN = "git@github.com:NathanKrupa/OverSteward.git"
+OS_DIR = "/home/natha/OverSteward"
+GS_DIR = "/home/natha/grantspider"
+
+
+def gs_pulls(pull: g.Pull = PROMOTE_PULL, selector: str = "3532") -> FakePulls:
+    return FakePulls({(GS, selector): pull})
+
+
+def os_checkout() -> FakeCheckouts:
+    return FakeCheckouts({OS_DIR: g.Checkout(OS_ORIGIN, "master")})
+
+
+def assert_pull_unread(code: int, message: str) -> None:
+    assert code == 2
+    assert PULL_UNREAD in message
+    assert RED not in message
+    assert COULD_NOT_LOOK not in message
+    assert "Traceback" not in message
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        GS_MERGE,
+        "gh pr merge --repo NathanKrupa/grantspider 3532 --auto --merge",
+        "gh pr merge -R NathanKrupa/grantspider --squash -d 3532",
+        "gh pr merge https://github.com/NathanKrupa/grantspider/pull/3532",
+        "gh pr merge https://www.github.com/NathanKrupa/grantspider/pull/3532/files",
+        "GH_REPO=NathanKrupa/grantspider gh pr merge 3532",
+        GS_REST_MERGE,
+        "gh api -X PUT repos/NathanKrupa/grantspider/pulls/3532/merge -f merge_method=merge",
+        "gh api --method=put /repos/NathanKrupa/grantspider/pulls/3532/merge",
+        "gh api -X PUT https://api.github.com/repos/NathanKrupa/grantspider/pulls/3532/merge",
+        "gh api repos/NathanKrupa/grantspider/pulls/3532/merge -f merge_method=merge",
+        "gh api -iXPUT repos/NathanKrupa/grantspider/pulls/3532/merge",
+        "gh api -iX PUT repos/NathanKrupa/grantspider/pulls/3532/merge",
+        "gh api -iX=PUT repos/NathanKrupa/grantspider/pulls/3532/merge",
+        "gh api -ifmerge_method=merge repos/NathanKrupa/grantspider/pulls/3532/merge",
+        "gh pr merge 3532 --repo NathanKrupa/grantspider --merge --body --disable-auto",
+        "gh pr merge 3532 --repo NathanKrupa/grantspider -t --disable-auto",
+        "gh pr merge 3532 --repo NathanKrupa/grantspider -dt --disable-auto",
+        "gh pr merge 3532 --repo NathanKrupa/grantspider -mb --disable-auto",
+        "gh pr merge 3532 -dR NathanKrupa/grantspider",
+        "gh pr merge 3532 -dRNathanKrupa/grantspider",
+        "gh pr merge 3532 -sdR=NathanKrupa/grantspider",
+        "GH_REPO=NathanKrupa/grantspider gh api -X PUT 'repos/NathanKrupa/{repo}/pulls/3532/merge'",
+        f"bash -c '{GS_MERGE}'",
+        f"timeout 60 {GS_MERGE}",
+    ],
+)
+def test_merging_a_promote_while_ci_red_is_open_is_refused(command):
+    """The issue's own reproduction: ci-red open, `gh pr merge 3532` exited 0."""
+    issues, pulls, comments = FakeRedIssues({GS: [red(GS, 3530)]}), gs_pulls(), FakeComments()
+    code, message = run(command, issues=issues, pulls=pulls, comments=comments)
+    assert_red(code, message)
+    assert "nathankrupa/grantspider#3530" in message
+    assert pulls.asked == [(GS, "3532")]
+    assert issues.asked == [GS]
+    assert comments.attempted == []
+
+
+@pytest.mark.parametrize(
+    "flags",
+    [
+        "--body -dRNathanKrupa/OverSteward",
+        "-b -dRNathanKrupa/OverSteward",
+        "-t -dR NathanKrupa/OverSteward",
+        "--subject -dRx/y",
+        "-dt -dRNathanKrupa/OverSteward",
+        "-mb -dRNathanKrupa/OverSteward",
+        "--match-head-commit -dRNathanKrupa/OverSteward",
+    ],
+)
+def test_a_flags_value_is_never_split_into_a_repo(flags):
+    """OS#711: gh takes `-dR…` after a value flag as that flag's value, so the repo stays GS."""
+    pulls = gs_pulls()
+    command = f"cd {OS_DIR} && gh pr merge 3532 --repo NathanKrupa/grantspider {flags}"
+    assert_red(*run(command, checkouts=os_checkout(), pulls=pulls))
+    assert pulls.asked == [(GS, "3532")]
+
+
+def test_split_short_flags_reads_bundles_as_gh_does():
+    args = ["-dt", "-dRx", "-dRNathanKrupa/gs", "-R=a/b", "--body", "-dRc/d", "-b", "-sR", "--merge", "-m"]
+    assert g._split_short_flags([*args, "--", "-dR"], g._PR_MERGE_VALUE_FLAGS) == [
+        "-d", "-t", "-dRx", "-d", "-R", "NathanKrupa/gs", "-R", "a/b", "--body", "-dRc/d",
+        "-b", "-sR", "--merge", "-m", "--", "-dR",
+    ]
+
+
+def test_merging_a_promote_branch_into_main_is_refused():
+    pulls = gs_pulls(g.Pull(base="main", head=PROMOTE_BRANCH))
+    assert_red(*run(GS_MERGE, pulls=pulls))
+
+
+def test_merging_an_aigranthelper_promote_is_refused():
+    issues = FakeRedIssues({AG: [red(AG, 2600)]})
+    pulls = FakePulls({(AG, "2750"): PROMOTE_PULL})
+    code, message = run("gh pr merge 2750 --repo NathanKrupa/aigranthelper", issues=issues, pulls=pulls)
+    assert_red(code, message)
+    assert issues.asked == [AG]
+
+
+def test_merging_the_checkouts_own_branch_asks_github_for_that_branch():
+    """With no pull request named, gh merges the checkout branch's own; so does the lookup."""
+    checkouts = FakeCheckouts({GS_DIR: g.Checkout(GS_ORIGIN, PROMOTE_BRANCH)})
+    pulls = gs_pulls(g.Pull(base="main", head=PROMOTE_BRANCH), selector=PROMOTE_BRANCH)
+    assert_red(*run(f"cd {GS_DIR} && gh pr merge --merge", checkouts=checkouts, pulls=pulls))
+    assert pulls.asked == [(GS, PROMOTE_BRANCH)]
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "gh api -X PUT 'repos/{owner}/grantspider/pulls/3532/merge'",
+        "gh api -X PUT https://api.github.com/repos/{owner}/grantspider/pulls/3532/merge",
+    ],
+)
+def test_a_partial_placeholder_fills_only_its_own_part(command):
+    """gh fills {owner} alone: from an OverSteward checkout this path is still grantspider."""
+    pulls = gs_pulls()
+    assert_red(*run(f"cd {OS_DIR} && {command}", checkouts=os_checkout(), pulls=pulls))
+    assert pulls.asked == [(GS, "3532")]
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "gh api -X PUT 'repos/NathanKrupa/{repo}/pulls/3532/merge'",
+        "gh api 'repos/NathanKrupa/{repo}/pulls' -f base=main -f head=staging",
+    ],
+)
+def test_a_filled_repo_placeholder_keeps_the_written_owner(command):
+    """OS#712: GH_REPO's owner fills nothing when the path writes its own."""
+    pulls = gs_pulls()
+    assert_red(*run(command, environ={"GH_REPO": "Other/grantspider"}, pulls=pulls))
+
+
+def test_opening_through_a_partial_placeholder_is_refused():
+    """The opening path fills placeholders the same way (the shared parser block)."""
+    command = f"cd {OS_DIR} && gh api 'repos/{{owner}}/grantspider/pulls' -f base=main -f head=staging"
+    assert_red(*run(command, checkouts=os_checkout()))
+
+
+def test_the_rest_placeholders_resolve_against_the_checkout():
+    checkouts = FakeCheckouts({GS_DIR: g.Checkout(GS_ORIGIN, "staging")})
+    pulls = gs_pulls()
+    command = f"cd {GS_DIR} && gh api 'repos/{{owner}}/{{repo}}/pulls/3532/merge' -X PUT"
+    assert_red(*run(command, checkouts=checkouts, pulls=pulls))
+    assert pulls.asked == [(GS, "3532")]
+
+
+@pytest.mark.parametrize(
+    "pull",
+    [
+        g.Pull(base="main", head="hotfix/pricing-builder-no-app-allowance"),
+        g.Pull(base="main", head="fix/issue-3390-sqlalchemy-hold"),
+        g.Pull(base="staging", head="feat/x"),
+        g.Pull(base="staging", head="main"),
+    ],
+)
+def test_merging_what_is_not_a_promote_is_allowed_without_a_lookup(pull):
+    """A hotfix into main, or anything into staging, merges while ci-red is open."""
+    issues, pulls = FakeRedIssues({GS: [red(GS, 3530)]}), gs_pulls(pull)
+    assert_allowed(*run(GS_MERGE, issues=issues, pulls=pulls))
+    assert pulls.asked == [(GS, "3532")]
+    assert issues.asked == []
+
+
+def test_merging_a_promote_with_nothing_red_is_allowed():
+    issues = FakeRedIssues({})
+    code, message = run(GS_MERGE, issues=issues, pulls=gs_pulls())
+    assert_allowed(code, message)
+    assert message == ""
+    assert issues.asked == [GS]
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "gh pr merge 5 --repo NathanKrupa/OverSteward --merge",
+        "gh pr merge https://github.com/NathanKrupa/OverSteward/pull/5",
+        "gh api repos/NathanKrupa/OverSteward/pulls/5/merge -X PUT",
+        "gh api repos/NathanKrupa/grantspider/pulls/3532/merge",
+        "gh api -X GET repos/NathanKrupa/grantspider/pulls/3532/merge",
+        "gh api -iXGET repos/NathanKrupa/grantspider/pulls/3532/merge",
+        "gh api -i -q -XPUT repos/NathanKrupa/grantspider/pulls/3532/merge",
+        "gh pr merge 3532 --repo NathanKrupa/grantspider --disable-auto",
+        "gh pr view 3532 --repo NathanKrupa/grantspider",
+        f'git commit -m "notes; {GS_MERGE}"',
+    ],
+)
+def test_what_merges_nothing_watched_is_allowed_without_asking(command):
+    issues, pulls = FakeRedIssues({GS: [red(GS, 1)], AG: [red(AG, 2)]}), gs_pulls()
+    assert_allowed(*run(command, issues=issues, pulls=pulls))
+    assert pulls.asked == []
+    assert issues.asked == []
+
+
+def test_merging_on_an_unwatched_repo_never_reads_the_checkout():
+    """An OverSteward `gh pr merge --auto` names no pull request; git is not asked for one."""
+    checkouts, pulls = FakeCheckouts(), FakePulls()
+    command = "gh pr merge --repo NathanKrupa/OverSteward --auto --merge"
+    assert_allowed(*run(command, checkouts=checkouts, pulls=pulls))
+    assert checkouts.asked == []
+    assert pulls.asked == []
+
+
+# --- guard merge look: a pull request that cannot be read refuses with its own text -----
+
+
+def test_a_pull_request_github_cannot_read_refuses_with_its_own_text():
+    issues = FakeRedIssues({GS: [red(GS, 3530)]})
+    pulls = FakePulls(fails="gh pr view exited 1: HTTP 502")
+    code, message = run(GS_MERGE, issues=issues, pulls=pulls)
+    assert_pull_unread(code, message)
+    assert "nathankrupa/grantspider#3532" in message
+    assert "gh pr view exited 1: HTTP 502" in message
+    assert issues.asked == []
+
+
+def test_the_pull_unread_text_differs_from_red_and_from_could_not_look():
+    _, red_text = run(GS_MERGE, pulls=gs_pulls())
+    _, look_text = run(GS_MERGE, pulls=gs_pulls(), issues=FakeRedIssues(fails="x"))
+    _, pull_text = run(GS_MERGE, pulls=FakePulls(fails="x"))
+    assert PULL_UNREAD in pull_text
+    assert PULL_UNREAD not in red_text and PULL_UNREAD not in look_text
+    assert RED not in pull_text and COULD_NOT_LOOK not in pull_text
+
+
+@pytest.mark.parametrize(
+    ("command", "says"),
+    [
+        ("gh pr merge 3532", "names no repo"),
+        ('cd "$GS" && gh pr merge 3532', "names no repo"),
+        ('gh pr merge 3532 --repo "$REPO"', "names no repo"),
+        ("gh pr merge $PR --repo NathanKrupa/grantspider", "names no pull request"),
+        ("gh pr merge `cat pr` --repo NathanKrupa/grantspider", "names no repo"),
+        ("gh api repos/NathanKrupa/grantspider/pulls/$PR/merge -X PUT", "names no pull request"),
+        ("gh api repos/NathanKrupa/grantspider/pulls/{number}/merge -X PUT", "names no pull request"),
+        ("gh pr merge 3532 --repo NathanKrupa/$R --merge", "names no repo"),
+        ("gh pr merge 3532 --repo $OWNER/grantspider --merge", "names no repo"),
+        ("gh pr merge https://github.com/NathanKrupa/$R/pull/3532", "names no repo"),
+        ("gh api -X PUT repos/NathanKrupa/$R/pulls/3532/merge", "names no repo"),
+        ("gh api -X PUT https://api.github.com/repos/$O/grantspider/pulls/3532/merge", "names no repo"),
+        ("GH_REPO=NathanKrupa/$R gh pr merge 3532", "names no repo"),
+        ("gh pr merge 3532 --repo=NathanKrupa/grant{spider,spider}", "names no repo"),
+        ("gh api -X PUT repos/NathanKrupa/grant{spider,x}/pulls/3532/merge", "names no repo"),
+        ("GH_REPO=NathanKrupa/grantspider gh api -X PUT 'repos/{owner}/$R/pulls/3532/merge'", "names no repo"),
+        ("GH_REPO=NathanKrupa/$R gh api -X PUT 'repos/{owner}/{repo}/pulls/3532/merge'", "names no repo"),
+    ],
+)
+def test_a_merge_the_guard_cannot_identify_is_refused_without_asking(command, says):
+    """No readable repo or pull request: the guard cannot ask, so it refuses."""
+    issues, pulls = FakeRedIssues({GS: [red(GS, 1)]}), FakePulls()
+    code, message = run(command, issues=issues, pulls=pulls)
+    assert_pull_unread(code, message)
+    assert says in message
+    assert pulls.asked == []
+    assert issues.asked == []
+
+
+def test_a_url_the_guard_does_not_parse_is_unread_whatever_the_checkout():
+    """gh may read a pull request URL this guard's pattern does not; the checkout's repo is not taken."""
+    pulls = FakePulls()
+    command = f"cd {OS_DIR} && gh pr merge ssh://github.com/NathanKrupa/grantspider/pull/3532"
+    code, message = run(command, checkouts=os_checkout(), pulls=pulls)
+    assert_pull_unread(code, message)
+    assert "names no repo" in message
+    assert pulls.asked == []
+
+
+def test_a_merge_of_the_checkout_branch_with_no_branch_readable_is_refused():
+    checkouts = FakeCheckouts({GS_DIR: g.Checkout(GS_ORIGIN, None)})
+    pulls = FakePulls()
+    code, message = run(f"cd {GS_DIR} && gh pr merge", checkouts=checkouts, pulls=pulls)
+    assert_pull_unread(code, message)
+    assert pulls.asked == []
+
+
+def test_a_failed_ci_red_lookup_on_a_promote_merge_refuses_as_could_not_look():
+    code, message = run(GS_MERGE, pulls=gs_pulls(), issues=FakeRedIssues(fails="gh api exited 1"))
+    assert code == 2
+    assert COULD_NOT_LOOK in message
+    assert PULL_UNREAD not in message
+    assert RED not in message
+
+
+# --- guard merge readings: a merge is read wherever an opening is --------------------------
+
+# The shell reads this as one word; today's reading opens a phantom quote at the
+# apostrophe, so a call between two of them is seen only by the nest-true reading.
+MIS = 'echo "$(echo "it\'s")"'
+# A heredoc in a substitution whose body holds one double quote: the lexer
+# rejects the text, and bash runs it.
+BODY = " --body \"$(cat <<'EOF'\nsay \" here\nEOF\n)\""
+
+
+def test_a_merge_only_the_nest_true_reading_sees_is_refused():
+    pulls = gs_pulls()
+    assert_red(*run(f"{MIS} ; {GS_MERGE} ; {MIS}", pulls=pulls))
+    assert pulls.asked == [(GS, "3532")]
+
+
+def test_a_merge_in_text_the_lexer_rejects_is_refused():
+    command = GS_MERGE + BODY
+    assert g._lex(command) is None
+    assert_red(*run(command, pulls=gs_pulls()))
+
+
+def test_a_merge_naming_no_pull_request_in_rejected_text_is_unread():
+    """The pull request may sit past where the lexer lost the thread, so the checkout's is not taken."""
+    checkouts = FakeCheckouts({GS_DIR: g.Checkout(GS_ORIGIN, "fix/x")})
+    pulls = gs_pulls(g.Pull(base="main", head="fix/x"), selector="fix/x")
+    command = f"cd {GS_DIR} && gh pr merge --merge\necho 'oops"
+    assert g._lex(command) is None
+    assert_pull_unread(*run(command, checkouts=checkouts, pulls=pulls))
+    assert pulls.asked == []
+
+
+def test_a_rest_merge_call_in_rejected_text_counts_whatever_its_method():
+    """A -X PUT may sit past where the lexer lost the thread, so GET is not taken as written."""
+    command = "gh api repos/NathanKrupa/grantspider/pulls/3532/merge\necho 'oops"
+    assert g._lex(command) is None
+    assert_red(*run(command, pulls=gs_pulls()))
+
+
+def test_a_watched_repo_written_elsewhere_in_rejected_text_makes_the_merge_unread():
+    pulls = gs_pulls()
+    command = "gh pr merge 5 --repo NathanKrupa/OverSteward\necho '--repo NathanKrupa/grantspider"
+    assert g._lex(command) is None
+    assert_pull_unread(*run(command, pulls=pulls))
+    assert pulls.asked == []
+
+
+# --- guard merge override and several commands -------------------------------------------
+
+
+def test_the_override_on_a_merge_comments_and_allows():
+    issues, comments = FakeRedIssues({GS: [red(GS, 3530)]}), FakeComments()
+    command = f"PROMOTE_OVER_CI_RED='prod down' {GS_MERGE}"
+    assert_allowed(*run(command, issues=issues, comments=comments, pulls=gs_pulls()))
+    assert comments.posted == [(GS, 3530, OVERRIDE_BODY.format("prod down"))]
+
+
+def test_an_override_on_another_command_does_not_pass_a_merge():
+    comments = FakeComments()
+    assert_red(*run(f"PROMOTE_OVER_CI_RED=why echo hi && {GS_MERGE}", comments=comments, pulls=gs_pulls()))
+    assert comments.attempted == []
+
+
+def test_a_promote_merge_after_an_allowed_merge_in_one_command_is_refused():
+    pulls = FakePulls({(GS, "1"): g.Pull(base="main", head="hotfix/x"), (GS, "3532"): PROMOTE_PULL})
+    command = "gh pr merge 1 --repo NathanKrupa/grantspider && " + GS_MERGE
+    assert_red(*run(command, pulls=pulls))
+    assert pulls.asked == [(GS, "1"), (GS, "3532")]
+
+
+def test_an_unread_merge_after_an_overridden_merge_is_still_refused():
+    """Every merge is read, so an override on the first does not carry the second past its lookup."""
+    pulls = FakePulls({(GS, "3532"): PROMOTE_PULL}, fails=None)
+    command = f"PROMOTE_OVER_CI_RED=why {GS_MERGE} && gh pr merge 99 --repo NathanKrupa/grantspider"
+    assert_pull_unread(*run(command, pulls=pulls))
+    assert pulls.asked == [(GS, "3532"), (GS, "99")]
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        f"PROMOTE_OVER_CI_RED=why {GS_PROMOTE} && PROMOTE_OVER_CI_RED=why {GS_MERGE}",
+        f"PROMOTE_OVER_CI_RED=why {GS_MERGE} && PROMOTE_OVER_CI_RED=why {GS_MERGE}",
+    ],
+)
+def test_one_promote_opened_and_merged_records_its_override_once(command):
+    """The same repo and reason, reached twice in one command, is one promote: one comment per issue."""
+    issues, comments = FakeRedIssues({GS: [red(GS, 3530)]}), FakeComments()
+    assert_allowed(*run(command, issues=issues, comments=comments, pulls=gs_pulls()))
+    assert comments.posted == [(GS, 3530, OVERRIDE_BODY.format("why"))]
+
+
+def test_a_merge_after_an_opening_in_one_command_is_checked_on_its_own_repo():
+    issues = FakeRedIssues({AG: [red(AG, 2600)]})
+    pulls = FakePulls({(AG, "2750"): PROMOTE_PULL})
+    command = f"{GS_PROMOTE} && gh pr merge 2750 --repo NathanKrupa/aigranthelper"
+    assert_red(*run(command, issues=issues, pulls=pulls))
+    assert issues.asked == [GS, AG]
+
+
+# --- reading GitHub's pull request -------------------------------------------------------
+
+
+def test_parse_pull_reads_base_and_head():
+    payload = json.dumps({"baseRefName": "main", "headRefName": "staging"})
+    assert g.parse_pull(payload) == PROMOTE_PULL
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "not json",
+        "[]",
+        "{}",
+        '{"baseRefName": "main"}',
+        '{"baseRefName": "", "headRefName": "x"}',
+        '{"baseRefName": 1, "headRefName": "x"}',
+    ],
+)
+def test_an_unreadable_pull_request_is_a_lookup_failure(payload):
+    with pytest.raises(g.LookupFailed):
+        g.parse_pull(payload)
+
+
 # --- reading GitHub's answer -----------------------------------------------------------
 
 
@@ -434,10 +879,11 @@ def test_a_listing_that_fills_the_limit_is_a_lookup_failure():
 # --- end to end: the hook as Claude Code runs it, with a fake gh on PATH -------------------
 
 
-def _hook(tmp_path, command, *, listing="[]", list_exit=0, comment_exit=0):
+def _hook(tmp_path, command, *, listing="[]", list_exit=0, comment_exit=0, pull="{}", view_exit=0):
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     (tmp_path / "list.out").write_text(listing, encoding="utf-8")
+    (tmp_path / "view.out").write_text(pull, encoding="utf-8")
     log = tmp_path / "gh.log"
     gh = fake_bin / "gh"
     gh.write_text(
@@ -446,6 +892,7 @@ def _hook(tmp_path, command, *, listing="[]", list_exit=0, comment_exit=0):
         'case "$1 $2" in\n'
         f'  "api repos/"*) cat "{tmp_path / "list.out"}"; exit {list_exit} ;;\n'
         f'  "issue comment") exit {comment_exit} ;;\n'
+        f'  "pr view") cat "{tmp_path / "view.out"}"; exit {view_exit} ;;\n'
         "esac\n"
         "exit 99\n",
         encoding="utf-8",
@@ -511,6 +958,38 @@ def test_the_hook_refuses_an_unrecorded_override_end_to_end(tmp_path):
     assert UNRECORDED in result.stderr
     assert "gh issue comment exited 1" in result.stderr
     assert "Traceback" not in result.stderr
+
+
+PROMOTE_VIEW = json.dumps({"baseRefName": "main", "headRefName": "staging"})
+PR_VIEW_CALL = "pr view --repo nathankrupa/grantspider --json baseRefName,headRefName -- 3532"
+
+
+@pytest.mark.parametrize("command", [GS_MERGE, GS_REST_MERGE])
+def test_the_hook_refuses_a_promote_merge_while_ci_red_is_open_end_to_end(tmp_path, command):
+    result, calls = _hook(tmp_path, command, listing=LISTING, pull=PROMOTE_VIEW)
+    assert result.returncode == 2
+    assert RED in result.stderr
+    assert "nathankrupa/grantspider#3530" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert calls == [PR_VIEW_CALL, f"api {g.red_issues_endpoint(GS)}"]
+
+
+def test_the_hook_allows_a_hotfix_merge_end_to_end(tmp_path):
+    hotfix = json.dumps({"baseRefName": "main", "headRefName": "hotfix/x"})
+    result, calls = _hook(tmp_path, GS_MERGE, listing=LISTING, pull=hotfix)
+    assert result.returncode == 0
+    assert result.stderr == ""
+    assert calls == [PR_VIEW_CALL]
+
+
+def test_the_hook_refuses_a_merge_when_gh_pr_view_fails_end_to_end(tmp_path):
+    result, calls = _hook(tmp_path, GS_MERGE, listing="[]", pull=PROMOTE_VIEW, view_exit=1)
+    assert result.returncode == 2
+    assert PULL_UNREAD in result.stderr
+    assert "gh pr view exited 1" in result.stderr
+    assert RED not in result.stderr and COULD_NOT_LOOK not in result.stderr
+    assert "Traceback" not in result.stderr
+    assert calls == [PR_VIEW_CALL]
 
 
 def test_the_hook_ignores_other_tools_and_bad_input(tmp_path):

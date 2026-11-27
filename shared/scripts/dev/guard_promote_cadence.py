@@ -894,7 +894,8 @@ class _Wide:
     """What the wide reading found written anywhere in text the lexer rejects.
 
     Each field can only make a found call a promote, never clear one; the empty
-    record, which text that parses gets, changes nothing.
+    record, which text that parses gets, changes nothing. ``rejected`` says the
+    text is such text, where what a call's own command lacks may have been lost.
     """
 
     base_main: bool = False
@@ -905,6 +906,7 @@ class _Wide:
     api_input: bool = False
     api_post: bool = False
     api_endpoints: frozenset[tuple[str, str]] = frozenset()
+    rejected: bool = False
 
     def __or__(self, other: "_Wide") -> "_Wide":
         return _Wide(*(a | b for a, b in zip(vars(self).values(), vars(other).values())))
@@ -915,7 +917,11 @@ _NOTHING_WIDE = _Wide()
 
 @dataclass
 class _Context:
-    """One invocation's surroundings: its env prefix, directory and the seams."""
+    """One invocation's surroundings: its env prefix, directory and the seams.
+
+    ``read_call`` reads one unwrapped call; :func:`_gh_promote` when None. A
+    guard that reads other calls than openings passes its own.
+    """
 
     assignments: list[str]
     cwd: str
@@ -924,6 +930,7 @@ class _Context:
     line_true: bool = False
     nest_true: bool = False
     wide: _Wide = _NOTHING_WIDE
+    read_call: "Callable[[list[str], _Context], Promote | None] | None" = None
 
     def gh_repo(self) -> str | None:
         return _assigned(self.assignments, GH_REPO_VAR) or self.environ.get(GH_REPO_VAR)
@@ -962,11 +969,26 @@ def _pr_create_promote(args: list[str], ctx: _Context) -> Promote | None:
     return ctx.promote(slug)
 
 
+def _fill_placeholders(owner: str, name: str, resolved: str | None) -> str | None:
+    """``owner/repo`` of a REST path, each of gh's placeholders filled on its own.
+
+    gh replaces ``{owner}`` and ``{repo}`` separately, so ``{owner}/grantspider``
+    names grantspider whatever repo the placeholders resolve against. None when
+    ``resolved`` is unread or a brace is left over.
+    """
+    if resolved is None:
+        return None
+    resolved_owner, _, resolved_name = resolved.partition("/")
+    owner = resolved_owner if owner == "{owner}" else owner
+    name = resolved_name if name == "{repo}" else name
+    return None if "{" in owner + name else _slug(f"{owner}/{name}")
+
+
 def _api_repo(owner: str, name: str, ctx: _Context) -> str | None:
     """``owner/repo`` of a REST path, resolving gh's ``{owner}/{repo}`` placeholders."""
     if "{" not in owner + name:
         return _slug(f"{owner}/{name}")
-    return _slug(ctx.gh_repo() or ctx.checkout().origin)
+    return _fill_placeholders(owner, name, _slug(ctx.gh_repo() or ctx.checkout().origin))
 
 
 def _api_promote(args: list[str], ctx: _Context) -> Promote | None:
@@ -1018,8 +1040,9 @@ def _promote_in(argv: list[str], ctx: _Context) -> Promote | None:
             line_true=ctx.line_true,
             nest_true=ctx.nest_true,
             wide=ctx.wide,
+            read_call=ctx.read_call,
         )
-    return _gh_promote(argv, ctx)
+    return (ctx.read_call or _gh_promote)(argv, ctx)
 
 
 def _search(
@@ -1040,6 +1063,7 @@ def _search(
             template.line_true,
             template.nest_true,
             template.wide,
+            template.read_call,
         )
         found = _promote_in(argv, _Context(run_assignments, run_cwd, *seams))
         if found is not None:
@@ -1185,6 +1209,7 @@ def _wide_reading(command: str) -> _Wide:
             for match in (_PULLS_ENDPOINT.match(token.split("?")[0]) for token in tokens)
             if match
         ),
+        rejected=True,
     )
 
 
@@ -1210,6 +1235,7 @@ def _rejected_promote(command: str, template: _Context) -> Promote | None:
         True,
         template.nest_true,
         wide,
+        template.read_call,
     )
     first, fresh = _read_rejected(command, _ShellLexer)
     runs = [[_split_assignments(argv) for argv in _simple_commands(t)] for t in [first, *fresh]]
@@ -1236,6 +1262,7 @@ def find_promote(
     line_true: bool = False,
     nest_true: bool = False,
     wide: _Wide = _NOTHING_WIDE,
+    read_call: "Callable[[list[str], _Context], Promote | None] | None" = None,
 ) -> Promote | None:
     """The first staging→main promote on a ``PROMOTE_REPOS`` repo ``command`` would run.
 
@@ -1244,10 +1271,11 @@ def find_promote(
     ``line_true`` and ``nest_true`` select the reading, and a nested script
     is read under it. Text the lexer rejects is read by
     :func:`_rejected_promote`; ``wide`` is what W found in a rejected text
-    enclosing this one.
+    enclosing this one. ``read_call``, when given, reads each call in place
+    of :func:`_gh_promote`.
     """
     template = _Context(
-        list(inherited or []), cwd, environ, read_checkout, line_true, nest_true, wide
+        list(inherited or []), cwd, environ, read_checkout, line_true, nest_true, wide, read_call
     )
     invocations = _invocations(command, line_true, nest_true)
     if invocations is None:
@@ -1256,7 +1284,12 @@ def find_promote(
 
 
 def find_promotes(
-    command: str, cwd: str, *, environ: Mapping[str, str], read_checkout: ReadCheckout
+    command: str,
+    cwd: str,
+    *,
+    environ: Mapping[str, str],
+    read_checkout: ReadCheckout,
+    read_call: "Callable[[list[str], _Context], Promote | None] | None" = None,
 ) -> list[Promote]:
     """The first promote under each reading, today's first, each from ``cwd``; distinct.
 
@@ -1280,6 +1313,7 @@ def find_promotes(
             read_checkout=read_checkout,
             line_true=line_true,
             nest_true=nest_true,
+            read_call=read_call,
         )
         if promote is not None and promote not in found:
             found.append(promote)
