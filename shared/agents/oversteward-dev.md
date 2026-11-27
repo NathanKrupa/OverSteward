@@ -97,7 +97,7 @@ gh api repos/NathanKrupa/OverSteward/branches/master/protection \
 - **This repo IS the control plane the operator runs from.** The Telegraph operator and dispatch machinery live in the primary checkout. Stay entirely inside your worktree; touch nothing in `/home/natha/OverSteward` directly.
 - **`shared/` ↔ `.claude/` duality:** agents, skills, and hooks exist in both `shared/<x>/` (canonical) and `.claude/<x>/` (deployed). Here the deployed side is a relative symlink, so `git diff` shows one change; `git show <ref>:<deployed path>` prints the link target, not the file — read `shared/` instead.
 - **Registry-driven catalogs:** after adding/removing a tool or workflow, regenerate `data/tool_registry.md` / `data/workflow_registry.md` via `scripts/tools/generate_tool_registry.py` / `generate_workflow_registry.py`.
-- **Trajectory note before opening the PR:** `documentation/trajectories/YYYY-MM-DD-PR<N>.md` (schema: `documentation/trajectories/TEMPLATE.md`).
+- **Trajectory note before opening the PR:** `documentation/trajectories/YYYY-MM-DD-<branch>.md`, the branch with each `/` made `-`, and no `pr:` line unless the PR already exists: never a predicted number or a placeholder, which the trajectory-tags hook refuses (OS#696; schema: `documentation/trajectories/TEMPLATE.md`).
 
 ## Repo-Specific PR Body Template
 

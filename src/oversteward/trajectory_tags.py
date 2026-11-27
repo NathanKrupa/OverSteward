@@ -1,5 +1,5 @@
 # ABOUTME: Validates the `[category]` and `→ promote:` tags every trajectory lesson bullet owes (OS#329).
-# ABOUTME: Parses a note's three capture sections and reports untagged bullets; never writes.
+# ABOUTME: Parses capture sections and the `pr:` line; reports untagged bullets and pr placeholders.
 
 """Tag validation for trajectory notes.
 
@@ -30,6 +30,13 @@ rather than re-implementing it. That is the point — the gate must accept exact
 what the consumer can read. A bullet that trails prose *after* its ``promote:``
 tag is invisible to the analyzer's end-anchored regex, so a gate with its own
 looser pattern would pass bullets that still route nowhere.
+
+The same pass reads one front-matter line, ``pr:``. A note is written before
+its PR exists, so it is named by its branch and carries no ``pr:`` line until
+the PR does (OS#696). A ``pr:`` value that is not ``<repo>#<number>`` is a
+placeholder for a number nobody knows yet, and is reported. Whether a
+well-formed number names the PR the branch actually opened needs GitHub, and
+is OS#458's question, not this offline gate's.
 """
 
 from __future__ import annotations
@@ -54,6 +61,18 @@ CAPTURE_SECTIONS: tuple[str, ...] = (SECTION_WORKED, SECTION_DIDNT, SECTION_LEAR
 _HEADING_RE = re.compile(r"^#{1,6}\s+(.*)$")
 _LEADING_TAG_RE = re.compile(r"^\[([^\]]*)\]")
 _PROMOTE_MENTION_RE = re.compile(r"promote\s*:", re.IGNORECASE)
+
+#: The section name a front-matter finding is reported under.
+SECTION_FRONT_MATTER = "front matter"
+
+#: What a `pr:` line may hold: the number of a PR that exists, optionally with
+#: the owner. Anything else (``TBD``, ``<N>``, ``pending``, prose) is a
+#: placeholder for a number nobody knows yet, and a placeholder is what invites
+#: the fix-up commit after review that no verdict covers (OS#696).
+PR_VALUE_RE = re.compile(r"^[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)?#[0-9]+$")
+PR_ALLOWED: tuple[str, ...] = ("<repo>#<number> of a PR that already exists", "no `pr:` line")
+_PR_LINE_RE = re.compile(r"^pr:(.*)$")
+_YAML_COMMENT_RE = re.compile(r"\s+#.*$")
 
 #: Cheap keyword hints for the "did you mean" suggestion. Deliberately not an
 #: LLM and deliberately advisory — a wrong suggestion costs the author a moment,
@@ -257,6 +276,63 @@ def _judge_bullet(bullet: Bullet) -> Iterator[_Judgement]:
             yield promote
 
 
+def _front_matter(text: str) -> Iterator[tuple[int, str]]:
+    """Each numbered line of the leading ``---`` block; nothing when there is none.
+
+    A leading byte-order mark is not allowed to hide the block.
+    """
+    lines = text.removeprefix("\ufeff").splitlines()
+    if not lines or lines[0].strip() != "---":
+        return
+    for lineno, line in enumerate(lines[1:], start=2):
+        if line.strip() == "---":
+            return
+        yield lineno, line
+
+
+def _pr_value(raw: str) -> str:
+    """A `pr:` line's value, without a trailing YAML comment or quotes."""
+    return _YAML_COMMENT_RE.sub("", raw).strip().strip("'\"")
+
+
+def _names_a_pr(raw: str, following: list[tuple[int, str]]) -> bool:
+    """Whether a `pr:` line's raw value is a real PR number or truly empty."""
+    value = _pr_value(raw)
+    if value:
+        return PR_VALUE_RE.match(value) is not None
+    continued = bool(following) and following[0][1][:1] in (" ", "\t", "-")
+    return not raw.strip() and not continued
+
+
+def _judge_pr_lines(path: Path, text: str) -> Iterator[Violation]:
+    """A finding for each front-matter `pr:` line naming no real PR.
+
+    A truly empty `pr:` line passes, and so does none at all: a note is written
+    before its PR exists, so it is named by its branch and its PR is the one
+    whose diff adds it. A value that pretends to a number nobody knows yet is a
+    finding, and so is a line holding nothing but a comment (``pr: #TBD``, which
+    YAML reads as empty) or an empty line carrying an indented list beneath it.
+    """
+    lines = list(_front_matter(text))
+    for index, (lineno, line) in enumerate(lines):
+        match = _PR_LINE_RE.match(line)
+        if match is None:
+            continue
+        if _names_a_pr(match.group(1), lines[index + 1 : index + 2]):
+            continue
+        yield Violation(
+            path=path,
+            line=lineno,
+            section=SECTION_FRONT_MATTER,
+            bullet=line.strip(),
+            reason=(
+                "`pr:` names no PR that exists — leave the line out until the PR "
+                "exists; never predict the number or write a placeholder (OS#696)"
+            ),
+            allowed=PR_ALLOWED,
+        )
+
+
 def _require_capture_sections(path: Path, text: str) -> tuple[str, ...]:
     """The capture sections the note carries; raises when it carries none."""
     sections = tuple(s for s in CAPTURE_SECTIONS if _has_section(text, s))
@@ -278,7 +354,7 @@ def validate_text(path: Path, text: str) -> NoteReport:
     """
     sections = _require_capture_sections(path, text)
     bullets = list(iter_bullets(text))
-    violations = tuple(
+    violations = tuple(_judge_pr_lines(path, text)) + tuple(
         Violation(
             path=path,
             line=bullet.line,
@@ -317,9 +393,10 @@ def format_violation(violation: Violation) -> str:
     bullet = violation.bullet
     if len(bullet) > 160:
         bullet = f"{bullet[:157]}..."
+    label = "line:    " if violation.section == SECTION_FRONT_MATTER else "bullet:  - "
     lines = [
         f"{violation.path}:{violation.line}: [{violation.section}] {violation.reason}",
-        f"    bullet:  - {bullet}",
+        f"    {label}{bullet}",
         f"    allowed: {' | '.join(violation.allowed)}",
     ]
     if violation.suggestion:

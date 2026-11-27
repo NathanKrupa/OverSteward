@@ -72,7 +72,7 @@ gh api repos/NathanKrupa/exchequer/branches/main/protection \
 - **Gates are scoped to `src/` + `tests/`** (ruff, pyright, gaudi, bandit). Files under `.claude/` are canonical OverSteward byte-copies — improve them at the source and redeploy, never in-repo.
 - **Config injection:** only `config.py:from_env()` reads the environment; connectors take params via `__init__`. Keep it that way.
 - **MCP read paths** (`.mcp.json`): `analytics-mcp` is the GA4 connector's source of truth for verification; the Railway MCP confirms the `estimatedUsage` GraphQL shape.
-- **Trajectory note before opening the PR:** `documentation/trajectories/YYYY-MM-DD-PR<N>.md` (schema: OverSteward `documentation/trajectories/TEMPLATE.md`).
+- **Trajectory note before opening the PR:** `documentation/trajectories/YYYY-MM-DD-<branch>.md`, the branch with each `/` made `-`, and no `pr:` line unless the PR already exists: never a predicted number or a placeholder (OS#696; schema: OverSteward `documentation/trajectories/TEMPLATE.md`).
 
 ## Repo-Specific PR Body Template
 
