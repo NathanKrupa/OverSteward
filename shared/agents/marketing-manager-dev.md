@@ -49,19 +49,19 @@ pushes to `main`; it runs and reports, and a red one on your PR is yours to fix.
 `ci-red-alert` files a `ci-red` issue when `ci` is red on a PR, which stops the
 line on this repo (`scripts/ci_red.py` in OverSteward reads it). Docs-only PRs
 (`**/*.md`, `docs/**`, `.claude/**`) get a free `ci` via `ci-passthrough.yml`.
-Auto-merge is allowed in this repo, but with no required check it lands a PR
-before `ci` reports, so do not use it, and take playbook step 16's manual-merge
-fallback directly. Squash and rebase merges are allowed too, so the merge
-method is held by this card alone; marketing-manager#4 switches all three off.
-Once `ci` is green and the verdict passes,
+**Auto-merge is switched off in this repo**, and so are squash and rebase merges
+(measured 2026-11-27), so `gh pr merge --auto` cannot stick and a merge commit is
+the only method GitHub accepts. Once `ci` is green and the verdict passes,
 merge by hand with `gh pr merge <PR#> --merge --repo NathanKrupa/marketing-manager`,
-then confirm `state == MERGED`. Confirm what actually gates your PR rather than
-trusting this:
+then confirm `state == MERGED`. Confirm what actually gates your PR, and which
+merge methods the repo allows, rather than trusting this:
 
 ```bash
 gh pr checks <PR#> --repo NathanKrupa/marketing-manager
 gh api repos/NathanKrupa/marketing-manager/branches/main/protection \
   --jq '.required_status_checks.contexts'
+gh api repos/NathanKrupa/marketing-manager \
+  --jq '{merge:.allow_merge_commit,squash:.allow_squash_merge,rebase:.allow_rebase_merge,auto:.allow_auto_merge}'
 ```
 
 ## Repo-Specific Denylist
