@@ -285,6 +285,10 @@ def test_checkout_for_matches_the_registry_repo_url():
     assert wd.checkout_for("NathanKrupa/aigranthelper", contexts) == Path("/x/ag")
     assert wd.checkout_for("NathanKrupa/Stocks", contexts) is None
     assert wd.checkout_for("NathanKrupa/granthelper", contexts) is None
+    # The match is on a whole owner segment, not a suffix of one.
+    owned = [{"repo": "https://github.com/NathanKrupa/Stocks.git", "local_path": "/x/st"}]
+    assert wd.checkout_for("athanKrupa/Stocks", owned) is None
+    assert wd.checkout_for("NathanKrupa/Stocks", owned) == Path("/x/st")
 
 
 # --- the CLI ---------------------------------------------------------------

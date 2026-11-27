@@ -38,9 +38,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 #: Minutes with nothing moving before the alert. A quiet stretch is legitimate
-#: while one review round or one ``make verify`` runs; 40- and 45-minute alerts
-#: fired on healthy agents in exactly those stretches on 2026-11-11, which is why
-#: the stepping-away skill already asked for 60 or more.
+#: while a review round or ``make verify`` runs, since neither writes a signal
+#: until it ends; 40- and 45-minute alerts fired on healthy agents in exactly
+#: those stretches on 2026-11-11, which is why the stepping-away skill already
+#: asked for 60 or more. A longer stretch still alerts: GS#2800's round 1 took
+#: 68 minutes, so a run expected to need one is armed with a larger ``--warn-min``.
 DEFAULT_WARN_MIN = 60
 DEFAULT_POLL_SEC = 60
 WORKTREE_DIR = Path(".claude") / "worktrees"
