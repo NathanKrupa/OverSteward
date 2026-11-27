@@ -436,6 +436,20 @@ def test_the_rest_form_resolves_owner_and_repo_placeholders_from_the_cwd():
     assert_too_soon(*run(command, checkouts=checkouts))
 
 
+def test_a_partial_placeholder_fills_only_its_own_part():
+    """gh fills {owner} alone: from an OverSteward checkout this path is still grantspider."""
+    origin = "git@github.com:NathanKrupa/OverSteward.git"
+    checkouts = FakeCheckouts({"/home/natha/OverSteward": g.Checkout(origin, "master")})
+    command = "cd /home/natha/OverSteward && gh api 'repos/{owner}/grantspider/pulls' -f base=main -f head=staging"
+    assert_too_soon(*run(command, checkouts=checkouts))
+
+
+def test_a_filled_repo_placeholder_keeps_the_written_owner():
+    """OS#712: GH_REPO's owner fills nothing when the path writes its own."""
+    command = "gh api 'repos/NathanKrupa/{repo}/pulls' -f base=main -f head=staging"
+    assert_too_soon(*run(command, environ={"GH_REPO": "Other/grantspider"}))
+
+
 @pytest.mark.parametrize(
     "command",
     [
