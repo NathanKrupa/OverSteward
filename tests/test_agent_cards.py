@@ -1045,6 +1045,35 @@ def test_the_ag_card_and_live_sessions_read_the_same_mobile_rule() -> None:
     )
 
 
+#: The seeded-row rule (OS#847), promoted from a kaizen cluster of AG PRs. It is
+#: one gotcha bullet; each fragment below is a load-bearing part of it, and the
+#: citations are the evidence the rule was read from.
+SEEDED_ROW_RULE = re.compile(r"^- \*\*A migration-seeded, admin-editable row\b.*$", re.MULTILINE)
+SEEDED_ROW_FRAGMENTS = (
+    "seeds it from the current code",
+    "`--reuse-db`",
+    "the migration's own seed function",
+    "`update_or_create`",
+    "never `create`",
+    "by key, never by position",
+    "reaches no existing row",
+    "#2675",
+    "#2727",
+    "#2731",
+    "#2762",
+    "#2771",
+    "#2832",
+)
+
+
+def test_the_ag_card_states_the_seeded_row_rule_with_its_mechanism() -> None:
+    """A rule nothing an agent reads states is a rule that recurs."""
+    found = SEEDED_ROW_RULE.findall((CANONICAL_DIR / "aigranthelper-dev.md").read_text("utf-8"))
+    assert len(found) == 1, f"aigranthelper-dev.md states the seeded-row rule {len(found)} times"
+    missing = [fragment for fragment in SEEDED_ROW_FRAGMENTS if fragment not in found[0]]
+    assert not missing, f"the seeded-row rule in aigranthelper-dev.md lost {missing}"
+
+
 #: A file the card writes into the worktree, named relative to it. Every such
 #: file must be ignored, or the pickup leaves untracked files that a `git add .`
 #: would commit and that `worktree_doctor.py teardown` (which never forces)
