@@ -1,0 +1,1 @@
+../../shared/agents/marketing-manager-dev.md

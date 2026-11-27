@@ -1,14 +1,16 @@
-# ABOUTME: grantspider's scripts/ci/ci_red_alert.py is canonical; aigranthelper's is its byte-copy.
-# ABOUTME: Compares the two committed blobs at each registry `branch` (origin/staging); red on one byte.
+# ABOUTME: grantspider's scripts/ci/ci_red_alert.py is canonical; AG's and MM's are its byte-copies.
+# ABOUTME: Compares each copy's committed blob with the canonical one at each registry `branch`; red on one byte.
 
-"""The ci-red watchdog script must be the same bytes in both repos that run it.
+"""The ci-red watchdog script must be the same bytes in every repo that runs it.
 
 Each repo's ``ci-red-alert`` job runs its own copy of
-``scripts/ci/ci_red_alert.py``. GS is fixed first and the file re-copied to AG,
-so a drift means one repo's watchdog files issues the other's would not.
+``scripts/ci/ci_red_alert.py``. GS is fixed first and the file re-copied to
+every copy, so a drift means one repo's watchdog files issues another's would
+not.
 
 The blobs are read from ``origin/<branch>`` — the registry ``branch``, which is
-``staging`` for both, not the ``primary_branch`` production runs — through
+``staging`` for GS and AG and ``main`` for marketing-manager, not the
+``primary_branch`` production runs — through
 ``dev_family.GitRepo``, as the refs stand: the test never fetches, so it
 measures whatever the last ``git fetch`` left. A sibling checkout absent from this machine (CI) skips, with
 the reason; a checkout that is present but cannot yield the blob fails.
@@ -27,7 +29,7 @@ from oversteward.dev_family import GitRepo
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ALERT_SCRIPT = "scripts/ci/ci_red_alert.py"
 CANONICAL = "grantspider"
-COPY = "aigranthelper"
+COPIES = ("aigranthelper", "marketing-manager")
 
 
 def _context(context_id: str) -> dict:
@@ -45,7 +47,7 @@ def _committed_blob(ctx: dict) -> bytes:
     return blob
 
 
-def assert_same_bytes(canonical: bytes, copy: bytes) -> None:
+def assert_same_bytes(canonical: bytes, copy: bytes, copy_id: str = "the copy") -> None:
     if canonical == copy:
         return
     offset = next(
@@ -53,18 +55,19 @@ def assert_same_bytes(canonical: bytes, copy: bytes) -> None:
         min(len(canonical), len(copy)),
     )
     raise AssertionError(
-        f"{COPY}'s {ALERT_SCRIPT} has drifted from {CANONICAL}'s: first difference at "
+        f"{copy_id}'s {ALERT_SCRIPT} has drifted from {CANONICAL}'s: first difference at "
         f"byte {offset} ({len(canonical)} vs {len(copy)} bytes). Fix it in {CANONICAL}, "
-        f"then re-copy it to {COPY}."
+        f"then re-copy it to {copy_id}."
     )
 
 
 def assert_copies_match(canonical_ctx: dict, copy_ctx: dict) -> None:
-    assert_same_bytes(_committed_blob(canonical_ctx), _committed_blob(copy_ctx))
+    assert_same_bytes(_committed_blob(canonical_ctx), _committed_blob(copy_ctx), copy_ctx["id"])
 
 
-def test_aigranthelper_copy_matches_grantspider_canonical():
-    assert_copies_match(_context(CANONICAL), _context(COPY))
+@pytest.mark.parametrize("copy_id", COPIES)
+def test_each_copy_matches_grantspider_canonical(copy_id):
+    assert_copies_match(_context(CANONICAL), _context(copy_id))
 
 
 def _repo_with_alert_script(root: Path, content: bytes) -> dict:

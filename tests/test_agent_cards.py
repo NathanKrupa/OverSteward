@@ -374,6 +374,7 @@ AG_BANDIT = ("lite-gate bandit", "bandit -r apps/ config/ scripts/ -c pyproject.
 GS_BANDIT = ("lite-gate bandit", ".venv/bin/bandit -r src/ tests/ -c pyproject.toml")
 WPHELPER_BANDIT = ("lite-gate bandit", ".venv/bin/bandit -r src/ -c pyproject.toml")
 EXCHEQUER_BANDIT = ("lite-gate bandit", ".venv/bin/bandit -q -r src/ -c pyproject.toml")
+MARKETING_MANAGER_BANDIT = ("lite-gate bandit", ".venv/bin/bandit -q -r src/ -c pyproject.toml")
 
 #: A line that runs `make verify`, bare or through the sanctioned `.env` runner.
 MAKE_VERIFY_RUN = re.compile(
@@ -485,6 +486,16 @@ PRE_ROUND_SEQUENCE_CARDS = {
             RUFF_FORMAT,
             ("lite-gate gaudi", "gaudi check src/ --severity error --exit-code"),
             EXCHEQUER_BANDIT,
+            TOUCHED_TESTS,
+        ),
+        *MAKE_VERIFY_SEQUENCE,
+    ),
+    "marketing-manager-dev.md": PreRoundSequence(
+        (
+            RUFF_CHECK,
+            RUFF_FORMAT,
+            ("lite-gate gaudi", "gaudi check src/ --severity error --exit-code"),
+            MARKETING_MANAGER_BANDIT,
             TOUCHED_TESTS,
         ),
         *MAKE_VERIFY_SEQUENCE,
