@@ -85,7 +85,7 @@ Once he answers, write the charter **before** dispatching anything.
 
 - **Keep every lane busy.** Each lane runs one dev agent at a time (`/dispatch`, with its full preflight). The moment an agent reports, relay the result, run `cleanup-merged`, and launch the lane's next item. Batch nothing and wait for nothing.
 - **Arm both watchdogs** as `/dispatch` §3.5 says.
-  - Give the branch watchdog (`dispatch_watchdog.py`) `--warn-min 60` or more. On 2026-11-11, 40- and 45-minute warnings fired on healthy agents that were in review or `make verify`. Before treating that warning as a stall, look at the worktree's commits and `.review*` files.
+  - The progress watchdog (`dispatch_watchdog.py`) alerts after 60 quiet minutes by default: no new commit in the dispatch worktree, no `.review*` file or `.verify-marker` written, no push. On 2026-11-11, 40- and 45-minute warnings fired on healthy agents that were in review or `make verify`; keep `--warn-min` at 60 or more.
   - Keep the held-prompt watch (`dispatch_run.py prompts --watch`) at its 10-minute default. An unattended run is exactly when nobody answers a prompt (AG#2736 sat at one for 6h44m, OS#674).
 - **Stop an item, not the run.** Park the item (labelled `needs-input`, with its question posted), then move to the lane's next item, when it hits any of:
   - a decision the charter does not cover;
