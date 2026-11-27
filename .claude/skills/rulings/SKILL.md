@@ -102,7 +102,7 @@ Order:
    - never write a bare `@` mention;
    - in a public repo (OverSteward, gaudi), describe nothing private.
 3. **Labels.** If this session holds the issue's lane, swap the labels as `/answer` step 5 does. If another session holds it, change no label and tell that session.
-4. **New issues an answer calls for.** Before filing one, check that no agent is in flight in that repo (`git -C /home/natha/<repo> worktree list`, `gh pr list -R NathanKrupa/<repo> --state open`). An issue filed mid-flight takes the PR number an agent has already predicted (OS#696). If one is in flight, list the issue as owed in the session state for the lane that owns the repo.
+4. **New issues an answer calls for.** Before filing one, check that no agent is in flight in that repo (`git -C /home/natha/<repo> worktree list`, `gh pr list -R NathanKrupa/<repo> --state open`). Until every repo's card is redeployed with OS#696's rule (a trajectory note is named by its branch, never by a predicted PR number), an issue filed mid-flight can still take the number an older card predicts. If one is in flight, list the issue as owed in the session state for the lane that owns the repo.
 5. **An answer that authorizes an action** (a read, a run) is acted on or recorded as owed. It covers what the question named.
 6. **A ruling that reaches beyond its issue** is a standing law. Say so in the session-state section; the dream cycle folds it into memory. Never hand-edit `MEMORY.md`.
 

@@ -277,8 +277,11 @@ def _judge_bullet(bullet: Bullet) -> Iterator[_Judgement]:
 
 
 def _front_matter(text: str) -> Iterator[tuple[int, str]]:
-    """Each numbered line of the leading ``---`` block; nothing when there is none."""
-    lines = text.splitlines()
+    """Each numbered line of the leading ``---`` block; nothing when there is none.
+
+    A leading byte-order mark is not allowed to hide the block.
+    """
+    lines = text.removeprefix("\ufeff").splitlines()
     if not lines or lines[0].strip() != "---":
         return
     for lineno, line in enumerate(lines[1:], start=2):
@@ -292,19 +295,30 @@ def _pr_value(raw: str) -> str:
     return _YAML_COMMENT_RE.sub("", raw).strip().strip("'\"")
 
 
+def _names_a_pr(raw: str, following: list[tuple[int, str]]) -> bool:
+    """Whether a `pr:` line's raw value is a real PR number or truly empty."""
+    value = _pr_value(raw)
+    if value:
+        return PR_VALUE_RE.match(value) is not None
+    continued = bool(following) and following[0][1][:1] in (" ", "\t", "-")
+    return not raw.strip() and not continued
+
+
 def _judge_pr_lines(path: Path, text: str) -> Iterator[Violation]:
     """A finding for each front-matter `pr:` line naming no real PR.
 
-    An absent or empty `pr:` line passes: a note is written before its PR
-    exists, so it is named by its branch and its PR is the one whose diff adds
-    it. Only a value that pretends to a number nobody knows yet is a finding.
+    A truly empty `pr:` line passes, and so does none at all: a note is written
+    before its PR exists, so it is named by its branch and its PR is the one
+    whose diff adds it. A value that pretends to a number nobody knows yet is a
+    finding, and so is a line holding nothing but a comment (``pr: #TBD``, which
+    YAML reads as empty) or an empty line carrying an indented list beneath it.
     """
-    for lineno, line in _front_matter(text):
+    lines = list(_front_matter(text))
+    for index, (lineno, line) in enumerate(lines):
         match = _PR_LINE_RE.match(line)
         if match is None:
             continue
-        value = _pr_value(match.group(1))
-        if not value or PR_VALUE_RE.match(value):
+        if _names_a_pr(match.group(1), lines[index + 1 : index + 2]):
             continue
         yield Violation(
             path=path,

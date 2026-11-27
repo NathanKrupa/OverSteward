@@ -166,6 +166,9 @@ class TestPrLine:
             "TBD",
             "pending",
             "1234",
+            "oversteward#",
+            "#TBD",
+            "   # filled in once the PR exists",
         ],
     )
     def test_a_placeholder_pr_is_flagged(self, value: str) -> None:
@@ -189,6 +192,14 @@ class TestPrLine:
     )
     def test_a_real_pr_or_no_pr_line_is_accepted(self, line: str | None) -> None:
         assert _reasons(_with_pr(line)) == []
+
+    def test_a_list_under_an_empty_pr_line_is_flagged(self) -> None:
+        violations = validate_text(NOTE, _with_pr("pr:\n  - oversteward#TBD")).violations
+        assert [(v.section, v.line) for v in violations] == [("front matter", 4)]
+
+    def test_a_byte_order_mark_does_not_hide_the_front_matter(self) -> None:
+        violations = validate_text(NOTE, "\ufeff" + _with_pr("pr: TBD")).violations
+        assert [(v.section, v.line) for v in violations] == [("front matter", 4)]
 
     def test_a_pr_line_outside_the_front_matter_is_not_judged(self) -> None:
         text = f"{TAGGED_BODY}\npr: TBD\n"
