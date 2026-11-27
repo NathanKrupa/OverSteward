@@ -6,6 +6,7 @@ issues:
   - oversteward#847
 session_kind: dispatch
 duration: "60min"
+reviewer: PASS findings=0 tokens=38000 (round 1; harness usage input 17, cache_creation 74533, cache_read 586449, output 4577; $0.81, 87s)
 ---
 
 # Trajectory — promote the seeded-row test rule into the AG dev card
