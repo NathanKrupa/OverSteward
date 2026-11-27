@@ -114,7 +114,9 @@ def test_a_near_miss_weak_marker_is_left_alone(text):
 # --- tribe: repo scope -----------------------------------------------------
 
 
-@pytest.mark.parametrize("repo", ["oversteward", "wphelper", "fiscus", "exchequer", "ai-assistants"])
+@pytest.mark.parametrize(
+    "repo", ["oversteward", "wphelper", "fiscus", "exchequer", "marketing-manager", "ai-assistants"]
+)
 def test_only_the_product_repos_propose_tribe(repo):
     # A title both the AG and the GS rules accept, so no product rule can rescue it.
     title = "Checkout shows the wrong foundation page"

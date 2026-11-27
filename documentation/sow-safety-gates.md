@@ -154,8 +154,9 @@ now refuses that exact command in a primary worktree, and it would yank the
 branch out from under whatever the operator has open. The worktree is cut from
 `origin`, so it also satisfies the old G1 structurally.
 
-**`--verify` is opt-in** because three repos (AG, GS, exchequer) gate push on a
-`.verify-marker` while the rest have no `make verify` at all. Without the flag,
+**`--verify` is opt-in** because some repos (AG, GS, exchequer and
+marketing-manager among them) gate push on a `.verify-marker` while others
+have no `make verify` at all. Without the flag,
 a pre-push refusal aborts that context with the hook's own message — sow never
 answers a hook by bypassing it.
 

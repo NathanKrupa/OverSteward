@@ -93,7 +93,7 @@ until the OS#629 reconciliation sweep reads them.
 | `GRANTSPIDER_NEON_DATABASE_URL` (alias `NEON_DATABASE_URL`; local `NEON_DATABASE_URL_DIRECT`) | research DB (`gs_owner` role on `ep-plain-breeze`) — crawler, enrichment, Dagster assets | per-service Railway literals (not shared vars); `.env` in both `grantspider` and the detached `grantspider-crawl` checkout. ⚠ **Known gap:** five scheduled DQ workflows (`dq-grant-reconcile`, `dq-irs-bmf`, `dq-neutral-voice-rolling`, `dq-ntee-check`, `dq-url-reachability`) read GH secret `NEON_DATABASE_URL`, which is **not set**, so they fail every scheduled run (`dq-irs-bmf` failed on 2026-09-01 and 2026-10-01). CI itself uses `NEON_DATABASE_URL_CI` | Neon dashboard → Roles → reset `gs_owner` | ⚠ #1849: in the daemon the bare alias points at the *metadata* DB — orchestration requires the prefixed name |
 | `NEON_DATABASE_URL_CI` | CI test DB | GH Actions secret only | Neon (CI branch/role) | — |
 | `GRANTSPIDER_ANTHROPIC_API_KEY` (alias) | enrichment/classifier LLM calls | Railway shared; `.env`; GH secret | console.anthropic.com → API Keys | — |
-| `GRANTSPIDER_BRAVE_SEARCH_API_KEY` | website discovery | `.env` / Railway | api-dashboard.search.brave.com | optional; empty disables |
+| `GRANTSPIDER_BRAVE_SEARCH_API_KEY` (alias `BRAVE_SEARCH_API_KEY`) | website discovery; also marketing-manager's outreach discovery (§8) | `.env` / Railway | api-dashboard.search.brave.com | optional; empty disables. One key with one monthly cap serves both repos: a rotation updates marketing-manager's copy too |
 | `GRANTSPIDER_SAM_API_KEY` | SAM.gov sync | Railway shared; `.env` | sam.gov account → API key | optional; empty disables |
 | `GRANTSPIDER_B2_ACCESS_KEY_ID` + `GRANTSPIDER_B2_SECRET_ACCESS_KEY` | B2 snapshots, backups, audit archive | Railway shared; `.env` | Backblaze B2 → Application Keys (secret shown once) | GS's own bucket `GrantSpider`, independent of AG's `AIGrantHelper` key and bucket — rotating one never affects the other |
 | `GRANTSPIDER_TYPESENSE_ADMIN_API_KEY` | nightly foundations reindex/alias swap | Railway (engine lives in AG project — cross-project reach) | Typesense bootstrap key / API-key endpoint on the AG `typesense` service | **admin/write key** — distinct from AG's search-only key |
@@ -235,6 +235,22 @@ Gaps (2026-07-23 sweep): no `.env.example` (violates the process below — first
 follow-up); no standalone Vintner rotation runbook (procedure lives in the SQL
 file headers); sibling-repo secret names appearing in OverSteward design docs
 are references, not requirements.
+
+## 8. marketing-manager
+
+Private outreach repo (OS#644). Code reads the process environment only,
+through `src/marketing_manager/config/` (`from_env()`); it never opens a `.env`
+file. The systemd units load `/home/natha/marketing-manager/.env` with
+`EnvironmentFile=`, so a worktree, which has no `.env`, cannot send. Names are
+listed in `.env.example`. Until the cutover the untracked outreach scripts in
+OverSteward's primary checkout read both keys in-process from the `.env` files
+named below. At the cutover a session copies each value into
+marketing-manager's `.env` in-process, by name, printing nothing.
+
+| Secret | Consumer | Regenerate | Apply / notes |
+|---|---|---|---|
+| `RESEND_OUTREACH_API_KEY` | the outreach sender (`send_batch.py` today; `mm outreach send` from the cutover) | Resend dashboard → API Keys → create with sending access only (the live key's scope is unverified) | Today held only in OverSteward's `.env`. From the cutover it lives in marketing-manager's `.env`, and leaves OverSteward's after the first verified week of sends. Separate from AG's `RESEND_API_KEY` (§1). |
+| `GRANTSPIDER_BRAVE_SEARCH_API_KEY` (as `BRAVE_SEARCH_API_KEY`) | outreach discovery (Brave web search) | owned by grantspider (§2) | marketing-manager's second holder of grantspider's key: the same value, never a second key, because the monthly cap stays one cap. Read from grantspider's `.env` until the cutover; from it, marketing-manager's `.env` holds a copy. Rotate both together. |
 
 ---
 
