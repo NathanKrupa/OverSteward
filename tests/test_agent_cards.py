@@ -339,6 +339,53 @@ def test_every_dev_card_and_the_dispatch_docs_say_to_write_the_scratchpad_path_i
     """The gate's scratchpad exception reads only a literal path (OS#821)."""
     assert SCRATCHPAD_DELETE_LINE in _unwrapped(doc.read_text(encoding="utf-8"))
 
+
+#: Cards whose repo has auto-merge switched off, with the hand merge each states.
+#: Step 16's `--auto` cannot stick there, so the card must carry the manual path.
+MANUAL_MERGE_CARDS = {
+    "exchequer-dev.md": "gh pr merge <PR#> --merge --repo NathanKrupa/exchequer",
+    "marketing-manager-dev.md": "gh pr merge <PR#> --merge --repo NathanKrupa/marketing-manager",
+    "oversteward-dev.md": "gh pr merge <PR#> --merge",
+}
+AUTO_MERGE_OFF = "**Auto-merge is switched off in this repo**"
+
+#: A repo-specific exception to the merge-commit-only, auto-merge rule: "X is
+#: allowed", "allows X". Every dispatch target is locked to merge commits
+#: (OS#849), so a doc still granting one sends an agent down a retired path.
+MERGE_EXCEPTION = re.compile(
+    r"\b(?:auto-merge|squash|rebase)\b[\w\s-]{0,30}?\b(?:is|are)\s+allowed\b"
+    r"|\ballows?\s+(?:auto-merge|squash|rebase)\b",
+    re.IGNORECASE,
+)
+
+
+@pytest.mark.parametrize("name", sorted(MANUAL_MERGE_CARDS))
+def test_a_manual_merge_card_states_its_merge_path(name: str) -> None:
+    for card in _card_pair(name):
+        text = _unwrapped(card.read_text(encoding="utf-8"))
+        assert AUTO_MERGE_OFF in text, f"{card} does not say auto-merge is off"
+        assert MANUAL_MERGE_CARDS[name] in text, f"{card} does not state its hand merge"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Auto-merge is allowed in this repo, but with no required check it lands a PR",
+        "Squash and rebase merges are allowed too, so the merge method is held",
+        "**Exception: marketing-manager** allows auto-merge and requires no check",
+    ],
+)
+def test_the_merge_exception_shape_catches_the_wording_that_shipped(text: str) -> None:
+    assert MERGE_EXCEPTION.search(text)
+
+
+@pytest.mark.parametrize(
+    "doc", _dev_cards() + list(DISPATCH_DOCS), ids=lambda p: f"{p.parent.name}/{p.name}"
+)
+def test_no_dev_card_or_dispatch_doc_grants_a_merge_method_exception(doc: Path) -> None:
+    found = MERGE_EXCEPTION.search(_unwrapped(doc.read_text(encoding="utf-8")))
+    assert found is None, f"{doc} grants a merge-method exception: {found.group(0)!r}"
+
 @pytest.mark.parametrize("card", _dev_cards(), ids=lambda p: f"{p.parent.name}/{p.name}")
 def test_every_dev_card_states_that_a_block_stops_the_pickup(card: Path) -> None:
     """A verdict that cannot stop anything is a report, not a gate."""
