@@ -660,7 +660,6 @@ def test_the_pull_unread_text_differs_from_red_and_from_could_not_look():
         ("gh pr merge 3532 --repo NathanKrupa/$R --merge", "names no repo"),
         ("gh pr merge 3532 --repo $OWNER/grantspider --merge", "names no repo"),
         ("gh pr merge https://github.com/NathanKrupa/$R/pull/3532", "names no repo"),
-        ("gh pr merge ssh://github.com/NathanKrupa/grantspider/pull/3532", "names no repo"),
         ("gh api -X PUT repos/NathanKrupa/$R/pulls/3532/merge", "names no repo"),
         ("gh api -X PUT https://api.github.com/repos/$O/grantspider/pulls/3532/merge", "names no repo"),
         ("GH_REPO=NathanKrupa/$R gh pr merge 3532", "names no repo"),
@@ -678,6 +677,16 @@ def test_a_merge_the_guard_cannot_identify_is_refused_without_asking(command, sa
     assert says in message
     assert pulls.asked == []
     assert issues.asked == []
+
+
+def test_a_url_the_guard_does_not_parse_is_unread_whatever_the_checkout():
+    """gh may read a pull request URL this guard's pattern does not; the checkout's repo is not taken."""
+    pulls = FakePulls()
+    command = f"cd {OS_DIR} && gh pr merge ssh://github.com/NathanKrupa/grantspider/pull/3532"
+    code, message = run(command, checkouts=os_checkout(), pulls=pulls)
+    assert_pull_unread(code, message)
+    assert "names no repo" in message
+    assert pulls.asked == []
 
 
 def test_a_merge_of_the_checkout_branch_with_no_branch_readable_is_refused():
