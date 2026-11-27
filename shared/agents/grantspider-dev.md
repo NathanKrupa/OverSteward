@@ -150,9 +150,9 @@ degrade the whole instrument silently, so the input is assembled by code.
 sequence in `~/.claude/shared/references/pr-workflow.md`). Commit first, because
 both read the committed diff, which is what the reviewer reads. The lite gate is
 ruff, the gaudi error gate on the changed Python files, the boy-scout ratchet,
-bandit over `src/` and `tests/` as the full gate's security job runs it, and
-`pytest` on the test files the diff touches. It checks what you changed; it does
-not certify the tree. Playbook step 10's full suite does not run here. It is the one full run,
+the asset-check coverage ratchet, bandit over `src/` and `tests/` as the full
+gate's security job runs it, and `pytest` on the test files the diff touches.
+It checks what you changed; it does not certify the tree. Playbook step 10's full suite does not run here. It is the one full run,
 after the findings, below.
 
 ```bash
@@ -170,6 +170,11 @@ PATH="$PWD/.venv/bin:$PATH" .venv/bin/python scripts/lint/gaudi_check_files.py $
 # copy already carries debt fails here, and finding that after review forces a
 # restructure the rounds then have to re-read. It needs no database.
 GRANTSPIDER_CI_LOCAL_SKIP_DB_READY=1 make ci-boy-scout || rc=1
+# The Dagster asset-check coverage ratchet against its baseline file, which CI
+# runs on every PR and the full local gate on a diff touching the orchestration
+# package or the ratchet's own files. It needs no database and takes seconds,
+# so it runs on every diff here.
+GRANTSPIDER_CI_LOCAL_SKIP_DB_READY=1 make ci-asset-check-coverage || rc=1
 # Bandit as the full gate's security job runs it, tests/ included: a test that
 # uses subprocess otherwise passes review and first fails the full gate.
 .venv/bin/bandit -r src/ tests/ -c pyproject.toml || rc=1
@@ -190,6 +195,11 @@ echo "diff: $size changed (ceiling $ceiling)"
 if [ "$size" -gt "$ceiling" ]; then echo "OVER THE CEILING: split, or record the waiver"; rc=1; fi
 (exit $rc)
 ```
+
+**After each round's fixes, run block 0a again**, before the next assembly
+and before the full gate: a fix moves a ratchet as easily as the first commit
+did, and a ratchet first seen in the full gate forces a commit that no verdict
+covers, which costs a delta round.
 
 ```bash
 # 1. Assemble the input. Run it through the OverSteward checkout's own

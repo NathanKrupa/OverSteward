@@ -279,6 +279,11 @@ if [ "$size" -gt "$ceiling" ]; then echo "OVER THE CEILING: split, or record the
 (exit $rc)
 ```
 
+**After each round's fixes, run block 0a again**, before the next assembly
+and before the full gate: a fix moves a ratchet as easily as the first commit
+did, and a ratchet first seen in the full gate forces a commit that no verdict
+covers, which costs a delta round.
+
 ```bash
 # 1. Assemble the input. Run it through the OverSteward checkout's own
 #    interpreter (its `#!/usr/bin/env python` shebang finds no `python` on this

@@ -479,6 +479,9 @@ PRE_ROUND_SEQUENCE_CARDS = {
             # The full gate's whole gaudi job, ratchets included (OS#678): a
             # ratchet first seen in `make verify` is seen after review.
             ("lite-gate gaudi with its ratchets", "make ci-gaudi"),
+            # The full gate's types job, whose hard gate is the untyped-function
+            # ratchet (OS#591): AG#2904 first met it in `make verify`.
+            ("lite-gate untyped-function ratchet", "make ci-types"),
             AG_BANDIT,
             # The touched tests run on this worktree's bench databases, which
             # only bench.py names; without it they reach no database (OS#678).
@@ -495,6 +498,8 @@ PRE_ROUND_SEQUENCE_CARDS = {
             RUFF_FORMAT,
             ("lite-gate gaudi", "scripts/lint/gaudi_check_files.py"),
             ("lite-gate boy-scout", "make ci-boy-scout"),
+            # The full gate's Dagster asset-check coverage ratchet (OS#591).
+            ("lite-gate asset-check coverage ratchet", "make ci-asset-check-coverage"),
             GS_BANDIT,
             TOUCHED_TESTS,
         ),
@@ -777,6 +782,65 @@ def test_the_doctrine_names_the_lite_gates_that_run_bandit() -> None:
     assert named == carried, (
         f"pr-workflow.md says the lite gate runs bandit in {sorted(named)}, but the cards "
         f"that carry the step are {sorted(carried)}."
+    )
+
+
+#: The doctrine's lite-gate clause, from its heading to the diff ceiling's.
+DOCTRINE_LITE_GATE = re.compile(r"\(1\) \*\*Lite gate\*\*(?P<clause>.*?)\(2\) \*\*Diff ceiling\*\*")
+
+#: A `make ci-*` target, named in the doctrine or run by a card's lite gate.
+MAKE_CI_TARGET = re.compile(r"\bmake (ci-[\w-]+)")
+
+
+def _doctrine_lite_gate_clause() -> str:
+    clauses = DOCTRINE_LITE_GATE.findall(PR_WORKFLOW.read_text(encoding="utf-8"))
+    assert len(clauses) == 1, f"pr-workflow.md states the lite-gate clause {len(clauses)} times"
+    return clauses[0]
+
+
+def test_the_doctrine_names_every_make_target_the_lite_gates_run() -> None:
+    """The ratchet jobs in pr-workflow.md and the cards' lite gates stay one set (OS#591)."""
+    named = set(MAKE_CI_TARGET.findall(_doctrine_lite_gate_clause()))
+    run = {
+        target
+        for card in _pre_round_sequence_cards()
+        for line in _lite_gate_block(card).splitlines()
+        if not NOT_A_COMMAND.match(line)
+        for target in MAKE_CI_TARGET.findall(line)
+    }
+    assert run, "no lite gate runs a `make ci-*` job; the comparison would be vacuous"
+    assert named == run, (
+        f"pr-workflow.md's lite gate names {sorted(named)}, but the cards' lite gates "
+        f"run {sorted(run)}."
+    )
+
+
+#: The instruction to re-run the lite gate on each round's fixes (OS#591): a fix
+#: moves a ratchet too, and one first seen in the full gate costs a delta round.
+LITE_GATE_RERUN = "**After each round's fixes, run block 0a again**"
+DOCTRINE_LITE_GATE_RERUN = "(4) Fix its findings, then run the lite gate again"
+
+
+def test_the_doctrine_reruns_the_lite_gate_after_each_round() -> None:
+    text = PR_WORKFLOW.read_text(encoding="utf-8")
+    assert DOCTRINE_LITE_GATE_RERUN in text, (
+        "pr-workflow.md's pre-round-1 sequence does not re-run the lite gate on the fixes"
+    )
+
+
+@pytest.mark.parametrize("card", _pre_round_sequence_cards(), ids=_card_id)
+def test_the_card_reruns_the_lite_gate_after_each_round(card: Path) -> None:
+    """Between the lite gate's block and the first assembly, so it is read in order."""
+    review = _review_block(card)
+    lite_end = _lite_gate_match(card, review).end()
+    assert review.count(LITE_GATE_RERUN) == 1, (
+        f"{_card_id(card)} states the lite-gate re-run {review.count(LITE_GATE_RERUN)} "
+        f"times in its review block; it belongs once, after the lite gate's block."
+    )
+    at = review.index(LITE_GATE_RERUN)
+    assert lite_end < at < review.index("assemble_review_input.py", lite_end), (
+        f"{_card_id(card)} states the lite-gate re-run outside the span between the "
+        f"lite gate's block and the review assembly."
     )
 
 
