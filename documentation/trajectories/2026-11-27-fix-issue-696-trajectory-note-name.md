@@ -5,7 +5,8 @@ branch: fix/issue-696-trajectory-note-name
 issues:
   - oversteward#696
 session_kind: dispatch
-duration: 90min
+duration: 120min
+reviewer: PASS-WITH-FINDINGS findings=3 tokens=70000
 ---
 
 # Trajectory — name a trajectory note by its branch, never a predicted PR number
@@ -42,6 +43,18 @@ no `pr:` line.
 - I tested 10 mutants against the new check, and each one was killed by a named
   test. The first draft of the unwired-check mutant was a syntax error, so it was
   invalid rather than a kill. I rewrote it and re-ran it.
+- Round 1 of the adversarial review came back PASS-WITH-FINDINGS with 3
+  findings. The reviewer self-reported 70,000 tokens; the harness counted
+  12,038 output, 97,033 cache-creation and 1,469,261 cache-read tokens. The
+  findings and their fixes:
+  - (defect) pr-workflow claimed that every reader accepts both names, but a
+    Fiscus metric does not until Fiscus#140 lands. The sentence now says so.
+  - (pin) Nothing pinned the digit after `#`, so I added `oversteward#`. I also
+    added fixtures for a comment-only `pr: #TBD`, an indented list under an
+    empty `pr:`, and front matter behind a BOM, and made all three shapes red.
+  - (doc) The rulings skill still gave the predicted-number reason. It now
+    names that reason as one that lasts only until older cards are
+    redeployed. Each fix has a red mutant.
 
 ## What worked
 
