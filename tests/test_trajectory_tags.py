@@ -133,6 +133,79 @@ class TestPromoteVocabulary:
         assert "cannot read it" in _reasons(text)[0]
 
 
+# --- the `pr:` front-matter line (OS#696) ----------------------------------
+
+TAGGED_BODY = "## What worked\n\n- [design] Something useful happened.\n"
+
+
+def _with_pr(line: str | None) -> str:
+    """A tagged note whose front matter carries ``line`` in the `pr:` slot."""
+    pr = f"{line}\n" if line is not None else ""
+    return f"---\ndate: 2026-11-27\nrepo: oversteward\n{pr}branch: fix/x\n---\n\n{TAGGED_BODY}"
+
+
+class TestPrLine:
+    """A note never carries a PR number that does not exist yet.
+
+    The number is unknowable until `gh pr create` returns it, so a note written
+    before the PR opens leaves `pr:` out. A placeholder is the shape that invites
+    the post-review fix-up commit OS#696 removes; each red value below is one the
+    estate's corpus actually carries.
+    """
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "oversteward#TBD",
+            "oversteward#<N>",
+            "<repo>#<N>",
+            "NathanKrupa/OverSteward#PENDING",
+            "grantspider#TBD (docs/crawl-policy-memo)",
+            "aigranthelper (opened from this branch)",
+            "aigranthelper#2412-pr",
+            "TBD",
+            "pending",
+            "1234",
+        ],
+    )
+    def test_a_placeholder_pr_is_flagged(self, value: str) -> None:
+        violations = validate_text(NOTE, _with_pr(f"pr: {value}")).violations
+        assert len(violations) == 1
+        assert violations[0].section == "front matter"
+        assert violations[0].line == 4
+        assert "leave the line out" in violations[0].reason
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            None,
+            "pr:",
+            "pr: oversteward#845",
+            "pr: OverSteward#5",
+            "pr: NathanKrupa/OverSteward#12",
+            "pr: oversteward#845      # the PR this branch opened",
+            "pr: 'oversteward#845'",
+        ],
+    )
+    def test_a_real_pr_or_no_pr_line_is_accepted(self, line: str | None) -> None:
+        assert _reasons(_with_pr(line)) == []
+
+    def test_a_pr_line_outside_the_front_matter_is_not_judged(self) -> None:
+        text = f"{TAGGED_BODY}\npr: TBD\n"
+        assert _reasons(_with_pr(None) + "\npr: TBD\n") == []
+        assert _reasons(text) == []
+
+    def test_a_note_without_front_matter_is_judged_on_bullets_alone(self) -> None:
+        assert _reasons(TAGGED_BODY) == []
+
+    def test_the_rendered_finding_names_the_line_and_the_remedy(self) -> None:
+        violation = validate_text(Path("n.md"), _with_pr("pr: oversteward#TBD")).violations[0]
+        rendered = format_violation(violation)
+        assert "n.md:4: [front matter]" in rendered
+        assert "line:    pr: oversteward#TBD" in rendered
+        assert "bullet:" not in rendered
+
+
 # --- bullet parsing ---------------------------------------------------------
 
 
@@ -255,6 +328,14 @@ class TestGateExitCodes:
         assert "No leading category tag at all" in err
         assert "design | functional | tooling | process | outcome" in err
         assert "doctrine | memory | lessons.jsonl | none" in err
+
+    def test_a_placeholder_pr_exits_one_and_says_so(self, cli, capsys, tmp_path) -> None:
+        note = tmp_path / "2026-11-27-fix-x.md"
+        note.write_text(_with_pr("pr: oversteward#TBD"), encoding="utf-8")
+        assert cli.main([str(note)]) == 1
+        err = capsys.readouterr().err
+        assert "1 finding(s) across 1 note(s)" in err
+        assert "pr: oversteward#TBD" in err
 
     def test_an_unparseable_note_exits_two_not_zero(self, cli, capsys, unparseable_note) -> None:
         assert cli.main([str(unparseable_note)]) == 2

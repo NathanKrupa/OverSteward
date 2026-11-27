@@ -82,7 +82,7 @@ gh api repos/NathanKrupa/marketing-manager/branches/main/protection \
 - **`scripts/ci/ci_red_alert.py` is a byte-copy of grantspider's**; OverSteward's `tests/test_ci_red_alert_copies.py` compares it. A change goes to grantspider first, then is re-copied here.
 - **Layer direction is held by review, not by gaudi.** Its ARCH-010 matches only top-level `cli.`/`scripts.` module names, so a `marketing_manager.*` import across layers passes the gate.
 - **No bench.** `.worktree-bench` says `none`: the repo owns no database, so `worktree_doctor.py teardown` and `cleanup-merged` proceed without one.
-- **Trajectory note before opening the PR:** `documentation/trajectories/YYYY-MM-DD-PR<N>.md` (schema: OverSteward `documentation/trajectories/TEMPLATE.md`).
+- **Trajectory note before opening the PR:** `documentation/trajectories/YYYY-MM-DD-<branch>.md`, the branch with each `/` made `-`, and no `pr:` line unless the PR already exists: never a predicted number or a placeholder (OS#696; schema: OverSteward `documentation/trajectories/TEMPLATE.md`).
 
 ## Repo-Specific PR Body Template
 

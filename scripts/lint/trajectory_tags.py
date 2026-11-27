@@ -1,8 +1,9 @@
 #!/usr/bin/env python
-# ABOUTME: Pre-commit gate asserting every lesson bullet in a changed trajectory note is tagged.
+# ABOUTME: Pre-commit gate: changed trajectory notes carry tagged bullets and no `pr:` placeholder.
 # ABOUTME: Thin shell over oversteward.trajectory_tags — parse argv, print, pick an exit code.
 
-"""Pre-commit gate for trajectory-note `[category]` / `→ promote:` tags (OS#329).
+"""Pre-commit gate for trajectory-note `[category]` / `→ promote:` tags (OS#329)
+and the `pr:` front-matter line (OS#696).
 
 Scope is whatever pre-commit hands it, which is exactly the notes the commit
 adds or modifies. That is the whole forward-looking design: the 123 legacy
@@ -12,8 +13,9 @@ Exit codes are three-valued on purpose (pr-workflow.md § Inert controls):
 
 * ``0`` — every note checked, no violations. Always prints the count it
   checked, because "all 4 notes clean" is a measurement and "ok" is a claim.
-* ``1`` — violations found. Each names the file, the line, the bullet, and the
-  allowed vocabulary.
+* ``1`` — violations found: an untagged bullet, or a `pr:` placeholder for a
+  PR number nobody knows yet. Each names the file, the line, the offending
+  text, and what is allowed.
 * ``2`` — could not look: a path that does not exist, or a note carrying none
   of the three capture sections. Reporting that as ``0`` is the false green the
   gate exists to remove.
@@ -80,8 +82,8 @@ def _report(reports: list[NoteReport], unreadable: list[str]) -> int:
         return EXIT_COULD_NOT_LOOK
     if violations:
         sys.stderr.write(
-            f"{GATE} {len(violations)} untagged bullet(s) across "
-            f"{len({v.path for v in violations})} note(s). Tag them at capture "
+            f"{GATE} {len(violations)} finding(s) across "
+            f"{len({v.path for v in violations})} note(s). Fix them at capture "
             "time — see documentation/trajectories/TEMPLATE.md.\n"
         )
         return EXIT_VIOLATIONS

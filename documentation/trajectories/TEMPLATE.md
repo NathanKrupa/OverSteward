@@ -1,7 +1,12 @@
 ---
 date: YYYY-MM-DD
 repo: <repo-id>              # e.g. aigranthelper, grantspider, oversteward, fiscus
-pr: <repo>#<N>               # filled in once PR exists
+pr: <repo>#<N>               # ONLY when the PR already exists as you write
+                             # the note (a draft you are continuing). Otherwise
+                             # delete this line: never a predicted number or a
+                             # placeholder such as TBD (OS#696). Name the file
+                             # YYYY-MM-DD-<branch>.md, the branch with each `/`
+                             # made `-`; its PR is the one whose diff adds it.
 branch: <branch-name>
 issues:                      # parent issues this pickup addresses
   - <repo>#<N>
