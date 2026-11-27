@@ -96,7 +96,7 @@ A repo with no bench of its own says so
 in `.worktree-bench` at its root (one line, `none`; `#` lines are comments), and
 there a docker that answers but runs no Postgres means the worktree owns nothing,
 so `teardown` and `cleanup-merged` proceed and say the repo declares no bench
-(OS#716). This repo declares it. An absent, unreadable or malformed declaration
+(OS#716). OverSteward's own `.worktree-bench` declares `none`. An absent, unreadable or malformed declaration
 means "has a bench", and a docker that does not answer still refuses everywhere.
 `check` alone exits non-zero and names
 every captured console-script shebang, `__editable__*.pth` and compose

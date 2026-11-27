@@ -288,7 +288,7 @@ One issue → one PR → CI green → auto-merge → done. No side effects on Na
       ```
       In OverSteward, read the pair from `origin/<default-branch>:shared/scripts/dev/` instead: its `scripts/dev/` copies are symlinks into `shared/` (OS#576), and `git show` of a symlink prints the link's target path, not the script.
 
-      Copy **both** files, always: the doctor imports `worktree_db.py` from beside itself to name the databases, and without it silently finds none — which is the orphan you are trying to avoid. And never pass `--no-docker` to a teardown: the drop runs through docker, so `--no-docker` removes the worktree and leaves the database behind.
+      Copy **both** files, always: the doctor imports `worktree_db.py` from beside itself to name the databases, and without it refuses with exit 2 (`worktree_db.py is not deployed beside this script`), even in a repo whose `.worktree-bench` declares `none`. And never pass `--no-docker` to a teardown: the drop runs through docker, so `--no-docker` removes the worktree and leaves the database behind.
     - **Not listed on `origin/<default-branch>` at all** (gaudi and wphelper carry no doctor, and no per-worktree bench database for it to drop — fiscus does carry it as of OS#357) → plain `git worktree remove <worktree-path>`, **without `--force`**. If git refuses, the refusal is information, not an obstacle: run `git -C <worktree-path> status --porcelain`, push anything of value, then retry.
 
     **Clear the environment scaffolding you created at step 6a.**
