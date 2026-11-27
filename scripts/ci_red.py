@@ -5,8 +5,10 @@
 """What has CI turned red across the dispatch targets, and is each red resolved?
 
 * **0** — measured: every target was read (open ci-red issues may remain).
-* **1** — could not read: a repository's issues, its ``ci.yml`` ref, or a
-  verdict's ref. Nothing is written — not the snapshot, not the ledger.
+* **1** — could not read: a repository's issues, its ``ci.yml`` ref, a
+  verdict's ref, or a watched workflow whose latest run on a trunk never
+  started (the watchdog itself never ran). Nothing is written — not the
+  snapshot, not the ledger.
 * **2** — nothing to look at: the registry names no dispatch target. ``record``
   also exits 2 on a verdict that does not verify, having closed nothing.
 
@@ -33,7 +35,7 @@ from oversteward.ci_red.sources import (
     RefReader,
     Target,
     targets_from_registry,
-    watched,
+    alert_trunks,
 )
 from oversteward.ci_red.workflows import GithubWorkflows
 from oversteward.dev_family import GitRepo
@@ -70,9 +72,9 @@ def _fail(message: str, code: int) -> int:
     return code
 
 
-def _cmd_sweep(args, targets, source, is_watched, store) -> int:
+def _cmd_sweep(args, targets, source, trunks_of, store) -> int:
     try:
-        readings = read_estate(targets, source, is_watched)
+        readings = read_estate(targets, source, trunks_of)
         result = sweep(readings, store, source, targets)
     except CiRedUnreadable as exc:
         return _fail(f"could not read — {exc}", EXIT_COULD_NOT_READ)
@@ -81,7 +83,7 @@ def _cmd_sweep(args, targets, source, is_watched, store) -> int:
     return 0
 
 
-def _cmd_record(args, targets, source, _is_watched, store) -> int:
+def _cmd_record(args, targets, source, _trunks_of, store) -> int:
     try:
         ruling = record(
             store, source, targets, args.issue, args.verdict, args.ref, datetime.now(UTC)
@@ -159,7 +161,7 @@ def main(
         workflows = workflows if workflows is not None else GithubWorkflows()
         return _cmd_rerun(args, targets, source, store, workflows, sleep)
     return args.func(
-        args, targets, source, lambda target: watched(target, repo_factory=repo_factory), store
+        args, targets, source, lambda target: alert_trunks(target, repo_factory=repo_factory), store
     )
 
 
