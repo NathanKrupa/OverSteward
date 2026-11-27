@@ -4,7 +4,7 @@
 
 **North star.** Provide A+ grant-writing tools to the servants of the poor: the food pantries, parishes and small charities who work on shoestring budgets and are not grant experts. It is not about the money; it is about the people.
 
-**Products.** `ag` (aigranthelper) serves grant seekers at small nonprofits, the users of aigranthelper.com; `gs` (grantspider) serves AI Grant Helper, as the producer of its funder and grant research; `wp` (wphelper) serves Nathan's WordPress clients, and the estate as its external-connector library; `aa` (ai-assistants) serves The Almoner's content authoring, CRM and WordPress work; `os` (oversteward) serves Nathan and every estate session, as the control plane; `gaudi` (gaudi) serves every gated estate repo as its architecture linter, and the public as open source; `fiscus` (fiscus) serves the estate's own learning: observation, reviews and kaizen; `exchequer` (exchequer) serves Nathan's books: billing pulls, ledgers and the monthly close
+**Products.** `ag` (aigranthelper) serves grant seekers at small nonprofits, the users of aigranthelper.com; `gs` (grantspider) serves AI Grant Helper, as the producer of its funder and grant research; `wp` (wphelper) serves Nathan's WordPress clients, and the estate as its external-connector library; `aa` (ai-assistants) serves The Almoner's content authoring, CRM and WordPress work; `os` (oversteward) serves Nathan and every estate session, as the control plane; `gaudi` (gaudi) serves every gated estate repo as its architecture linter, and the public as open source; `fiscus` (fiscus) serves the estate's own learning: observation, reviews and kaizen; `exchequer` (exchequer) serves Nathan's books: billing pulls, ledgers and the monthly close; `mm` (marketing-manager) serves AI Grant Helper's outreach, as the estate's email marketing: discovery, reviewed drafts and capped sends
 
 ## Capabilities (`id` · status · purpose)
 
@@ -33,7 +33,7 @@
 - `ag.search-acquisition` · live · Google Search as AG's first customer: the indexable funder-page corpus, offered by sitemap and judged by Search Console.
 - `ag.search-measurement` · live · Judging shipped pages by Search Console, Bing Webmaster and GA4 through the CLIs: indexation sweeps, per-arm reads, funnel events.
 - `ag.page-red-teaming` · building · Gemini red-teams a page shape before it is built, on static design-bench renders judged under the rater and seeker rubrics.
-- `ag.resource-outreach` · live · Resource-page outreach: monthly Brave discovery of grant-resource sites, reviewed drafts, and weekday listing-request emails.
+- `mm.resource-outreach` · live · Resource-page outreach: monthly Brave discovery of grant-resource sites, reviewed drafts, and weekday listing-request emails.
 - `gs.research-schema` · live · Research schema: the ORM models and Alembic history GS alone writes, and the `ag_research` view manifest that is AG's read surface.
 - `gs.ontology` · live · Ontology: typed entities (Foundation, Grant, NteeCode), semantic types and property lineage; the one GS package AG imports for types.
 - `gs.runtime` · live · Runtime: settings (the one env reader), Neon sessions with reconnect, B2 storage, logging, Sentry, the operations ledger and the CLI root.

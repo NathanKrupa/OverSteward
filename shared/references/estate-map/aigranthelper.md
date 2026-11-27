@@ -60,8 +60,6 @@ Each current shape is its first sentence; the full measurement is in the map.
   - Sessions read GSC and GA4 through `wphelper gsc` and `wphelper analytics`, never an MCP server (cli-connection-standard.md). → hold
 - `ag.page-red-teaming` · building · Gemini red-teams a page shape before it is built, on static design-bench renders judged under the rater and seeker rubrics.
   - OverSteward's half shipped (#422, #423, #427). → AG#1858 closed, so every page-shape PR publishes a bench render and carries a judge verdict before it ships.
-- `ag.resource-outreach` · live · Resource-page outreach: monthly Brave discovery of grant-resource sites, reviewed drafts, and weekday listing-request emails.
-  - Scripts and ledgers sit untracked in the primary checkout (L-MKT-1). → The pipeline in a tracked, tested home with its ledgers outside git, so a send is reviewed code (L-MKT-1).
 
 ## Seams
 
@@ -108,7 +106,6 @@ Each current shape is its first sentence; the full measurement is in the map.
 - L-AG-14 (aigranthelper; AG#3035 (open), under OS#750): No semgrep scan in the lite gate
 - L-AG-15 (aigranthelper; AG#3036 (open), under OS#750): No latency signal and no readiness check
 - L-AG-16 (aigranthelper; AG#3037 (open, needs-input), under OS#750): Four data-model questions under the resilience epic wait on Nathan's answer
-- L-MKT-1 (oversteward (ops); OS#644 (open); `reports/2026-10-29-resource-page-outreach/` (untracked); `systemctl --user list-timers ag-outreach*`): The resource-page outreach pipeline, which sends live email on a weekday timer, is untracked files in the primary OverSteward checkout: no review, no tests, no history. Its user systemd units point at that path, and the laptop backups (restic and the WSL export) are its only copies
 - L-AA-1 (ai-assistants; `src/almoner/wp/api.py` (363 lines), `src/almoner/wp/ftp.py`): ai-assistants keeps its own WP REST client and FTP module beside the wphelper dependency (I-9)
 - L-DEV-1 (oversteward; `/sync-status`; OS#572): Dev-family copies drift: `new-session.sh` is one version behind in every repo; exchequer's `guard_main_worktree.py` differs; `worktree_doctor.py` is absent in wphelper, ai-assistants, exchequer, gaudi and pre-#571 in AG, GS, fiscus
 - L-FI-1 (fiscus; Fiscus `src/fiscus/andon.py:20-27`, `subjects/*/contract.yaml`): Fiscus andon aggregation is a Phase-0 stub, and the AG/dispatch subject contracts are `status: stub`; exchequer and gaudi lack the andon template

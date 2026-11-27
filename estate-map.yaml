@@ -65,6 +65,10 @@ mission:
   - id: exchequer
     serves: 'Nathan''s books: billing pulls, ledgers and the monthly close'
     repo: exchequer
+  - id: mm
+    serves: 'AI Grant Helper''s outreach, as the estate''s email marketing: discovery, reviewed drafts
+      and capped sends'
+    repo: marketing-manager
 
 policy:
   digest_budget_bytes: 20000
@@ -122,6 +126,10 @@ repos:
   purpose: Private counting-house — `exchequer pull` billing connectors, CSV ledgers, monthly close; zero
     LLM tokens
   stack: Python ≥3.12, uv
+- id: marketing-manager
+  purpose: 'Private email outreach — the `mm` CLI and its send path; ledgers, drafts and contact addresses
+    live in the private `marketing-manager-data` repo, never here'
+  stack: Python ≥3.12, uv; CI `.github/workflows/ci.yml` (not a required check)
 
 capabilities:
 - id: ag.research
@@ -772,11 +780,12 @@ capabilities:
     publishing per PR (AG#1858), is open, so no AG template renders onto the bench in CI.'
   target_shape: 'AG#1858 closed, so every page-shape PR publishes a bench render and carries a judge verdict
     before it ships.'
-- id: ag.resource-outreach
-  kind: process
+- id: mm.resource-outreach
+  kind: code
   purpose: 'Resource-page outreach: monthly Brave discovery of grant-resource sites, reviewed drafts,
     and weekday listing-request emails.'
   status: live
+  serves: [ag.search-acquisition]
   locations:
   - {type: report, ref: 'oversteward:reports/2026-10-29-resource-page-outreach/', unverified: true}
   - {type: timer, ref: 'oversteward:reports/2026-10-29-resource-page-outreach/ag-outreach.timer', unverified: true}
@@ -2441,7 +2450,7 @@ seams:
 - id: S-6
   label: oversteward → all repos
   producer: [oversteward]
-  consumer: [aigranthelper, grantspider, wphelper, ai-assistants, gaudi, fiscus, exchequer]
+  consumer: [aigranthelper, grantspider, wphelper, ai-assistants, gaudi, fiscus, exchequer, marketing-manager]
   flows: '`registry.yaml`; `shared/` deployed to both `~/.claude` homes; the dev family by sow PRs. In
     OverSteward the deployed side is symlinks, elsewhere copies'
   cite: '`registry.yaml`, `src/oversteward/sow/`, `tests/test_deployed_links.py`'
@@ -2835,7 +2844,7 @@ liabilities:
   owner: oversteward (ops)
   tracking: 'OS#644 (open); `reports/2026-10-29-resource-page-outreach/` (untracked); `systemctl --user
     list-timers ag-outreach*`'
-  capabilities: [ag.resource-outreach]
+  capabilities: [mm.resource-outreach]
 - id: L-AA-1
   text: ai-assistants keeps its own WP REST client and FTP module beside the wphelper dependency (I-9)
   owner: ai-assistants
