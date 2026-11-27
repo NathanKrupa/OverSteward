@@ -1412,10 +1412,6 @@ _PR_MERGE_VALUE_FLAGS = frozenset(
         "--match-head-commit", "-R", "--repo", "-t", "--subject",
     }
 )
-# ``gh pr merge``'s single-letter flags that take a value. pflag reads ``-dR x``
-# and ``-dRx`` as ``-d -R x``: letters are booleans until one takes a value,
-# which is then the rest of the word, or the next word when nothing is left.
-_PR_MERGE_SHORT_VALUE = frozenset({"A", "b", "F", "R", "t"})
 # ``gh api`` takes a path or a full URL, so a scheme and host may lead the path.
 _MERGE_ENDPOINT = re.compile(
     r"^(?:https?://[^/]+(?:/api/v3)?)?/?repos/([^/]+)/([^/]+)/pulls/([^/]+)/merge/?$"
@@ -1449,12 +1445,16 @@ def _read_slug(text: str | None) -> str | None:
     return _slug(text)
 
 
-def _split_short_flags(args: list[str]) -> list[str]:
+def _split_short_flags(args: list[str], value_flags: frozenset[str]) -> list[str]:
     """``args`` with each bundle of short flags (``-dt``, ``-dRx``) split as pflag reads it.
 
-    A flag's value is never split: the word after a value flag, long or short,
+    pflag reads ``-dR x``, ``-dRx`` and ``-dR=x`` as ``-d -R x``: letters are
+    booleans until one takes a value (a short flag in ``value_flags``), which
+    is then the rest of the word, or the next word when nothing is left. A
+    flag's value is never split: the word after a value flag, long or short,
     or after a bundle ending in one, is kept whole, as gh keeps it.
     """
+    short_values = {flag[1] for flag in value_flags if len(flag) == 2}
     split: list[str] = []
     index = 0
     while index < len(args):
@@ -1462,7 +1462,7 @@ def _split_short_flags(args: list[str]) -> list[str]:
         if arg == "--":
             return split + args[index:]
         index += 1
-        if arg in _PR_MERGE_VALUE_FLAGS:
+        if arg in value_flags:
             split.extend([arg, *args[index : index + 1]])
             index += 1
             continue
@@ -1471,7 +1471,7 @@ def _split_short_flags(args: list[str]) -> list[str]:
             continue
         for offset, letter in enumerate(arg[1:], start=1):
             split.append(f"-{letter}")
-            if letter in _PR_MERGE_SHORT_VALUE:
+            if letter in short_values:
                 rest = arg[offset + 1 :].removeprefix("=")
                 split.extend([rest] if rest else args[index : index + 1])
                 index += 0 if rest else 1
@@ -1507,7 +1507,7 @@ def _merge_on(slug: str | None, selector: str | None, ctx: _Context) -> Merge | 
 
 
 def _pr_merge(args: list[str], ctx: _Context) -> Merge | None:
-    args = _split_short_flags(args)
+    args = _split_short_flags(args, _PR_MERGE_VALUE_FLAGS)
     if _has_flag(args, "--disable-auto", _PR_MERGE_VALUE_FLAGS):
         return None  # turns auto-merge off; merges nothing
     pairs, positionals = _options(args, _PR_MERGE_VALUE_FLAGS)
@@ -1531,7 +1531,7 @@ def _pr_merge(args: list[str], ctx: _Context) -> Merge | None:
 
 
 def _api_merge(args: list[str], ctx: _Context) -> Merge | None:
-    pairs, positionals = _options(args, _API_VALUE_FLAGS)
+    pairs, positionals = _options(_split_short_flags(args, _API_VALUE_FLAGS), _API_VALUE_FLAGS)
     match = _MERGE_ENDPOINT.match(positionals[0].split("?")[0]) if positionals else None
     if match is None:
         return None

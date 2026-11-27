@@ -458,6 +458,10 @@ def assert_pull_unread(code: int, message: str) -> None:
         "gh api --method=put /repos/NathanKrupa/grantspider/pulls/3532/merge",
         "gh api -X PUT https://api.github.com/repos/NathanKrupa/grantspider/pulls/3532/merge",
         "gh api repos/NathanKrupa/grantspider/pulls/3532/merge -f merge_method=merge",
+        "gh api -iXPUT repos/NathanKrupa/grantspider/pulls/3532/merge",
+        "gh api -iX PUT repos/NathanKrupa/grantspider/pulls/3532/merge",
+        "gh api -iX=PUT repos/NathanKrupa/grantspider/pulls/3532/merge",
+        "gh api -ifmerge_method=merge repos/NathanKrupa/grantspider/pulls/3532/merge",
         "gh pr merge 3532 --repo NathanKrupa/grantspider --merge --body --disable-auto",
         "gh pr merge 3532 --repo NathanKrupa/grantspider -t --disable-auto",
         "gh pr merge 3532 --repo NathanKrupa/grantspider -dt --disable-auto",
@@ -503,7 +507,7 @@ def test_a_flags_value_is_never_split_into_a_repo(flags):
 
 def test_split_short_flags_reads_bundles_as_gh_does():
     args = ["-dt", "-dRx", "-dRNathanKrupa/gs", "-R=a/b", "--body", "-dRc/d", "-b", "-sR", "--merge", "-m"]
-    assert g._split_short_flags([*args, "--", "-dR"]) == [
+    assert g._split_short_flags([*args, "--", "-dR"], g._PR_MERGE_VALUE_FLAGS) == [
         "-d", "-t", "-dRx", "-d", "-R", "NathanKrupa/gs", "-R", "a/b", "--body", "-dRc/d",
         "-b", "-sR", "--merge", "-m", "--", "-dR",
     ]
@@ -604,6 +608,8 @@ def test_merging_a_promote_with_nothing_red_is_allowed():
         "gh api repos/NathanKrupa/OverSteward/pulls/5/merge -X PUT",
         "gh api repos/NathanKrupa/grantspider/pulls/3532/merge",
         "gh api -X GET repos/NathanKrupa/grantspider/pulls/3532/merge",
+        "gh api -iXGET repos/NathanKrupa/grantspider/pulls/3532/merge",
+        "gh api -i -q -XPUT repos/NathanKrupa/grantspider/pulls/3532/merge",
         "gh pr merge 3532 --repo NathanKrupa/grantspider --disable-auto",
         "gh pr view 3532 --repo NathanKrupa/grantspider",
         f'git commit -m "notes; {GS_MERGE}"',
