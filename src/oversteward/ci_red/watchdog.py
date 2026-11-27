@@ -9,11 +9,14 @@ concluded ``failure`` in seconds with zero steps, the ``ci-red-alert`` job was
 refused with the rest, and the sweep printed the same zero as a clean line.
 
 For each trunk a watched repository's alert job covers, this reads the newest
-run of the watched workflow on the newest PR into that trunk whose run has
-finished: a PR whose newest run is still queued or in progress is passed over
-for the next, since its verdict is not in yet, and so is a PR GitHub started no
-run for at all. A billing refusal still creates the run, so it is not missed
-that way. That run is refused as
+run of the watched workflow on the head of each of the trunk's
+:data:`RECENT_PRS` most recently updated PRs, and judges the one of those runs
+that started last. A run is passed over when it is still queued or in
+progress, since its verdict is not in yet, or when it concluded ``skipped``:
+every job's ``if:`` was false on purpose, and re-running it would skip again.
+So is a PR GitHub started no run for at all; a billing refusal still creates
+the run, concluding ``failure``, so it is not missed either way. The judged run
+is refused as
 :class:`SourceUnavailableError` — the sweep's "could not read", exit 1 — when
 
 - no job of its latest attempt ran a step (no jobs at all included), or
@@ -32,7 +35,7 @@ from typing import Protocol
 
 from .sources import CI_WORKFLOW, JobInfo, SourceUnavailableError, Target, WatchRun
 
-#: How many of a trunk's newest PRs are tried for a finished run before the read is refused.
+#: How many of a trunk's most recently updated PRs are read for their newest run.
 RECENT_PRS = 5
 #: Refused runs concluded about 5 s after starting on 2026-11-27 (grantspider 45956424130).
 #: A quick green run exists too (marketing-manager's took 17 s), so the window never decides
@@ -43,6 +46,8 @@ NOT_STARTED = "The job was not started"
 WORKFLOW_FILE = PurePosixPath(CI_WORKFLOW).name
 STATUS_COMPLETED = "completed"
 CONCLUSION_FAILURE = "failure"
+#: A run whose every job was skipped by its ``if:``: nothing was refused, nothing was tested.
+CONCLUSION_SKIPPED = "skipped"
 
 
 class WatchdogSource(Protocol):
@@ -55,12 +60,17 @@ class WatchdogSource(Protocol):
     def job_annotations(self, full_name: str, job_id: int) -> tuple[str, ...]: ...
 
 
+def _judged(run: WatchRun) -> bool:
+    return run.status == STATUS_COMPLETED and run.conclusion != CONCLUSION_SKIPPED
+
+
 def latest_run(target: Target, trunk: str, source: WatchdogSource) -> WatchRun:
-    """The newest finished run on the newest PR into ``trunk`` that has one."""
-    for head in source.recent_pr_heads(target.full_name, trunk, RECENT_PRS):
-        run = source.newest_run(target.full_name, WORKFLOW_FILE, head)
-        if run is not None and run.status == STATUS_COMPLETED:
-            return run
+    """The last-started finished, unskipped run on the trunk's most recently updated PRs."""
+    heads = source.recent_pr_heads(target.full_name, trunk, RECENT_PRS)
+    runs = [source.newest_run(target.full_name, WORKFLOW_FILE, head) for head in heads]
+    judged = [run for run in runs if run is not None and _judged(run)]
+    if judged:
+        return max(judged, key=lambda run: run.started_at)
     raise SourceUnavailableError(
         f"could not look — no finished {WORKFLOW_FILE} run on the last "
         f"{RECENT_PRS} PRs into {trunk}"

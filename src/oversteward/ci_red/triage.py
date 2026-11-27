@@ -40,9 +40,9 @@ failed close leaves no ruling claiming it happened.
 
 **The sweep reads everything before it writes anything.** Any repository that
 could not be read — its issues, its ``ci.yml`` ref, a ruling's ref issue, or a
-watched workflow whose latest run on a trunk never started (``watchdog.py``) —
-fails the whole sweep, and the snapshot ``record`` checks keys against is left
-as it was.
+watched workflow whose last-started run on a trunk's recent PRs never started
+(``watchdog.py``) — fails the whole sweep, and the snapshot ``record`` checks
+keys against is left as it was.
 """
 
 from __future__ import annotations

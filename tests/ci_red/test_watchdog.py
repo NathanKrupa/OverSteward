@@ -39,8 +39,9 @@ STARTED = datetime(2026, 11, 27, 7, 8, 33, tzinfo=UTC)
 REFUSED_ID = 45956424130
 
 
-def run(run_id=REFUSED_ID, conclusion="failure", seconds=5, status="completed") -> WatchRun:
-    return WatchRun(run_id, status, conclusion, STARTED, STARTED + timedelta(seconds=seconds))
+def run(run_id=REFUSED_ID, conclusion="failure", seconds=5, status="completed",
+        started=STARTED) -> WatchRun:
+    return WatchRun(run_id, status, conclusion, started, started + timedelta(seconds=seconds))
 
 
 #: grantspider's ci.yml run 45956424130, attempt 1, as GitHub reported it on 2026-11-27.
@@ -187,13 +188,38 @@ def test_a_pr_whose_run_is_unfinished_or_absent_passes_to_the_next(store, capsys
     assert ("run", GS.full_name, "ci.yml", third) in source.watchdog_reads
 
 
-def test_the_newest_finished_run_decides_and_older_prs_are_not_read(store, capsys):
+#: A green run that tested something, started the day after the 2026-11-27 refusal.
+GREEN_AFTER = run(701, conclusion="success", seconds=900, started=STARTED + timedelta(days=1))
+GREEN_BEFORE = run(699, conclusion="success", seconds=900, started=STARTED - timedelta(days=1))
+
+
+def test_a_refusal_on_an_older_pr_is_found_behind_a_newer_prs_green_run(store, capsys):
+    """The PR listed first had its last run before the refusal; the refusal still decides."""
     source = refused_source(
         pr_heads={(GS.full_name, "staging"): (OTHER_SHA, SHA)},
-        watch_runs={(GS.full_name, SHA): run()},
+        watch_runs={(GS.full_name, OTHER_SHA): GREEN_BEFORE, (GS.full_name, SHA): run()},
+    )
+    assert_could_not_look(store, capsys, source, f"run {REFUSED_ID}")
+
+
+def test_a_refusal_started_before_a_green_run_is_superseded(store, capsys):
+    source = refused_source(
+        pr_heads={(GS.full_name, "staging"): (SHA, OTHER_SHA)},
+        watch_runs={(GS.full_name, SHA): run(), (GS.full_name, OTHER_SHA): GREEN_AFTER},
     )
     assert_measured(store, capsys, source)
-    assert ("run", GS.full_name, "ci.yml", SHA) not in source.watchdog_reads
+
+
+def test_a_run_every_job_of_which_was_skipped_is_passed_over(store, capsys):
+    """A skipped run started after a green one; the green run decides, not the skip."""
+    skipped = run(702, conclusion="skipped", seconds=2, started=STARTED + timedelta(days=2))
+    source = FakeSource(
+        pr_heads={(GS.full_name, "staging"): (SHA, OTHER_SHA)},
+        watch_runs={(GS.full_name, SHA): skipped, (GS.full_name, OTHER_SHA): GREEN_AFTER},
+        jobs={(GS.full_name, 702): (JobInfo(1, "ci", "skipped", 0),)},
+    )
+    assert_measured(store, capsys, source)
+    assert ("jobs", GS.full_name, 702) not in source.watchdog_reads
 
 
 def test_no_finished_run_on_the_recent_prs_is_could_not_look(store, capsys):
@@ -269,6 +295,7 @@ def test_connector_reads_pr_heads_into_a_base():
     assert GithubCiRed(run_json=_runner(rows, seen)).recent_pr_heads("o/r", "main", 5) == (
         SHA, OTHER_SHA)
     assert seen == [["pr", "list", "--repo", "o/r", "--base", "main", "--state", "all",
+                     "--search", "sort:updated-desc",
                      "--limit", "5", "--json", "number,headRefOid"]]
     with pytest.raises(SourceUnavailableError, match="without a head"):
         GithubCiRed(run_json=_runner([{"number": 2}], [])).recent_pr_heads("o/r", "main", 5)

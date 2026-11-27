@@ -249,10 +249,11 @@ class GithubCiRed:
         )
 
     def recent_pr_heads(self, full_name: str, base: str, limit: int) -> tuple[str, ...]:
-        """The head commit of each of the ``limit`` newest PRs into ``base``, any state."""
+        """The head commit of each of the ``limit`` most recently updated PRs into ``base``."""
         rows = self._read(
             [
                 "pr", "list", "--repo", full_name, "--base", base, "--state", "all",
+                "--search", "sort:updated-desc",
                 "--limit", str(limit), "--json", "number,headRefOid",
             ]
         )

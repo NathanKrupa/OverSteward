@@ -6,9 +6,9 @@
 
 * **0** — measured: every target was read (open ci-red issues may remain).
 * **1** — could not read: a repository's issues, its ``ci.yml`` ref, a
-  verdict's ref, or a watched workflow whose latest run on a trunk never
-  started (the watchdog itself never ran). Nothing is written — not the
-  snapshot, not the ledger.
+  verdict's ref, or a watched workflow whose last-started run on a trunk's
+  recent PRs never started (the watchdog itself never ran). Nothing is
+  written — not the snapshot, not the ledger.
 * **2** — nothing to look at: the registry names no dispatch target. ``record``
   also exits 2 on a verdict that does not verify, having closed nothing.
 
