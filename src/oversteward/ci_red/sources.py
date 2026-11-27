@@ -309,6 +309,23 @@ class RefReader(Protocol):
     def blob(self, ref: str, relpath: str) -> bytes | None: ...
 
 
+def _workflow_jobs(target: Target, repo_factory: Callable[[Path], RefReader]) -> dict | None:
+    """The ``jobs`` of ``origin/<branch>:ci.yml``, or ``None`` when there is no such file."""
+    repo = repo_factory(target.checkout)
+    ref = f"origin/{target.branch}"
+    if not repo.has_ref(ref):
+        raise SourceUnavailableError(f"{target.id}: {ref} is not a ref in {target.checkout}")
+    blob = repo.blob(ref, CI_WORKFLOW)
+    if blob is None:
+        return None
+    try:
+        workflow = yaml.safe_load(blob)
+    except yaml.YAMLError as exc:
+        raise SourceUnavailableError(f"{target.id}: {ref}:{CI_WORKFLOW} is not YAML") from exc
+    jobs = workflow.get("jobs") if isinstance(workflow, dict) else None
+    return jobs if isinstance(jobs, dict) else None
+
+
 def alert_trunks(
     target: Target, *, repo_factory: Callable[[Path], RefReader] = GitRepo
 ) -> tuple[str, ...]:
@@ -319,25 +336,15 @@ def alert_trunks(
     ``github.base_ref`` is a failed read, never a guess either way: the sweep
     cannot say which trunk's runs to read.
     """
-    repo = repo_factory(target.checkout)
-    ref = f"origin/{target.branch}"
-    if not repo.has_ref(ref):
-        raise SourceUnavailableError(f"{target.id}: {ref} is not a ref in {target.checkout}")
-    blob = repo.blob(ref, CI_WORKFLOW)
-    if blob is None:
-        return ()
-    try:
-        workflow = yaml.safe_load(blob)
-    except yaml.YAMLError as exc:
-        raise SourceUnavailableError(f"{target.id}: {ref}:{CI_WORKFLOW} is not YAML") from exc
-    jobs = workflow.get("jobs") if isinstance(workflow, dict) else None
-    if not isinstance(jobs, dict) or ALERT_JOB not in jobs:
+    jobs = _workflow_jobs(target, repo_factory)
+    if jobs is None or ALERT_JOB not in jobs:
         return ()
     job = jobs[ALERT_JOB]
     condition = job.get("if") if isinstance(job, dict) else None
     trunks = tuple(dict.fromkeys(_BASE_REF.findall(str(condition or ""))))
     if not trunks:
         raise SourceUnavailableError(
-            f"{target.id}: {ref}:{CI_WORKFLOW} {ALERT_JOB} names no github.base_ref trunk"
+            f"{target.id}: origin/{target.branch}:{CI_WORKFLOW} {ALERT_JOB} names no "
+            "github.base_ref trunk"
         )
     return trunks

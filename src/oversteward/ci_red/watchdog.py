@@ -11,7 +11,9 @@ refused with the rest, and the sweep printed the same zero as a clean line.
 For each trunk a watched repository's alert job covers, this reads the newest
 run of the watched workflow on the newest PR into that trunk whose run has
 finished: a PR whose newest run is still queued or in progress is passed over
-for the next, since its verdict is not in yet. That run is refused as
+for the next, since its verdict is not in yet, and so is a PR GitHub started no
+run for at all. A billing refusal still creates the run, so it is not missed
+that way. That run is refused as
 :class:`SourceUnavailableError` — the sweep's "could not read", exit 1 — when
 
 - no job of its latest attempt ran a step (no jobs at all included), or
