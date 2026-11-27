@@ -34,7 +34,9 @@ from .sources import CI_WORKFLOW, JobInfo, SourceUnavailableError, Target, Watch
 
 #: How many of a trunk's newest PRs are tried for a finished run before the read is refused.
 RECENT_PRS = 5
-#: A refused run concluded within 2-3 s on 2026-11-27; a run that tested anything takes minutes.
+#: Refused runs concluded about 5 s after starting on 2026-11-27 (grantspider 45956424130).
+#: A quick green run exists too (marketing-manager's took 17 s), so the window never decides
+#: alone: the run must also have failed with the "not started" annotation on a failed job.
 REFUSAL_SECONDS = 10
 #: The start of GitHub's check-run annotation on a job it never started (billing, among others).
 NOT_STARTED = "The job was not started"
