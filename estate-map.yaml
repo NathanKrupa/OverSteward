@@ -2321,6 +2321,7 @@ capabilities:
     oversteward:
     - src/oversteward/intake/
     - src/oversteward/dispatch_run.py
+    - src/oversteward/dispatch_watchdog.py
     - src/oversteward/shelve/
     - scripts/intake.py
     - scripts/shelve_sweep.py

@@ -241,6 +241,14 @@ class _Result:
     returncode: int = 0
 
 
+def test_a_head_git_cannot_read_is_unread_not_absent(tmp_path):
+    # A present worktree whose rev-parse fails carries the last commit forward.
+    snap = wd.read_snapshot(tmp_path, lambda: "", runner=lambda c, **k: _Result("", 128))
+
+    assert snap.worktree_present
+    assert snap.marks["commit"] is None
+
+
 def test_remote_branches_probes_the_issue_glob_without_a_prompt():
     calls = []
 
