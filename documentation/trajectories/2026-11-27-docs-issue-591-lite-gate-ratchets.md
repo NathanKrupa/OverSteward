@@ -6,6 +6,7 @@ issues:
   - oversteward#591
 session_kind: in-session-pickup
 duration: "60min"
+reviewer: PASS findings=0 tokens=95000 (round 1; harness: input 34, cache-create 115734, cache-read 1632665, output 9618)
 ---
 
 # Trajectory — lite gates run every ratchet their full gate runs, and run again after each round
